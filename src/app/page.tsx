@@ -12,6 +12,7 @@ import { WebGpuEngine } from '@/lib/webgpu/kernels';
 import { CustomWebModel } from '@/lib/webgpu/model';
 import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
 import { listConversations, saveConversation, deleteConversation, deriveTitle, type Conversation } from '@/lib/chatStore';
+import Image from 'next/image';
 
 interface Message {
   id: string;
@@ -844,9 +845,8 @@ function App() {
     <div className="app-container">
       {/* LEFT SIDEBAR */}
       <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-header">
-          <div className="logo-icon">B</div>
-          <div className="logo-text">Brimkern</div>
+        <div className="sidebar-header" style={{ justifyContent: 'center', padding: '16px 24px' }}>
+          <Image src="/logo.png" alt="Brimkern Logo" width={140} height={140} priority style={{ mixBlendMode: 'multiply' }} />
         </div>
 
         <div style={{ padding: '16px 20px 0 20px' }}>

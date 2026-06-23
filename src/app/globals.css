@@ -102,28 +102,7 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
-.logo-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--accent-gradient);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  color: white;
-  font-size: 18px;
-}
 
-.logo-text {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  font-size: 22px;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.5px;
-}
 
 .sidebar-content {
   flex: 1;

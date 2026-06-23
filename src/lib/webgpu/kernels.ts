@@ -11,6 +11,8 @@
 // full pre-norm transformer layer, also checked against a CPU reference.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { quantizeQ4, dequantizeQ4 } from '../bwp/q4web';
+
 type GPUAny = any;
 
 export interface LayerCfg {
@@ -103,6 +105,48 @@ const SHADERS = {
 				acc = acc + a[aBase + i] * w[wBase + i];   // 128-bit load × 128-bit load, fused multiply-add
 			}
 			c[row * d.n + col] = acc.x + acc.y + acc.z + acc.w;
+		}`,
+
+	// Fused q4web matmul: C = A · Wᵀ where W is BWP int4 (kept 4-bit in VRAM, dequantized in
+	// registers). Per row `col`, W has k/32 groups; each group has an f16 scale + f16 min and 32
+	// packed 4-bit codes (value = q*scale + min). No shader-f16 extension needed (f16 decoded by
+	// hand). Requires k % 32 == 0. SoA bindings: nibbles (u8 as u32), scales/mins (f16 pairs as u32).
+	matmul_t_q4: `
+		struct Dims { m: u32, k: u32, n: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<f32>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read_write> c: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		@compute @workgroup_size(8, 8)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let row = gid.x; let col = gid.y;
+			if (row >= d.m || col >= d.n) { return; }
+			let k = d.k; let nGroups = k / 32u;
+			let aBase = row * k; let wBase = col * k; let gBase = col * nGroups;
+			var acc = 0.0;
+			for (var g = 0u; g < nGroups; g = g + 1u) {
+				let si = gBase + g;
+				let sw = sc[si >> 1u]; let s = f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
+				let mw = mn[si >> 1u]; let mmin = f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u));
+				let i0 = g * 32u;
+				for (var j = 0u; j < 32u; j = j + 1u) {
+					let i = i0 + j;
+					let be = wBase + i;
+					let word = nib[be >> 3u];                       // 8 nibbles per u32 word
+					let byte = (word >> (((be >> 1u) & 3u) * 8u)) & 0xFFu;
+					let q = select(byte & 0xFu, byte >> 4u, (be & 1u) == 1u);
+					acc = acc + a[aBase + i] * (f32(q) * s + mmin);
+				}
+			}
+			c[row * d.n + col] = acc;
 		}`,
 
 	// RMSNorm over the last dimension (dim = cols), with a per-channel weight.
@@ -880,6 +924,31 @@ export class WebGpuEngine {
 		return b;
 	}
 
+	// Upload arbitrary raw bytes (BWP q4 nibbles/scales/mins) to a PERSISTENT storage buffer,
+	// padded to a 4-byte multiple so it can be read as array<u32> in a shader.
+	uploadGpuRaw(bytes: Uint8Array): GPUAny {
+		const size = Math.ceil(bytes.byteLength / 4) * 4;
+		const b = this.device.createBuffer({ size, usage: WebGpuEngine.STORAGE_USAGE });
+		const whole = bytes.byteLength - (bytes.byteLength % 4);
+		this.device.queue.writeBuffer(b, 0, bytes, 0, whole);
+		if (bytes.byteLength % 4) {
+			const tail = new Uint8Array(4); tail.set(bytes.subarray(whole));
+			this.device.queue.writeBuffer(b, whole, tail);
+		}
+		return b;
+	}
+
+	// C = A · Wᵀ where W is BWP int4 (q4web). nib/sc/mn are persistent GPU buffers holding the raw
+	// q4 bytes (nibbles, f16 scales, f16 mins). Requires k % 32 == 0. Weights stay 4-bit in VRAM.
+	async matmulQ4(a: Float32Array, nib: GPUAny, sc: GPUAny, mn: GPUAny, m: number, k: number, n: number): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
+		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('matmul_t_q4', [dims, this.buf(a, ST), nib, sc, mn, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1], out, m * n * 4);
+	}
+
 	// A small uniform buffer holding the given u32 values, then an optional f32 tail value.
 	private uniform(u32: number[], floatTail?: { offset: number; value: number }): GPUAny {
 		const G = globalThis as any;
@@ -1135,6 +1204,23 @@ export class WebGpuEngine {
 				const okF16 = got.length === ref.length && got.every((v, i) => Math.abs(v - ref[i]) <= 3e-2 * (1 + Math.abs(ref[i])));
 				if (!okF16) return fail('matmulT.f16');
 			}
+		}
+
+		// Fused q4web int4 matmul: quantize a random weight to q4, run matmul_t_q4, and check it
+		// equals a · dequant(W)ᵀ (the same dequant the CPU codec produces). Gate for 4-bit weights.
+		{
+			const m = 1, k = 128, n = 6; // k % 32 == 0
+			const a = rand(m * k), W = rand(n * k);
+			const q = quantizeQ4(W);
+			const nibBuf = this.uploadGpuRaw(q.nibbles);
+			const scBuf = this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength));
+			const mnBuf = this.uploadGpuRaw(new Uint8Array(q.mins.buffer, q.mins.byteOffset, q.mins.byteLength));
+			const got = await this.matmulQ4(a, nibBuf, scBuf, mnBuf, m, k, n);
+			const Wd = dequantizeQ4(q);
+			const ref = new Float32Array(m * n);
+			for (let c = 0; c < n; c++) { let s = 0; for (let i = 0; i < k; i++) s += a[i] * Wd[c * k + i]; ref[c] = s; }
+			nibBuf.destroy?.(); scBuf.destroy?.(); mnBuf.destroy?.();
+			if (!close(got, ref)) return fail('matmulQ4');
 		}
 
 		// rmsnorm 2 rows, dim 8
