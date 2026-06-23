@@ -659,6 +659,10 @@ body {
   to { transform: rotate(360deg); }
 }
 
+.spin {
+  animation: spin 1s linear infinite;
+}
+
 /* Code formatting in chat bubble */
 pre {
   background: #f8fafc !important;

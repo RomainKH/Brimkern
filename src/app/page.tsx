@@ -151,6 +151,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [benchRunning, setBenchRunning] = useState<boolean>(false);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -626,6 +627,47 @@ function App() {
     }
   };
 
+  // Benchmark decode throughput with f32 vs f16 layer weights (the core of the BWP idea).
+  // Prefill a fixed prompt (untimed, also warms the weight cache at each precision), then time
+  // N greedy decode steps. Results pushed as a chat message.
+  const handleBenchmark = async () => {
+    if (!activeModel || !activeTokenizer || modelState !== 'ready' || benchRunning) return;
+    setBenchRunning(true);
+    try {
+      const prompt = formatPrompt([{ role: 'user', content: 'Explain quantum computing in one short paragraph.' }], modelArchType, systemPrompt);
+      const encoded = await activeTokenizer(prompt);
+      const promptTokens = Array.from(encoded.input_ids.data as ArrayLike<number | bigint>, (v) => Number(v));
+      const N = 24;
+      const measure = async (precision: 'f32' | 'f16') => {
+        activeModel.setWeightPrecision(precision);
+        activeModel.reset();
+        const sid = `bench-${precision}-${Date.now()}`;
+        let cur = await activeModel.generateNextKV(promptTokens, 0, sid); // prefill: builds+warms weights
+        const t0 = performance.now();
+        for (let i = 0; i < N; i++) cur = await activeModel.generateNextKV([cur], promptTokens.length + i, sid);
+        return N / ((performance.now() - t0) / 1000);
+      };
+      const f32 = await measure('f32');
+      const f16 = await measure('f16');
+      activeModel.setWeightPrecision('f32'); // restore default for normal chat
+      activeModel.reset();
+      setMessages(prev => [...prev, {
+        id: `bench-${Date.now()}`, role: 'assistant',
+        content:
+          `**⚡ Benchmark décodage** (${N} tokens, modèle **${loadedModelName}**)\n\n` +
+          `- Poids **f32** : \`${f32.toFixed(1)} tok/s\`\n` +
+          `- Poids **f16** : \`${f16.toFixed(1)} tok/s\`\n` +
+          `- Accélération f16 : \`${(f16 / f32).toFixed(2)}×\`\n\n` +
+          `_f16 = poids en demi-précision résidents sur le GPU (le cœur du format BWP : ÷2 mémoire & bande passante). embed + projection logits restent en f32._`
+      }]);
+    } catch (e: any) {
+      setMessages(prev => [...prev, { id: `bench-err-${Date.now()}`, role: 'assistant', isError: true, content: `Benchmark échoué : ${e?.message || e}` }]);
+      try { activeModel.setWeightPrecision('f32'); } catch { /* noop */ }
+    } finally {
+      setBenchRunning(false);
+    }
+  };
+
   const handleUnloadModel = () => {
     if (activeModel) {
       activeModel.unload();
@@ -1065,14 +1107,26 @@ function App() {
             )}
           </div>
           {loadedModelName && (
-            <button 
-              className="btn btn-danger" 
-              onClick={handleUnloadModel}
-              disabled={modelState === 'generating'}
-              style={{ padding: '6px 12px', fontSize: '12px' }}
-            >
-              Décharger
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                className="btn-secondary"
+                onClick={handleBenchmark}
+                disabled={modelState !== 'ready' || benchRunning}
+                title="Mesurer le débit de décodage avec poids f32 vs f16"
+                style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
+                {benchRunning ? 'Benchmark…' : 'Benchmark f16/f32'}
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={handleUnloadModel}
+                disabled={modelState === 'generating' || benchRunning}
+                style={{ padding: '6px 12px', fontSize: '12px' }}
+              >
+                Décharger
+              </button>
+            </div>
           )}
         </header>
 

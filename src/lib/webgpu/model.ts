@@ -62,6 +62,31 @@ export class CustomWebModel {
 		return this.engine.dequantizeToGpu(t.type, bytes, t.nElems);
 	}
 
+	// Same, but the persistent weight buffer is packed f16 (half the VRAM/bandwidth). Read by the
+	// f16 matmul (matmul_t_f16w). Dequant runs to f32 first, then we re-pack to f16 once.
+	private async dequantGpuF16(name: string): Promise<any> {
+		const t = this.manifest.tensors[name];
+		const bytes = await this.rawTensor(name);
+		const f32 = await this.engine.dequantizeByType(t.type, bytes, t.nElems);
+		return this.engine.uploadGpuF16(f32);
+	}
+
+	// Precision of the persistent LAYER weight matrices: 'f32' (default) or 'f16' (the BWP path).
+	// Norms/biases and the embed/logit projections stay f32 either way.
+	private weightPrecision: 'f32' | 'f16' = 'f32';
+	get precision() { return this.weightPrecision; }
+
+	// Switch layer-weight precision: frees the currently-cached GPU buffers so the next forward
+	// rebuilds them at the new precision. Only does work when the precision actually changes.
+	public setWeightPrecision(p: 'f32' | 'f16') {
+		if (p === this.weightPrecision) return;
+		for (const w of this.layerGpuCache.values()) {
+			for (const b of Object.values(w)) (b as any)?.destroy?.();
+		}
+		this.layerGpuCache.clear();
+		this.weightPrecision = p;
+	}
+
 	// Dequantized layer weights, cached across decode steps.
 	private layerCache = new Map<number, LayerWeights>();
 
@@ -99,21 +124,24 @@ export class CustomWebModel {
 		if (cached) return cached;
 		const p = `blk.${idx}`;
 		const up = (a: Float32Array) => this.engine.uploadGpu(a);
+		// Projection matrices: f16 buffers in the f16 path, f32 (dequant-on-GPU) otherwise.
+		const f16 = this.weightPrecision === 'f16';
+		const mat = (name: string) => (f16 ? this.dequantGpuF16(name) : this.dequantGpu(name));
 		const [attnNorm, wq, wk, wv, wo, ffnNorm, wgate, wup, wdown, bq, bk, bv] = await Promise.all([
 			this.dequant(`${p}.attn_norm.weight`).then(up),
-			this.dequantGpu(`${p}.attn_q.weight`),
-			this.dequantGpu(`${p}.attn_k.weight`),
-			this.dequantGpu(`${p}.attn_v.weight`),
-			this.dequantGpu(`${p}.attn_output.weight`),
+			mat(`${p}.attn_q.weight`),
+			mat(`${p}.attn_k.weight`),
+			mat(`${p}.attn_v.weight`),
+			mat(`${p}.attn_output.weight`),
 			this.dequant(`${p}.ffn_norm.weight`).then(up),
-			this.dequantGpu(`${p}.ffn_gate.weight`),
-			this.dequantGpu(`${p}.ffn_up.weight`),
-			this.dequantGpu(`${p}.ffn_down.weight`),
+			mat(`${p}.ffn_gate.weight`),
+			mat(`${p}.ffn_up.weight`),
+			mat(`${p}.ffn_down.weight`),
 			this.dequant(`${p}.attn_q.bias`).then(up).catch(() => undefined),
 			this.dequant(`${p}.attn_k.bias`).then(up).catch(() => undefined),
 			this.dequant(`${p}.attn_v.bias`).then(up).catch(() => undefined)
 		]);
-		const w = { attnNorm, wq, wk, wv, wo, ffnNorm, wgate, wup, wdown, bq, bk, bv } as LayerWeightsGpu;
+		const w = { attnNorm, wq, wk, wv, wo, ffnNorm, wgate, wup, wdown, bq, bk, bv, matF16: f16 } as LayerWeightsGpu;
 		this.layerGpuCache.set(idx, w);
 		return w;
 	}
