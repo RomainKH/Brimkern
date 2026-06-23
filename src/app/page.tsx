@@ -35,7 +35,7 @@ const PRESET_MODELS = [
     url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf",
     size: "597 Mo",
     desc: "Ultra-rapide et économe. Idéal pour tester notre moteur custom.",
-    tokenizer: "Xenova/qwen-tokenizer",
+    tokenizer: "Qwen/Qwen2.5-0.5B-Instruct",
     type: "qwen" as const
   },
   {
@@ -51,13 +51,13 @@ const PRESET_MODELS = [
     url: "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
     size: "1,02 Go",
     desc: "Spécialisé pour le code et l'analyse technique.",
-    tokenizer: "Xenova/qwen-tokenizer",
+    tokenizer: "Qwen/Qwen2.5-Coder-1.5B-Instruct",
     type: "qwen" as const
   }
 ];
 
 const TOKENIZER_PRESETS = [
-  { name: "Qwen 2 / 2.5", id: "Xenova/qwen-tokenizer", type: "qwen" as const },
+  { name: "Qwen 2 / 2.5", id: "Qwen/Qwen2.5-0.5B-Instruct", type: "qwen" as const },
   { name: "Llama 3 / 3.2", id: "Xenova/llama-3-tokenizer", type: "llama3" as const },
   { name: "Llama 2 / Mistral", id: "Xenova/llama-tokenizer", type: "llama2" as const },
   { name: "Gemma 2", id: "Xenova/gemma-tokenizer", type: "gemma" as const }
@@ -336,7 +336,15 @@ function App() {
       
       // 5. Load Tokenizer
       setLoadingStep('Chargement du Tokenizer (Hugging Face)...');
-      const tokenizer = await AutoTokenizer.from_pretrained(selectedTokenizerId);
+      let tokenizer;
+      try {
+        tokenizer = await AutoTokenizer.from_pretrained(selectedTokenizerId);
+      } catch (te: any) {
+        throw new Error(
+          `Impossible de charger le tokenizer « ${selectedTokenizerId} » : ${te?.message || te}. ` +
+          `Vérifiez que ce dépôt Hugging Face est public et contient tokenizer.json + tokenizer_config.json.`
+        );
+      }
       
       // Clean previous instances (free the previous model's persistent GPU buffers)
       if (activeModel) {
