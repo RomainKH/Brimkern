@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:bwp": "tsc src/lib/bwp/format.ts src/lib/bwp/codec.ts src/lib/bwp/codec.test.ts --outDir .bwp-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node .bwp-build/codec.test.js"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

@@ -44,3 +44,6 @@ next-env.d.ts
 *.recovered
 *.recovered2
 *.original
+
+# bwp unit-test build output
+/.bwp-build
