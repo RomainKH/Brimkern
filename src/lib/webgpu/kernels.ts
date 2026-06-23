@@ -1187,9 +1187,13 @@ export class WebGpuEngine {
 			};
 			const finalNormArr = rand(d);
 			const x = rand(4 * d);
-			// CPU reference: one layer over 4 tokens, take the last row, apply the final RMSNorm.
-			const cpuLayer = layerForwardCpu(x, { ...cfg, seq: 4 }, wCpu);
-			const ref = rmsnormCpu(cpuLayer.slice(3 * d, 4 * d), finalNormArr, 1, d, 1e-6);
+			// Reference = the trusted READBACK path in TRANSPOSED mode (matmulT) — the SAME matmul
+			// orientation the resident path uses. (layerForwardCpu uses NON-transposed matmul, so
+			// it's the wrong reference for matmulT and would always mismatch on non-symmetric
+			// weights.) This validates that the resident orchestration == the readback path.
+			const empty0 = new Float32Array(0);
+			const rb = await this.layerForwardKV(x, { ...cfg, seq: 4 }, wCpu, 0, empty0, empty0, true);
+			const ref = rmsnormCpu(rb.out.slice(3 * d, 4 * d), finalNormArr, 1, d, 1e-6);
 
 			const gpuW: LayerWeightsGpu = {
 				attnNorm: this.uploadGpu(wCpu.attnNorm), wq: this.uploadGpu(wCpu.wq as Float32Array), wk: this.uploadGpu(wCpu.wk as Float32Array),

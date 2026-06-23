@@ -115,7 +115,7 @@ class BinaryReader {
 }
 
 const GGML_TYPE_NAMES = [
-  "F32", "F16", "Q4_0", "Q4_1", "Q4_2", "Q4_3", "Q5_0", "Q5_1", 
+  "F32", "F16", "Q4_0", "Q4_1", "Q4_2", "Q4_3", "Q5_0", "Q5_1",
   "Q8_0", "Q8_1", "Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_K"
 ];
 
@@ -140,7 +140,6 @@ const getGgmlBlockInfo = (typeStr: string) => {
 };
 
 export async function parseGguf(file: Blob | File): Promise<Manifest> {
-  // ponytail: 100MB chunk sufficient for large GGUF headers/vocabularies. No dynamic chunking needed.
   const HEADER_CHUNK_SIZE = Math.min(file.size, 100 * 1024 * 1024);
   const chunk = file.slice(0, HEADER_CHUNK_SIZE);
   const buffer = await chunk.arrayBuffer();
@@ -216,7 +215,7 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
     typeIdx: number;
     relativeOffset: number;
   }
-  
+
   const rawTensors: RawTensorInfo[] = [];
   for (let i = 0; i < tensorCount; i++) {
     const name = reader.string();
@@ -240,10 +239,10 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   for (let i = 0; i < rawTensors.length; i++) {
     const t = rawTensors[i];
     const typeName = GGML_TYPE_NAMES[t.typeIdx] || "UNKNOWN";
-    
+
     // Total elements in tensor
     const nElems = t.shape.reduce((a, b) => a * b, 1);
-    
+
     // Compute byte length using relative offset of next tensor if available, 
     // or block size math as fallback
     let bytes = 0;
