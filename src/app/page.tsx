@@ -467,10 +467,12 @@ function App() {
       
       const chatHistory = [...prevHistory, { role: 'user' as const, content: text }];
       const prompt = formatPrompt(chatHistory, modelArchType, systemPrompt);
-      
-      // 1. Encode prompt
+      if (!prompt) throw new Error(`Prompt vide (archType=${modelArchType}). Faites un hard reload (Cmd-Shift-R).`);
+
+      // 1. Encode prompt. transformers v4 returns input_ids as a BigInt64Array, so coerce each
+      // id to a plain Number — the WebGPU engine indexes with it (BigInt × Number would throw).
       const encoded = await activeTokenizer(prompt);
-      const promptTokens = Array.from(encoded.input_ids.data as Int32Array);
+      const promptTokens = Array.from(encoded.input_ids.data as ArrayLike<number | bigint>, (v) => Number(v));
       
       // 2. Prefill phase (forward pass over prompt)
       const tPrefill0 = performance.now();
