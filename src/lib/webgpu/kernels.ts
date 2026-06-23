@@ -890,9 +890,36 @@ export class WebGpuEngine {
 
 	private static readonly STORAGE_USAGE = 0x80 | 0x4 | 0x8; // STORAGE | COPY_DST | COPY_SRC
 
-	// A fresh GPU storage buffer (readable/writable by shaders, copyable both ways).
+	// Scratch-buffer pool: per-token forwards allocate ~hundreds of storage buffers and free them
+	// right after; recreating them every token is pure overhead. Pool them by byte size and reuse
+	// across tokens. Safe because buffers only return to the pool AFTER the submit's readback
+	// completes (GPU is done with them). `poolSize` records each buffer's size for release.
+	private bufferPool = new Map<number, GPUAny[]>();
+	private poolSize = new WeakMap<object, number>();
+
+	// A GPU storage buffer of `byteLength` — reused from the pool if one is free, else created.
 	private storage(byteLength: number): GPUAny {
-		return this.device.createBuffer({ size: byteLength, usage: WebGpuEngine.STORAGE_USAGE });
+		const free = this.bufferPool.get(byteLength);
+		if (free && free.length) return free.pop();
+		const b = this.device.createBuffer({ size: byteLength, usage: WebGpuEngine.STORAGE_USAGE });
+		this.poolSize.set(b, byteLength);
+		return b;
+	}
+
+	// Return transient buffers: pooled scratch (from storage()) goes back to the pool for reuse;
+	// anything else (uniforms, etc.) is destroyed.
+	private release(buffers: GPUAny[]): void {
+		for (const b of buffers) {
+			if (!b) continue;
+			const sz = this.poolSize.get(b);
+			if (sz !== undefined) {
+				let list = this.bufferPool.get(sz);
+				if (!list) { list = []; this.bufferPool.set(sz, list); }
+				list.push(b);
+			} else {
+				b.destroy?.();
+			}
+		}
 	}
 
 	// Upload a Float32Array into a PERSISTENT storage buffer (for GPU-resident norms/biases).
@@ -1059,6 +1086,10 @@ export class WebGpuEngine {
 		for (const e of this.kvGpu.values()) { e.k.destroy?.(); e.v.destroy?.(); }
 		this.kvGpu.clear();
 		this.kvSession = '';
+		// Free the scratch pool too — it's reused within a generation's decode loop, but bounded
+		// per generation so a long prompt's big prefill buffers don't linger across messages.
+		for (const list of this.bufferPool.values()) for (const b of list) b.destroy?.();
+		this.bufferPool.clear();
 	}
 
 	// Public: drop the GPU KV cache (called between generations; weights stay resident).
@@ -1116,8 +1147,8 @@ export class WebGpuEngine {
 		enc.copyBufferToBuffer(normed, (seq - 1) * d * 4, lastRow, 0, d * 4);
 		this.device.queue.submit([enc.finish()]);
 		const out = await this.readBack(lastRow, d * 4);
-		lastRow.destroy?.();
-		for (const b of trash) b.destroy?.();
+		trash.push(lastRow);
+		this.release(trash); // scratch back to the pool (GPU done after the readback above)
 		return out;
 	}
 
@@ -1150,7 +1181,7 @@ export class WebGpuEngine {
 		const bestIdx = new Uint32Array(read.getMappedRange().slice(0))[0];
 		read.unmap();
 		read.destroy();
-		for (const b of trash) b.destroy?.();
+		this.release(trash); // scratch back to the pool (GPU done after the readback above)
 		return bestIdx;
 	}
 
