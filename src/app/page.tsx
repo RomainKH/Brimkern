@@ -324,7 +324,10 @@ function App() {
       setLoadingStep('Validation interne des calculs matriciels du GPU...');
       const validated = await engine.selfValidate();
       if (!validated) {
-        throw new Error("Échec de la validation des kernels WebGPU. Les shaders WGSL ne s'exécutent pas correctement.");
+        throw new Error(
+          "Échec de la validation des kernels WebGPU. Les shaders WGSL ne s'exécutent pas correctement." +
+          (engine.validationFailure ? ` (étape : ${engine.validationFailure})` : '')
+        );
       }
       
       // 4. Initialize Custom Model Runner

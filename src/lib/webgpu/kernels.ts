@@ -440,6 +440,8 @@ export class WebGpuEngine {
 	maxStorageBufferBindingSize = 0;
 	// Whether the device supports `shader-f16` (enables the f16-weight matmul for BWP models).
 	hasF16 = false;
+	// Set to the name of the selfValidate stage that failed (surfaced in the UI error), else null.
+	validationFailure: string | null = null;
 
 	async init(): Promise<boolean> {
 		const gpu = (navigator as any).gpu;
@@ -999,6 +1001,14 @@ export class WebGpuEngine {
 	/// Runs each kernel on random inputs and checks it against a CPU reference.
 	/// Returns true only if ALL kernels match — the gate for `can_compute`.
 	async selfValidate(): Promise<boolean> {
+		this.validationFailure = null;
+		// Record + log which check failed (returns false so call sites stay `return fail('x')`).
+		const fail = (stage: string): false => {
+			this.validationFailure = stage;
+			// eslint-disable-next-line no-console
+			console.error('[selfValidate] FAILED at:', stage, '(hasF16=' + this.hasF16 + ')');
+			return false;
+		};
 		const close = (x: Float32Array, y: Float32Array) =>
 			x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) < 1e-3);
 		const rand = (n: number) => Float32Array.from({ length: n }, () => Math.random() * 2 - 1);
@@ -1013,7 +1023,7 @@ export class WebGpuEngine {
 				for (let i = 0; i < k; i++) s += A[r * k + i] * B[i * n + c];
 				refMM[r * n + c] = s;
 			}
-		if (!close(await this.matmul(A, B, m, k, n), refMM)) return false;
+		if (!close(await this.matmul(A, B, m, k, n), refMM)) return fail('matmul');
 
 		// matmul_t (y = a · wᵀ, weight stored [n,k] GGUF-style) — the matmul every real model
 		// op goes through (transposed=true). Cover BOTH the vec4 path (k%4==0) and the scalar
@@ -1033,9 +1043,9 @@ export class WebGpuEngine {
 				const a = rand(mm * kk), wt = rand(nn * kk);
 				return close(await this.matmulT(a, wt, mm, kk, nn), refT(a, wt, mm, kk, nn));
 			};
-			if (!(await checkT(3, 8, 5))) return false;   // vec4 path
-			if (!(await checkT(1, 16, 7))) return false;  // vec4 path, m=1 (decode shape)
-			if (!(await checkT(2, 6, 4))) return false;   // scalar fallback (k not ÷4)
+			if (!(await checkT(3, 8, 5))) return fail('matmulT.vec4(3,8,5)');
+			if (!(await checkT(1, 16, 7))) return fail('matmulT.vec4(1,16,7)');
+			if (!(await checkT(2, 6, 4))) return fail('matmulT.scalar(2,6,4)');
 
 			// f16-weight matmul (BWP fast path), where supported: weight rounded to f16, dot
 			// product accumulated in f32. Error stays within the f16 weight-precision budget.
@@ -1049,7 +1059,7 @@ export class WebGpuEngine {
 				wBuf.destroy?.();
 				// f16 weights → relative tolerance (closeRel isn't in scope yet here).
 				const okF16 = got.length === ref.length && got.every((v, i) => Math.abs(v - ref[i]) <= 3e-2 * (1 + Math.abs(ref[i])));
-				if (!okF16) return false;
+				if (!okF16) return fail('matmulT.f16');
 			}
 		}
 
@@ -1063,14 +1073,14 @@ export class WebGpuEngine {
 			const inv = 1 / Math.sqrt(ss / dim + 1e-5);
 			for (let i = 0; i < dim; i++) refRN[r * dim + i] = X[r * dim + i] * inv * W[i];
 		}
-		if (!close(await this.rmsnorm(X, W, rows, dim), refRN)) return false;
+		if (!close(await this.rmsnorm(X, W, rows, dim), refRN)) return fail('rmsnorm');
 
 		// swiglu + add over 16 elems
 		const g = rand(16), u = rand(16);
 		const refSG = g.map((v, i) => (v / (1 + Math.exp(-v))) * u[i]);
-		if (!close(await this.swiglu(g, u), refSG)) return false;
+		if (!close(await this.swiglu(g, u), refSG)) return fail('swiglu');
 		const refAdd = g.map((v, i) => v + u[i]);
-		if (!close(await this.add(g, u), refAdd)) return false;
+		if (!close(await this.add(g, u), refAdd)) return fail('add');
 
 		// Relative tolerance for the deeper kernels / chained matmuls (error accumulates).
 		const closeRel = (x: Float32Array, y: Float32Array, tol = 3e-3) =>
@@ -1080,7 +1090,7 @@ export class WebGpuEngine {
 		{
 			const nHeads = 2, headDim = 4, rows = 1 * nHeads, pastLen = 1, base = 10000;
 			const xr = rand(rows * headDim);
-			if (!closeRel(await this.rope(xr, rows, headDim, nHeads, pastLen, base), ropeCpu(xr, rows, headDim, nHeads, pastLen, base))) return false;
+			if (!closeRel(await this.rope(xr, rows, headDim, nHeads, pastLen, base), ropeCpu(xr, rows, headDim, nHeads, pastLen, base))) return fail('rope');
 		}
 
 		// Attention with KV cache + GQA: 2 new tokens, 4 q-heads / 2 kv-heads, headDim 4, pastLen 2.
@@ -1089,7 +1099,7 @@ export class WebGpuEngine {
 			const q = rand(nTokens * nHeads * headDim);
 			const k = rand(kvLen * nKvHeads * headDim);
 			const v = rand(kvLen * nKvHeads * headDim);
-			if (!closeRel(await this.attention(q, k, v, nTokens, nHeads, nKvHeads, headDim, pastLen), attentionCpu(q, k, v, nTokens, nHeads, nKvHeads, headDim, pastLen))) return false;
+			if (!closeRel(await this.attention(q, k, v, nTokens, nHeads, nKvHeads, headDim, pastLen), attentionCpu(q, k, v, nTokens, nHeads, nKvHeads, headDim, pastLen))) return fail('attention');
 		}
 
 		// Full transformer-layer forward (prefill) in a Qwen2-shaped config: GQA (4 q / 2 kv
@@ -1103,7 +1113,7 @@ export class WebGpuEngine {
 				ffnNorm: rand(d), wgate: rand(d * ffn), wup: rand(d * ffn), wdown: rand(ffn * d)
 			};
 			const x = rand(seq * d);
-			if (!closeRel(await this.layerForward(x, cfg, w), layerForwardCpu(x, cfg, w), 5e-3)) return false;
+			if (!closeRel(await this.layerForward(x, cfg, w), layerForwardCpu(x, cfg, w), 5e-3)) return fail('layerForward');
 		}
 
 		// Q4_K dequantization: build random valid super-blocks (controlled fp16 d/dmin so
@@ -1121,7 +1131,7 @@ export class WebGpuEngine {
 				for (let i = 4; i < 144; i++) bytes[b + i] = (Math.random() * 256) | 0;
 			}
 			const got = await this.dequantizeQ4K(bytes, nBlocks * 256);
-			if (!closeRel(got, dequantQ4KCpu(bytes, nBlocks), 1e-4)) return false;
+			if (!closeRel(got, dequantQ4KCpu(bytes, nBlocks), 1e-4)) return fail('dequant.Q4_K');
 		}
 
 		// Q8_0 / Q5_0 / Q6_K dequant — the other quant types a real Qwen2 Q4_K_M model
@@ -1138,11 +1148,11 @@ export class WebGpuEngine {
 			};
 			const nb = 4;
 			const q8 = withScale(randBytes(nb * 34), 34);
-			if (!closeRel(await this.dequantizeByType('Q8_0', q8, nb * 32), dequantQ8_0Cpu(q8, nb), 1e-4)) return false;
+			if (!closeRel(await this.dequantizeByType('Q8_0', q8, nb * 32), dequantQ8_0Cpu(q8, nb), 1e-4)) return fail('dequant.Q8_0');
 			const q5 = withScale(randBytes(nb * 22), 22);
-			if (!closeRel(await this.dequantizeByType('Q5_0', q5, nb * 32), dequantQ5_0Cpu(q5, nb), 1e-4)) return false;
+			if (!closeRel(await this.dequantizeByType('Q5_0', q5, nb * 32), dequantQ5_0Cpu(q5, nb), 1e-4)) return fail('dequant.Q5_0');
 			const q6 = withScale(randBytes(nb * 210), 210);
-			if (!closeRel(await this.dequantizeByType('Q6_K', q6, nb * 256), dequantQ6KCpu(q6, nb), 1e-4)) return false;
+			if (!closeRel(await this.dequantizeByType('Q6_K', q6, nb * 256), dequantQ6KCpu(q6, nb), 1e-4)) return fail('dequant.Q6_K');
 		}
 
 		// KV cache correctness: a 2-token prefill followed by a 1-token decode (with the
@@ -1161,7 +1171,7 @@ export class WebGpuEngine {
 			const empty = new Float32Array(0);
 			const s1 = await this.layerForwardKV(x.slice(0, 2 * d), { ...base, seq: 2 }, w, 0, empty, empty);
 			const s2 = await this.layerForwardKV(x.slice(2 * d, 3 * d), { ...base, seq: 1 }, w, 2, s1.k, s1.v);
-			if (!closeRel(s2.out, fullLast, 5e-3)) return false;
+			if (!closeRel(s2.out, fullLast, 5e-3)) return fail('layerForwardKV');
 		}
 
 		// GPU-resident decode path: the whole forward stays on the GPU (one submit, one
@@ -1191,11 +1201,11 @@ export class WebGpuEngine {
 
 			// (a) single 4-token prefill
 			const got = await this.runDecodeGpu(x, { ...cfg, seq: 4 }, [gpuW], 0, finalNormBuf, 'selftest-A');
-			if (!closeRel(got, ref, 8e-3)) { this.resetKvGpu(); return false; }
+			if (!closeRel(got, ref, 8e-3)) { this.resetKvGpu(); return fail('runDecodeGpu.prefill'); }
 			// (b) 3-token prefill + 1-token cached decode must reproduce the same last token
 			await this.runDecodeGpu(x.slice(0, 3 * d), { ...cfg, seq: 3 }, [gpuW], 0, finalNormBuf, 'selftest-B');
 			const dec = await this.runDecodeGpu(x.slice(3 * d, 4 * d), { ...cfg, seq: 1 }, [gpuW], 3, finalNormBuf, 'selftest-B');
-			if (!closeRel(dec, ref, 8e-3)) { this.resetKvGpu(); return false; }
+			if (!closeRel(dec, ref, 8e-3)) { this.resetKvGpu(); return fail('runDecodeGpu.decode'); }
 
 			this.resetKvGpu();
 			for (const b of Object.values(gpuW)) b?.destroy?.();
