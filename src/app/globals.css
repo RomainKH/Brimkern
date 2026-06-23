@@ -11,6 +11,12 @@
   --bg-card: #ffffff;
   --bg-card-hover: #f1f5f9;
   --bg-input: #ffffff;
+  --bg-elevated: #ffffff;     /* white surfaces (header, bubbles, buttons) — flips in dark mode */
+  --bg-code: #f8fafc;
+  --bg-code-inline: #f1f5f9;
+  --code-inline-text: #c026d3;
+  --bubble-user-bg: #f4f4f5;
+  --bubble-user-border: #e4e4e7;
 
   --border-color: #e2e8f0;
   --border-focus: #cbd5e1;
@@ -177,7 +183,7 @@ body {
 }
 
 .btn-secondary {
-  background: white;
+  background: var(--bg-elevated);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
 }
@@ -259,7 +265,7 @@ body {
 }
 
 .tab-btn.active {
-  background: white;
+  background: var(--bg-elevated);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--border-color);
@@ -333,7 +339,7 @@ body {
 .chat-header {
   padding: 16px 24px;
   border-bottom: 1px solid var(--border-color);
-  background: white;
+  background: var(--bg-elevated);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -524,14 +530,14 @@ body {
 }
 
 .message.user .message-bubble {
-  background: #f4f4f5;
-  border: 1px solid #e4e4e7;
+  background: var(--bubble-user-bg);
+  border: 1px solid var(--bubble-user-border);
   color: var(--text-primary);
   border-top-right-radius: 4px;
 }
 
 .message.assistant .message-bubble {
-  background: white;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   border-top-left-radius: 4px;
@@ -560,7 +566,7 @@ body {
 .chat-input-container {
   padding: 20px 24px;
   border-top: 1px solid var(--border-color);
-  background: white;
+  background: var(--bg-elevated);
 }
 
 .chat-input-wrapper {
@@ -569,7 +575,7 @@ body {
   display: flex;
   gap: 12px;
   align-items: flex-end;
-  background: white;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: 14px;
   padding: 10px 14px;
@@ -687,7 +693,7 @@ body {
 
 /* Code formatting in chat bubble */
 pre {
-  background: #f8fafc !important;
+  background: var(--bg-code) !important;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px;
@@ -700,10 +706,10 @@ pre {
 code {
   font-family: var(--font-mono);
   font-size: 13px;
-  background: #f1f5f9;
+  background: var(--bg-code-inline);
   padding: 2px 5px;
   border-radius: 4px;
-  color: #c026d3;
+  color: var(--code-inline-text);
 }
 
 pre code {
@@ -813,7 +819,7 @@ pre code {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: white;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   padding: 12px;
@@ -840,7 +846,7 @@ pre code {
 
 /* Model Card styling */
 .model-card {
-  background: white;
+  background: var(--bg-elevated);
   border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 12px;
@@ -856,3 +862,34 @@ pre code {
   border-color: var(--accent) !important;
   box-shadow: var(--shadow-md);
 }
+
+/* ── Dark mode (toggled by `html.dark`) ─────────────────────────────── */
+html.dark {
+  --bg-main: #0b0f17;
+  --bg-sidebar: #0e1320;
+  --bg-card: #131a27;
+  --bg-card-hover: #1b2434;
+  --bg-input: #131a27;
+  --bg-elevated: #131a27;
+  --bg-code: #0e1320;
+  --bg-code-inline: #1b2434;
+  --code-inline-text: #e879f9;
+  --bubble-user-bg: #1b2434;
+  --bubble-user-border: #2a3854;
+  --border-color: #233044;
+  --border-focus: #34425c;
+  --text-primary: #e8edf5;
+  --text-secondary: #aab4c5;
+  --text-muted: #6b7789;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 22px -4px rgba(0, 0, 0, 0.55);
+}
+
+html.dark body { background-color: var(--bg-main); }
+html.dark .logo-text { color: var(--text-primary); }
+html.dark .file-dropzone { background: rgba(255, 255, 255, 0.03); }
+/* The logo PNG uses multiply (to drop its white halo on light bg); on dark that hides it. */
+html.dark .logo-image { mix-blend-mode: normal !important; }
+html.dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); }
+html.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }

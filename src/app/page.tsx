@@ -5,7 +5,7 @@ import {
   Cpu, Zap, Send, Trash2, CheckCircle, AlertCircle,
   Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot,
   User, Copy, Square, Info, ShieldCheck, Database, ArrowRight,
-  Plus, Flame, MessageSquare, Brain, ChevronDown
+  Plus, Flame, MessageSquare, Brain, ChevronDown, Sun, Moon
 } from 'lucide-react';
 import { AutoTokenizer } from '@huggingface/transformers';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
@@ -245,11 +245,22 @@ function App() {
   const [benchRunning, setBenchRunning] = useState<boolean>(false);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [mobileWarnDismissed, setMobileWarnDismissed] = useState<boolean>(false);
+  const [loaderOpen, setLoaderOpen] = useState<boolean>(true); // model-loader accordion
+  const [dark, setDark] = useState<boolean>(false);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Dark mode: read saved preference on mount, then apply to <html> + persist on change.
+  useEffect(() => {
+    if (localStorage.getItem('brimkern-theme') === 'dark') setDark(true);
+  }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('brimkern-theme', dark ? 'dark' : 'light');
+  }, [dark]);
 
   // Track small / touch screens (limited GPU + memory → mobile warning, icon-only header).
   useEffect(() => {
@@ -549,6 +560,7 @@ function App() {
       setLoadedModelName(modelName);
       setModelMetadata(manifest);
       setWeightPrec('f32'); // new model starts at f32 (the model's internal default)
+      setLoaderOpen(false); // collapse the loader once a model is in → surface precision/specs
       setModelState('ready');
 
       setMessages([
@@ -867,6 +879,7 @@ function App() {
     setLoadedModelName('');
     setModelMetadata(null);
     setWeightPrec('f32');
+    setLoaderOpen(true); // reopen the loader when no model is loaded
     setMessages([]);
     setModelState('idle');
   };
@@ -1028,10 +1041,17 @@ function App() {
 
           {/* Section: GGUF Loader */}
           <div className="sidebar-section">
-            <div className="section-title">
-              <Database size={14} /> Chargeur de modèle
-            </div>
-            
+            <button
+              onClick={() => setLoaderOpen((o) => !o)}
+              className="section-title"
+              style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              <Database size={14} />
+              <span style={{ flex: 1, textAlign: 'left' }}>Chargeur de modèle</span>
+              <ChevronDown size={14} style={{ transform: loaderOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+            </button>
+
+            {loaderOpen && (
             <div className="card" style={{ padding: '12px' }}>
               <div className="tabs-container" style={{ gap: '2px' }}>
                 <button 
@@ -1262,9 +1282,8 @@ function App() {
                 </div>
               )}
             </div>
+            )}
           </div>
-
-          {/* ponytail: execution parameters removed. YAGNI. */}
 
           {/* Section: Specifications */}
           {modelMetadata && (
@@ -1409,6 +1428,13 @@ function App() {
                 </button>
               </>
             )}
+            <button
+              onClick={() => setDark((d) => !d)}
+              title={dark ? 'Mode clair' : 'Mode nuit'}
+              style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px' }}
+            >
+              {dark ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
             <Link
               href="/changelog"
               title="Changelog"
