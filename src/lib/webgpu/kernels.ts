@@ -392,6 +392,47 @@ const SHADERS = {
 			let i = gid.x;
 			if (i >= p.rows * p.cols) { return; }
 			o[i] = x[i] + bias[i % p.cols];
+		}`,
+
+	// Single-workgroup argmax over an array<f32> of length n → writes the winning index to o[0].
+	// Each of 256 threads scans a stride of the array, then a shared-memory tree reduction finds
+	// the global max. Lets the GPU pick the greedy next token so we read back ONE u32 instead of
+	// the whole (~152k) logits vector every decode step.
+	argmax: `
+		struct P { n: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<u32>;
+		var<workgroup> sVal: array<f32, 256>;
+		var<workgroup> sIdx: array<u32, 256>;
+		@compute @workgroup_size(256)
+		fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+			let tid = lid.x;
+			var bestV = -3.0e38;
+			var bestI = 0u;
+			var i = tid;
+			loop {
+				if (i >= p.n) { break; }
+				let v = x[i];
+				if (v > bestV) { bestV = v; bestI = i; }
+				i = i + 256u;
+			}
+			sVal[tid] = bestV;
+			sIdx[tid] = bestI;
+			workgroupBarrier();
+			var stride = 128u;
+			loop {
+				if (stride == 0u) { break; }
+				if (tid < stride) {
+					if (sVal[tid + stride] > sVal[tid]) {
+						sVal[tid] = sVal[tid + stride];
+						sIdx[tid] = sIdx[tid + stride];
+					}
+				}
+				workgroupBarrier();
+				stride = stride / 2u;
+			}
+			if (tid == 0u) { o[0] = sIdx[0]; }
 		}`
 };
 
@@ -998,6 +1039,39 @@ export class WebGpuEngine {
 		return out;
 	}
 
+	// GPU greedy logit projection + argmax. Given the last hidden state and the cached projection
+	// tiles ([n_vocab tile] each), it matmuls every tile into one logits buffer and reduces to the
+	// winning token id ON the GPU — so only ONE u32 is read back per token (vs the whole ~152k
+	// logits vector). One submit per call. wF16 picks the f16 matmul when the tiles are f16.
+	async argmaxProjection(hidden: Float32Array, tiles: { buf: GPUAny; rows: number; r0: number }[], d: number, vocab: number, wF16 = false): Promise<number> {
+		const G = globalThis as any;
+		const trash: GPUAny[] = [];
+		const enc = this.device.createCommandEncoder();
+		const hBuf = this.storage(hidden.byteLength);
+		this.device.queue.writeBuffer(hBuf, 0, hidden);
+		trash.push(hBuf);
+		const logits = this.storage(vocab * 4);
+		trash.push(logits);
+		for (const t of tiles) {
+			const tileLogits = this.recMatmulT(enc, trash, hBuf, t.buf, 1, d, t.rows, wF16);
+			enc.copyBufferToBuffer(tileLogits, 0, logits, t.r0 * 4, t.rows * 4);
+		}
+		const idx = this.storage(4); // u32 winner
+		const p = this.uniform([vocab]);
+		trash.push(idx, p);
+		this.recordPass(enc, 'argmax', [p, logits, idx], [1, 1, 1]);
+		// read back the single u32 index
+		const read = this.device.createBuffer({ size: 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		enc.copyBufferToBuffer(idx, 0, read, 0, 4);
+		this.device.queue.submit([enc.finish()]);
+		await read.mapAsync(G.GPUMapMode.READ);
+		const bestIdx = new Uint32Array(read.getMappedRange().slice(0))[0];
+		read.unmap();
+		read.destroy();
+		for (const b of trash) b.destroy?.();
+		return bestIdx;
+	}
+
 	/// Runs each kernel on random inputs and checks it against a CPU reference.
 	/// Returns true only if ALL kernels match — the gate for `can_compute`.
 	async selfValidate(): Promise<boolean> {
@@ -1172,6 +1246,22 @@ export class WebGpuEngine {
 			const s1 = await this.layerForwardKV(x.slice(0, 2 * d), { ...base, seq: 2 }, w, 0, empty, empty);
 			const s2 = await this.layerForwardKV(x.slice(2 * d, 3 * d), { ...base, seq: 1 }, w, 2, s1.k, s1.v);
 			if (!closeRel(s2.out, fullLast, 5e-3)) return fail('layerForwardKV');
+		}
+
+		// GPU logit projection + argmax: matmul a tiny projection then reduce to the winning index
+		// on the GPU. Must equal the CPU argmax — the gate for reading back only the token id.
+		{
+			const dd = 4, vocab = 10;
+			const hidden = rand(dd);
+			const w = rand(vocab * dd); // [vocab, dd] row-major; matmulT computes hidden·wᵀ
+			const ref = new Float32Array(vocab);
+			for (let j = 0; j < vocab; j++) { let s = 0; for (let i = 0; i < dd; i++) s += hidden[i] * w[j * dd + i]; ref[j] = s; }
+			let cpuBest = 0;
+			for (let j = 1; j < vocab; j++) if (ref[j] > ref[cpuBest]) cpuBest = j;
+			const tileBuf = this.uploadGpu(w);
+			const got = await this.argmaxProjection(hidden, [{ buf: tileBuf, rows: vocab, r0: 0 }], dd, vocab, false);
+			tileBuf.destroy?.();
+			if (got !== cpuBest) return fail('argmaxProjection');
 		}
 
 		// GPU-resident decode path: the whole forward stays on the GPU (one submit, one

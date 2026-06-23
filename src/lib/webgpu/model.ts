@@ -175,6 +175,7 @@ export class CustomWebModel {
 	// dequantizeToGpu (GPU dequant, no CPU round-trip) so building the cache is fast — converting
 	// it to f16 on the CPU instead would stall the first token for ~30s on a 150k-row vocab.
 	private projTiles: { buf: any; rows: number; r0: number }[] | null = null;
+	private projVocab = 0;
 
 	private async getProjectionTiles(d: number): Promise<{ buf: any; rows: number; r0: number }[]> {
 		if (this.projTiles) return this.projTiles;
@@ -183,6 +184,7 @@ export class CustomWebModel {
 		const info = this.manifest.tensors[name];
 		if (!info) throw new Error('Logits projection tensor not found (output.weight / token_embd.weight)');
 		const vocab = info.nElems / d; // shape[0] is n_embd in GGUF dim order, not the vocab
+		this.projVocab = vocab;
 		const bytesPerRow = info.bytes / vocab;
 		const raw = await this.rawTensor(name);
 		const TILE = 8192;
@@ -196,19 +198,11 @@ export class CustomWebModel {
 		return tiles;
 	}
 
-	// Greedy next-token id. The projection is cached on the GPU (see getProjectionTiles), so per
-	// token we only run the small m=1 matmuls + read back the logits — no per-token re-dequant.
+	// Greedy next-token id. Projection cached on the GPU (getProjectionTiles); the matmuls AND the
+	// argmax run on the GPU, so only the winning token id is read back — not the ~152k logits.
 	public async argmaxLogits(hiddenLast: Float32Array, d: number): Promise<number> {
 		const tiles = await this.getProjectionTiles(d);
-		let bestIdx = -1;
-		let bestVal = -Infinity;
-		for (const t of tiles) {
-			const logits = await this.engine.matmulT(hiddenLast, t.buf, 1, d, t.rows);
-			for (let j = 0; j < t.rows; j++) {
-				if (logits[j] > bestVal) { bestVal = logits[j]; bestIdx = t.r0 + j; }
-			}
-		}
-		return bestIdx;
+		return this.engine.argmaxProjection(hiddenLast, tiles, d, this.projVocab);
 	}
 
 	// Reset between generations: clear ONLY the KV cache (each message re-prefills the full
