@@ -170,11 +170,11 @@ export class CustomWebModel {
 		return out;
 	}
 
-	// The output projection (logits) weight, dequantized ONCE into persistent GPU tiles and reused
-	// every token. Tiled so each tile stays under maxStorageBufferBindingSize. Stored f16 where the
-	// device supports it (half the VRAM; argmax is insensitive to that precision).
+	// The output projection (logits) weight, dequantized ONCE into persistent f32 GPU tiles and
+	// reused every token. Tiled so each tile stays under maxStorageBufferBindingSize. Uses
+	// dequantizeToGpu (GPU dequant, no CPU round-trip) so building the cache is fast — converting
+	// it to f16 on the CPU instead would stall the first token for ~30s on a 150k-row vocab.
 	private projTiles: { buf: any; rows: number; r0: number }[] | null = null;
-	private projF16 = false;
 
 	private async getProjectionTiles(d: number): Promise<{ buf: any; rows: number; r0: number }[]> {
 		if (this.projTiles) return this.projTiles;
@@ -185,15 +185,12 @@ export class CustomWebModel {
 		const vocab = info.nElems / d; // shape[0] is n_embd in GGUF dim order, not the vocab
 		const bytesPerRow = info.bytes / vocab;
 		const raw = await this.rawTensor(name);
-		this.projF16 = this.engine.hasF16;
 		const TILE = 8192;
 		const tiles: { buf: any; rows: number; r0: number }[] = [];
 		for (let r0 = 0; r0 < vocab; r0 += TILE) {
 			const rows = Math.min(TILE, vocab - r0);
 			const tileBytes = raw.subarray(r0 * bytesPerRow, (r0 + rows) * bytesPerRow);
-			const f32 = await this.engine.dequantizeByType(info.type, tileBytes, rows * d);
-			const buf = this.projF16 ? this.engine.uploadGpuF16(f32) : this.engine.uploadGpu(f32);
-			tiles.push({ buf, rows, r0 });
+			tiles.push({ buf: this.engine.dequantizeToGpu(info.type, tileBytes, rows * d), rows, r0 });
 		}
 		this.projTiles = tiles;
 		return tiles;
@@ -206,7 +203,7 @@ export class CustomWebModel {
 		let bestIdx = -1;
 		let bestVal = -Infinity;
 		for (const t of tiles) {
-			const logits = await this.engine.matmulT(hiddenLast, t.buf, 1, d, t.rows, this.projF16);
+			const logits = await this.engine.matmulT(hiddenLast, t.buf, 1, d, t.rows);
 			for (let j = 0; j < t.rows; j++) {
 				if (logits[j] > bestVal) { bestVal = logits[j]; bestIdx = t.r0 + j; }
 			}
