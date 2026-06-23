@@ -192,6 +192,7 @@ function App() {
   const [activeTokenizer, setActiveTokenizer] = useState<any>(null);
   const [loadedModelName, setLoadedModelName] = useState<string>('');
   const [modelMetadata, setModelMetadata] = useState<any>(null);
+  const [weightPrec, setWeightPrec] = useState<'f32' | 'f16' | 'q4'>('f32');
   
   // Chat States
   const [messages, setMessages] = useState<Message[]>([]);
@@ -488,8 +489,9 @@ function App() {
       setActiveTokenizer(() => tokenizer);
       setLoadedModelName(modelName);
       setModelMetadata(manifest);
+      setWeightPrec('f32'); // new model starts at f32 (the model's internal default)
       setModelState('ready');
-      
+
       setMessages([
         {
           id: 'welcome',
@@ -783,6 +785,19 @@ function App() {
     }
   };
 
+  // Switch layer-weight precision (f32 / f16 = faster + ½ VRAM / q4 = ¼ VRAM, bigger models).
+  // Applies on the next message (weights rebuild lazily at the new precision).
+  const changePrecision = (p: 'f32' | 'f16' | 'q4') => {
+    if (!activeModel || p === weightPrec || modelState === 'generating' || benchRunning) return;
+    try {
+      activeModel.setWeightPrecision(p);
+      activeModel.reset();
+      setWeightPrec(p);
+    } catch (e: any) {
+      setMessages(prev => [...prev, { id: `prec-err-${Date.now()}`, role: 'assistant', isError: true, content: `Précision ${p} indisponible : ${e?.message || e}` }]);
+    }
+  };
+
   const handleUnloadModel = () => {
     if (activeModel) {
       activeModel.unload();
@@ -792,6 +807,7 @@ function App() {
     setActiveTokenizer(null);
     setLoadedModelName('');
     setModelMetadata(null);
+    setWeightPrec('f32');
     setMessages([]);
     setModelState('idle');
   };
@@ -1185,6 +1201,40 @@ function App() {
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Section: weight precision */}
+          {loadedModelName && (
+            <div className="sidebar-section">
+              <div className="section-title">
+                <Zap size={14} /> précision des poids
+              </div>
+              <div className="card" style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div className="tabs-container" style={{ gap: '2px' }}>
+                  {([
+                    { id: 'f32' as const, label: 'f32', enabled: true, hint: 'Qualité max (réf.)' },
+                    { id: 'f16' as const, label: 'f16', enabled: !!activeEngine?.hasF16, hint: 'Plus rapide · ½ VRAM' },
+                    { id: 'q4' as const, label: 'int4', enabled: !!activeModel?.supportsQ4, hint: '¼ VRAM · gros modèles' }
+                  ]).map((opt) => (
+                    <button
+                      key={opt.id}
+                      className={`tab-btn ${weightPrec === opt.id ? 'active' : ''}`}
+                      onClick={() => changePrecision(opt.id)}
+                      disabled={!opt.enabled || modelState === 'generating' || benchRunning}
+                      title={opt.enabled ? opt.hint : 'Non supporté par ce GPU / modèle'}
+                      style={{ fontSize: '12px', padding: '6px 4px' }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  {weightPrec === 'f32' && 'Poids en pleine précision (référence).'}
+                  {weightPrec === 'f16' && 'Poids demi-précision : décodage plus rapide, ½ VRAM.'}
+                  {weightPrec === 'q4' && 'Poids 4-bit (BWP) : ¼ VRAM — permet de charger de plus gros modèles. Appliqué au prochain message.'}
+                </div>
               </div>
             </div>
           )}

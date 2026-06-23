@@ -104,12 +104,11 @@ body {
 
 .logo-text {
   font-family: var(--font-heading);
-  font-weight: 700;
+  font-weight: 800;
   font-size: 22px;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.5px;
+  color: #111827; /* Dark black/gray */
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
 
