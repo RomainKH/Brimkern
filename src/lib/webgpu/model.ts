@@ -126,7 +126,9 @@ export class CustomWebModel {
 	// Embedding rows for the prompt tokens, gathered from token_embd.
 	public async embed(tokens: number[], d: number): Promise<Float32Array> {
 		const info = this.manifest.tensors['token_embd.weight'];
-		const vocab = info.shape[0];
+		// GGUF stores tensor dims innermost-first, so shape[0] is n_embd (= d), NOT the vocab.
+		// Derive the row count from total elements / embedding dim (correct for either dim order).
+		const vocab = info.nElems / d;
 		const bytesPerRow = info.bytes / vocab;
 		if (!Number.isInteger(bytesPerRow)) throw new Error('token_embd: lignes non uniformes');
 		const raw = await this.rawTensor('token_embd.weight');
@@ -148,8 +150,9 @@ export class CustomWebModel {
 		const projectionTensorName = this.manifest.tensors['output.weight'] ? 'output.weight' : 'token_embd.weight';
 		const info = this.manifest.tensors[projectionTensorName];
 		if (!info) throw new Error(`Logits projection tensor not found (tried output.weight and token_embd.weight)`);
-		
-		const vocab = info.shape[0];
+
+		// shape[0] is n_embd (GGUF dim order), not the vocab — derive vocab from nElems / d.
+		const vocab = info.nElems / d;
 		const bytesPerRow = info.bytes / vocab;
 		const raw = await this.rawTensor(projectionTensorName);
 		const TILE = 8192;
