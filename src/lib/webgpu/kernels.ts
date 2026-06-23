@@ -10,7 +10,6 @@
 // causal attention (online softmax + KV cache). `layerForward` chains them into a
 // full pre-norm transformer layer, also checked against a CPU reference.
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { quantizeQ4, dequantizeQ4 } from '../bwp/q4web';
 
 type GPUAny = any;
@@ -1267,7 +1266,6 @@ export class WebGpuEngine {
 		// Record + log which check failed (returns false so call sites stay `return fail('x')`).
 		const fail = (stage: string): false => {
 			this.validationFailure = stage;
-			// eslint-disable-next-line no-console
 			console.error('[selfValidate] FAILED at:', stage, '(hasF16=' + this.hasF16 + ')');
 			return false;
 		};

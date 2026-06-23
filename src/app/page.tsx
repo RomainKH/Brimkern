@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { 
-  Cpu, Zap, Settings, Send, Trash2, CheckCircle, AlertCircle, 
-  Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot, 
+import {
+  Cpu, Zap, Send, Trash2, CheckCircle, AlertCircle,
+  Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot,
   User, Copy, Square, Info, ShieldCheck, Database, ArrowRight,
   Plus, Flame, MessageSquare
 } from 'lucide-react';
 import { AutoTokenizer } from '@huggingface/transformers';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
 import { CustomWebModel } from '@/lib/webgpu/model';
-import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
+import { parseGguf } from '@/lib/webgpu/ggufParser';
 import { listConversations, saveConversation, deleteConversation, deriveTitle, type Conversation } from '@/lib/chatStore';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -190,10 +190,9 @@ function App() {
   const [selectedTokenizerId, setSelectedTokenizerId] = useState<string>(TOKENIZER_PRESETS[0].id);
   const [modelArchType, setModelArchType] = useState<ArchType>('qwen');
   
-  // Generation Parameters
-  const [temperature, setTemperature] = useState<number>(0.7);
-  const [maxTokens, setMaxTokens] = useState<number>(512);
-  const [systemPrompt, setSystemPrompt] = useState<string>("You are a helpful AI assistant.");
+  // Generation Parameters (fixed for now — no UI to tune them)
+  const maxTokens = 512;
+  const systemPrompt = "You are a helpful AI assistant.";
   
   // Loading progress
   const [loadingStep, setLoadingStep] = useState<string>('');
@@ -478,8 +477,7 @@ function App() {
       // 1. Parse GGUF Metadata in JS
       setLoadingStep('Analyse de la structure GGUF en cours...');
       const manifest = await parseGguf(fileBlob);
-      console.log("Manifest GGUF extrait :", manifest);
-      
+
       // 2. Initialize WebGPU Engine compiled in WGSL
       setLoadingStep('Compilation des kernels WebGPU (WGSL)...');
       const engine = new WebGpuEngine();
@@ -898,11 +896,28 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Mobile backdrop — tap outside the drawer to close it */}
+      {isMobile && isSidebarOpen && (
+        <div
+          onClick={() => setIsSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 9 }}
+        />
+      )}
+
       {/* LEFT SIDEBAR */}
       <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
-          <Image src="/logo-icon.png" alt="Brimkern Logo" width={32} height={32} priority className="logo-image" style={{ borderRadius: '8px', mixBlendMode: 'multiply' }} />
+          <Image src="/logo-icon.png" alt="Brimkern Logo" width={48} height={48} priority className="logo-image" style={{ borderRadius: '8px', mixBlendMode: 'multiply' }} />
           <div className="logo-text">Brimkern</div>
+          {isMobile && (
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              title="Fermer le panneau"
+              style={{ marginLeft: 'auto', display: 'flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
+            >
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         <div style={{ padding: '16px 20px 0 20px' }}>
@@ -1278,7 +1293,7 @@ function App() {
           )}
 
           {/* Eject / Clear Cache */}
-          <div style={{ marginTop: 'auto', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ marginTop: 'auto', paddingTop: '10px' }}>
             <button
               className="btn btn-danger btn-block"
               style={{ fontSize: '12px', padding: '8px' }}
@@ -1286,12 +1301,6 @@ function App() {
             >
               <Trash2 size={12} /> Nettoyer le cache local
             </button>
-            <Link
-              href="/changelog"
-              style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-muted)', textDecoration: 'none' }}
-            >
-              Changelog · v1.0
-            </Link>
           </div>
         </div>
       </aside>
@@ -1328,29 +1337,39 @@ function App() {
             )}
           </div>
           </div>
-          {loadedModelName && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                className="btn-secondary"
-                onClick={handleBenchmark}
-                disabled={modelState !== 'ready' || benchRunning}
-                title="Mesurer le débit de décodage (f32 / f16 / int4)"
-                style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
-                {!isMobile && (benchRunning ? 'Benchmark…' : 'Benchmark f16/f32')}
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={handleUnloadModel}
-                disabled={modelState === 'generating' || benchRunning}
-                title="Décharger le modèle"
-                style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center' }}
-              >
-                {isMobile ? <X size={14} /> : 'Décharger'}
-              </button>
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {loadedModelName && (
+              <>
+                <button
+                  className="btn-secondary"
+                  onClick={handleBenchmark}
+                  disabled={modelState !== 'ready' || benchRunning}
+                  title="Mesurer le débit de décodage (f32 / f16 / int4)"
+                  style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
+                  {!isMobile && (benchRunning ? 'Benchmark…' : 'Benchmark f16/f32')}
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={handleUnloadModel}
+                  disabled={modelState === 'generating' || benchRunning}
+                  title="Décharger le modèle"
+                  style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center' }}
+                >
+                  {isMobile ? <X size={14} /> : 'Décharger'}
+                </button>
+              </>
+            )}
+            <Link
+              href="/changelog"
+              title="Changelog"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '13px', padding: '6px 8px' }}
+            >
+              <Info size={16} />
+              {!isMobile && <span>Changelog</span>}
+            </Link>
+          </div>
         </header>
 
         {/* Mobile capability warning */}
