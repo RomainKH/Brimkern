@@ -5,7 +5,7 @@ import {
   Cpu, Zap, Send, Trash2, CheckCircle, AlertCircle,
   Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot,
   User, Copy, Square, Info, ShieldCheck, Database, ArrowRight,
-  Plus, Flame, MessageSquare
+  Plus, Flame, MessageSquare, Brain, ChevronDown
 } from 'lucide-react';
 import { AutoTokenizer } from '@huggingface/transformers';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
@@ -122,6 +122,29 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
       <pre style={{ margin: 0 }}>
         <code>{code}</code>
       </pre>
+    </div>
+  );
+}
+
+// DeepSeek-R1 reasoning: the <think>…</think> block, shown as a collapsible dimmed box (default
+// collapsed) so the actual answer stays readable. Still streams live.
+function ReasoningBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, margin: '2px 0 10px', background: 'var(--bg-sidebar)', overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}
+      >
+        <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <span style={{ flex: 1, textAlign: 'left' }}>{streaming ? 'Réflexion en cours…' : 'Raisonnement'}</span>
+        <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div style={{ padding: '0 12px 12px', fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+          {text.trim()}
+        </div>
+      )}
     </div>
   );
 }
@@ -879,19 +902,39 @@ function App() {
   };
 
   // Markdown-like formatting helper
-  const renderMessageContent = (text: string) => {
-    if (!text) return null;
-    const parts = text.split(/(```[\s\S]*?```)/g);
-    
+  // Render markdown segments (fenced code blocks + rich text).
+  const renderBlocks = (t: string, keyPrefix: string) => {
+    const parts = t.split(/(```[\s\S]*?```)/g);
     return parts.map((part, index) => {
       if (part.startsWith('```')) {
         const match = part.match(/```(\w*)\n([\s\S]*?)```/);
         const language = match ? match[1] : '';
         const code = match ? match[2] : part.slice(3, -3);
-        return <CodeBlock key={index} code={code.trim()} language={language} />;
+        return <CodeBlock key={`${keyPrefix}-${index}`} code={code.trim()} language={language} />;
       }
-      return <div key={index} style={{ margin: '0 0 4px 0' }}>{renderRichText(part, `m${index}`)}</div>;
+      return <div key={`${keyPrefix}-${index}`} style={{ margin: '0 0 4px 0' }}>{renderRichText(part, `${keyPrefix}${index}`)}</div>;
     });
+  };
+
+  const renderMessageContent = (text: string) => {
+    if (!text) return null;
+    // DeepSeek-R1 emits <think>…</think> reasoning before the answer — tuck it into a collapsible box.
+    const open = text.indexOf('<think>');
+    if (open !== -1) {
+      const before = text.slice(0, open);
+      const after = text.slice(open + 7);
+      const close = after.indexOf('</think>');
+      const thinking = close === -1 ? after : after.slice(0, close);
+      const answer = close === -1 ? '' : after.slice(close + 8);
+      return (
+        <>
+          {before.trim() && renderBlocks(before, 'pre')}
+          <ReasoningBlock text={thinking} streaming={close === -1} />
+          {answer.trim() && renderBlocks(answer, 'ans')}
+        </>
+      );
+    }
+    return renderBlocks(text, 'm');
   };
 
   return (
@@ -1269,7 +1312,7 @@ function App() {
                   {([
                     { id: 'f32' as const, label: 'f32', enabled: true, hint: 'Qualité max (réf.)' },
                     { id: 'f16' as const, label: 'f16', enabled: !!activeEngine?.hasF16, hint: 'Plus rapide · ½ VRAM' },
-                    { id: 'q4' as const, label: 'int4', enabled: !!activeModel?.supportsQ4, hint: '¼ VRAM · gros modèles' }
+                    { id: 'q4' as const, label: 'BWP', enabled: !!activeModel?.supportsQ4, hint: 'Notre format int4 · ¼ VRAM · gros modèles' }
                   ]).map((opt) => (
                     <button
                       key={opt.id}
@@ -1277,16 +1320,21 @@ function App() {
                       onClick={() => changePrecision(opt.id)}
                       disabled={!opt.enabled || modelState === 'generating' || benchRunning}
                       title={opt.enabled ? opt.hint : 'Non supporté par ce GPU / modèle'}
-                      style={{ fontSize: '12px', padding: '6px 4px' }}
+                      style={{ fontSize: '12px', padding: '6px 4px', fontWeight: opt.id === 'q4' ? 700 : 500, color: opt.id === 'q4' && weightPrec !== 'q4' && opt.enabled ? 'var(--accent)' : undefined }}
                     >
-                      {opt.label}
+                      {opt.id === 'q4' ? '✦ BWP' : opt.label}
                     </button>
                   ))}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
                   {weightPrec === 'f32' && 'Poids en pleine précision (référence).'}
                   {weightPrec === 'f16' && 'Poids demi-précision : décodage plus rapide, ½ VRAM.'}
-                  {weightPrec === 'q4' && 'Poids 4-bit (BWP) : ¼ VRAM — permet de charger de plus gros modèles. Appliqué au prochain message.'}
+                  {weightPrec === 'q4' && (
+                    <><strong style={{ color: 'var(--accent)' }}>BWP</strong> — notre format de quantification 4-bit web-native. ¼ de la VRAM, déquant à la volée → permet de charger de plus gros modèles dans le navigateur. Appliqué au prochain message.</>
+                  )}
+                  {weightPrec !== 'q4' && activeModel?.supportsQ4 && (
+                    <div style={{ marginTop: 4, color: 'var(--accent)' }}>✦ Essayez <strong>BWP</strong> — notre format 4-bit maison.</div>
+                  )}
                 </div>
               </div>
             </div>
