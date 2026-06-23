@@ -1,0 +1,51 @@
+import type { Metadata } from "next";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "Brimkern — Interface LLM Locale WebGPU",
+  description: "Exécutez vos modèles de langage (LLM GGUF comme Qwen et Llama) localement dans votre navigateur. Accélération WebGPU, 100% confidentiel et hors-ligne.",
+  keywords: ["LLM local", "WebGPU", "IA navigateur", "WGSL", "GGUF", "Qwen", "Llama 3", "Wllama", "IA privée"],
+  authors: [{ name: "Romain Khanonyan" }],
+  alternates: {
+    canonical: "https://llm.romainkhanoyan.fr",
+  },
+  openGraph: {
+    title: "Brimkern — Interface LLM Locale WebGPU",
+    description: "Exécutez n'importe quel modèle LLM au format GGUF en local et accéléré par WebGPU directement dans votre navigateur.",
+    url: "https://llm.romainkhanoyan.fr",
+    siteName: "Brimkern",
+    images: [
+      {
+        url: "https://llm.romainkhanoyan.fr/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Brimkern WebGPU Layout",
+      },
+    ],
+    locale: "fr_FR",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Brimkern — Interface LLM Locale WebGPU",
+    description: "IA 100% locale dans le navigateur. Exécutez des GGUF de façon confidentielle avec accélération WebGPU.",
+    images: ["https://llm.romainkhanoyan.fr/og-image.png"],
+  },
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="fr">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
