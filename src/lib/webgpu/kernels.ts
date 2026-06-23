@@ -968,6 +968,19 @@ export class WebGpuEngine {
 		trash.push(dims, out);
 		return out;
 	}
+	// Fused int4 matmul recorded into the encoder (weight is a {nib,sc,mn} q4web triple).
+	private recMatmulQ4(enc: GPUAny, trash: GPUAny[], a: GPUAny, q4: GPUAny, m: number, k: number, n: number): GPUAny {
+		const dims = this.uniform([m, k, n]);
+		const out = this.storage(m * n * 4);
+		this.recordPass(enc, 'matmul_t_q4', [dims, a, q4.nib, q4.sc, q4.mn, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1]);
+		trash.push(dims, out);
+		return out;
+	}
+	// Dispatch the right matmul for a weight: q4 triple → fused int4; else f32/f16 buffer.
+	private recMM(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: GPUAny, m: number, k: number, n: number, wF16: boolean): GPUAny {
+		if (w && w.nib) return this.recMatmulQ4(enc, trash, a, w, m, k, n);
+		return this.recMatmulT(enc, trash, a, w, m, k, n, wF16);
+	}
 	private recRmsnorm(enc: GPUAny, trash: GPUAny[], x: GPUAny, w: GPUAny, rows: number, dim: number, eps: number): GPUAny {
 		const p = this.uniform([rows, dim], { offset: 8, value: eps });
 		const out = this.storage(rows * dim * 4);
@@ -1012,11 +1025,11 @@ export class WebGpuEngine {
 		const { seq, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps } = cfg;
 		const kvDim = nKvHeads * headDim;
 		const kvLen = pastLen + seq;
-		const f16 = w.matF16 === true; // projection matrices stored f16 (BWP) → f16 matmul
+		const f16 = w.matF16 === true; // f16 projection matrices → f16 matmul (q4 triples auto-detected)
 		const n1 = this.recRmsnorm(enc, trash, x, w.attnNorm, seq, d, eps);
-		let qP = this.recMatmulT(enc, trash, n1, w.wq, seq, d, d, f16);
-		let kP = this.recMatmulT(enc, trash, n1, w.wk, seq, d, kvDim, f16);
-		let vP = this.recMatmulT(enc, trash, n1, w.wv, seq, d, kvDim, f16);
+		let qP = this.recMM(enc, trash, n1, w.wq, seq, d, d, f16);
+		let kP = this.recMM(enc, trash, n1, w.wk, seq, d, kvDim, f16);
+		let vP = this.recMM(enc, trash, n1, w.wv, seq, d, kvDim, f16);
 		if (w.bq) qP = this.recAddBias(enc, trash, qP, w.bq, seq, d);
 		if (w.bk) kP = this.recAddBias(enc, trash, kP, w.bk, seq, kvDim);
 		if (w.bv) vP = this.recAddBias(enc, trash, vP, w.bv, seq, kvDim);
@@ -1028,13 +1041,13 @@ export class WebGpuEngine {
 		enc.copyBufferToBuffer(newK, 0, kBuf, pastLen * rowBytes, seq * rowBytes);
 		enc.copyBufferToBuffer(vP, 0, vBuf, pastLen * rowBytes, seq * rowBytes);
 		const attn = this.recAttention(enc, trash, q, kBuf, vBuf, seq, nHeads, nKvHeads, headDim, kvLen, pastLen);
-		const proj = this.recMatmulT(enc, trash, attn, w.wo, seq, d, d, f16);
+		const proj = this.recMM(enc, trash, attn, w.wo, seq, d, d, f16);
 		const h = this.recBinary(enc, trash, 'add', x, proj, seq * d);
 		const n2 = this.recRmsnorm(enc, trash, h, w.ffnNorm, seq, d, eps);
-		const gate = this.recMatmulT(enc, trash, n2, w.wgate, seq, d, ffn, f16);
-		const up = this.recMatmulT(enc, trash, n2, w.wup, seq, d, ffn, f16);
+		const gate = this.recMM(enc, trash, n2, w.wgate, seq, d, ffn, f16);
+		const up = this.recMM(enc, trash, n2, w.wup, seq, d, ffn, f16);
 		const g = this.recBinary(enc, trash, 'swiglu', gate, up, seq * ffn);
-		const down = this.recMatmulT(enc, trash, g, w.wdown, seq, ffn, d, f16);
+		const down = this.recMM(enc, trash, g, w.wdown, seq, ffn, d, f16);
 		return this.recBinary(enc, trash, 'add', h, down, seq * d);
 	}
 

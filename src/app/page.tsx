@@ -752,7 +752,7 @@ function App() {
       const encoded = await activeTokenizer(prompt);
       const promptTokens = Array.from(encoded.input_ids.data as ArrayLike<number | bigint>, (v) => Number(v));
       const N = 24;
-      const measure = async (precision: 'f32' | 'f16') => {
+      const measure = async (precision: 'f32' | 'f16' | 'q4') => {
         activeModel.setWeightPrecision(precision);
         activeModel.reset();
         const sid = `bench-${precision}-${Date.now()}`;
@@ -763,16 +763,17 @@ function App() {
       };
       const f32 = await measure('f32');
       const f16 = await measure('f16');
+      const q4 = activeModel.supportsQ4 ? await measure('q4') : null;
       activeModel.setWeightPrecision('f32'); // restore default for normal chat
       activeModel.reset();
       setMessages(prev => [...prev, {
         id: `bench-${Date.now()}`, role: 'assistant',
         content:
           `**⚡ Benchmark décodage** (${N} tokens, modèle **${loadedModelName}**)\n\n` +
-          `- Poids **f32** : \`${f32.toFixed(1)} tok/s\`\n` +
-          `- Poids **f16** : \`${f16.toFixed(1)} tok/s\`\n` +
-          `- Accélération f16 : \`${(f16 / f32).toFixed(2)}×\`\n\n` +
-          `*f16 = poids en demi-précision résidents sur le GPU (÷2 mémoire & bande passante). embed + projection logits restent en f32.*`
+          `- Poids **f32** : \`${f32.toFixed(1)} tok/s\` (réf. VRAM 1×)\n` +
+          `- Poids **f16** : \`${f16.toFixed(1)} tok/s\` (½ VRAM)\n` +
+          (q4 !== null ? `- Poids **q4** (int4 BWP) : \`${q4.toFixed(1)} tok/s\` (¼ VRAM)\n` : '') +
+          `\n*Les 3 précisions partagent le même chemin GPU-resident ; q4 garde les poids en 4-bit dans la VRAM (déquant à la volée), ce qui permet de charger des modèles plus gros. embed + projection logits restent en f32.*`
       }]);
     } catch (e: any) {
       setMessages(prev => [...prev, { id: `bench-err-${Date.now()}`, role: 'assistant', isError: true, content: `Benchmark échoué : ${e?.message || e}` }]);
@@ -845,8 +846,9 @@ function App() {
     <div className="app-container">
       {/* LEFT SIDEBAR */}
       <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-header" style={{ justifyContent: 'center', padding: '16px 24px' }}>
-          <Image src="/logo.png" alt="Brimkern Logo" width={140} height={140} priority style={{ mixBlendMode: 'multiply' }} />
+        <div className="sidebar-header">
+          <Image src="/logo-icon.png" alt="Brimkern Logo" width={32} height={32} priority className="logo-image" style={{ borderRadius: '8px', mixBlendMode: 'multiply' }} />
+          <div className="logo-text">Brimkern</div>
         </div>
 
         <div style={{ padding: '16px 20px 0 20px' }}>

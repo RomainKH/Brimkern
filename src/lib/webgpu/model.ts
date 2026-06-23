@@ -9,6 +9,7 @@
 
 import { WebGpuEngine, type LayerCfg, type LayerWeights, type LayerWeightsGpu } from './kernels';
 import { type Manifest } from './ggufParser';
+import { quantizeQ4 } from '../bwp/q4web';
 
 export class CustomWebModel {
 	private engine: WebGpuEngine;
@@ -71,17 +72,45 @@ export class CustomWebModel {
 		return this.engine.uploadGpuF16(f32);
 	}
 
-	// Precision of the persistent LAYER weight matrices: 'f32' (default) or 'f16' (the BWP path).
-	// Norms/biases and the embed/logit projections stay f32 either way.
-	private weightPrecision: 'f32' | 'f16' = 'f32';
+	// Same, but the weight stays 4-bit in VRAM (BWP q4web): dequant to f32 once, requantize to int4
+	// groups, upload the nibbles/scales/mins as persistent buffers consumed by the fused q4 matmul.
+	private async dequantGpuQ4(name: string): Promise<any> {
+		const t = this.manifest.tensors[name];
+		const bytes = await this.rawTensor(name);
+		const f32 = await this.engine.dequantizeByType(t.type, bytes, t.nElems);
+		const q = quantizeQ4(f32);
+		return {
+			nib: this.engine.uploadGpuRaw(q.nibbles),
+			sc: this.engine.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)),
+			mn: this.engine.uploadGpuRaw(new Uint8Array(q.mins.buffer, q.mins.byteOffset, q.mins.byteLength))
+		};
+	}
+
+	// Free a cached weight whether it's a plain GPU buffer (f32/f16) or a q4 {nib,sc,mn} triple.
+	private static destroyWeight(b: any) {
+		if (!b) return;
+		if (b.nib) { b.nib?.destroy?.(); b.sc?.destroy?.(); b.mn?.destroy?.(); }
+		else b.destroy?.();
+	}
+
+	// Precision of the persistent LAYER weight matrices: 'f32' (default), 'f16' (½ VRAM) or 'q4'
+	// (¼ VRAM, weights kept 4-bit). Norms/biases and the embed/logit projection stay f32.
+	private weightPrecision: 'f32' | 'f16' | 'q4' = 'f32';
 	get precision() { return this.weightPrecision; }
+
+	// True if q4 is usable for this model (the fused int4 matmul needs the contraction dim ÷ 32).
+	get supportsQ4(): boolean {
+		const { d, ffn } = this.manifest.config;
+		return d % 32 === 0 && ffn % 32 === 0;
+	}
 
 	// Switch layer-weight precision: frees the currently-cached GPU buffers so the next forward
 	// rebuilds them at the new precision. Only does work when the precision actually changes.
-	public setWeightPrecision(p: 'f32' | 'f16') {
+	public setWeightPrecision(p: 'f32' | 'f16' | 'q4') {
 		if (p === this.weightPrecision) return;
+		if (p === 'q4' && !this.supportsQ4) throw new Error('q4 indisponible : d ou ffn non multiple de 32');
 		for (const w of this.layerGpuCache.values()) {
-			for (const b of Object.values(w)) (b as any)?.destroy?.();
+			for (const b of Object.values(w)) CustomWebModel.destroyWeight(b);
 		}
 		this.layerGpuCache.clear();
 		this.weightPrecision = p;
@@ -124,9 +153,10 @@ export class CustomWebModel {
 		if (cached) return cached;
 		const p = `blk.${idx}`;
 		const up = (a: Float32Array) => this.engine.uploadGpu(a);
-		// Projection matrices: f16 buffers in the f16 path, f32 (dequant-on-GPU) otherwise.
-		const f16 = this.weightPrecision === 'f16';
-		const mat = (name: string) => (f16 ? this.dequantGpuF16(name) : this.dequantGpu(name));
+		// Projection matrices follow weightPrecision: q4 (4-bit triple), f16 buffer, or f32 (on-GPU).
+		const prec = this.weightPrecision;
+		const f16 = prec === 'f16';
+		const mat = (name: string) => (prec === 'q4' ? this.dequantGpuQ4(name) : prec === 'f16' ? this.dequantGpuF16(name) : this.dequantGpu(name));
 		const [attnNorm, wq, wk, wv, wo, ffnNorm, wgate, wup, wdown, bq, bk, bv] = await Promise.all([
 			this.dequant(`${p}.attn_norm.weight`).then(up),
 			mat(`${p}.attn_q.weight`),
@@ -216,7 +246,7 @@ export class CustomWebModel {
 	public unload() {
 		this.reset();
 		for (const w of this.layerGpuCache.values()) {
-			for (const b of Object.values(w)) (b as any)?.destroy?.();
+			for (const b of Object.values(w)) CustomWebModel.destroyWeight(b);
 		}
 		this.layerGpuCache.clear();
 		this.finalNormGpu?.destroy?.();
