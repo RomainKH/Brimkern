@@ -134,18 +134,6 @@ function App() {
     detect();
   }, []);
 
-  // DEBUG (build v4): capture the REAL stack of any uncaught error / promise rejection, since
-  // the React overlay mis-maps it to page.tsx:100. Remove once the load error is fixed.
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log('[brimkern build v4] app mounted');
-    const onErr = (e: ErrorEvent) => console.error('[brimkern] window error:', e.message, '\nSTACK:\n', e.error?.stack);
-    const onRej = (e: PromiseRejectionEvent) => console.error('[brimkern] unhandledrejection:', (e.reason as any)?.message, '\nSTACK:\n', (e.reason as any)?.stack);
-    window.addEventListener('error', onErr);
-    window.addEventListener('unhandledrejection', onRej);
-    return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej); };
-  }, []);
-
   // Update tokenizer type when selecting presets
   useEffect(() => {
     if (activeTab === 'hf') {
@@ -349,12 +337,8 @@ function App() {
       // 5. Load Tokenizer
       setLoadingStep('Chargement du Tokenizer (Hugging Face)...');
       let tokenizer;
-      // eslint-disable-next-line no-console
-      console.log('[brimkern build v4] loading tokenizer:', selectedTokenizerId);
       try {
         tokenizer = await AutoTokenizer.from_pretrained(selectedTokenizerId);
-        // eslint-disable-next-line no-console
-        console.log('[brimkern build v4] tokenizer loaded OK:', (tokenizer as any)?.constructor?.name);
       } catch (te: any) {
         throw new Error(
           `Impossible de charger le tokenizer « ${selectedTokenizerId} » : ${te?.message || te}. ` +
@@ -376,8 +360,6 @@ function App() {
       setLoadedModelName(modelName);
       setModelMetadata(manifest);
       setModelState('ready');
-      // eslint-disable-next-line no-console
-      console.log('[brimkern build v4] model READY — no tokenizer encode happened during load');
       
       setMessages([
         {
@@ -488,9 +470,6 @@ function App() {
       
       const chatHistory = [...prevHistory, { role: 'user' as const, content: text }];
       const prompt = formatPrompt(chatHistory, modelArchType, systemPrompt);
-      // eslint-disable-next-line no-console
-      console.log('[brimkern build v3] encode prompt:', { type: typeof prompt, len: prompt?.length, archType: modelArchType, head: String(prompt).slice(0, 60) });
-      if (prompt == null || prompt === '') throw new Error(`Prompt vide/null (archType=${modelArchType}). Redémarrez le serveur (Ctrl-C + npm run dev) puis hard reload.`);
 
       // 1. Encode prompt. transformers v4 returns input_ids as a BigInt64Array, so coerce each
       // id to a plain Number — the WebGPU engine indexes with it (BigInt × Number would throw).
@@ -506,7 +485,7 @@ function App() {
       const prefillTimeMs = tPrefill1 - tPrefill0;
       
       // Detokenize first token
-      let assistantText = await activeTokenizer.decode([currentToken]);
+      let assistantText = await activeTokenizer.decode([currentToken], { skip_special_tokens: true });
       const generatedTokens = [currentToken];
       
       setMessages(prev => prev.map(m => {
@@ -535,7 +514,7 @@ function App() {
         stepCount++;
         
         // Detokenize the generated token sequence
-        const newText = await activeTokenizer.decode(generatedTokens);
+        const newText = await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true });
         assistantText = newText;
         
         // Real-time timings calc
