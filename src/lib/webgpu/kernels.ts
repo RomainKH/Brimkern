@@ -107,13 +107,14 @@ const SHADERS = {
 		}`,
 
 	// Fused q4web matmul: C = A · Wᵀ where W is BWP int4 (kept 4-bit in VRAM, dequantized in
-	// registers). Per row `col`, W has k/32 groups; each group has an f16 scale + f16 min and 32
-	// packed 4-bit codes (value = q*scale + min). No shader-f16 extension needed (f16 decoded by
-	// hand). Requires k % 32 == 0. SoA bindings: nibbles (u8 as u32), scales/mins (f16 pairs as u32).
+	// registers). Requires k % 32 == 0. Optimized: reads each 32-bit weight word ONCE (8 nibbles
+	// per word, extracted by shift), and vectorizes the dequant + dot product with vec4 — so it's
+	// bandwidth-bound (¼ the weight traffic of f32) rather than ALU-bound on per-weight bit math.
+	// Bindings: a as vec4<f32>, nibbles (8 nibbles/u32), scales/mins (f16 pairs/u32).
 	matmul_t_q4: `
 		struct Dims { m: u32, k: u32, n: u32 };
 		@group(0) @binding(0) var<uniform> d: Dims;
-		@group(0) @binding(1) var<storage, read> a: array<f32>;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
 		@group(0) @binding(2) var<storage, read> nib: array<u32>;
 		@group(0) @binding(3) var<storage, read> sc: array<u32>;
 		@group(0) @binding(4) var<storage, read> mn: array<u32>;
@@ -129,23 +130,24 @@ const SHADERS = {
 			let row = gid.x; let col = gid.y;
 			if (row >= d.m || col >= d.n) { return; }
 			let k = d.k; let nGroups = k / 32u;
-			let aBase = row * k; let wBase = col * k; let gBase = col * nGroups;
-			var acc = 0.0;
+			let aVecRow = row * (k / 4u);  // a is vec4: 4 floats per element
+			let wordRow = col * (k / 8u);  // 8 nibbles per u32 word
+			let gBase = col * nGroups;
+			var acc = vec4<f32>(0.0);
 			for (var g = 0u; g < nGroups; g = g + 1u) {
 				let si = gBase + g;
 				let sw = sc[si >> 1u]; let s = f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
-				let mw = mn[si >> 1u]; let mmin = f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u));
-				let i0 = g * 32u;
-				for (var j = 0u; j < 32u; j = j + 1u) {
-					let i = i0 + j;
-					let be = wBase + i;
-					let word = nib[be >> 3u];                       // 8 nibbles per u32 word
-					let byte = (word >> (((be >> 1u) & 3u) * 8u)) & 0xFFu;
-					let q = select(byte & 0xFu, byte >> 4u, (be & 1u) == 1u);
-					acc = acc + a[aBase + i] * (f32(q) * s + mmin);
+				let mw = mn[si >> 1u]; let mvec = vec4<f32>(f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u)));
+				let wb = wordRow + g * 4u;
+				let avb = aVecRow + g * 8u;
+				for (var w = 0u; w < 4u; w = w + 1u) {
+					let word = nib[wb + w];
+					let n0 = vec4<f32>(f32(word & 0xFu), f32((word >> 4u) & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 12u) & 0xFu));
+					let n1 = vec4<f32>(f32((word >> 16u) & 0xFu), f32((word >> 20u) & 0xFu), f32((word >> 24u) & 0xFu), f32((word >> 28u) & 0xFu));
+					acc = acc + a[avb + w * 2u] * (n0 * s + mvec) + a[avb + w * 2u + 1u] * (n1 * s + mvec);
 				}
 			}
-			c[row * d.n + col] = acc;
+			c[row * d.n + col] = acc.x + acc.y + acc.z + acc.w;
 		}`,
 
 	// RMSNorm over the last dimension (dim = cols), with a per-channel weight.
