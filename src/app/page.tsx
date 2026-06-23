@@ -134,6 +134,18 @@ function App() {
     detect();
   }, []);
 
+  // DEBUG (build v4): capture the REAL stack of any uncaught error / promise rejection, since
+  // the React overlay mis-maps it to page.tsx:100. Remove once the load error is fixed.
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log('[brimkern build v4] app mounted');
+    const onErr = (e: ErrorEvent) => console.error('[brimkern] window error:', e.message, '\nSTACK:\n', e.error?.stack);
+    const onRej = (e: PromiseRejectionEvent) => console.error('[brimkern] unhandledrejection:', (e.reason as any)?.message, '\nSTACK:\n', (e.reason as any)?.stack);
+    window.addEventListener('error', onErr);
+    window.addEventListener('unhandledrejection', onRej);
+    return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej); };
+  }, []);
+
   // Update tokenizer type when selecting presets
   useEffect(() => {
     if (activeTab === 'hf') {
@@ -337,8 +349,12 @@ function App() {
       // 5. Load Tokenizer
       setLoadingStep('Chargement du Tokenizer (Hugging Face)...');
       let tokenizer;
+      // eslint-disable-next-line no-console
+      console.log('[brimkern build v4] loading tokenizer:', selectedTokenizerId);
       try {
         tokenizer = await AutoTokenizer.from_pretrained(selectedTokenizerId);
+        // eslint-disable-next-line no-console
+        console.log('[brimkern build v4] tokenizer loaded OK:', (tokenizer as any)?.constructor?.name);
       } catch (te: any) {
         throw new Error(
           `Impossible de charger le tokenizer « ${selectedTokenizerId} » : ${te?.message || te}. ` +
@@ -357,6 +373,8 @@ function App() {
       setLoadedModelName(modelName);
       setModelMetadata(manifest);
       setModelState('ready');
+      // eslint-disable-next-line no-console
+      console.log('[brimkern build v4] model READY — no tokenizer encode happened during load');
       
       setMessages([
         {
