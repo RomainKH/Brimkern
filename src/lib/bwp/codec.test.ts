@@ -17,12 +17,14 @@ const rand = (n: number) => Float32Array.from({ length: n }, () => (Math.random(
 // 1. f16 round-trip within binary16 relative precision (~2⁻¹⁰).
 {
 	const xs = rand(4096);
-	let maxRel = 0;
+	// f16 has ~10 mantissa bits (rel ~1e-3) AND flushes subnormals (|v|<~6e-5) to zero, so use a
+	// combined abs+rel bound — a pure relative metric is flaky for the occasional near-zero value.
+	let worst = 0;
 	for (const v of xs) {
 		const back = f16BitsToF32(f32ToF16Bits(v));
-		maxRel = Math.max(maxRel, Math.abs(back - v) / (Math.abs(v) + 1e-6));
+		worst = Math.max(worst, Math.abs(back - v) - (1e-3 * Math.abs(v) + 1e-4));
 	}
-	check('f16 round-trip rel error < 1e-3', maxRel < 1e-3, `maxRel=${maxRel.toExponential(2)}`);
+	check('f16 round-trip within 1e-3·|v| + 1e-4', worst <= 0, `overshoot=${worst.toExponential(2)}`);
 }
 
 // 2. Known f16 values decode exactly.
