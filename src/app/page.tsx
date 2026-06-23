@@ -467,7 +467,9 @@ function App() {
       
       const chatHistory = [...prevHistory, { role: 'user' as const, content: text }];
       const prompt = formatPrompt(chatHistory, modelArchType, systemPrompt);
-      if (!prompt) throw new Error(`Prompt vide (archType=${modelArchType}). Faites un hard reload (Cmd-Shift-R).`);
+      // eslint-disable-next-line no-console
+      console.log('[brimkern build v3] encode prompt:', { type: typeof prompt, len: prompt?.length, archType: modelArchType, head: String(prompt).slice(0, 60) });
+      if (prompt == null || prompt === '') throw new Error(`Prompt vide/null (archType=${modelArchType}). Redémarrez le serveur (Ctrl-C + npm run dev) puis hard reload.`);
 
       // 1. Encode prompt. transformers v4 returns input_ids as a BigInt64Array, so coerce each
       // id to a plain Number — the WebGPU engine indexes with it (BigInt × Number would throw).
