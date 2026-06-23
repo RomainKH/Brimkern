@@ -369,7 +369,10 @@ function App() {
       
       setActiveEngine(engine);
       setActiveModel(model);
-      setActiveTokenizer(tokenizer);
+      // The transformers tokenizer is a CALLABLE object; setState(fn) would treat it as a state
+      // updater and invoke it with the previous state (null) → "text may not be null". Store it
+      // via a functional updater so React keeps the tokenizer itself instead of calling it.
+      setActiveTokenizer(() => tokenizer);
       setLoadedModelName(modelName);
       setModelMetadata(manifest);
       setModelState('ready');
