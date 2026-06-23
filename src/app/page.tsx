@@ -13,6 +13,7 @@ import { CustomWebModel } from '@/lib/webgpu/model';
 import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
 import { listConversations, saveConversation, deleteConversation, deriveTitle, type Conversation } from '@/lib/chatStore';
 import Image from 'next/image';
+import Link from 'next/link';
 
 interface Message {
   id: string;
@@ -30,8 +31,19 @@ interface Message {
   isError?: boolean;
 }
 
+// Chat/architecture families the prompt formatter + stop-token logic understand.
+type ArchType = 'qwen' | 'llama3' | 'llama2' | 'gemma' | 'deepseek';
+
 // Preset models suitable for browser WebGPU running
 const PRESET_MODELS = [
+  {
+    name: "DeepSeek-R1 Distill Qwen 1.5B (Q4_K_M)",
+    url: "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+    size: "1,12 Go",
+    desc: "Modèle de raisonnement (pensée <think>) distillé sur base Qwen 2.5. Tourne sur nos kernels.",
+    tokenizer: "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    type: "deepseek" as const
+  },
   {
     name: "Qwen 2.5 0.5B Instruct (Q8_0)",
     url: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf",
@@ -59,6 +71,7 @@ const PRESET_MODELS = [
 ];
 
 const TOKENIZER_PRESETS = [
+  { name: "DeepSeek-R1 Distill (Qwen)", id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", type: "deepseek" as const },
   { name: "Qwen 2 / 2.5", id: "Qwen/Qwen2.5-0.5B-Instruct", type: "qwen" as const },
   { name: "Llama 3 / 3.2", id: "Xenova/llama-3-tokenizer", type: "llama3" as const },
   { name: "Llama 2 / Mistral", id: "Xenova/llama-tokenizer", type: "llama2" as const },
@@ -175,7 +188,7 @@ function App() {
   
   // Tokenizer selection
   const [selectedTokenizerId, setSelectedTokenizerId] = useState<string>(TOKENIZER_PRESETS[0].id);
-  const [modelArchType, setModelArchType] = useState<'qwen' | 'llama3' | 'llama2' | 'gemma'>('qwen');
+  const [modelArchType, setModelArchType] = useState<ArchType>('qwen');
   
   // Generation Parameters
   const [temperature, setTemperature] = useState<number>(0.7);
@@ -208,11 +221,21 @@ function App() {
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [benchRunning, setBenchRunning] = useState<boolean>(false);
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [mobileWarnDismissed, setMobileWarnDismissed] = useState<boolean>(false);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Track small / touch screens (limited GPU + memory → mobile warning, icon-only header).
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 1000);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   // Detect WebGPU on mount
   useEffect(() => {
@@ -378,9 +401,22 @@ function App() {
   };
 
   // Helper to format prompt
-  const formatPrompt = (chatMsgs: { role: string; content: string }[], archType: 'qwen' | 'llama3' | 'llama2' | 'gemma', systemText: string) => {
+  const formatPrompt = (chatMsgs: { role: string; content: string }[], archType: ArchType, systemText: string) => {
     let formatted = '';
-    
+
+    if (archType === 'deepseek') {
+      // DeepSeek-R1 distill conversation format (｜ = U+FF5C, ▁ = U+2581). System text is folded
+      // into the first turn per R1 guidance; the model emits its <think>…</think> reasoning.
+      formatted += '<｜begin▁of▁sentence｜>';
+      if (systemText.trim()) formatted += systemText;
+      for (const msg of chatMsgs) {
+        if (msg.role === 'user') formatted += `<｜User｜>${msg.content}`;
+        else if (msg.role === 'assistant') formatted += `<｜Assistant｜>${msg.content}<｜end▁of▁sentence｜>`;
+      }
+      formatted += '<｜Assistant｜>';
+      return formatted;
+    }
+
     if (archType === 'qwen') {
       if (systemText.trim()) {
         formatted += `<|im_start|>system\n${systemText}<|im_end|>\n`;
@@ -417,7 +453,7 @@ function App() {
     return formatted;
   };
 
-  const isStopToken = (tokenId: number, text: string, archType: 'qwen' | 'llama3' | 'llama2' | 'gemma') => {
+  const isStopToken = (tokenId: number, text: string, archType: ArchType) => {
     if (tokenId === 2 && archType === 'llama2') return true;
     if (tokenId === 1 && archType === 'gemma') return true;
     if (tokenId === 107 && archType === 'gemma') return true;
@@ -425,9 +461,11 @@ function App() {
     if (tokenId === 128001 && archType === 'llama3') return true;
     if (tokenId === 151645 && archType === 'qwen') return true;
     if (tokenId === 151643 && archType === 'qwen') return true;
-    
+    // DeepSeek-R1 distill (Qwen2 vocab): <｜end▁of▁sentence｜>.
+    if (tokenId === 151643 && archType === 'deepseek') return true;
+
     const trimmed = text.trim();
-    return trimmed === '<|im_end|>' || trimmed === '<|eot_id|>' || trimmed === '</s>' || trimmed === '<end_of_turn>';
+    return trimmed === '<|im_end|>' || trimmed === '<|eot_id|>' || trimmed === '</s>' || trimmed === '<end_of_turn>' || trimmed === '<｜end▁of▁sentence｜>';
   };
 
   // Common model loader logic
@@ -538,7 +576,7 @@ function App() {
     convCreatedAt.current.set(conv.id, conv.createdAt);
     setCurrentConvId(conv.id);
     setMessages(conv.messages.map((m) => ({ ...m })) as Message[]);
-    if (conv.archType) setModelArchType(conv.archType as 'qwen' | 'llama3' | 'llama2' | 'gemma');
+    if (conv.archType) setModelArchType(conv.archType as ArchType);
     if (conv.tokenizerId) setSelectedTokenizerId(conv.tokenizerId);
     if (modelState === 'idle') setModelState(activeModel ? 'ready' : 'idle');
   };
@@ -1240,14 +1278,20 @@ function App() {
           )}
 
           {/* Eject / Clear Cache */}
-          <div style={{ marginTop: 'auto', paddingTop: '10px' }}>
-            <button 
+          <div style={{ marginTop: 'auto', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <button
               className="btn btn-danger btn-block"
               style={{ fontSize: '12px', padding: '8px' }}
               onClick={handleClearCache}
             >
               <Trash2 size={12} /> Nettoyer le cache local
             </button>
+            <Link
+              href="/changelog"
+              style={{ textAlign: 'center', fontSize: '11px', color: 'var(--text-muted)', textDecoration: 'none' }}
+            >
+              Changelog · v1.0
+            </Link>
           </div>
         </div>
       </aside>
@@ -1290,23 +1334,44 @@ function App() {
                 className="btn-secondary"
                 onClick={handleBenchmark}
                 disabled={modelState !== 'ready' || benchRunning}
-                title="Mesurer le débit de décodage avec poids f32 vs f16"
+                title="Mesurer le débit de décodage (f32 / f16 / int4)"
                 style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
                 {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
-                {benchRunning ? 'Benchmark…' : 'Benchmark f16/f32'}
+                {!isMobile && (benchRunning ? 'Benchmark…' : 'Benchmark f16/f32')}
               </button>
               <button
                 className="btn btn-danger"
                 onClick={handleUnloadModel}
                 disabled={modelState === 'generating' || benchRunning}
-                style={{ padding: '6px 12px', fontSize: '12px' }}
+                title="Décharger le modèle"
+                style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center' }}
               >
-                Décharger
+                {isMobile ? <X size={14} /> : 'Décharger'}
               </button>
             </div>
           )}
         </header>
+
+        {/* Mobile capability warning */}
+        {isMobile && !mobileWarnDismissed && (
+          <div style={{
+            display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 16px',
+            background: 'rgba(245, 158, 11, 0.1)', borderBottom: '1px solid rgba(245, 158, 11, 0.25)'
+          }}>
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1, color: 'var(--warning)' }} />
+            <div style={{ flex: 1, fontSize: '12px', lineHeight: 1.45, color: 'var(--text-secondary)' }}>
+              <strong style={{ color: 'var(--warning)' }}>Appareil mobile détecté.</strong> WebGPU est limité sur mobile (GPU et mémoire réduits) — un ordinateur est recommandé. Pour tenter quand même : choisissez le plus petit modèle (0.5B) en précision <strong>int4</strong>.
+            </div>
+            <button
+              onClick={() => setMobileWarnDismissed(true)}
+              title="Masquer"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', flexShrink: 0, display: 'flex' }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="messages-container">

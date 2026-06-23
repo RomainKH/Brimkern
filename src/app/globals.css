@@ -106,7 +106,8 @@ body {
   font-family: var(--font-heading);
   font-weight: 800;
   font-size: 22px;
-  color: #111827; /* Dark black/gray */
+  color: #111827;
+  /* Dark black/gray */
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
@@ -231,6 +232,7 @@ body {
   background: var(--accent-bg-rgba);
   color: var(--accent);
   border: 1px solid rgba(139, 92, 246, 0.2);
+  white-space: nowrap;
 }
 
 /* Tabs */

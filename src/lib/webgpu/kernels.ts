@@ -384,6 +384,80 @@ const SHADERS = {
 			}
 		}`,
 
+	// Q4_0 dequant: 18-byte blocks (fp16 d + 16×4-bit), 32 weights. Symmetric: y[i] = d*(q-8).
+	dequant_q4_0: `
+		struct DQ { nBlocks: u32 };
+		@group(0) @binding(0) var<uniform> p: DQ;
+		@group(0) @binding(1) var<storage, read> q: array<u32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		fn gb(i: u32) -> u32 { return (q[i >> 2u] >> ((i & 3u) * 8u)) & 0xFFu; }
+		fn f16(h: u32) -> f32 {
+			let s=(h>>15u)&1u; let e=(h>>10u)&0x1Fu; let m=h&0x3FFu; var v:f32;
+			if(e==0u){v=f32(m)*5.9604645e-8;}else if(e==31u){v=65504.0;}else{v=(1.0+f32(m)/1024.0)*pow(2.0,f32(e)-15.0);}
+			return select(v,-v,s==1u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let blk=gid.x; if(blk>=p.nBlocks){return;}
+			let base=blk*18u;
+			let d=f16(gb(base)|(gb(base+1u)<<8u));
+			let ob=blk*32u;
+			for(var j=0u;j<16u;j=j+1u){
+				let qsj=gb(base+2u+j);
+				o[ob+j]     = d*f32(i32(qsj&0xFu)-8);
+				o[ob+j+16u] = d*f32(i32(qsj>>4u)-8);
+			}
+		}`,
+
+	// Q5_K dequant: 176-byte super-blocks (fp16 d + fp16 dmin + 12 scales + 32 qh + 128 qs), 256
+	// weights. Mirrors dequantize_row_q5_K: same get_scale_min_k4 as Q4_K, plus a 5th bit per
+	// weight taken from qh (u1/u2 masks shifting ×4 over the four 64-wide sub-blocks).
+	dequant_q5k: `
+		struct DQ { nBlocks: u32 };
+		@group(0) @binding(0) var<uniform> p: DQ;
+		@group(0) @binding(1) var<storage, read> q: array<u32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		fn f16(h: u32) -> f32 {
+			let s=(h>>15u)&1u; let e=(h>>10u)&0x1Fu; let m=h&0x3FFu; var v:f32;
+			if(e==0u){v=f32(m)*5.9604645e-8;}else if(e==31u){v=65504.0;}else{v=(1.0+f32(m)/1024.0)*pow(2.0,f32(e)-15.0);}
+			return select(v,-v,s==1u);
+		}
+		fn byteAt(base: u32, k: u32) -> u32 { let word = q[base + (k >> 2u)]; return (word >> ((k & 3u) * 8u)) & 0xFFu; }
+		fn scaleMin(base: u32, j: u32) -> vec2<f32> {
+			var d6: u32; var m6: u32;
+			if (j < 4u) {
+				d6 = byteAt(base, 4u + j) & 63u;
+				m6 = byteAt(base, 4u + j + 4u) & 63u;
+			} else {
+				d6 = (byteAt(base, 4u + j + 4u) & 0xFu) | ((byteAt(base, 4u + j - 4u) >> 6u) << 4u);
+				m6 = (byteAt(base, 4u + j + 4u) >> 4u) | ((byteAt(base, 4u + j) >> 6u) << 4u);
+			}
+			return vec2<f32>(f32(d6), f32(m6));
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let blk = gid.x;
+			if (blk >= p.nBlocks) { return; }
+			let base = blk * 44u; // 176 bytes
+			let d = f16(q[base] & 0xFFFFu);
+			let dmin = f16((q[base] >> 16u) & 0xFFFFu);
+			let outBase = blk * 256u;
+			var is = 0u; var qsOff = 0u; var u1 = 1u; var u2 = 2u;
+			for (var j = 0u; j < 256u; j = j + 64u) {
+				let a = scaleMin(base, is);   let d1 = d * a.x; let m1 = dmin * a.y;
+				let b = scaleMin(base, is + 1u); let d2 = d * b.x; let m2 = dmin * b.y;
+				for (var l = 0u; l < 32u; l = l + 1u) {
+					let ql = byteAt(base, 48u + qsOff + l);
+					let qhl = byteAt(base, 16u + l);
+					let hi1 = select(0u, 16u, (qhl & u1) != 0u);
+					let hi2 = select(0u, 16u, (qhl & u2) != 0u);
+					o[outBase + j + l]       = d1 * f32((ql & 0xFu) + hi1) - m1;
+					o[outBase + j + 32u + l] = d2 * f32((ql >> 4u) + hi2) - m2;
+				}
+				qsOff = qsOff + 32u; is = is + 2u; u1 = u1 << 2u; u2 = u2 << 2u;
+			}
+		}`,
+
 	// Q6_K dequant: 210-byte super-blocks (128 ql + 64 qh + 16 int8 scales + fp16 d), 256 weights.
 	// Mirrors llama.cpp dequantize_row_q6_K (two halves of 128, is = l/16, scales sc[is + {0,2,4,6}]).
 	dequant_q6k: `
@@ -728,7 +802,8 @@ export class WebGpuEngine {
 		Q4_K: 256, Q5_K: 256, Q6_K: 256, Q8_0: 32, Q5_0: 32, Q4_0: 32, F32: 1, F16: 1
 	};
 	private static DEQUANT_SHADER: Record<string, string> = {
-		Q4_K: 'dequant_q4k', Q8_0: 'dequant_q8_0', Q5_0: 'dequant_q5_0', Q6_K: 'dequant_q6k'
+		Q4_K: 'dequant_q4k', Q8_0: 'dequant_q8_0', Q5_0: 'dequant_q5_0', Q6_K: 'dequant_q6k',
+		Q4_0: 'dequant_q4_0', Q5_K: 'dequant_q5k'
 	};
 
 	// Generic GPU dequant: upload the raw GGUF tensor bytes as u32, run the per-type kernel
@@ -1357,6 +1432,19 @@ export class WebGpuEngine {
 			if (!closeRel(await this.dequantizeByType('Q5_0', q5, nb * 32), dequantQ5_0Cpu(q5, nb), 1e-4)) return fail('dequant.Q5_0');
 			const q6 = withScale(randBytes(nb * 210), 210);
 			if (!closeRel(await this.dequantizeByType('Q6_K', q6, nb * 256), dequantQ6KCpu(q6, nb), 1e-4)) return fail('dequant.Q6_K');
+
+			// Q4_0 (18-byte blocks): controlled f16 d at offset 0.
+			const q40 = withScale(randBytes(nb * 18), 18);
+			if (!closeRel(await this.dequantizeByType('Q4_0', q40, nb * 32), dequantQ4_0Cpu(q40, nb), 1e-4)) return fail('dequant.Q4_0');
+
+			// Q5_K (176-byte super-blocks): controlled f16 d (offset 0) + dmin (offset 2).
+			const q5k = randBytes(nb * 176);
+			const dv5 = new DataView(q5k.buffer);
+			for (let blk = 0; blk < nb; blk++) {
+				dv5.setUint16(blk * 176, f32ToF16(0.005 + Math.random() * 0.05), true);
+				dv5.setUint16(blk * 176 + 2, f32ToF16(0.001 + Math.random() * 0.02), true);
+			}
+			if (!closeRel(await this.dequantizeByType('Q5_K', q5k, nb * 256), dequantQ5_KCpu(q5k, nb), 1e-4)) return fail('dequant.Q5_K');
 		}
 
 		// KV cache correctness: a 2-token prefill followed by a 1-token decode (with the
@@ -1537,6 +1625,52 @@ function dequantQ5_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 			const xh1 = (qh >>> (j + 12)) & 0x10;
 			out[blk * 32 + j] = d * (((qsj & 0xf) | xh0) - 16);
 			out[blk * 32 + j + 16] = d * (((qsj >> 4) | xh1) - 16);
+		}
+	}
+	return out;
+}
+
+// Q4_0 CPU reference (mirror llama.cpp dequantize_row_q4_0): y[j]=d*((q&0xF)-8), y[j+16]=d*((q>>4)-8).
+function dequantQ4_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
+	const out = new Float32Array(nBlocks * 32);
+	const dv = new DataView(bytes.buffer, bytes.byteOffset);
+	for (let blk = 0; blk < nBlocks; blk++) {
+		const base = blk * 18;
+		const d = f16ToF32(dv.getUint16(base, true));
+		for (let j = 0; j < 16; j++) {
+			const qsj = bytes[base + 2 + j];
+			out[blk * 32 + j] = d * ((qsj & 0xf) - 8);
+			out[blk * 32 + j + 16] = d * ((qsj >> 4) - 8);
+		}
+	}
+	return out;
+}
+
+// Q5_K CPU reference (mirror llama.cpp dequantize_row_q5_K): Q4_K scales/mins + a 5th bit from qh.
+function dequantQ5_KCpu(bytes: Uint8Array, nBlocks: number): Float32Array {
+	const out = new Float32Array(nBlocks * 256);
+	const dv = new DataView(bytes.buffer, bytes.byteOffset);
+	for (let blk = 0; blk < nBlocks; blk++) {
+		const base = blk * 176;
+		const d = f16ToF32(dv.getUint16(base, true));
+		const dmin = f16ToF32(dv.getUint16(base + 2, true));
+		const sc = (j: number): [number, number] => {
+			const s = (k: number) => bytes[base + 4 + k]; // scales[12] at offset 4
+			if (j < 4) return [s(j) & 63, s(j + 4) & 63];
+			return [(s(j + 4) & 0xf) | ((s(j - 4) >> 6) << 4), (s(j + 4) >> 4) | ((s(j) >> 6) << 4)];
+		};
+		const ob = blk * 256;
+		let is = 0, qsOff = 0, u1 = 1, u2 = 2;
+		for (let j = 0; j < 256; j += 64) {
+			const [a0, a1] = sc(is); const d1 = d * a0, m1 = dmin * a1;
+			const [b0, b1] = sc(is + 1); const d2 = d * b0, m2 = dmin * b1;
+			for (let l = 0; l < 32; l++) {
+				const ql = bytes[base + 48 + qsOff + l];
+				const qhl = bytes[base + 16 + l];
+				out[ob + j + l] = d1 * ((ql & 0xf) + ((qhl & u1) ? 16 : 0)) - m1;
+				out[ob + j + 32 + l] = d2 * ((ql >> 4) + ((qhl & u2) ? 16 : 0)) - m2;
+			}
+			qsOff += 32; is += 2; u1 <<= 2; u2 <<= 2;
 		}
 	}
 	return out;
