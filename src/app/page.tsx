@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { 
   Cpu, Zap, Settings, Send, Trash2, CheckCircle, AlertCircle, 
   Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot, 
@@ -109,6 +109,54 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
       </pre>
     </div>
   );
+}
+
+// Inline markdown within a line: **bold**, *italic*, `code`. (Underscore-italic is intentionally
+// unsupported so identifiers like q8_0 aren't mangled.)
+function renderInline(text: string, keyBase: string) {
+  const out: ReactNode[] = [];
+  const re = /(\*\*[\s\S]+?\*\*|`[^`]+?`|\*[^*\s][\s\S]*?\*)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let k = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const t = m[0];
+    if (t.startsWith('**')) out.push(<strong key={`${keyBase}-${k++}`}>{t.slice(2, -2)}</strong>);
+    else if (t.startsWith('`')) out.push(<code key={`${keyBase}-${k++}`}>{t.slice(1, -1)}</code>);
+    else out.push(<em key={`${keyBase}-${k++}`}>{t.slice(1, -1)}</em>);
+    last = m.index + t.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+// A non-code markdown segment: handles line breaks, `- `/`* ` bullet lists, and `#` headings,
+// with inline formatting per line.
+function renderRichText(text: string, keyBase: string) {
+  const lines = text.split('\n');
+  const blocks: ReactNode[] = [];
+  let bullets: ReactNode[] = [];
+  const flush = () => {
+    if (bullets.length) {
+      blocks.push(<ul key={`${keyBase}-ul-${blocks.length}`} style={{ margin: '4px 0', paddingLeft: '22px' }}>{bullets}</ul>);
+      bullets = [];
+    }
+  };
+  lines.forEach((line, i) => {
+    const bullet = line.match(/^\s*[-*]\s+(.*)/);
+    if (bullet) { bullets.push(<li key={`${keyBase}-li-${i}`} style={{ margin: '2px 0', lineHeight: 1.55 }}>{renderInline(bullet[1], `${keyBase}-${i}`)}</li>); return; }
+    flush();
+    const heading = line.match(/^(#{1,4})\s+(.*)/);
+    if (heading) {
+      blocks.push(<div key={`${keyBase}-h-${i}`} style={{ fontWeight: 700, fontSize: heading[1].length <= 2 ? '16px' : '14px', margin: '10px 0 4px' }}>{renderInline(heading[2], `${keyBase}-${i}`)}</div>);
+      return;
+    }
+    if (line.trim() === '') { blocks.push(<div key={`${keyBase}-sp-${i}`} style={{ height: '6px' }} />); return; }
+    blocks.push(<div key={`${keyBase}-p-${i}`} style={{ lineHeight: 1.6 }}>{renderInline(line, `${keyBase}-${i}`)}</div>);
+  });
+  flush();
+  return blocks;
 }
 
 function App() {
@@ -658,7 +706,7 @@ function App() {
           `- Poids **f32** : \`${f32.toFixed(1)} tok/s\`\n` +
           `- Poids **f16** : \`${f16.toFixed(1)} tok/s\`\n` +
           `- Accélération f16 : \`${(f16 / f32).toFixed(2)}×\`\n\n` +
-          `_f16 = poids en demi-précision résidents sur le GPU (le cœur du format BWP : ÷2 mémoire & bande passante). embed + projection logits restent en f32._`
+          `*f16 = poids en demi-précision résidents sur le GPU (÷2 mémoire & bande passante). embed + projection logits restent en f32.*`
       }]);
     } catch (e: any) {
       setMessages(prev => [...prev, { id: `bench-err-${Date.now()}`, role: 'assistant', isError: true, content: `Benchmark échoué : ${e?.message || e}` }]);
@@ -723,18 +771,7 @@ function App() {
         const code = match ? match[2] : part.slice(3, -3);
         return <CodeBlock key={index} code={code.trim()} language={language} />;
       }
-      
-      const inlineParts = part.split(/(`[^`\n]+`)/g);
-      return (
-        <p key={index} style={{ margin: '0 0 10px 0', lineHeight: '1.6' }}>
-          {inlineParts.map((subPart, subIndex) => {
-            if (subPart.startsWith('`') && subPart.endsWith('`')) {
-              return <code key={subIndex}>{subPart.slice(1, -1)}</code>;
-            }
-            return subPart;
-          })}
-        </p>
-      );
+      return <div key={index} style={{ margin: '0 0 4px 0' }}>{renderRichText(part, `m${index}`)}</div>;
     });
   };
 
