@@ -170,32 +170,45 @@ export class CustomWebModel {
 		return out;
 	}
 
-	// Greedy next-token logits → argmax, tiling the vocab so each output matmul's weight
-	// buffer stays well under maxStorageBufferBindingSize.
-	public async argmaxLogits(hiddenLast: Float32Array, d: number): Promise<number> {
-		// Untied models (like Llama) use 'output.weight' for projection, 
-		// tied models (like Qwen) reuse 'token_embd.weight'.
-		const projectionTensorName = this.manifest.tensors['output.weight'] ? 'output.weight' : 'token_embd.weight';
-		const info = this.manifest.tensors[projectionTensorName];
-		if (!info) throw new Error(`Logits projection tensor not found (tried output.weight and token_embd.weight)`);
+	// The output projection (logits) weight, dequantized ONCE into persistent GPU tiles and reused
+	// every token. Tiled so each tile stays under maxStorageBufferBindingSize. Stored f16 where the
+	// device supports it (half the VRAM; argmax is insensitive to that precision).
+	private projTiles: { buf: any; rows: number; r0: number }[] | null = null;
+	private projF16 = false;
 
-		// shape[0] is n_embd (GGUF dim order), not the vocab — derive vocab from nElems / d.
-		const vocab = info.nElems / d;
+	private async getProjectionTiles(d: number): Promise<{ buf: any; rows: number; r0: number }[]> {
+		if (this.projTiles) return this.projTiles;
+		// Tied models (Qwen) reuse token_embd; untied (Llama) have output.weight.
+		const name = this.manifest.tensors['output.weight'] ? 'output.weight' : 'token_embd.weight';
+		const info = this.manifest.tensors[name];
+		if (!info) throw new Error('Logits projection tensor not found (output.weight / token_embd.weight)');
+		const vocab = info.nElems / d; // shape[0] is n_embd in GGUF dim order, not the vocab
 		const bytesPerRow = info.bytes / vocab;
-		const raw = await this.rawTensor(projectionTensorName);
+		const raw = await this.rawTensor(name);
+		this.projF16 = this.engine.hasF16;
 		const TILE = 8192;
-		let bestIdx = -1;
-		let bestVal = -Infinity;
+		const tiles: { buf: any; rows: number; r0: number }[] = [];
 		for (let r0 = 0; r0 < vocab; r0 += TILE) {
 			const rows = Math.min(TILE, vocab - r0);
 			const tileBytes = raw.subarray(r0 * bytesPerRow, (r0 + rows) * bytesPerRow);
-			// Dequantize the tile straight onto the GPU and matmul from there — no dequant→CPU
-			// →re-upload round-trip (the matmul still reads its logits back for the argmax).
-			const tileBuf = this.engine.dequantizeToGpu(info.type, tileBytes, rows * d);
-			const logits = await this.engine.matmulT(hiddenLast, tileBuf, 1, d, rows);
-			tileBuf.destroy?.();
-			for (let j = 0; j < rows; j++) {
-				if (logits[j] > bestVal) { bestVal = logits[j]; bestIdx = r0 + j; }
+			const f32 = await this.engine.dequantizeByType(info.type, tileBytes, rows * d);
+			const buf = this.projF16 ? this.engine.uploadGpuF16(f32) : this.engine.uploadGpu(f32);
+			tiles.push({ buf, rows, r0 });
+		}
+		this.projTiles = tiles;
+		return tiles;
+	}
+
+	// Greedy next-token id. The projection is cached on the GPU (see getProjectionTiles), so per
+	// token we only run the small m=1 matmuls + read back the logits — no per-token re-dequant.
+	public async argmaxLogits(hiddenLast: Float32Array, d: number): Promise<number> {
+		const tiles = await this.getProjectionTiles(d);
+		let bestIdx = -1;
+		let bestVal = -Infinity;
+		for (const t of tiles) {
+			const logits = await this.engine.matmulT(hiddenLast, t.buf, 1, d, t.rows, this.projF16);
+			for (let j = 0; j < t.rows; j++) {
+				if (logits[j] > bestVal) { bestVal = logits[j]; bestIdx = t.r0 + j; }
 			}
 		}
 		return bestIdx;
@@ -217,6 +230,8 @@ export class CustomWebModel {
 		this.layerGpuCache.clear();
 		this.finalNormGpu?.destroy?.();
 		this.finalNormGpu = null;
+		for (const t of this.projTiles ?? []) (t.buf as any)?.destroy?.();
+		this.projTiles = null;
 		this.layerCache.clear();
 		this.rawCache.clear();
 	}
