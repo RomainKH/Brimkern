@@ -73,7 +73,7 @@ body {
   flex-direction: column;
   flex-shrink: 0;
   z-index: 10;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-header {
@@ -495,8 +495,14 @@ body {
   line-height: 1.6;
   font-size: 15px;
   position: relative;
+  width: fit-content;
   max-width: 80%;
   box-shadow: var(--shadow-sm);
+}
+
+/* User bubbles hug the right edge (the message row is reversed for the user). */
+.message.user .message-bubble {
+  margin-left: auto;
 }
 
 .message.user .message-bubble {
@@ -690,29 +696,30 @@ pre code {
   color: inherit;
 }
 
-/* The left panel is a permanent fixture on desktop, so the floating burger toggle is
-   pointless there (and overlapped the panel header). Hide it; it only appears on mobile,
-   where the panel becomes a slide-over that needs a way to be revealed/dismissed. */
-#sidebar-toggle-btn {
-  display: none;
+/* Desktop: the panel is collapsible. The header toggle adds/removes `.open`; when closed it
+   slides out of the flex flow so the chat area expands. */
+.sidebar:not(.open) {
+  margin-left: -380px;
 }
 
 /* Responsive adjustments */
 @media (max-width: 1000px) {
-  #sidebar-toggle-btn {
-    display: flex;
-  }
-
   .sidebar {
     position: absolute;
     left: 0;
     top: 0;
     bottom: 0;
+    margin-left: 0;
     transform: translateX(-100%);
   }
 
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  /* On mobile the slide-over uses transform, not the desktop negative margin. */
+  .sidebar:not(.open) {
+    margin-left: 0;
   }
 
   .welcome-steps {

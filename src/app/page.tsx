@@ -5,12 +5,13 @@ import {
   Cpu, Zap, Settings, Send, Trash2, CheckCircle, AlertCircle, 
   Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot, 
   User, Copy, Square, Info, ShieldCheck, Database, ArrowRight,
-  Plus, Flame
+  Plus, Flame, MessageSquare
 } from 'lucide-react';
 import { AutoTokenizer } from '@huggingface/transformers';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
 import { CustomWebModel } from '@/lib/webgpu/model';
 import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
+import { listConversations, saveConversation, deleteConversation, deriveTitle, type Conversation } from '@/lib/chatStore';
 
 interface Message {
   id: string;
@@ -194,9 +195,14 @@ function App() {
   // Chat States
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState<string>('');
+
+  // Conversation history (persisted in IndexedDB, independent of the loaded model)
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  const convCreatedAt = useRef<Map<string, number>>(new Map());
   
   // UI states
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [benchRunning, setBenchRunning] = useState<boolean>(false);
@@ -255,6 +261,37 @@ function App() {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [userInput]);
+
+  // Load saved conversations on mount.
+  useEffect(() => {
+    listConversations().then((cs) => {
+      setConversations(cs);
+      for (const c of cs) convCreatedAt.current.set(c.id, c.createdAt);
+    }).catch(() => { /* IndexedDB unavailable → history just disabled */ });
+  }, []);
+
+  // Persist the current conversation when it changes (but not mid-generation — only the final
+  // state once a turn completes). The welcome message is excluded.
+  useEffect(() => {
+    if (!currentConvId || modelState === 'generating' || modelState === 'initializing') return;
+    const real = messages.filter((m) => m.id !== 'welcome');
+    if (real.length === 0) return;
+    const now = Date.now();
+    const createdAt = convCreatedAt.current.get(currentConvId) ?? now;
+    convCreatedAt.current.set(currentConvId, createdAt);
+    const conv: Conversation = {
+      id: currentConvId,
+      title: deriveTitle(real),
+      createdAt,
+      updatedAt: now,
+      messages: real.map((m) => ({ id: m.id, role: m.role, content: m.content, isError: m.isError, timings: m.timings })),
+      modelName: loadedModelName, tokenizerId: selectedTokenizerId, archType: modelArchType
+    };
+    saveConversation(conv)
+      .then(() => setConversations((prev) => [conv, ...prev.filter((c) => c.id !== conv.id)]))
+      .catch(() => { /* ignore persistence errors */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, currentConvId, modelState]);
 
   const formatBytes = (bytes: number, decimals = 2) => {
     if (bytes === 0) return '0 B';
@@ -474,6 +511,7 @@ function App() {
 
   // New conversation handler (modern LLM style)
   const handleNewChat = () => {
+    setCurrentConvId(null); // next message starts a fresh saved conversation
     if (activeModel) {
       activeModel.reset();
       setMessages([
@@ -488,6 +526,26 @@ function App() {
       setMessages([]);
       setModelState('idle');
     }
+  };
+
+  // Open a saved conversation (view its messages; load a model to continue it).
+  const openConversation = (conv: Conversation) => {
+    if (modelState === 'generating') return;
+    if (activeModel) activeModel.reset();
+    convCreatedAt.current.set(conv.id, conv.createdAt);
+    setCurrentConvId(conv.id);
+    setMessages(conv.messages.map((m) => ({ ...m })) as Message[]);
+    if (conv.archType) setModelArchType(conv.archType as 'qwen' | 'llama3' | 'llama2' | 'gemma');
+    if (conv.tokenizerId) setSelectedTokenizerId(conv.tokenizerId);
+    if (modelState === 'idle') setModelState(activeModel ? 'ready' : 'idle');
+  };
+
+  const handleDeleteConversation = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await deleteConversation(id).catch(() => {});
+    convCreatedAt.current.delete(id);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (id === currentConvId) { setCurrentConvId(null); setMessages(activeModel ? [] : []); }
   };
 
   const handleLoadModelFromUrl = async (url: string) => {
@@ -539,10 +597,17 @@ function App() {
     
     const activeAbortController = new AbortController();
     abortControllerRef.current = activeAbortController;
-    
+
+    // Start a new saved conversation on the first message of a fresh chat.
+    if (!currentConvId) {
+      const id = `conv-${Date.now()}`;
+      convCreatedAt.current.set(id, Date.now());
+      setCurrentConvId(id);
+    }
+
     const userMsgId = Date.now().toString();
     const newUserMessage: Message = { id: userMsgId, role: 'user', content: text };
-    
+
     setMessages(prev => [...prev, newUserMessage]);
     setUserInput('');
     setModelState('generating');
@@ -777,24 +842,6 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Mobile Toggle Button */}
-      <button 
-        className="circle-btn" 
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        style={{
-          position: 'absolute',
-          top: 24,
-          left: 24,
-          zIndex: 200,
-          background: 'var(--bg-main)',
-          border: '1px solid var(--border-color)',
-          boxShadow: 'var(--shadow-md)',
-        }}
-        id="sidebar-toggle-btn"
-      >
-        {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
-      </button>
-
       {/* LEFT SIDEBAR */}
       <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
@@ -814,6 +861,38 @@ function App() {
         </div>
 
         <div className="sidebar-content">
+          {/* Section: Conversation history */}
+          {conversations.length > 0 && (
+            <div className="sidebar-section">
+              <div className="section-title">
+                <MessageSquare size={14} /> Conversations
+              </div>
+              <div className="card" style={{ padding: '6px', display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '220px', overflowY: 'auto' }}>
+                {conversations.map((c) => (
+                  <div
+                    key={c.id}
+                    onClick={() => openConversation(c)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '7px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px',
+                      background: c.id === currentConvId ? 'var(--accent-bg-rgba)' : 'transparent',
+                      color: c.id === currentConvId ? 'var(--accent)' : 'var(--text-secondary)'
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={c.title}>{c.title}</span>
+                    <button
+                      onClick={(e) => handleDeleteConversation(c.id, e)}
+                      title="Supprimer la conversation"
+                      style={{ display: 'flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '2px', flexShrink: 0 }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Section: WebGPU Compatibility */}
           <div className="sidebar-section">
             <div className="section-title">
@@ -1125,6 +1204,15 @@ function App() {
       <main className="chat-area">
         {/* Header */}
         <header className="chat-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+            <button
+              className="circle-btn"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              title={isSidebarOpen ? 'Masquer le panneau' : 'Afficher le panneau'}
+              style={{ flexShrink: 0 }}
+            >
+              {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
           <div className="chat-header-info">
             {loadedModelName ? (
               <>
@@ -1142,6 +1230,7 @@ function App() {
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Configurez la barre latérale</span>
               </>
             )}
+          </div>
           </div>
           {loadedModelName && (
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1169,7 +1258,7 @@ function App() {
 
         {/* Messages */}
         <div className="messages-container">
-          {modelState === 'idle' && (
+          {modelState === 'idle' && messages.length === 0 && (
             <div className="welcome-screen">
               <div className="welcome-icon">
                 <Sparkles size={48} strokeWidth={1.5} />
@@ -1335,7 +1424,7 @@ function App() {
 
         {/* Suggestions card */}
         {modelState === 'ready' && messages.length <= 1 && (
-          <div style={{ maxWidth: '850px', width: '100%', margin: '0 auto', padding: '0 24px' }}>
+          <div style={{ maxWidth: '850px', width: '100%', margin: '0 auto 16px', padding: '0 24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
               {SUGGESTED_PROMPTS.map((item, idx) => (
                 <div 
