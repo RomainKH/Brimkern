@@ -395,12 +395,39 @@ const SHADERS = {
 		}`
 };
 
+// Vectorized matmul_t with f16 WEIGHTS (the BWP fast path). Activations stay f32; the weight is
+// read as array<vec4<f16>> (8-byte loads, half the bandwidth of f32) and converted to f32 for an
+// f32-accumulated dot product — bandwidth win, full-precision math. Requires the device's
+// `shader-f16` feature; only compiled/used when available. k % 4 == 0 (BWP guarantees it).
+const MATMUL_T_F16W = `
+	enable f16;
+	struct Dims { m: u32, k: u32, n: u32 };
+	@group(0) @binding(0) var<uniform> d: Dims;
+	@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+	@group(0) @binding(2) var<storage, read> w: array<vec4<f16>>;
+	@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+	@compute @workgroup_size(8, 8)
+	fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+		let row = gid.x; let col = gid.y;
+		if (row >= d.m || col >= d.n) { return; }
+		let kv = d.k / 4u;
+		let aBase = row * kv;
+		let wBase = col * kv;
+		var acc = vec4<f32>(0.0);
+		for (var i = 0u; i < kv; i = i + 1u) {
+			acc = acc + a[aBase + i] * vec4<f32>(w[wBase + i]);
+		}
+		c[row * d.n + col] = acc.x + acc.y + acc.z + acc.w;
+	}`;
+
 export interface LayerWeightsGpu {
 	// Same weights as LayerWeights, but EVERY tensor is a persistent GPU buffer (uploaded once).
 	// Consumed by the GPU-resident decode path, which never copies activations back to the CPU.
 	attnNorm: GPUAny; wq: GPUAny; wk: GPUAny; wv: GPUAny; wo: GPUAny;
 	ffnNorm: GPUAny; wgate: GPUAny; wup: GPUAny; wdown: GPUAny;
 	bq?: GPUAny; bk?: GPUAny; bv?: GPUAny;
+	// True when the projection matrices (wq…wdown) are stored as f16 (BWP) → use the f16 matmul.
+	matF16?: boolean;
 }
 
 export class WebGpuEngine {
@@ -411,6 +438,8 @@ export class WebGpuEngine {
 	// Largest single storage-buffer binding this device allows (bytes). Caps the biggest
 	// weight tensor a layer slice can hold → reported to the master to size the model.
 	maxStorageBufferBindingSize = 0;
+	// Whether the device supports `shader-f16` (enables the f16-weight matmul for BWP models).
+	hasF16 = false;
 
 	async init(): Promise<boolean> {
 		const gpu = (navigator as any).gpu;
@@ -424,15 +453,22 @@ export class WebGpuEngine {
 			maxStorageBufferBindingSize: lim.maxStorageBufferBindingSize,
 			maxBufferSize: lim.maxBufferSize
 		};
+		// Opt into shader-f16 when the adapter offers it (BWP's f16-weight matmul needs it).
+		const features: string[] = [];
+		try { if (adapter.features?.has('shader-f16')) features.push('shader-f16'); } catch { /* older impls */ }
 		try {
-			this.device = await adapter.requestDevice({ requiredLimits: want });
+			this.device = await adapter.requestDevice({ requiredLimits: want, requiredFeatures: features });
 		} catch {
-			this.device = await adapter.requestDevice();
+			try { this.device = await adapter.requestDevice({ requiredLimits: want }); }
+			catch { this.device = await adapter.requestDevice(); }
 		}
 		this.maxStorageBufferBindingSize = this.device.limits?.maxStorageBufferBindingSize ?? 134217728;
+		this.hasF16 = !!this.device.features?.has?.('shader-f16');
 		for (const [name, code] of Object.entries(SHADERS)) {
 			this.modules[name] = this.device.createShaderModule({ code });
 		}
+		// The f16 module only compiles where `enable f16;` is supported.
+		if (this.hasF16) this.modules['matmul_t_f16w'] = this.device.createShaderModule({ code: MATMUL_T_F16W });
 		return true;
 	}
 
@@ -528,19 +564,22 @@ export class WebGpuEngine {
 	}
 
 	// y = a[m,k] · wᵀ where w is [n,k] (GGUF [out,in] layout). out is [m,n].
-	async matmulT(a: Float32Array, w: Float32Array | GPUAny, m: number, k: number, n: number): Promise<Float32Array> {
+	async matmulT(a: Float32Array, w: Float32Array | GPUAny, m: number, k: number, n: number, wF16 = false): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
 		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
 		const bufW = this.isF32(w) ? this.buf(w, ST) : w;
 		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
-		// Both operands are contiguous along k, so when k is a multiple of 4 we read them as
-		// vec4 (128-bit loads). Otherwise fall back to the scalar kernel. The SAME f32 storage
-		// buffers are reinterpreted as array<vec4<f32>> — valid because k%4==0 keeps every row
-		// start (row*k, col*k) on a 16-byte boundary and the byte length a multiple of 16.
-		const shader = k % 4 === 0 ? 'matmul_t_vec4' : 'matmul_t';
-		return this.run(shader, [dims, this.buf(a, ST), bufW, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1], out, m * n * 4);
+		return this.run(this.matmulTShader(k, wF16), [dims, this.buf(a, ST), bufW, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1], out, m * n * 4);
+	}
+
+	// Pick the matmul_t variant. f16-weight kernel when the weight is f16 AND the device supports
+	// it; else the vec4 kernel (both operands contiguous along k, k%4==0 → 128-bit loads); else
+	// the scalar fallback for a k that isn't a multiple of 4.
+	private matmulTShader(k: number, wF16: boolean): string {
+		if (wF16 && this.hasF16) return 'matmul_t_f16w';
+		return k % 4 === 0 ? 'matmul_t_vec4' : 'matmul_t';
 	}
 
 	async rmsnorm(x: Float32Array, w: Float32Array, rows: number, dim: number, eps = 1e-5): Promise<Float32Array> {
@@ -772,6 +811,32 @@ export class WebGpuEngine {
 	// Upload a Float32Array into a PERSISTENT storage buffer (for GPU-resident norms/biases).
 	uploadGpu(data: Float32Array): GPUAny { return this.buf(data, WebGpuEngine.STORAGE_USAGE); }
 
+	// Upload an f32 array to a PERSISTENT buffer as packed f16 (for the f16-weight matmul).
+	uploadGpuF16(data: Float32Array): GPUAny {
+		const u16 = new Uint16Array(data.length);
+		for (let i = 0; i < data.length; i++) u16[i] = f32ToF16(data[i]);
+		return this.bufU16(u16);
+	}
+
+	// Upload raw f16 bytes (e.g. straight from a BWP shard) to a PERSISTENT buffer, no conversion.
+	uploadGpuRawF16(bytes: Uint8Array): GPUAny {
+		// writeBuffer needs a 4-byte-multiple length; pad the buffer if necessary.
+		const size = Math.ceil(bytes.byteLength / 4) * 4;
+		const b = this.device.createBuffer({ size, usage: WebGpuEngine.STORAGE_USAGE });
+		this.device.queue.writeBuffer(b, 0, bytes, 0, bytes.byteLength - (bytes.byteLength % 4));
+		if (bytes.byteLength % 4) {
+			const tail = new Uint8Array(4); tail.set(bytes.subarray(bytes.byteLength - (bytes.byteLength % 4)));
+			this.device.queue.writeBuffer(b, bytes.byteLength - (bytes.byteLength % 4), tail);
+		}
+		return b;
+	}
+
+	private bufU16(data: Uint16Array): GPUAny {
+		const b = this.device.createBuffer({ size: data.byteLength, usage: WebGpuEngine.STORAGE_USAGE });
+		this.device.queue.writeBuffer(b, 0, data);
+		return b;
+	}
+
 	// A small uniform buffer holding the given u32 values, then an optional f32 tail value.
 	private uniform(u32: number[], floatTail?: { offset: number; value: number }): GPUAny {
 		const G = globalThis as any;
@@ -784,11 +849,10 @@ export class WebGpuEngine {
 	// Recording variants of each kernel: allocate the output (and any uniform), record the pass
 	// into `enc`, push transient buffers onto `trash` for post-submit cleanup, return the output
 	// buffer. They mirror the public (readback) kernels' parameter packing exactly.
-	private recMatmulT(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: GPUAny, m: number, k: number, n: number): GPUAny {
+	private recMatmulT(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: GPUAny, m: number, k: number, n: number, wF16 = false): GPUAny {
 		const dims = this.uniform([m, k, n]);
 		const out = this.storage(m * n * 4);
-		const shader = k % 4 === 0 ? 'matmul_t_vec4' : 'matmul_t';
-		this.recordPass(enc, shader, [dims, a, w, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1]);
+		this.recordPass(enc, this.matmulTShader(k, wF16), [dims, a, w, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1]);
 		trash.push(dims, out);
 		return out;
 	}
@@ -836,10 +900,11 @@ export class WebGpuEngine {
 		const { seq, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps } = cfg;
 		const kvDim = nKvHeads * headDim;
 		const kvLen = pastLen + seq;
+		const f16 = w.matF16 === true; // projection matrices stored f16 (BWP) → f16 matmul
 		const n1 = this.recRmsnorm(enc, trash, x, w.attnNorm, seq, d, eps);
-		let qP = this.recMatmulT(enc, trash, n1, w.wq, seq, d, d);
-		let kP = this.recMatmulT(enc, trash, n1, w.wk, seq, d, kvDim);
-		let vP = this.recMatmulT(enc, trash, n1, w.wv, seq, d, kvDim);
+		let qP = this.recMatmulT(enc, trash, n1, w.wq, seq, d, d, f16);
+		let kP = this.recMatmulT(enc, trash, n1, w.wk, seq, d, kvDim, f16);
+		let vP = this.recMatmulT(enc, trash, n1, w.wv, seq, d, kvDim, f16);
 		if (w.bq) qP = this.recAddBias(enc, trash, qP, w.bq, seq, d);
 		if (w.bk) kP = this.recAddBias(enc, trash, kP, w.bk, seq, kvDim);
 		if (w.bv) vP = this.recAddBias(enc, trash, vP, w.bv, seq, kvDim);
@@ -851,13 +916,13 @@ export class WebGpuEngine {
 		enc.copyBufferToBuffer(newK, 0, kBuf, pastLen * rowBytes, seq * rowBytes);
 		enc.copyBufferToBuffer(vP, 0, vBuf, pastLen * rowBytes, seq * rowBytes);
 		const attn = this.recAttention(enc, trash, q, kBuf, vBuf, seq, nHeads, nKvHeads, headDim, kvLen, pastLen);
-		const proj = this.recMatmulT(enc, trash, attn, w.wo, seq, d, d);
+		const proj = this.recMatmulT(enc, trash, attn, w.wo, seq, d, d, f16);
 		const h = this.recBinary(enc, trash, 'add', x, proj, seq * d);
 		const n2 = this.recRmsnorm(enc, trash, h, w.ffnNorm, seq, d, eps);
-		const gate = this.recMatmulT(enc, trash, n2, w.wgate, seq, d, ffn);
-		const up = this.recMatmulT(enc, trash, n2, w.wup, seq, d, ffn);
+		const gate = this.recMatmulT(enc, trash, n2, w.wgate, seq, d, ffn, f16);
+		const up = this.recMatmulT(enc, trash, n2, w.wup, seq, d, ffn, f16);
 		const g = this.recBinary(enc, trash, 'swiglu', gate, up, seq * ffn);
-		const down = this.recMatmulT(enc, trash, g, w.wdown, seq, ffn, d);
+		const down = this.recMatmulT(enc, trash, g, w.wdown, seq, ffn, d, f16);
 		return this.recBinary(enc, trash, 'add', h, down, seq * d);
 	}
 
@@ -971,6 +1036,21 @@ export class WebGpuEngine {
 			if (!(await checkT(3, 8, 5))) return false;   // vec4 path
 			if (!(await checkT(1, 16, 7))) return false;  // vec4 path, m=1 (decode shape)
 			if (!(await checkT(2, 6, 4))) return false;   // scalar fallback (k not ÷4)
+
+			// f16-weight matmul (BWP fast path), where supported: weight rounded to f16, dot
+			// product accumulated in f32. Error stays within the f16 weight-precision budget.
+			if (this.hasF16) {
+				const m = 1, k = 16, n = 7;
+				const a = rand(m * k), wt = rand(n * k);
+				const wBuf = this.uploadGpuF16(wt);
+				const got = await this.matmulT(a, wBuf, m, k, n, true);
+				const ref = new Float32Array(m * n);
+				for (let c = 0; c < n; c++) { let s = 0; for (let i = 0; i < k; i++) s += a[i] * wt[c * k + i]; ref[c] = s; }
+				wBuf.destroy?.();
+				// f16 weights → relative tolerance (closeRel isn't in scope yet here).
+				const okF16 = got.length === ref.length && got.every((v, i) => Math.abs(v - ref[i]) <= 3e-2 * (1 + Math.abs(ref[i])));
+				if (!okF16) return false;
+			}
 		}
 
 		// rmsnorm 2 rows, dim 8
