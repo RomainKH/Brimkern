@@ -69,6 +69,48 @@ const SUGGESTED_PROMPTS = [
   { title: "Idées créatives", text: "Propose-moi 3 concepts de projets innovants utilisant l'IA locale dans le navigateur." }
 ];
 
+// A fenced code block with its own "copy code" button (copies just this block, not the whole
+// message). Local copied-state so each block's button is independent.
+function CodeBlock({ code, language }: { code: string; language: string }) {
+  const [copied, setCopied] = useState(false);
+  const copyCode = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div style={{ position: 'relative', marginTop: '14px', marginBottom: '12px' }}>
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, transform: 'translateY(-50%)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 10px'
+      }}>
+        <span style={{
+          background: language ? 'var(--accent)' : 'var(--text-muted)', color: 'white',
+          padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold',
+          textTransform: 'uppercase', fontFamily: 'var(--font-mono)'
+        }}>
+          {language || 'code'}
+        </span>
+        <button
+          onClick={copyCode}
+          title="Copier le code"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
+            background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+            borderRadius: '4px', padding: '2px 8px', fontSize: '11px',
+            color: copied ? 'var(--success)' : 'var(--text-secondary)'
+          }}
+        >
+          {copied ? <><CheckCircle size={12} /> Copié</> : <><Copy size={12} /> Copier</>}
+        </button>
+      </div>
+      <pre style={{ margin: 0 }}>
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
 function App() {
   // App States
   const [modelState, setModelState] = useState<'idle' | 'initializing' | 'loading' | 'ready' | 'generating' | 'error'>('idle');
@@ -637,32 +679,7 @@ function App() {
         const match = part.match(/```(\w*)\n([\s\S]*?)```/);
         const language = match ? match[1] : '';
         const code = match ? match[2] : part.slice(3, -3);
-        
-        return (
-          <div key={index} style={{ position: 'relative', marginTop: '12px', marginBottom: '12px' }}>
-            {language && (
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 12,
-                transform: 'translateY(-50%)',
-                background: 'var(--accent)',
-                color: 'white',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                fontSize: '10px',
-                fontWeight: 'bold',
-                textTransform: 'uppercase',
-                fontFamily: 'var(--font-mono)'
-              }}>
-                {language}
-              </div>
-            )}
-            <pre style={{ margin: 0 }}>
-              <code>{code.trim()}</code>
-            </pre>
-          </div>
-        );
+        return <CodeBlock key={index} code={code.trim()} language={language} />;
       }
       
       const inlineParts = part.split(/(`[^`\n]+`)/g);
