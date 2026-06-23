@@ -5,12 +5,14 @@ import {
   Cpu, Zap, Send, Trash2, CheckCircle, AlertCircle,
   Loader2, Menu, X, Download, Upload, Play, Sparkles, Bot,
   User, Copy, Square, Info, ShieldCheck, Database, ArrowRight,
-  Plus, Flame, MessageSquare, Brain, ChevronDown, Sun, Moon
+  Plus, Flame, MessageSquare, Brain, ChevronDown, Sun, Moon, Package
 } from 'lucide-react';
 import { AutoTokenizer } from '@huggingface/transformers';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
 import { CustomWebModel } from '@/lib/webgpu/model';
-import { parseGguf } from '@/lib/webgpu/ggufParser';
+import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
+import type { BwpLoadable } from '@/lib/bwp/loader';
+import BwpConvertPanel from './BwpConvertPanel';
 import { listConversations, saveConversation, deleteConversation, deriveTitle, type Conversation } from '@/lib/chatStore';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -204,7 +206,7 @@ function App() {
   const [webGpuSupported, setWebGpuSupported] = useState<boolean | null>(null);
   
   // Model file loader states
-  const [activeTab, setActiveTab] = useState<'models' | 'local' | 'hf'>('models');
+  const [activeTab, setActiveTab] = useState<'models' | 'local' | 'hf' | 'convert'>('models');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedHFModelUrl, setSelectedHFModelUrl] = useState<string>(PRESET_MODELS[0].url);
   const [customHFUrl, setCustomHFUrl] = useState<string>('');
@@ -246,18 +248,26 @@ function App() {
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const [mobileWarnDismissed, setMobileWarnDismissed] = useState<boolean>(false);
   const [loaderOpen, setLoaderOpen] = useState<boolean>(true); // model-loader accordion
+  // Starts `false` on BOTH server and client so the first render matches (the toggle icon would
+  // otherwise mismatch → hydration error). The real theme is applied to <html> before paint by
+  // the inline script in layout.tsx; this state just drives the header icon.
   const [dark, setDark] = useState<boolean>(false);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const themeAdopted = useRef(false);
 
-  // Dark mode: read saved preference on mount, then apply to <html> + persist on change.
+  // Dark mode. On the FIRST run we adopt whatever theme the inline script already put on <html>
+  // (without toggling the class — toggling with the initial `false` is what stripped it and
+  // flashed white on navigation). Afterwards (user clicks the toggle) we apply + persist.
   useEffect(() => {
-    if (localStorage.getItem('brimkern-theme') === 'dark') setDark(true);
-  }, []);
-  useEffect(() => {
+    if (!themeAdopted.current) {
+      themeAdopted.current = true;
+      if (document.documentElement.classList.contains('dark')) setDark(true);
+      return;
+    }
     document.documentElement.classList.toggle('dark', dark);
     localStorage.setItem('brimkern-theme', dark ? 'dark' : 'light');
   }, [dark]);
@@ -501,26 +511,31 @@ function App() {
     return trimmed === '<|im_end|>' || trimmed === '<|eot_id|>' || trimmed === '</s>' || trimmed === '<end_of_turn>' || trimmed === '<｜end▁of▁sentence｜>';
   };
 
-  // Common model loader logic
-  const loadModelEngine = async (fileBlob: Blob, modelName: string) => {
+  // Core activation shared by the GGUF and BWP paths: spin up the engine, validate kernels, build
+  // the model from an already-parsed (GGUF-shaped) manifest + its byte source, and wire UI state.
+  // sourceLabel describes where the bytes come from (e.g. 'GGUF', 'BWP') for the welcome message.
+  const activateModel = async (
+    manifest: Manifest,
+    fileBlob: Blob,
+    modelName: string,
+    tokenizerId: string,
+    archType: ArchType,
+    sourceLabel = 'GGUF',
+  ) => {
     setModelState('initializing');
     setErrorMsg(null);
     setLoadingProgress(null);
-    
-    try {
-      // 1. Parse GGUF Metadata in JS
-      setLoadingStep('Analyse de la structure GGUF en cours...');
-      const manifest = await parseGguf(fileBlob);
 
-      // 2. Initialize WebGPU Engine compiled in WGSL
+    try {
+      // 1. Initialize WebGPU Engine compiled in WGSL
       setLoadingStep('Compilation des kernels WebGPU (WGSL)...');
       const engine = new WebGpuEngine();
       const initialized = await engine.init();
       if (!initialized) {
         throw new Error("Votre navigateur ne supporte pas WebGPU. Veuillez activer l'accélération matérielle ou utiliser Google Chrome.");
       }
-      
-      // 3. Self-validate compute shaders to verify correctness
+
+      // 2. Self-validate compute shaders to verify correctness
       setLoadingStep('Validation interne des calculs matriciels du GPU...');
       const validated = await engine.selfValidate();
       if (!validated) {
@@ -529,34 +544,36 @@ function App() {
           (engine.validationFailure ? ` (étape : ${engine.validationFailure})` : '')
         );
       }
-      
-      // 4. Initialize Custom Model Runner
+
+      // 3. Initialize Custom Model Runner
       setLoadingStep('Initialisation du modèle...');
       const model = new CustomWebModel(engine, fileBlob, manifest);
-      
-      // 5. Load Tokenizer
+
+      // 4. Load Tokenizer
       setLoadingStep('Chargement du Tokenizer (Hugging Face)...');
       let tokenizer;
       try {
-        tokenizer = await AutoTokenizer.from_pretrained(selectedTokenizerId);
+        tokenizer = await AutoTokenizer.from_pretrained(tokenizerId);
       } catch (te: any) {
         throw new Error(
-          `Impossible de charger le tokenizer « ${selectedTokenizerId} » : ${te?.message || te}. ` +
+          `Impossible de charger le tokenizer « ${tokenizerId} » : ${te?.message || te}. ` +
           `Vérifiez que ce dépôt Hugging Face est public et contient tokenizer.json + tokenizer_config.json.`
         );
       }
-      
+
       // Clean previous instances (free the previous model's persistent GPU buffers)
       if (activeModel) {
         activeModel.unload();
       }
-      
+
       setActiveEngine(engine);
       setActiveModel(model);
       // The transformers tokenizer is a CALLABLE object; setState(fn) would treat it as a state
       // updater and invoke it with the previous state (null) → "text may not be null". Store it
       // via a functional updater so React keeps the tokenizer itself instead of calling it.
       setActiveTokenizer(() => tokenizer);
+      setSelectedTokenizerId(tokenizerId);
+      setModelArchType(archType);
       setLoadedModelName(modelName);
       setModelMetadata(manifest);
       setWeightPrec('f32'); // new model starts at f32 (the model's internal default)
@@ -567,12 +584,12 @@ function App() {
         {
           id: 'welcome',
           role: 'assistant',
-          content: `Bonjour ! Le modèle **${modelName}** a été chargé avec succès grâce à nos kernels WebGPU custom.\n\n` +
+          content: `Bonjour ! Le modèle **${modelName}** a été chargé avec succès (source **${sourceLabel}**) grâce à nos kernels WebGPU custom.\n\n` +
                    `**Caractéristiques du modèle :**\n` +
                    `- Architecture : \`${manifest.arch}\`\n` +
                    `- Blocs (couches) : \`${manifest.config.blockCount}\`\n` +
                    `- Dimension d'embd : \`${manifest.config.d}\` (Têtes : \`${manifest.config.nHeads}\`)\n` +
-                   `- Tokenizer : \`${selectedTokenizerId}\` (\`${modelArchType}\`)\n\n` +
+                   `- Tokenizer : \`${tokenizerId}\` (\`${archType}\`)\n\n` +
                    `Vous pouvez lui envoyer vos questions, tous les calculs matriciels s'exécuteront localement dans ce navigateur.`
         }
       ]);
@@ -581,6 +598,37 @@ function App() {
       setErrorMsg(e.message || String(e));
       setModelState('error');
     }
+  };
+
+  // GGUF path: parse the binary header, then activate from the current tokenizer/arch selection.
+  const loadModelEngine = async (fileBlob: Blob, modelName: string) => {
+    setModelState('initializing');
+    setErrorMsg(null);
+    setLoadingStep('Analyse de la structure GGUF en cours...');
+    let manifest: Manifest;
+    try {
+      manifest = await parseGguf(fileBlob);
+    } catch (e: any) {
+      console.error("Erreur d'analyse GGUF:", e);
+      setErrorMsg(e.message || String(e));
+      setModelState('error');
+      return;
+    }
+    await activateModel(manifest, fileBlob, modelName, selectedTokenizerId, modelArchType, 'GGUF');
+  };
+
+  // BWP path: the package is already a GGUF-shaped manifest + concatenated shard blob (see the
+  // bwp loader adapter), so it rides the exact same activation. Tokenizer/arch come from the
+  // manifest when present, else the current UI selection.
+  const loadBwpModel = async (loadable: BwpLoadable) => {
+    await activateModel(
+      loadable.manifest as Manifest,
+      loadable.blob,
+      loadable.modelName,
+      loadable.tokenizerId ?? selectedTokenizerId,
+      (loadable.uiArch as ArchType) ?? modelArchType,
+      'BWP ✦',
+    );
   };
 
   // New conversation handler (modern LLM style)
@@ -1078,6 +1126,14 @@ function App() {
                 >
                   <Download size={12} /> URL HF
                 </button>
+                <button
+                  className={`tab-btn ${activeTab === 'convert' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('convert')}
+                  disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
+                  style={{ fontSize: '11px', padding: '6px 4px' }}
+                >
+                  <Package size={12} /> BWP
+                </button>
               </div>
 
               {activeTab === 'models' && (
@@ -1272,7 +1328,7 @@ function App() {
                     )}
                   </div>
 
-                  <button 
+                  <button
                     className="btn btn-primary btn-block"
                     onClick={handleLoadHFModel}
                     disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
@@ -1280,6 +1336,17 @@ function App() {
                     <Download size={14} /> Télécharger & Compiler
                   </button>
                 </div>
+              )}
+
+              {activeTab === 'convert' && (
+                <BwpConvertPanel
+                  disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
+                  tokenizerPresets={TOKENIZER_PRESETS}
+                  presetModels={PRESET_MODELS}
+                  downloadGguf={fetchWithCacheAndProgress}
+                  onLoadBwp={loadBwpModel}
+                  formatBytes={formatBytes}
+                />
               )}
             </div>
             )}
@@ -1407,16 +1474,17 @@ function App() {
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {loadedModelName && (
               <>
-                <button
-                  className="btn-secondary"
-                  onClick={handleBenchmark}
-                  disabled={modelState !== 'ready' || benchRunning}
-                  title="Mesurer le débit de décodage (f32 / f16 / int4)"
-                  style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
-                  {!isMobile && (benchRunning ? 'Benchmark…' : 'Benchmark f16/f32')}
-                </button>
+                <span className="tip" data-tip-warn="1" data-tip="Mesure le débit de décodage (f32 / f16 / int4). ⚠️ Calcul intensif : l'onglet peut se figer quelques instants.">
+                  <button
+                    className="btn-secondary"
+                    onClick={handleBenchmark}
+                    disabled={modelState !== 'ready' || benchRunning}
+                    style={{ width: 'auto', padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
+                    {!isMobile && (benchRunning ? 'Benchmark…' : 'Benchmark f16/f32')}
+                  </button>
+                </span>
                 <button
                   className="btn btn-danger"
                   onClick={handleUnloadModel}

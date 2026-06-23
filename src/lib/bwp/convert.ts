@@ -9,6 +9,7 @@
 
 import { BWP_VERSION, type BwpManifest, type BwpArchProfile, type BwpTensorEntry, type BwpDType } from './format';
 import { packShard, type TensorToPack } from './codec';
+import type { GgufManifest } from './loader';
 
 export interface BwpInputTensor {
 	name: string;
@@ -18,7 +19,7 @@ export interface BwpInputTensor {
 }
 
 export interface BwpBuildInput {
-	model: { name: string; quantSource?: string };
+	model: BwpManifest['model'];
 	arch: BwpArchProfile;
 	chat: BwpManifest['chat'];
 	tokenizer: BwpManifest['tokenizer'];
@@ -83,4 +84,56 @@ export function assembleBwp(input: BwpBuildInput): BwpBuildOutput {
 // f32 unless this is a big 2-D weight matrix (those become f16). Norms/biases are 1-D → f32.
 export function pickDType(shape: number[]): BwpDType {
 	return shape.length >= 2 ? 'f16' : 'f32';
+}
+
+// --- Browser glue: GGUF → BWP --------------------------------------------------------------
+// Dependency-injected so this module never imports the WebGPU engine (keeps the Node test build
+// engine-free): the caller supplies how to read a tensor's raw bytes and how to dequantize them.
+
+export type RawReader = (offset: number, byteLength: number) => Promise<Uint8Array>;
+export type Dequantizer = (type: string, bytes: Uint8Array, nElems: number) => Promise<Float32Array>;
+
+export interface ConvertProfile {
+	modelName: string;
+	quantSource?: string;
+	uiArch?: string; // the UI's architecture tag, carried through so a re-import skips the dropdown
+	tokenizer: BwpManifest['tokenizer'];
+	chat: BwpManifest['chat'];
+}
+
+// Pull every GGUF tensor through the engine's dequant, pick a web dtype (f16 for 2-D matrices,
+// f32 for tiny 1-D norms/biases), and assemble a BWP package. Browser-only (the injected
+// dequantizer is GPU-backed). onProgress fires per tensor for a UI progress bar.
+//
+// Memory note: the f16/f32 outputs of all tensors are held at once (assembleBwp packs them
+// together) — roughly the f16 size of the model. Practical for small/medium models in a browser.
+export async function convertModelToBwp(
+	gguf: GgufManifest,
+	readRaw: RawReader,
+	dequantize: Dequantizer,
+	profile: ConvertProfile,
+	onProgress?: (done: number, total: number, name: string) => void,
+): Promise<BwpBuildOutput> {
+	const names = Object.keys(gguf.tensors);
+	const tensors: BwpInputTensor[] = [];
+	let done = 0;
+	for (const name of names) {
+		const t = gguf.tensors[name];
+		const raw = await readRaw(t.offset, t.bytes);
+		const data = await dequantize(t.type, raw, t.nElems);
+		tensors.push({ name, data, dtype: pickDType(t.shape), shape: t.shape });
+		onProgress?.(++done, names.length, name);
+	}
+
+	const embd = gguf.tensors['token_embd.weight'];
+	const vocab = embd ? Math.round(embd.nElems / gguf.config.d) : 0;
+	const arch: BwpArchProfile = { ...gguf.config, arch: gguf.arch, vocab };
+
+	return assembleBwp({
+		model: { name: profile.modelName, quantSource: profile.quantSource, uiArch: profile.uiArch },
+		arch,
+		chat: profile.chat,
+		tokenizer: profile.tokenizer,
+		tensors,
+	});
 }

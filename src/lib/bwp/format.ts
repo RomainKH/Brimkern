@@ -41,7 +41,9 @@ export interface BwpShard {
 export interface BwpManifest {
 	format: 'bwp';
 	version: number;
-	model: { name: string; quantSource?: string };
+	// uiArch: the engine's UI architecture tag (stop-token + chat-template heuristics) — lets a
+	// re-imported BWP skip the manual arch dropdown. Optional / forward-compatible.
+	model: { name: string; quantSource?: string; uiArch?: string };
 	arch: BwpArchProfile;
 	chat: { template: string; stopTokenIds: number[]; bosTokenId?: number; eosTokenId?: number };
 	tokenizer: { kind: 'hf-hub' | 'embedded'; id?: string };

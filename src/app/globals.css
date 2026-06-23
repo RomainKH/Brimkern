@@ -892,4 +892,33 @@ html.dark .file-dropzone { background: rgba(255, 255, 255, 0.03); }
 /* The logo PNG uses multiply (to drop its white halo on light bg); on dark that hides it. */
 html.dark .logo-image { mix-blend-mode: normal !important; }
 html.dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); }
+
+/* Reusable hover tooltip — wrap an element in <span className="tip" data-tip="...">.
+   Shown immediately on hover (unlike the native title's ~1s delay). */
+.tip { position: relative; display: inline-flex; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tip:hover::after { opacity: 1; transform: translateY(0); }
+.tip[data-tip-warn="1"]::after { border-color: var(--warning); }
 html.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
