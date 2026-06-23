@@ -518,6 +518,13 @@ export class WebGpuEngine {
 	// whole forward pass is one queue submit (vs. the per-op submit+mapAsync the readback path pays).
 	private recordPass(enc: GPUAny, name: string, buffers: GPUAny[], workgroups: [number, number, number]): void {
 		const pipeline = this.pipeline(name);
+		// DEBUG (v5): a zero-size buffer makes the bind group (and thus the whole command buffer)
+		// invalid → submit fails → garbage output. Log which kernel/binding so we can trace it.
+		const sizes = buffers.map((b) => (b && typeof b.size === 'number' ? b.size : -1));
+		if (sizes.some((s) => s === 0)) {
+			// eslint-disable-next-line no-console
+			console.error('[brimkern v5] ZERO-size buffer in kernel', name, '— binding sizes:', sizes, 'workgroups:', workgroups);
+		}
 		const bind = this.device.createBindGroup({
 			layout: pipeline.getBindGroupLayout(0),
 			entries: buffers.map((buffer, i) => ({ binding: i, resource: { buffer } }))
