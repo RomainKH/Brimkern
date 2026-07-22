@@ -153,17 +153,30 @@ function mountWidget(cfg: EmbedConfig) {
     const bubble = addBubble('assistant', '…');
     try {
       const c = await ensureModel();
-      // Garde-fou : le widget n'expose AUCUN outil — sans cette consigne, LFM2.5 (entraîné au
-      // tool-calling) tente des appels de fonctions inventées sur les demandes d'action.
+      // Cadrage appliqué après le prompt de l'intégrateur — VOLONTAIREMENT court : sur un 230M,
+      // une liste de règles détaillées DÉGRADE (banc 2026-07-22 : « reply only to the last
+      // message » → le modèle se met à répéter le message en écho). Trois consignes simples :
+      // pas d'outils (tool-calling halluciné), honnêteté (pas de faits inventés), concision.
       const system = (cfg.system || 'You are a helpful assistant.') +
-        '\nYou have no tools, functions or internet access. Never emit tool calls — always answer in plain conversational text.';
+        '\nAnswer briefly and honestly. If you do not know something, say so — never invent facts or details.' +
+        '\nYou have no tools and no internet access: never emit tool calls, reply in plain text only.';
       const prompt = formatPrompt(history as any, 'lfm2' as any, system);
-      // Ceinture d'affichage : gomme tout marqueur spécial résiduel (<|...|>) du texte montré.
-      const clean = (s: string) => s.replace(/<\|[a-z_]+\|>/g, '').trimEnd();
+      // Ceinture d'affichage : gomme tout marqueur spécial résiduel (<|...|>), et après le premier
+      // tour, la re-salutation réflexe du 230M (« Hello! … » en tête de CHAQUE réponse — mimétisme
+      // de l'accueil dans l'historique ; une consigne anti-salutation dégradait le modèle, le strip
+      // mécanique est déterministe). Gated sur la ponctuation : « Hello everyone » etc. intact.
+      const greeted = history.some((m) => m.role === 'assistant');
+      const clean = (s: string) => {
+        let out = s.replace(/<\|[a-z_]+\|>/g, '');
+        if (greeted) out = out.replace(/^\s*(hello|hi|hey|bonjour|salut)\s*[!,.]\s*/i, '');
+        return out.trimEnd();
+      };
       let acc = '';
       // Chemin RÉSIDENT (prefill 1 submit + décodage rapide) si dispo, sinon repli forwardToken JS.
       const run = c.residentAvailable?.() ? c.generateResident.bind(c) : c.generate.bind(c);
-      await run(prompt, maxTokens, (t: string) => { acc = clean(t); bubble.textContent = acc || '…'; msgsEl.scrollTop = msgsEl.scrollHeight; }, undefined, { sample: true, temperature: 0.7, topK: 40, repeatPenalty: 1.3 });
+      // Température modérée : 0.7 divague (small-talk halluciné, banc de Romain), 0.45 s'effondre
+      // en écho — 0.55 mesuré comme le bon compromis sur la conv-type de la démo.
+      await run(prompt, maxTokens, (t: string) => { acc = clean(t); bubble.textContent = acc || '…'; msgsEl.scrollTop = msgsEl.scrollHeight; }, undefined, { sample: true, temperature: 0.55, topK: 40, repeatPenalty: 1.3 });
       // Réponse vide (ultra-rare : stop en 1er token) → repli poli plutôt qu'une bulle « (vide) ».
       if (!acc) acc = 'Sorry, I can only answer in plain text here — could you rephrase?';
       bubble.textContent = acc;
