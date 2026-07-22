@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, type ClipboardEvent as ReactClipboardEvent } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Zap, Trash2, CheckCircle, AlertCircle,
@@ -165,7 +165,14 @@ function App() {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
 
   // UI states
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  // Initialisé depuis localStorage dès le PREMIER rendu : au remontage client (retour de
+  // /changelog) il n'y a pas d'hydratation, c'est la seule façon de ne jamais peindre le mauvais
+  // état (un useLayoutEffect arrive après le rendu initial → un frame ouvert + transition visible).
+  // Au chargement complet, le mismatch SSR(true)/client est absorbé par le verrou CSS pré-paint
+  // (html.sb-closed) + suppressHydrationWarning sur l'<aside>.
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('brimkern-sidebar') !== '0'; } catch { return true; }
+  });
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [benchRunning, setBenchRunning] = useState<boolean>(false);
   const [showAllModels, setShowAllModels] = useState<boolean>(false); // mobile: reveal the heavy models the picker hides by default
@@ -209,12 +216,23 @@ function App() {
 
   // Restore UI flags that should survive a page navigation (this client page unmounts when you go to
   // /convert or /changelog). One-time, ref-guarded read on mount — same pattern as the theme adopt.
-  useEffect(() => {
-    if (uiRestored.current) return;
-    uiRestored.current = true;
+  // Sidebar : l'état persisté s'applique en useLayoutEffect — AVANT le premier paint post-montage —
+  // sinon elle se peint ouverte puis se ferme sous les yeux de l'utilisateur (retour de /changelog,
+  // hydratation). Le tout premier paint (HTML statique, pré-hydratation) est couvert par le script
+  // pré-paint du layout (html.sb-closed + verrou CSS), retiré plus bas une fois React synchronisé.
+  useLayoutEffect(() => {
     try {
       const sb = localStorage.getItem('brimkern-sidebar');
       if (sb !== null) setIsSidebarOpen(sb === '1');
+    } catch { /* localStorage unavailable */ }
+  }, []);
+
+  useEffect(() => {
+    if (uiRestored.current) return;
+    uiRestored.current = true;
+    // Le verrou CSS pré-paint n'est plus nécessaire : React affiche maintenant le bon état.
+    document.documentElement.classList.remove('sb-closed');
+    try {
       const sk = localStorage.getItem('brimkern-skills');
       if (sk) { const arr = JSON.parse(sk); if (Array.isArray(arr) && arr.length) setActiveSkillIds(arr); }
       const um = localStorage.getItem('brimkern-usermodels');
@@ -1435,7 +1453,7 @@ function App() {
       )}
 
       {/* LEFT SIDEBAR */}
-      <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
+      <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`} suppressHydrationWarning>
         <div className="sidebar-header">
           {/* Marque « kern-B » : un B massif entaillé d'un crénage diagonal (brimKERN). SVG inline
               plat — currentColor suit le thème, zéro asset (l'ancien PNG glossy de 200 Ko est retiré). */}

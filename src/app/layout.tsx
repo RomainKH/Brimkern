@@ -41,8 +41,11 @@ export default function RootLayout({
             la navigation). next/script `beforeInteractive` = la voie App Router : injecté tôt dans le
             HTML initial, et exempt du warning React « script tag in a component » (contrairement à un
             <script> brut). Voir next/docs preventing-flash-before-hydration / scripts. */}
+        {/* Même pattern pour la sidebar : si elle était fermée, on la peint fermée dès le HTML
+            statique (verrou CSS html.sb-closed, retiré à l'hydratation dans page.tsx) — sinon on
+            la voit se refermer à chaque arrivée sur le site. */}
         <Script id="brimkern-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{
-          __html: `try{if(localStorage.getItem('brimkern-theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}`,
+          __html: `try{if(localStorage.getItem('brimkern-theme')==='dark')document.documentElement.classList.add('dark');if(localStorage.getItem('brimkern-sidebar')==='0')document.documentElement.classList.add('sb-closed')}catch(e){}`,
         }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

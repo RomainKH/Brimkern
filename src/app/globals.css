@@ -855,6 +855,15 @@ pre code {
   margin-left: -380px;
 }
 
+/* Pré-hydratation : le HTML statique rend toujours la sidebar `open`. Si l'utilisateur l'avait
+   fermée (script pré-paint du layout → html.sb-closed), on la peint fermée SANS transition —
+   fini le flash « ouverte puis elle se referme » au chargement. page.tsx retire la classe une
+   fois l'état React synchronisé. */
+html.sb-closed .sidebar.open {
+  margin-left: -380px;
+  transition: none;
+}
+
 /* Responsive adjustments */
 @media (max-width: 1000px) {
   .sidebar {
@@ -877,6 +886,13 @@ pre code {
   /* On mobile the slide-over uses transform, not the desktop negative margin. */
   .sidebar:not(.open) {
     margin-left: 0;
+  }
+
+  /* Pré-hydratation (cf. règle desktop) : fermée = transform ici, pas la marge négative. */
+  html.sb-closed .sidebar.open {
+    margin-left: 0;
+    transform: translateX(-100%);
+    transition: none;
   }
 
   .welcome-steps {
