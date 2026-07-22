@@ -20,6 +20,52 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'July 22, 2026', fr: '22 juillet 2026' },
+    tagline: {
+      en: 'Brimkern goes open source (MIT) — and becomes embeddable: one <script> tag puts a local AI on your own site. The ultra-light chat no longer freezes, and video generation gets a resident engine plus a real WebM export.',
+      fr: 'Brimkern passe open source (MIT) — et devient embarquable : une balise <script> suffit pour poser une IA locale sur votre propre site. Le chat ultra-léger ne gèle plus, et la génération vidéo gagne un moteur résident et un vrai export WebM.',
+    },
+    groups: [
+      {
+        title: { en: 'Open source — the code is public', fr: 'Open source — le code est public' },
+        items: [
+          { en: 'The entire engine is now on GitHub under the MIT license: WGSL kernels, the .brik format, the loaders, the app. New home: brimkern.romainkhanoyan.fr.', fr: 'Tout le moteur est désormais sur GitHub sous licence MIT : kernels WGSL, format .brik, chargeurs, application. Nouvelle adresse : brimkern.romainkhanoyan.fr.' },
+          { en: 'A product README with screenshots, and proper SEO plumbing (robots, sitemap, canonical domain).', fr: 'Un README produit avec captures d’écran, et la plomberie SEO qui va avec (robots, sitemap, domaine canonique).' },
+        ],
+      },
+      {
+        title: { en: 'Embeddable SDK (v0) — your site, your visitors’ GPU', fr: 'SDK embarquable (v0) — votre site, le GPU de vos visiteurs' },
+        items: [
+          { en: 'One <script src="/sdk.js"> + Brimkern.embed({ system: … }) mounts a chat widget that runs a .brik model entirely on the visitor’s GPU: zero server, zero per-token cost, private, offline after the first load. Live example on /sdk-demo.html.', fr: 'Une balise <script src="/sdk.js"> + Brimkern.embed({ system: … }) monte un widget de chat qui exécute un modèle .brik entièrement sur le GPU du visiteur : zéro serveur, zéro coût par token, privé, hors-ligne après le premier chargement. Exemple live sur /sdk-demo.html.' },
+          { en: 'Configurable with a plain object: model (a hosted .brik URL), system prompt, title, greeting, accent color, token budget. The model only downloads when the visitor engages the widget — your PageSpeed is untouched.', fr: 'Configurable avec un simple objet : modèle (URL d’un .brik hébergé), prompt système, titre, message d’accueil, couleur d’accent, budget de tokens. Le modèle ne se télécharge que quand le visiteur ouvre le widget — votre PageSpeed reste intact.' },
+          { en: 'It reuses the app’s fast path (resident GPU decode) and never interprets model output as HTML — plain text only, styles scoped to the widget.', fr: 'Il réutilise le chemin rapide de l’app (décodage GPU résident) et n’interprète jamais la sortie du modèle comme du HTML — texte brut uniquement, styles cantonnés au widget.' },
+        ],
+      },
+      {
+        title: { en: 'LFM2.5 chat unfrozen — and 2.3× faster', fr: 'Le chat LFM2.5 dégelé — et 2,3× plus rapide' },
+        items: [
+          { en: 'Switching to LFM2.5 mid-conversation could freeze the tab: every token triggered ~100 GPU round-trips, and replaying the whole history multiplied them by thousands. The forward pass is now fully GPU-resident — one submission per token, one for the whole prefill.', fr: 'Basculer sur LFM2.5 en cours de conversation pouvait geler l’onglet : chaque token déclenchait ~100 allers-retours GPU, et rejouer tout l’historique les multipliait par milliers. Le calcul est désormais 100 % résident GPU — une soumission par token, une seule pour tout le prefill.' },
+          { en: 'Verified token-identical to the previous path before shipping, with an automatic fallback and a ?lfm2resident=0 switch. Measured: 13.5 → 31 tok/s on the same machine.', fr: 'Vérifié token-identique à l’ancien chemin avant livraison, avec repli automatique et interrupteur ?lfm2resident=0. Mesuré : 13,5 → 31 tok/s sur la même machine.' },
+        ],
+      },
+      {
+        title: { en: 'Video (lab) — resident engine, prompt enrichment, WebM export', fr: 'Vidéo (labo) — moteur résident, enrichissement de prompt, export WebM' },
+        items: [
+          { en: 'The temporal (motion) modules now run entirely on the GPU in a single submission — 5× faster per module, with a CPU-verified fallback and ?videoresident=0.', fr: 'Les modules temporels (motion) tournent désormais entièrement sur le GPU en une seule soumission — 5× plus vite par module, avec repli vérifié contre la référence CPU et ?videoresident=0.' },
+          { en: 'Your short prompt is enriched by the local LFM2.5 model into a proper cinematic description before generation — better motion, still 100% on-device.', fr: 'Votre prompt court est enrichi par le modèle local LFM2.5 en vraie description cinématographique avant la génération — un meilleur mouvement, toujours 100 % on-device.' },
+          { en: 'The result exports as a looping WebM clip of bounded duration (~10 s) instead of raw frames.', fr: 'Le résultat s’exporte en clip WebM bouclé à durée bornée (~10 s) au lieu de frames brutes.' },
+        ],
+      },
+      {
+        title: { en: 'Mobile & housekeeping', fr: 'Mobile & entretien' },
+        items: [
+          { en: 'The full model browser is now reachable on mobile with a “Change model” action — Qwen 3 0.6B and friends are one tap away, no longer desktop-only.', fr: 'Le navigateur de modèles complet est désormais accessible sur mobile avec une action « Changer de modèle » — Qwen 3 0.6B et compagnie sont à un tap, plus réservés au desktop.' },
+          { en: 'The storage gauge now shows the browser’s real quota (it depends on your free disk space) instead of an optimistic estimate, the misleading first-visit splash is gone, and the “GPU engine” card is more compact.', fr: 'La jauge de stockage affiche désormais le vrai quota du navigateur (il dépend de l’espace disque libre) au lieu d’une estimation optimiste, le splash de première visite trompeur a disparu, et la carte « Moteur GPU » est plus compacte.' },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'July 21, 2026', fr: '21 juillet 2026' },
     tagline: {
       en: 'A second engine is born: linear-attention and hybrid models run in your browser. A 149 MB model that chats in French, a live demo on /local-ai — and the first video ever generated by Brimkern, entirely on your GPU.',

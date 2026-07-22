@@ -152,6 +152,32 @@ export default function LocalAiClient() {
         ))}
       </div>
 
+      {/* Embarquer — le SDK v0 est livré : snippet réel + lien démo */}
+      <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)' }}>
+        {t('Embed it on your site — SDK v0', 'Embarquez-la sur votre site — SDK v0')}
+      </h2>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: '0 0 14px', maxWidth: 680 }}>
+        {t('The SDK is live. One script tag mounts the assistant; a prompt shapes it. The model only downloads when a visitor opens the widget — your page score is untouched.',
+          'Le SDK est disponible. Une balise script monte l’assistant ; un prompt le façonne. Le modèle ne se télécharge que quand un visiteur ouvre le widget — le score de votre page reste intact.')}
+      </p>
+      <pre className="card" style={{ padding: 18, margin: 0, overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)' }}>
+{`<script src="https://brimkern.romainkhanoyan.fr/sdk.js"></script>
+<script>
+  Brimkern.embed({
+    system: ${locale === 'fr' ? "'Tu es l’assistant de support d’Acme, amical et concis.'" : "'You are a friendly, concise support assistant for Acme.'"},
+  });
+</script>`}
+      </pre>
+      <p style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 0', flexWrap: 'wrap' }}>
+        <a href="/sdk-demo.html" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
+          {t('See a live integration', 'Voir une intégration live')} <ArrowRight size={15} />
+        </a>
+        <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
+          {t('v0 — chat widget, custom model URL, colors & wording. Knowledge documents and tools are next.',
+            'v0 — widget de chat, URL de modèle custom, couleurs & libellés. Documents de connaissance et outils arrivent ensuite.')}
+        </span>
+      </p>
+
       {/* Sous le capot / crédibilité */}
       <div className="card" style={{ padding: 22, marginTop: 44, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
         <Cpu size={22} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
@@ -174,8 +200,8 @@ export default function LocalAiClient() {
       </p>
 
       <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 28 }}>
-        {t('Brimkern — local WebGPU inference. The embeddable SDK is in active development.',
-          "Brimkern — inférence WebGPU locale. Le SDK embarquable est en développement actif.")}
+        {t('Brimkern — local WebGPU inference. The embeddable SDK (v0) is live and free — the engine is open source (MIT).',
+          "Brimkern — inférence WebGPU locale. Le SDK embarquable (v0) est disponible et gratuit — le moteur est open source (MIT).")}
       </p>
     </div>
   );

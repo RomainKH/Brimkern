@@ -135,7 +135,7 @@ npm run build && npm run start   # production
 Brimkern isn't only an app; it's an engine you can drop into your own product. Add a small `<script>`, hand it a system prompt, and it runs a model on **your visitor's GPU** — which makes it **free to run at any scale**: no inference bill, no server, private by construction, offline after first load.
 
 ```html
-<!-- planned embed API (early access) — sdk.js served from the app itself (same-origin) -->
+<!-- sdk.js is served by the app itself (same-origin) -->
 <script src="https://brimkern.romainkhanoyan.fr/sdk.js"></script>
 <script>
   Brimkern.embed({
@@ -149,7 +149,7 @@ Brimkern isn't only an app; it's an engine you can drop into your own product. A
 - **Private** — prompts and data never leave the browser (strong GDPR / health / legal story).
 - **Light on the page** — the SDK is a few KB of JS; the model downloads only when the user engages the widget, so **PageSpeed is untouched**.
 
-A live pitch page ships at `/local-ai`. *(SDK is early access — the embed API above is the planned shape.)*
+A live pitch page ships at `/local-ai`, and a working integration example at `/sdk-demo.html`. *(SDK v0 — chat widget, custom model URL, colors & wording; knowledge documents and tools are next.)*
 
 ---
 
