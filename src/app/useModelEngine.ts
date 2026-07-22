@@ -253,7 +253,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
             dtype: GGUF_TO_DTYPE[tt.type] ?? tt.type, shape: tt.shape, nElems: tt.nElems, shard: 0, offset: tt.offset, byteLength: tt.bytes,
           }])),
           shards: [{ id: 0, file: '', byteLength: 0 }],
-          chat: { template: 'chatml', stopTokenIds: [7] }, // <|im_end|>
+          chat: { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] }, // <|im_end|>, <|endoftext|> + blocs outil (hallucination tool-call, cf. isStopToken lfm2)
         } as unknown as import('@/lib/brik/format').BrikManifest;
         const rawTensor = async (name: string) => { const tt = manifest.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`); return source.bytes(tt.offset, tt.bytes); };
         const core = new Lfm2Model(engine, bm, rawTensor);

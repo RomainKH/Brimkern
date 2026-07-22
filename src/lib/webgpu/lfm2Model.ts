@@ -251,6 +251,16 @@ export class Lfm2Model {
 		return { label: scores[0].label, scores };
 	}
 
+	// LFM2.5 est entraîné au tool-calling et tente des appels d'outil sur les demandes d'action
+	// (<|tool_list/call/response_start|> = 8/10/12 — et 10 est special=false → il s'afficherait BRUT).
+	// Ici il n'y a AUCUN outil : on BANNIT ces tokens (logit -∞, le modèle continue en texte) plutôt
+	// que d'en faire des stops — un stop en 1er token donnerait une réponse vide.
+	private static readonly TOOL_BAN = [8, 10, 12];
+	private banTools(logits: Float32Array): Float32Array {
+		for (const id of Lfm2Model.TOOL_BAN) if (id < logits.length) logits[id] = -1e30;
+		return logits;
+	}
+
 	// Échantillonnage (texte libre) : pénalité de répétition fenêtre 64, top-k, softmax température.
 	private sampleTok(logits: Float32Array, recent: number[], opts: SampleOpts): number {
 		const { temperature = 0.8, topK = 40, repeatPenalty = 1.3 } = opts;
@@ -279,6 +289,7 @@ export class Lfm2Model {
 		const out: number[] = [];
 		for (let s = 0; s < n; s++) {
 			if (stop?.()) break;
+			this.banTools(logits);
 			let best: number;
 			if (opts?.sample) best = this.sampleTok(logits, out.slice(-64), opts);
 			else { best = 0; for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i; }
@@ -287,7 +298,7 @@ export class Lfm2Model {
 			if (onToken) onToken(this.tok.decode(out));
 			logits = await this.forwardToken(best);
 		}
-		return this.tok.decode(out);
+		return out.length ? this.tok.decode(out) : ''; // decode([]) jette dans transformers.js
 	}
 
 	// Comme generate() mais sur le chemin RÉSIDENT (logitsGpu) : prefill du prompt en UNE soumission
@@ -302,6 +313,7 @@ export class Lfm2Model {
 		const out: number[] = [];
 		for (let s = 0; s < n; s++) {
 			if (stop?.()) break;
+			this.banTools(logits);
 			let best: number;
 			if (opts?.sample) best = this.sampleTok(logits, out.slice(-64), opts);
 			else { best = 0; for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i; }
@@ -311,6 +323,6 @@ export class Lfm2Model {
 			logits = await this.logitsGpu([best], pos, sid);
 			pos++;
 		}
-		return this.tok.decode(out);
+		return out.length ? this.tok.decode(out) : ''; // decode([]) jette dans transformers.js
 	}
 }

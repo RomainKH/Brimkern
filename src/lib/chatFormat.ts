@@ -103,6 +103,10 @@ export function isStopToken(tokenId: number, text: string, archType: ArchType): 
   if (tokenId === 151643 && (archType === 'qwen' || archType === 'qwen3')) return true;
   // LFM2/LFM2.5 : <|im_end|> = 7, <|endoftext|> = 2 (vocab 65536, ids ChatML propres au modèle).
   if ((tokenId === 7 || tokenId === 2) && archType === 'lfm2') return true;
+  // LFM2.5 est entraîné au tool-calling et hallucine des appels d'outil (<|tool_call_start|> = 10,
+  // special=false dans son tokenizer → s'afficherait BRUT). Ni le chat ni le SDK n'ont d'outils :
+  // on coupe la génération dès que le modèle tente un appel (8 = <|tool_list_start|>, 12 = <|tool_response_start|>).
+  if ((tokenId === 8 || tokenId === 10 || tokenId === 12) && archType === 'lfm2') return true;
   // DeepSeek-R1 distill (Qwen2 vocab): <｜end▁of▁sentence｜>.
   if (tokenId === 151643 && archType === 'deepseek') return true;
 

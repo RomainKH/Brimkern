@@ -35,7 +35,7 @@ export async function loadPromptEnricher(engine: WebGpuEngine, url: string, onPr
       dtype: GG[tt.type] ?? tt.type, shape: tt.shape, nElems: tt.nElems, shard: 0, offset: tt.offset, byteLength: tt.bytes,
     }])),
     shards: [{ id: 0, file: '', byteLength: 0 }],
-    chat: { template: 'chatml', stopTokenIds: [7] },
+    chat: { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] }, // + blocs outil (hallucination tool-call LFM2.5)
   } as any;
   const rawTensor = async (name: string) => { const tt = m.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`); return loadable.source.bytes(tt.offset, tt.bytes); };
   const { PreTrainedTokenizer } = await import('@huggingface/transformers');

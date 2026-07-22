@@ -49,9 +49,23 @@ export class Lfm2ChatAdapter {
 		return logits;
 	}
 
+	// Le chat n'a pas d'outils : les ouvertures de blocs outil LFM2.5 (8/10/12, tool-calling
+	// halluciné — cf. Lfm2Model.TOOL_BAN) sont écartées des candidats au lieu d'être générées.
+	private static readonly TOOL_BAN = new Set([8, 10, 12]);
+	private banTools(r: { ids: Uint32Array; vals: Float32Array }): { ids: Uint32Array; vals: Float32Array } {
+		let w = 0;
+		for (let i = 0; i < r.ids.length; i++) {
+			if (Lfm2ChatAdapter.TOOL_BAN.has(r.ids[i])) continue;
+			r.ids[w] = r.ids[i]; r.vals[w] = r.vals[i]; w++;
+		}
+		for (; w < r.vals.length; w++) r.vals[w] = -Infinity; // queue résiduelle : poids nul
+		return r;
+	}
+
 	// Prochain token greedy (utilisé par le bench de précision du chat).
 	async generateNextKV(tokens: number[], pastLen: number, sessionId: string, _inject?: unknown): Promise<number> {
 		const logits = await this.logitsKV(tokens, pastLen, sessionId);
+		for (const id of Lfm2ChatAdapter.TOOL_BAN) if (id < logits.length) logits[id] = -1e30;
 		let best = 0; for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
 		return best;
 	}
@@ -60,8 +74,9 @@ export class Lfm2ChatAdapter {
 	// divisés, négatifs multipliés) — même contrat que CustomWebModel.topKKV/decodeTopKQ8.
 	async topKKV(tokens: number[], pastLen: number, sessionId: string, recent: number[], penalty: number, _inject?: unknown): Promise<{ ids: Uint32Array; vals: Float32Array }> {
 		// Résident : projection tête + pénalité + top-K sur le GPU, un readback (~512 o).
-		if (this.core.residentAvailable()) return this.core.topKGpu(tokens, pastLen, sessionId, [...new Set(recent)], penalty, 40);
+		if (this.core.residentAvailable()) return this.banTools(await this.core.topKGpu(tokens, pastLen, sessionId, [...new Set(recent)], penalty, 40));
 		const logits = await this.logitsKV(tokens, pastLen, sessionId);
+		for (const id of Lfm2ChatAdapter.TOOL_BAN) if (id < logits.length) logits[id] = -1e30;
 		if (penalty && penalty !== 1) {
 			for (const id of new Set(recent)) {
 				if (id >= 0 && id < logits.length) logits[id] = logits[id] > 0 ? logits[id] / penalty : logits[id] * penalty;

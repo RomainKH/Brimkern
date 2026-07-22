@@ -41,7 +41,9 @@ async function buildModel(url: string, onProgress: (s: string) => void) {
       dtype: GG[tt.type] ?? tt.type, shape: tt.shape, nElems: tt.nElems, shard: 0, offset: tt.offset, byteLength: tt.bytes,
     }])),
     shards: [{ id: 0, file: '', byteLength: 0 }],
-    chat: { template: 'chatml', stopTokenIds: [7] },
+    // 7 = <|im_end|>, 2 = <|endoftext|> ; 8/10/12 = ouvertures de blocs outil (<|tool_list/call/response_start|>) :
+    // LFM2.5 hallucine des appels d'outil (et 10 est special=false → s'afficherait brut), le widget n'a pas d'outils.
+    chat: { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] },
   };
   const rawTensor = async (name: string) => {
     const tt = m.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`);
@@ -151,12 +153,20 @@ function mountWidget(cfg: EmbedConfig) {
     const bubble = addBubble('assistant', '…');
     try {
       const c = await ensureModel();
-      const prompt = formatPrompt(history as any, 'lfm2' as any, cfg.system || '');
+      // Garde-fou : le widget n'expose AUCUN outil — sans cette consigne, LFM2.5 (entraîné au
+      // tool-calling) tente des appels de fonctions inventées sur les demandes d'action.
+      const system = (cfg.system || 'You are a helpful assistant.') +
+        '\nYou have no tools, functions or internet access. Never emit tool calls — always answer in plain conversational text.';
+      const prompt = formatPrompt(history as any, 'lfm2' as any, system);
+      // Ceinture d'affichage : gomme tout marqueur spécial résiduel (<|...|>) du texte montré.
+      const clean = (s: string) => s.replace(/<\|[a-z_]+\|>/g, '').trimEnd();
       let acc = '';
       // Chemin RÉSIDENT (prefill 1 submit + décodage rapide) si dispo, sinon repli forwardToken JS.
       const run = c.residentAvailable?.() ? c.generateResident.bind(c) : c.generate.bind(c);
-      await run(prompt, maxTokens, (t: string) => { acc = t; bubble.textContent = t || '…'; msgsEl.scrollTop = msgsEl.scrollHeight; }, undefined, { sample: true, temperature: 0.7, topK: 40, repeatPenalty: 1.3 });
-      bubble.textContent = acc || '(vide)';
+      await run(prompt, maxTokens, (t: string) => { acc = clean(t); bubble.textContent = acc || '…'; msgsEl.scrollTop = msgsEl.scrollHeight; }, undefined, { sample: true, temperature: 0.7, topK: 40, repeatPenalty: 1.3 });
+      // Réponse vide (ultra-rare : stop en 1er token) → repli poli plutôt qu'une bulle « (vide) ».
+      if (!acc) acc = 'Sorry, I can only answer in plain text here — could you rephrase?';
+      bubble.textContent = acc;
       history.push({ role: 'assistant', content: acc });
     } catch (e: any) { bubble.textContent = 'Erreur : ' + (e?.message || String(e)); }
     finally { busy = false; sendEl.disabled = false; inEl.focus(); }
