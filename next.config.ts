@@ -5,6 +5,14 @@ const nextConfig: NextConfig = {
   // mais pas de marque tierce à l'écran, même en dev). Les erreurs de compil restent affichées.
   devIndicators: false,
   async headers() {
+    // CORS ouvert (*) réservé aux assets faits pour être consommés par d'autres origines
+    // (SDK embarquable, modèles, wasm) — plus de wildcard global : une future route API ne
+    // deviendrait pas lisible par n'importe quel site par accident. CORP `cross-origin` sur ces
+    // mêmes assets pour rester chargeables depuis un site hôte qui active COEP.
+    const sharedAsset = [
+      { key: "Access-Control-Allow-Origin", value: "*" },
+      { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
+    ];
     return [
       {
         source: "/:path*",
@@ -17,12 +25,21 @@ const nextConfig: NextConfig = {
             key: "Cross-Origin-Embedder-Policy",
             value: "require-corp",
           },
+          // Anti-clickjacking : aucune page du site n'a besoin d'être iframée (le SDK est une
+          // balise <script> chez l'hôte, pas une iframe).
           {
-            key: "Access-Control-Allow-Origin",
-            value: "*",
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'none'",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "DENY",
           },
         ],
       },
+      { source: "/sdk.js", headers: sharedAsset },
+      { source: "/models/:path*", headers: sharedAsset },
+      { source: "/wasm/:path*", headers: sharedAsset },
     ];
   },
 };

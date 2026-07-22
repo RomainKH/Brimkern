@@ -88,8 +88,17 @@ function injectStyles(accent: string) {
   document.head.appendChild(s);
 }
 
+// L'accent est interpolé dans une feuille de style : on ne laisse passer qu'une couleur CSS
+// valide (un hôte qui relaierait une entrée utilisateur ne peut pas injecter de règles CSS).
+function safeAccent(accent?: string) {
+  if (!accent) return '#c72c1e';
+  if (/^#[0-9a-fA-F]{3,8}$/.test(accent)) return accent;
+  try { if (typeof CSS !== 'undefined' && CSS.supports('color', accent) && !/[{};()]/.test(accent)) return accent; } catch { /* below */ }
+  return '#c72c1e';
+}
+
 function mountWidget(cfg: EmbedConfig) {
-  const accent = cfg.accent || '#c72c1e';
+  const accent = safeAccent(cfg.accent);
   const title = cfg.title || 'Assistant';
   const maxTokens = cfg.maxTokens || 220;
   injectStyles(accent);
@@ -123,7 +132,10 @@ function mountWidget(cfg: EmbedConfig) {
   // récupérait un modèle null pendant que le chargement était encore en cours).
   const ensureModel = () => {
     if (!modelPromise) {
-      const url = cfg.model && cfg.model.startsWith('http') ? cfg.model : MODELS[cfg.model || 'lfm2.5-230m'] || MODELS['lfm2.5-230m'];
+      // https exigé (un modèle servi en clair pourrait être substitué par un MITM et piloter
+      // toutes les réponses du widget) ; http toléré pour localhost/dev uniquement.
+      const isUrl = cfg.model && (cfg.model.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(cfg.model));
+      const url = isUrl ? cfg.model! : MODELS[cfg.model || 'lfm2.5-230m'] || MODELS['lfm2.5-230m'];
       const s = addBubble('assistant', 'Initialisation…'); s.classList.add('bk-status');
       modelPromise = buildModel(url, (m) => { s.textContent = m; })
         .then((c) => { s.remove(); return c; })
@@ -156,7 +168,7 @@ function mountWidget(cfg: EmbedConfig) {
   inEl.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } };
 }
 
-function escapeHtml(s: string) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string)); }
+function escapeHtml(s: string) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)); }
 
 // API globale
 (window as any).Brimkern = {
