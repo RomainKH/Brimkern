@@ -295,12 +295,14 @@ export function ModelBrowserModal({
                           transition: 'all 0.2s',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                          <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--text-primary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {/* Nom sur sa propre ligne (pleine largeur, plus tronqué par la pastille) ;
+                            le qualificatif (« L'ultra-léger »…) passe en sous-titre dessous. */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                          <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--text-primary)', width: '100%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{model.vendor} · </span>{model.name.split(' (')[0]}
                           </span>
                           <span
-                            style={{ fontSize: '9.5px', padding: '2px 7px', borderRadius: '999px', fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--accent-bg-rgba)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', flexShrink: 0, maxWidth: '46%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                            style={{ fontSize: '9.5px', padding: '2px 7px', borderRadius: '999px', fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--accent-bg-rgba)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
                           >
                             {model.useCase}
                           </span>

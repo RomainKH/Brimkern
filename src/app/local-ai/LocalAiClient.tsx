@@ -169,7 +169,7 @@ export default function LocalAiClient() {
 </script>`}
       </pre>
       <p style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 0', flexWrap: 'wrap' }}>
-        <a href="/sdk-demo.html" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
+        <a href="/sdk-demo.html" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
           {t('See a live integration', 'Voir une intégration live')} <ArrowRight size={15} />
         </a>
         <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
