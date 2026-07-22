@@ -1,0 +1,1090 @@
+/* Hallmark · genre: editorial · macrostructure: Workbench (app shell) · theme: Le Kern
+   (papier/encre/rouge imprimeur, system-managed) · redesign: refinement pass · designed-as-app */
+/* Brimkern Design System — direction « Le Kern » : papier, encre, rouge imprimeur.
+   (L'identité violet/dégradé « IA générique » est retirée — voir l'audit d'identité.)
+   Display : Fraunces (serif d'imprimerie) — réservé aux moments identitaires (marque, titres) ;
+   les chaînes techniques (noms de modèles, boutons) restent en Inter. */
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Fraunces', Georgia, serif;
+  --font-mono: 'Fira Code', monospace;
+
+  /* Color Palette — papier/encre (thème clair) */
+  --bg-main: #f2efe8;
+  --bg-sidebar: #ebe8df;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f7f5ef;
+  --bg-input: #ffffff;
+  --bg-elevated: #ffffff;
+  /* white surfaces (header, bubbles, buttons) — flips in dark mode */
+  --bg-code: #f0ede5;
+  --bg-code-inline: #ebe8df;
+  --code-inline-text: #c72c1e;
+  --bubble-user-bg: #e9e6dc;
+  --bubble-user-border: #d8d4c8;
+
+  --border-color: #ddd9ce;
+  --border-focus: #c4bfb0;
+
+  --accent: #c72c1e;
+  --accent-hover: #a82418;
+  --accent-bg-rgba: rgba(199, 44, 30, 0.08);
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #52504a;
+  --text-muted: #8b887f;
+
+  /* Sémantiques « encrées » — assez sombres pour tenir sur le papier (texte 11–13px). */
+  --success: #1a7f4e;
+  --warning: #a86a0c;
+  --error: #ef4444;
+
+  --shadow-sm: 0 1px 2px 0 rgba(26, 26, 26, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(26, 26, 26, 0.05), 0 2px 4px -1px rgba(26, 26, 26, 0.03);
+  --shadow-lg: 0 10px 15px -3px rgba(26, 26, 26, 0.05), 0 4px 6px -2px rgba(26, 26, 26, 0.03);
+  --shadow-glow: 0 4px 12px rgba(199, 44, 30, 0.15);
+
+  box-sizing: border-box;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  /* dvh = the *visible* viewport. With 100vh (the LARGE viewport) the body is taller than what's on
+     screen, so the root can scroll its `100vh − 100dvh` delta — and on Android that scroll is what
+     shows/hides the address bar, which then slides over the fixed header. 100dvh removes the delta. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  /* Kill rubber-band / pull-to-refresh, which also reveals the browser chrome over the app. */
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Layout container */
+.app-container {
+  /* Pin the shell to the *visible* viewport. 100dvh tracks the address-bar showing/hiding; `fixed`
+     stops the body (min-height:100vh = the LARGE viewport) from scrolling the toolbar's delta, which
+     on Android slid the whole app under the browser chrome and hid the top bar (burger). */
+  position: fixed;
+  inset: 0;
+  display: flex;
+  width: 100vw;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Filet rouge imprimeur — la signature « Le Kern » : un trait continu en haut de l'app. */
+.app-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 60;
+  pointer-events: none;
+}
+
+/* Détails d'encre : le curseur de saisie et la sélection portent le rouge Kern. */
+input,
+textarea {
+  caret-color: var(--accent);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Sidebar Styling */
+.sidebar {
+  width: 380px;
+  height: 100%;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 10;
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-header {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.logo-text {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 22px;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: scroll;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-content::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Cards & Buttons */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-secondary {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+}
+
+.btn-danger {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Status Badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.status-badge.supported {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.status-badge.unsupported {
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+.status-badge.gpu {
+  background: var(--accent-bg-rgba);
+  color: var(--accent);
+  border: 1px solid rgba(199, 44, 30, 0.2); /* rouge Kern — dernier reliquat violet purgé */
+  white-space: nowrap;
+}
+
+/* Tabs */
+.tabs-container {
+  display: flex;
+  background: var(--bg-sidebar);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.tab-btn {
+  flex: 1;
+  background: transparent;
+  /* Transparent border (not none) so toggling .active doesn't shift layout by 1px. */
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.tab-btn.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-color);
+}
+
+/* Keyboard-only focus ring everywhere: a mouse click should NOT leave a lingering outline/border
+   (that was the "visual overload on every interaction"); keyboard navigation still gets a clear ring. */
+button:focus {
+  outline: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Inputs */
+.custom-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.custom-input:focus {
+  border-color: var(--accent);
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.input-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.input-control {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.input-control:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.input-control:hover:not(:disabled) {
+  border-color: var(--border-focus);
+}
+
+.input-control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(20%);
+}
+
+/* File Dropzone */
+.file-dropzone {
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 30px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-dropzone:hover,
+.file-dropzone.dragging {
+  border-color: var(--accent);
+  background: var(--accent-bg-rgba);
+}
+
+.file-dropzone-icon {
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.file-dropzone-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.file-dropzone-subtext {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Main Chat Area */
+.chat-area {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-main);
+  position: relative;
+}
+
+.chat-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 5;
+}
+
+.chat-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Nom de modèle = chaîne technique → sans, pas la serif d'identité. */
+.loaded-model-name {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.loaded-model-status {
+  font-size: 12px;
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background-color: var(--success);
+  border-radius: 50%;
+}
+
+.pulse-dot.anim {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 40%, transparent);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Chat Messages Container */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Welcome Overlay */
+.welcome-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: auto;
+  padding: 40px 20px;
+  text-align: center;
+  max-width: 600px;
+}
+
+/* Accueil façon « page de spécimen » : la marque kern-B, un filet rouge, puis des étapes
+   éditoriales tenues par des filets d'encre (plus de cartes grises ni d'icône « IA »). */
+.welcome-mark {
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.welcome-title {
+  font-family: var(--font-heading);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 18px 0;
+  color: var(--text-primary);
+}
+
+.welcome-rule {
+  width: 44px;
+  height: 3px;
+  background: var(--accent);
+  margin: 0 auto 20px;
+}
+
+.welcome-subtitle {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0 0 40px 0;
+}
+
+.welcome-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  width: 100%;
+}
+
+.welcome-step {
+  border-top: 2px solid var(--text-primary);
+  padding: 14px 2px 0;
+  text-align: left;
+}
+
+.welcome-step-num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.welcome-step-title {
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.welcome-step-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Chat Messages */
+.message {
+  display: flex;
+  gap: 16px;
+  max-width: 100%;
+}
+
+.message.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.message.assistant .avatar {
+  background: var(--accent-bg-rgba);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
+
+.message-bubble {
+  border-radius: 16px;
+  padding: 12px 30px 12px 16px;
+  line-height: 1.6;
+  font-size: 15px;
+  position: relative;
+  width: fit-content;
+  /* The 80%-of-row cap lives on the column wrapper (.message-col); here just don't exceed it. */
+  max-width: 100%;
+  box-shadow: var(--shadow-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Column holding a bubble + its stats. Caps the bubble at 80% of the message row and lets it
+   shrink to its content (min-width:0) so short messages like "hello ça va ?" stay on one line. */
+.message-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 80%;
+}
+
+/* User bubbles hug the right edge (the message row is reversed for the user). */
+.message.user .message-bubble {
+  margin-left: auto;
+}
+
+.message.user .message-bubble {
+  background: var(--bubble-user-bg);
+  border: 1px solid var(--bubble-user-border);
+  color: var(--text-primary);
+  border-top-right-radius: 4px;
+}
+
+.message.assistant .message-bubble {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-top-left-radius: 4px;
+}
+
+.message-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-sidebar);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+/* Chat Input Bar */
+.chat-input-container {
+  padding: 20px 24px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+}
+
+.chat-input-wrapper {
+  max-width: 850px;
+  margin: 0 auto;
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 10px 14px;
+  transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-input-wrapper:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-md);
+}
+
+.chat-textarea {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  /* Height is driven by the JS auto-grow effect (inline style.height = scrollHeight, capped). An
+     `height: auto !important` here used to override that inline height → the box never grew and
+     multi-line prompts scrolled inside instead. min/max-height keep it bounded. */
+  line-height: 1.5;
+  max-height: 200px;
+  min-height: 24px;
+  padding: 4px 0;
+}
+
+.chat-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+
+.circle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.circle-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--bg-sidebar);
+}
+
+.circle-btn.send-btn {
+  background: var(--accent);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.circle-btn.send-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.circle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.message-actions .circle-btn span {
+  white-space: nowrap !important;
+}
+
+/* Loading Overlay for Model Initializing — a real overlay: covers the chat area (anchored to
+   .chat-area, the nearest positioned ancestor) instead of flowing above the conversation. */
+.model-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+  background: color-mix(in srgb, var(--bg-main) 94%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-sidebar);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.1s ease;
+  border-radius: 99px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Code formatting in chat bubble */
+pre {
+  background: var(--bg-code) !important;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-code-inline);
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--code-inline-text);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+
+/* Desktop: the panel is collapsible. The header toggle adds/removes `.open`; when closed it
+   slides out of the flex flow so the chat area expands. */
+.sidebar:not(.open) {
+  margin-left: -380px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1000px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    /* 100dvh tracks the *visible* viewport so the drawer fills the screen even with the mobile
+       browser's address bar showing/hiding (plain 100vh overflows under the URL bar). */
+    height: 100dvh;
+    z-index: 10;
+    margin-left: 0;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* On mobile the slide-over uses transform, not the desktop negative margin. */
+  .sidebar:not(.open) {
+    margin-left: 0;
+  }
+
+  .welcome-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Bouncing dots for thinking state */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: typing 1s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typing {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+/* Metadata table styling */
+.metadata-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.metadata-table th,
+.metadata-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.metadata-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  width: 35%;
+}
+
+.metadata-table td {
+  color: var(--text-primary);
+  word-break: break-all;
+  font-family: var(--font-mono);
+}
+
+/* New Chat button */
+.new-chat-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 12px;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
+}
+
+.new-chat-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.new-chat-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Model Card styling */
+.model-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  transition: all 0.2s ease-in-out;
+  box-shadow: var(--shadow-sm);
+}
+
+.model-card:hover {
+  border-color: var(--accent) !important;
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Dark mode (toggled by `html.dark`) — l'encre : le négatif du papier ── */
+html.dark {
+  --bg-main: #171614;
+  --bg-sidebar: #1c1b18;
+  --bg-card: #211f1c;
+  --bg-card-hover: #2a2823;
+  --bg-input: #211f1c;
+  --bg-elevated: #211f1c;
+  --bg-code: #1c1b18;
+  --bg-code-inline: #2a2823;
+  --code-inline-text: #e05a4e;
+  --bubble-user-bg: #2a2823;
+  --bubble-user-border: #3a372f;
+  --border-color: #33302a;
+  --border-focus: #4a463d;
+  --accent: #d9463a;         /* rouge éclairci pour tenir le contraste sur l'encre */
+  --accent-hover: #c72c1e;
+  --accent-bg-rgba: rgba(217, 70, 58, 0.12);
+  --text-primary: #ece9e1;
+  --text-secondary: #b5b1a6;
+  --text-muted: #7b776c;
+  /* Sémantiques éclaircies pour l'encre (les versions claires sont illisibles sur #171614). */
+  --success: #4cc38a;
+  --warning: #d9a13c;
+  --error: #f0655a;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 22px -4px rgba(0, 0, 0, 0.55);
+}
+
+html.dark body {
+  background-color: var(--bg-main);
+}
+
+html.dark .file-dropzone {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Reusable hover tooltip — wrap an element in <span className="tip" data-tip="...">.
+   Shown immediately on hover (unlike the native title's ~1s delay). */
+.tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.tip:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tip[data-tip-warn="1"]::after {
+  border-color: var(--warning);
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot.anim,
+  .typing-dot { animation: none; }
+  .sidebar { transition: none; }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "local-llm-interface-ssr",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:brik": "tsc src/lib/brik/*.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node .brik-build/codec.test.js && node .brik-build/convert.test.js && node .brik-build/q4web.test.js && node .brik-build/q8web.test.js && node .brik-build/q3web.test.js && node .brik-build/loader.test.js && node .brik-build/container.test.js && node .brik-build/zip.test.js",
+    "build:mobile-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-mobile-brik.cjs",
+    "build:rwkv-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-rwkv-brik.cjs",
+    "build:lfm2-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-lfm2-brik.cjs",
+    "test:rwkv": "tsc src/lib/rwkvTokenizer.ts src/lib/rwkvTokenizer.test.ts --outDir .brik-build/rwkvtest --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node .brik-build/rwkvtest/rwkvTokenizer.test.js",
+    "build:image-brik": "tsc src/lib/brik/*.ts src/lib/safetensors.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=12288 scripts/build-image-brik.cjs",
+    "build:sdk": "node scripts/build-sdk.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "lucide-react": "^1.21.0",
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "esbuild": "^0.28.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "typescript": "^5"
+  }
+}

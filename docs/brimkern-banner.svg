@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 300" width="1280" height="300" role="img" aria-label="Brimkern — local WebGPU inference, real AI models in your browser">
+  <!-- Bannière README aux couleurs du DARK THEME de l'app (encre chaude #171614, accent rouge éclairci
+       #d9463a, texte papier #ece9e1) — réutilise le mark « kern-B » (icon.svg) : tuile rouge, B papier
+       entaillé d'un crénage diagonal. Identité « Le Kern ». -->
+  <defs>
+    <clipPath id="kernNotch" clipPathUnits="userSpaceOnUse">
+      <path clip-rule="evenodd" d="M0 0H100V100H0Z M64 -10 L36 112 L47 112 L75 -10 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Fond encre + coins arrondis -->
+  <rect width="1280" height="300" rx="24" fill="#171614"/>
+  <!-- Filet rouge (élément d'identité) -->
+  <rect width="1280" height="6" rx="3" fill="#d9463a"/>
+
+  <!-- Mark kern-B (0..100 mis à l'échelle 1.4 → 140 px) -->
+  <g transform="translate(80,72) scale(1.4)">
+    <rect width="100" height="100" rx="20" fill="#c72c1e"/>
+    <text x="50" y="84" text-anchor="middle" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="92" font-weight="900" fill="#f2efe8" clip-path="url(#kernNotch)">B</text>
+  </g>
+
+  <!-- Wordmark : Brim (papier) + kern (rouge) -->
+  <text x="272" y="124" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="78" font-weight="800" letter-spacing="-3" fill="#ece9e1">Brim<tspan fill="#d9463a">kern</tspan></text>
+
+  <!-- Tagline -->
+  <text x="274" y="172" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="26" font-weight="500" fill="#b5b1a6">Local WebGPU inference — real AI models, right in your browser.</text>
+
+  <!-- Puces mots-clés (contour rouge sur encre) -->
+  <g font-family="ui-monospace,'Fira Code',SFMono-Regular,monospace" font-size="19" font-weight="500" fill="#d9463a">
+    <g><rect x="274" y="200" width="108" height="38" rx="8" fill="none" stroke="#d9463a" stroke-opacity="0.45"/><text x="328" y="225" text-anchor="middle">WebGPU</text></g>
+    <g><rect x="392" y="200" width="82"  height="38" rx="8" fill="none" stroke="#d9463a" stroke-opacity="0.45"/><text x="433" y="225" text-anchor="middle">WGSL</text></g>
+    <g><rect x="484" y="200" width="80"  height="38" rx="8" fill="none" stroke="#d9463a" stroke-opacity="0.45"/><text x="524" y="225" text-anchor="middle">.brik</text></g>
+    <g><rect x="574" y="200" width="132" height="38" rx="8" fill="none" stroke="#d9463a" stroke-opacity="0.45"/><text x="640" y="225" text-anchor="middle">100% local</text></g>
+    <g><rect x="716" y="200" width="66"  height="38" rx="8" fill="none" stroke="#d9463a" stroke-opacity="0.45"/><text x="749" y="225" text-anchor="middle">SDK</text></g>
+  </g>
+</svg>

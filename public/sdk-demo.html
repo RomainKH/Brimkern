@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brimkern SDK — demo</title>
+  <style>body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 24px;color:#1a1a1a;background:#f2efe8;line-height:1.6}</style>
+</head>
+<body>
+  <h1>Brimkern SDK — demo</h1>
+  <p>This page embeds an on-device assistant with a single <code>&lt;script&gt;</code> + <code>Brimkern.embed()</code>.
+     The model runs entirely on <strong>your GPU</strong> — nothing is sent to a server. Open the widget (bottom-right).</p>
+  <script src="/sdk.js"></script>
+  <script>
+    Brimkern.embed({
+      model: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
+      title: 'Acme assistant',
+      system: 'You are a concise, friendly support assistant for Acme. Answer in one or two sentences.',
+      greeting: 'Hi! I run on your GPU — ask me anything.',
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Favicon « kern-B » : carré rouge imprimeur, B papier entaillé d'un crénage diagonal. -->
+  <defs><clipPath id="k" clipPathUnits="userSpaceOnUse"><path clip-rule="evenodd" d="M0 0H100V100H0Z M64 -10 L36 112 L47 112 L75 -10 Z"/></clipPath></defs>
+  <rect width="100" height="100" rx="20" fill="#c72c1e"/>
+  <text x="50" y="84" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="92" font-weight="900" fill="#f2efe8" clip-path="url(#k)">B</text>
+</svg>
