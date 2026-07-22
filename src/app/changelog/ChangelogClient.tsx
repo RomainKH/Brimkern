@@ -57,6 +57,12 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'RWKV-7 joins the catalog — linear attention, constant memory', fr: 'RWKV-7 rejoint le catalogue — attention linéaire, mémoire constante' },
+        items: [
+          { en: 'RWKV-7 G1 0.1B is loadable from the model browser: a 100% recurrent architecture where a fixed ~1 MB state replaces the KV cache — memory does not grow with the conversation. 128 MB, Apache-2.0, embedded World tokenizer, naive-but-honest replies (it is a 0.1B).', fr: 'RWKV-7 G1 0.1B se charge depuis le navigateur de modèles : une architecture 100 % récurrente où un état fixe d’environ 1 Mo remplace le cache KV — la mémoire ne grandit pas avec la conversation. 128 Mo, Apache-2.0, tokenizer World embarqué, réponses simples mais honnêtes (c’est un 0.1B).' },
+        ],
+      },
+      {
         title: { en: 'Mobile & housekeeping', fr: 'Mobile & entretien' },
         items: [
           { en: 'The full model browser is now reachable on mobile with a “Change model” action — Qwen 3 0.6B and friends are one tap away, no longer desktop-only.', fr: 'Le navigateur de modèles complet est désormais accessible sur mobile avec une action « Changer de modèle » — Qwen 3 0.6B et compagnie sont à un tap, plus réservés au desktop.' },

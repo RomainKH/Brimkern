@@ -73,6 +73,12 @@ export class RwkvModel {
 
 	reset(): void { this.state = Array.from({ length: this.NL }, () => ({ S: Array.from({ length: this.NH }, () => new Float32Array(this.H * this.H)), tm: new Float32Array(this.D), cm: new Float32Array(this.D) })); }
 
+	// Libère les buffers GPU résidents (changement de modèle dans le chat).
+	unload(): void {
+		for (const w of this.g.values()) for (const k of ['nib', 'sc', 'mn', 'codes', 'lo', 'hi'] as const) (w as any)[k]?.destroy?.();
+		this.g.clear(); this.w.clear();
+	}
+
 	private async gemm(name: string, x: Float32Array): Promise<Float32Array> {
 		const W = this.g.get(name);
 		if (!W) { const M = this.w.get(name)!; return mv(M, x, x.length, M.length / x.length); } // repli CPU (tête f16/f32)

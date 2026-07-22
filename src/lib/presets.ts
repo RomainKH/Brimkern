@@ -1,7 +1,7 @@
 // Shared model + tokenizer presets and the UI architecture tag, used by the main app and the
 // standalone /convert page.
 
-export type ArchType = 'qwen' | 'qwen3' | 'llama3' | 'llama2' | 'gemma' | 'deepseek' | 'mistral3' | 'lfm2';
+export type ArchType = 'qwen' | 'qwen3' | 'llama3' | 'llama2' | 'gemma' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
 
 // `useCase`: a short capability label shown as a badge so the picker reads like modern model
 // catalogs ("for X"). `tags`: a few quick descriptors. `mobile`: light enough to attempt on a
@@ -28,6 +28,22 @@ export const PRESET_MODELS: PresetModel[] = [
 		type: 'lfm2',
 		useCase: 'L’ultra-léger',
 		tags: ['mobile', 'français', 'hybride v2'],
+		mobile: true,
+	},
+	{
+		// RWKV-7 « G1 » 0.1B (moteur v2, 100 % récurrent) : un état fixe (~1 Mo) remplace le cache
+		// KV — la mémoire ne grandit pas avec le contexte. Le plus petit du catalogue, Apache-2.0,
+		// vocab World embarqué dans le BRIK. Qualité de chat naïve assumée (0.1B).
+		name: 'RWKV-7 G1 0.1B (BRIK int4)',
+		vendor: 'BlinkDL',
+		url: 'https://huggingface.co/romainkh14/RWKV-7-G1-0.1B_BRIK/resolve/main/rwkv7-g1-0.1b-q4.brik',
+		size: '128 Mo',
+		sizeBytes: 128_470_864,
+		desc: 'Attention linéaire (RWKV-7) : un état fixe d’environ 1 Mo remplace le cache KV, la mémoire ne grandit pas avec la conversation. Réponses simples (0.1B) — le plus petit et le plus libre (Apache) du catalogue.',
+		tokenizer: '', // vocab World embarqué dans le BRIK (pas de tokenizer HF)
+		type: 'rwkv7',
+		useCase: 'Le plus petit',
+		tags: ['mobile', 'récurrent v2', 'apache', 'expérimental'],
 		mobile: true,
 	},
 	{

@@ -263,6 +263,32 @@ export function useModelEngine(deps: ModelEngineDeps) {
         await core.load({ encode: () => [], decode: () => '' });
         model = new Lfm2ChatAdapter(core);
         (globalThis as unknown as { __lfm2Adapter?: unknown }).__lfm2Adapter = model; // hook diagnostic (harnais Playwright)
+      } else if (manifest.arch === 'rwkv7') {
+        // Arch rwkv7 (moteur v2, 100 % récurrent) : RwkvModel derrière son adaptateur chat —
+        // même montage que lfm2 (BRIK streamé uniquement, profil rwkv porté par le manifeste).
+        if (fileBlob instanceof Blob || !('bytes' in (fileBlob as object))) throw new Error(t('RWKV loads from a streamed .brik (convert the GGUF first).', 'RWKV se charge depuis un .brik streamé (convertissez le GGUF d’abord).'));
+        if (!manifest.config.rwkv) throw new Error(t('rwkv profile missing from the manifest (rebuild the BRIK).', 'profil rwkv absent du manifeste (rebuilder le BRIK).'));
+        const world = embeddedTok?.json ? JSON.parse(embeddedTok.json) as { tokens?: string[]; eosId?: number } : null;
+        if (!world?.tokens) throw new Error(t('World vocab missing from the BRIK.', 'vocab World absent du BRIK.'));
+        const { RwkvModel } = await import('@/lib/webgpu/rwkvModel');
+        const { RwkvChatAdapter } = await import('@/lib/webgpu/rwkvChatAdapter');
+        const source = fileBlob as { bytes: (offset: number, length: number) => Promise<Uint8Array> };
+        const GGUF_TO_DTYPE: Record<string, string> = { F16: 'f16', F32: 'f32', Q4W: 'q4', Q8W: 'q8', Q3W: 'q3' };
+        const emb = manifest.tensors['token_embd.weight'];
+        const bm = {
+          arch: { ...manifest.config, arch: 'rwkv7', vocab: emb ? emb.nElems / manifest.config.d : 0 },
+          tensors: Object.fromEntries(Object.entries(manifest.tensors).map(([n, tt]) => [n, {
+            dtype: GGUF_TO_DTYPE[tt.type] ?? tt.type, shape: tt.shape, nElems: tt.nElems, shard: 0, offset: tt.offset, byteLength: tt.bytes,
+          }])),
+          shards: [{ id: 0, file: '', byteLength: 0 }],
+          chat: { template: 'rwkv', stopTokenIds: [0] }, // eos World
+        } as unknown as import('@/lib/brik/format').BrikManifest;
+        const rawTensor = async (name: string) => { const tt = manifest.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`); return source.bytes(tt.offset, tt.bytes); };
+        const core = new RwkvModel(engine, bm, rawTensor);
+        setLoadingStep(t('Loading the weights onto the GPU…', 'Chargement des poids sur le GPU…'));
+        await core.load(world.tokens);
+        model = new RwkvChatAdapter(core);
+        (globalThis as unknown as { __rwkvAdapter?: unknown }).__rwkvAdapter = model; // hook diagnostic (harnais Playwright)
       } else {
         model = new CustomWebModel(engine, fileBlob, manifest);
       }
@@ -286,10 +312,21 @@ export function useModelEngine(deps: ModelEngineDeps) {
       }
 
       let tokenizer: any;
+      if (manifest.arch === 'rwkv7') {
+        // Vocab World embarqué (trie byte-level maison, PAS un tokenizer.json HF) : shim qui expose
+        // la surface transformers.js utilisée par le chat — appelable (→ input_ids) + decode().
+        setLoadingStep(t('Loading the embedded tokenizer (offline)…', 'Chargement du tokenizer embarqué (hors-ligne)…'));
+        const { RwkvTokenizer } = await import('@/lib/rwkvTokenizer');
+        const world = JSON.parse(embeddedTok!.json!) as { tokens: string[]; eosId?: number };
+        const wt = new RwkvTokenizer(world.tokens, world.eosId ?? 0);
+        const shim: any = (text: string) => ({ input_ids: { data: wt.encode(text) } });
+        shim.decode = (ids: ArrayLike<number | bigint>) => wt.decode(Array.from(ids, Number).filter((i) => i > 0)); // 0 = eos, jamais affiché
+        tokenizer = shim;
+      }
       // Pull transformers.js on demand (kept out of the main bundle). Both the embedded-tokenizer and
       // the HF-download paths need it, so load the module once here.
       const { AutoTokenizer, PreTrainedTokenizer } = await import('@huggingface/transformers');
-      if (embeddedTok?.json && embeddedTok?.config) {
+      if (!tokenizer && embeddedTok?.json && embeddedTok?.config) {
         setLoadingStep(t('Loading the embedded tokenizer (offline)…', 'Chargement du tokenizer embarqué (hors-ligne)…'));
         try {
           tokenizer = new PreTrainedTokenizer(JSON.parse(embeddedTok.json), JSON.parse(embeddedTok.config));

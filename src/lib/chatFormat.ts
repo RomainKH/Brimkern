@@ -17,6 +17,10 @@ export const TURN_MARKERS = [
   '[INST]', '[/INST]', '[SYSTEM_PROMPT]',
   // Role-tag hallucinations small models sometimes emit at the end of a turn (not real content).
   '</model>', '</assistant>', '</user>', '<|assistant|>', '<|user|>',
+  // RWKV G1 (format « User:/Assistant: », vocab World sans tokens spéciaux) : un nouveau tour
+  // s'écrit en texte brut — stop + strip. Le \n en tête évite de toucher un « User: » cité en
+  // milieu de phrase (résiduel acceptable : très improbable en début de ligne d'une vraie réponse).
+  '\nUser:',
 ];
 
 // Remove any control/turn markers that leaked into generated text.
@@ -45,6 +49,19 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       else if (msg.role === 'assistant') formatted += `<｜Assistant｜>${msg.content}<｜end▁of▁sentence｜>`;
     }
     formatted += '<｜Assistant｜>';
+    return formatted;
+  }
+
+  if (archType === 'rwkv7') {
+    // RWKV « G1 » (instruct) : format texte brut « User:/Assistant: » séparés par des lignes
+    // vides — le vocab World n'a AUCUN token spécial de tour. Le système devient une ligne
+    // d'en-tête ; l'arrêt se fait sur « \nUser: » (TURN_MARKERS) + eos id 0 (isStopToken).
+    if (systemText.trim()) formatted += `System: ${systemText.trim()}\n\n`;
+    for (const msg of chatMsgs) {
+      if (msg.role === 'user') formatted += `User: ${msg.content.trim()}\n\n`;
+      else if (msg.role === 'assistant') formatted += `Assistant: ${msg.content.trim()}\n\n`;
+    }
+    formatted += 'Assistant:';
     return formatted;
   }
 
@@ -109,6 +126,9 @@ export function isStopToken(tokenId: number, text: string, archType: ArchType): 
   if ((tokenId === 8 || tokenId === 10 || tokenId === 12) && archType === 'lfm2') return true;
   // DeepSeek-R1 distill (Qwen2 vocab): <｜end▁of▁sentence｜>.
   if (tokenId === 151643 && archType === 'deepseek') return true;
+  // RWKV World : id 0 = <eos>. Le changement de tour (« \nUser: », texte brut) est couvert par
+  // TURN_MARKERS ci-dessous.
+  if (tokenId === 0 && archType === 'rwkv7') return true;
 
   return TURN_MARKERS.some((m) => text.includes(m));
 }
