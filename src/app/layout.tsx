@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { LocaleProvider } from "@/lib/i18n";
 
@@ -48,7 +49,7 @@ export default function RootLayout({
         {/* Display : Fraunces (serif d'imprimerie, variable 400–900) — porte l'identité « Le Kern ». */}
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,400..900&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
       </head>
-      <body><LocaleProvider>{children}</LocaleProvider></body>
+      <body><LocaleProvider>{children}</LocaleProvider><Analytics /></body>
     </html>
   );
 }
