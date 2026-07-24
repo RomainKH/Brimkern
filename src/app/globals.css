@@ -589,6 +589,24 @@ select:focus-visible {
   line-height: 1.5;
 }
 
+/* Cartes-liens de l'accueil (SDK, images & vision) : mêmes filets d'encre que les étapes, mais
+   cliquables — le filet passe au rouge au survol, aucune carte grise (identité spécimen). */
+a.welcome-card, button.welcome-card {
+  display: block;
+  width: 100%;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  border-top: 2px solid var(--text-primary);
+  transition: border-top-color 0.15s ease;
+}
+a.welcome-card:hover, button.welcome-card:hover {
+  border-top-color: var(--accent);
+}
+
 /* Chat Messages */
 .message {
   display: flex;

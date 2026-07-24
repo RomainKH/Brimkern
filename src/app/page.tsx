@@ -20,6 +20,7 @@ import OptionsPanel from './OptionsPanel';
 import SkillsPanel from './SkillsPanel';
 import { listCustomSkills, BUILTIN_SKILLS, type Skill } from '@/lib/skillStore';
 import { useT, useLocale } from '@/lib/i18n';
+import { metricOnce } from '@/lib/metrics';
 import Link from 'next/link';
 import { useModelEngine } from './useModelEngine';
 import { ModelBrowserModal } from './ModelBrowserModal';
@@ -174,6 +175,23 @@ function App() {
     try { return localStorage.getItem('brimkern-sidebar') !== '0'; } catch { return true; }
   });
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  // Accueil « navigateur incompatible » : copie du lien de la page pour le rouvrir dans Chrome/Edge.
+  // Les WebView in-app (Reddit, X…) n'exposent pas toujours navigator.clipboard → repli execCommand.
+  const [linkCopied, setLinkCopied] = useState<boolean>(false);
+  const copyPageLink = async () => {
+    const url = window.location.origin + window.location.pathname;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+    }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2500);
+  };
   const [benchRunning, setBenchRunning] = useState<boolean>(false);
   const [showAllModels, setShowAllModels] = useState<boolean>(false); // mobile: reveal the heavy models the picker hides by default
   const [modelQuery, setModelQuery] = useState<string>(''); // search box over the preset model grid
@@ -315,7 +333,7 @@ function App() {
   // Les presets peuvent pointer un .brik (poids pré-quantifiés streamés) : router vers le streamer.
   const handleLoadModelFromUrl = (url: string) => { leaveImageMode(); leaveVisionMode(); return url.endsWith('.brik') ? engineStreamBrik(url) : engineLoadFromUrl(url); };
   const handleLoadLocalModel = () => { leaveImageMode(); leaveVisionMode(); return engineLoadLocal(); };
-  const handleStreamBrik = (urlOverride?: string) => { leaveImageMode(); leaveVisionMode(); return engineStreamBrik(urlOverride); };
+  const handleStreamBrik = (urlOverride?: string, source?: string) => { leaveImageMode(); leaveVisionMode(); return engineStreamBrik(urlOverride, source); };
 
   // Conversation history: list, auto-save, and new/open/delete handlers. Depends on the engine above
   // (activeModel/loadedModel*) so it's created here. The page keeps the bridge mount-effect that wires
@@ -469,7 +487,7 @@ function App() {
     if (!prefetchDone || autoLoadedRef.current || !isMobile) return;
     if (modelState !== 'idle' || loadedModelName || imageGen) return;
     autoLoadedRef.current = true;
-    handleStreamBrik(MOBILE_BRIK_URL);
+    handleStreamBrik(MOBILE_BRIK_URL, 'mobile-auto');
   }, [prefetchDone, isMobile, modelState, loadedModelName, imageGen]);
 
   // Annuler = stopper net + ne pas relancer de la session (sessionStorage : on RE-proposera à la
@@ -609,7 +627,7 @@ function App() {
       // laissait l'utilisateur bloqué devant un chat mort (retour de Romain). Accueil neuf à la place ;
       // la conversation reste dans la sidebar et s'ouvre à la demande.
       if (!canAutoLoad) return;
-      if (isBrik) await handleStreamBrik(last.modelUrl!); // load model (paints welcome), then…
+      if (isBrik) await handleStreamBrik(last.modelUrl!, 'resume'); // load model (paints welcome), then…
       else await handleLoadModelFromUrl(last.modelUrl!);
       if (cancelled) return;
       restoreConversation(last);                    // …drop the saved conversation on top
@@ -1249,6 +1267,8 @@ function App() {
       assistantText = stripTurnMarkers(await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true }));
       pushUi(assistantText);
 
+      // Funnel : le « wow » a eu lieu — une première réponse complète cette session.
+      metricOnce('first_reply', { model: loadedModelName });
       setModelState('ready');
     } catch (e: any) {
       if (e.name === 'AbortError' || e.message?.includes('abort') || activeAbortController.signal.aborted) {
@@ -1437,7 +1457,6 @@ function App() {
 
   // On mobile, only the light models are shown by default (phone GPUs/VRAM choke on the bigger
   // ones). The user can reveal the rest with "afficher tous". Desktop sees everything.
-  const visibleModels = isMobile && !showAllModels ? PRESET_MODELS.filter((m) => m.mobile) : PRESET_MODELS;
 
   return (
     <div className="app-container">
@@ -1599,7 +1618,7 @@ function App() {
                     </div>
                     <button
                       className="btn btn-primary btn-block"
-                      onClick={() => handleStreamBrik(MOBILE_BRIK_URL)}
+                      onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'sidebar')}
                       disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
                     >
                       <Sparkles size={14} /> {t('LFM2.5 230M (149 MB) — recommended', 'LFM2.5 230M (149 Mo) — recommandé')}
@@ -1607,7 +1626,7 @@ function App() {
                     <button
                       className="btn btn-secondary btn-block"
                       style={{ fontSize: '12px' }}
-                      onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL)}
+                      onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL, 'sidebar')}
                       disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
                     >
                       <Sparkles size={13} /> {t('Qwen 2.5 0.5B (378 MB) — beefier', 'Qwen 2.5 0.5B (378 Mo) — plus costaud')}
@@ -1932,71 +1951,127 @@ function App() {
               </svg>
               <h2 className="welcome-title">{t('Brimkern · Local WebGPU inference', 'Brimkern · Inférence WebGPU locale')}</h2>
               <div className="welcome-rule" />
-              <p className="welcome-subtitle">
-                {t('A standalone, optimized build powered by hand-written WGSL compute shaders. Your models and computations run entirely locally, with no third-party server.', "Version standalone optimisée exploitant des compute shaders WGSL écrits sur mesure. Vos modèles et calculs s'exécutent entièrement en local sans aucun serveur tiers.")}
-              </p>
-              
-              <div className="welcome-steps">
-                <div className="welcome-step">
-                  <div className="welcome-step-num">{t('step 1', 'étape 1')}</div>
-                  <div className="welcome-step-title">{t('Drop in your GGUF', 'Insérez votre GGUF')}</div>
-                  <div className="welcome-step-desc">
-                    {t('Drag and drop any small GGUF model (e.g. Qwen 0.5B, Gemma 2 2B).', "Glissez-déposez n'importe quel modèle GGUF de petite taille (ex: Qwen 0.5B, Gemma 2 2B).")}
+              {webGpuSupported === false ? (
+                /* Accueil dédié « navigateur incompatible » : sans WebGPU la page était un produit
+                   mort (seul un badge sidebar l'expliquait) — trafic Reddit/X in-app typiquement.
+                   Ici : la proposition, le chemin (Chrome/Edge), un lien à emporter. */
+                <>
+                  <p className="welcome-subtitle">
+                    {t("This browser has no WebGPU, so no model can run here. Everything Brimkern does — chat, image generation, vision — runs 100% locally in a compatible browser, with no server.",
+                       "Ce navigateur ne prend pas en charge WebGPU : aucun modèle ne peut tourner ici. Tout ce que fait Brimkern — chat, génération d'images, vision — s'exécute pourtant 100 % en local dans un navigateur compatible, sans aucun serveur.")}
+                  </p>
+                  <div className="welcome-steps">
+                    <div className="welcome-step">
+                      <div className="welcome-step-num">{t('the fix', 'la solution')}</div>
+                      <div className="welcome-step-title">{t('Open in Chrome or Edge', 'Ouvrez dans Chrome ou Edge')}</div>
+                      <div className="welcome-step-desc">
+                        {t('A recent Chrome or Edge, on desktop or Android. From the Reddit or X in-app browser, pick “Open in browser”.',
+                           'Un Chrome ou Edge récent, sur ordinateur ou Android. Depuis le navigateur intégré de Reddit ou X, choisissez « Ouvrir dans le navigateur ».')}
+                      </div>
+                    </div>
+                    <div className="welcome-step">
+                      <div className="welcome-step-num">{t('already on Chrome?', 'déjà sur Chrome ?')}</div>
+                      <div className="welcome-step-title">{t('Check the acceleration', "Vérifiez l'accélération")}</div>
+                      <div className="welcome-step-desc">
+                        {t('Settings → System → “Use graphics acceleration when available”, then restart the browser (chrome://gpu to diagnose).',
+                           "Paramètres → Système → « Utiliser l'accélération graphique si disponible », puis redémarrez le navigateur (chrome://gpu pour diagnostiquer).")}
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                <div className="welcome-step">
-                  <div className="welcome-step-num">{t('step 2', 'étape 2')}</div>
-                  <div className="welcome-step-title">{t('Compute on the GPU', 'Calculez sur le GPU')}</div>
-                  <div className="welcome-step-desc">
-                    {t('The JS parser extracts the tensors and our WGSL kernels run the forward pass live.', 'Le parser JS extrait les tenseurs et nos kernels WGSL effectuent le forward pass en direct.')}
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '28px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button className="btn btn-primary" style={{ fontSize: '13px', padding: '8px 16px' }} onClick={copyPageLink}>
+                      {linkCopied ? <><CheckCircle size={14} /> {t('Link copied', 'Lien copié')}</> : t('Copy the link for later', 'Copier le lien pour plus tard')}
+                    </button>
+                    <a className="btn" style={{ fontSize: '13px', padding: '8px 16px' }} href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer">
+                      {t('View the code on GitHub', 'Voir le code sur GitHub')}
+                    </a>
                   </div>
-                </div>
-              </div>
+                </>
+              ) : (
+                <>
+                  <p className="welcome-subtitle">
+                    {t('A standalone, optimized build powered by hand-written WGSL compute shaders. Your models and computations run entirely locally, with no third-party server.', "Version standalone optimisée exploitant des compute shaders WGSL écrits sur mesure. Vos modèles et calculs s'exécutent entièrement en local sans aucun serveur tiers.")}
+                  </p>
 
-              <div style={{ marginTop: '30px', textAlign: 'center', width: '100%' }}>
-                {isMobile ? (
-                  <>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('Two lightweight models ready to use:', "Deux modèles légers prêts à l'emploi :")}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', marginTop: '10px' }}>
+                  {/* Le CTA AVANT les explications : un seul chemin évident vers le premier « wow »
+                      (une rangée de boutons équivalents fait hésiter, et hésiter c'est rebondir). */}
+                  {isMobile ? (
+                    <div style={{ textAlign: 'center', width: '100%', marginBottom: '36px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+                        <button
+                          className="btn btn-primary"
+                          style={{ fontSize: '13px', padding: '8px 16px' }}
+                          onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
+                        >
+                          <Sparkles size={14} /> {t('LFM2.5 230M (149 MB) — recommended', 'LFM2.5 230M (149 Mo) — recommandé')}
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ fontSize: '12px', padding: '7px 14px' }}
+                          onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL, 'welcome')}
+                        >
+                          <Sparkles size={13} /> {t('Qwen 2.5 0.5B (378 MB)', 'Qwen 2.5 0.5B (378 Mo)')}
+                        </button>
+                      </div>
+                      {prefetchStatus(true)}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '36px' }}>
                       <button
                         className="btn btn-primary"
-                        style={{ fontSize: '13px', padding: '8px 16px' }}
-                        onClick={() => handleStreamBrik(MOBILE_BRIK_URL)}
+                        style={{ fontSize: '14px', padding: '10px 22px' }}
+                        onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
                       >
-                        <Sparkles size={14} /> {t('LFM2.5 230M (149 MB) — recommended', 'LFM2.5 230M (149 Mo) — recommandé')}
+                        <Sparkles size={15} /> {t('Try it now — LFM2.5 (149 MB)', 'Essayer maintenant — LFM2.5 (149 Mo)')}
                       </button>
-                      <button
-                        className="btn btn-secondary"
-                        style={{ fontSize: '12px', padding: '7px 14px' }}
-                        onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL)}
-                      >
-                        <Sparkles size={13} /> {t('Qwen 2.5 0.5B (378 MB)', 'Qwen 2.5 0.5B (378 Mo)')}
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '380px' }}>
+                        {t('Downloaded once, kept on this device: next visits start in seconds. 100% local.',
+                           'Téléchargé une fois, gardé sur cet appareil : les prochaines visites démarrent en quelques secondes. 100 % local.')}
+                      </span>
+                      <button className="btn" style={{ fontSize: '12px', padding: '6px 14px' }} onClick={() => setBrowseOpen(true)}>
+                        <Database size={13} /> {t('Browse all models', 'Parcourir tous les modèles')}
                       </button>
                     </div>
-                    {prefetchStatus(true)}
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('Or pick a Hugging Face model for a quick test:', 'Ou sélectionnez un modèle Hugging Face de test rapide :')}</span>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginTop: '10px' }}>
-                      {visibleModels.map((m, idx) => (
-                        <button
-                          key={idx}
-                          className="btn"
-                          style={{ fontSize: '12px', padding: '6px 12px' }}
-                          onClick={() => {
-                            setActiveTab('models');
-                            handleLoadModelFromUrl(m.url);
-                          }}
-                        >
-                          {m.name.split(' (')[0]}
-                        </button>
-                      ))}
+                  )}
+
+                  <div className="welcome-steps">
+                    <div className="welcome-step">
+                      <div className="welcome-step-num">{t('step 1', 'étape 1')}</div>
+                      <div className="welcome-step-title">{t('Pick a model', 'Choisissez un modèle')}</div>
+                      <div className="welcome-step-desc">
+                        {t('One click is enough — the weights stream in. Or drag and drop your own GGUF (Qwen, Gemma, Llama…).', 'Un clic suffit — les poids arrivent en streaming. Ou glissez-déposez votre propre GGUF (Qwen, Gemma, Llama…).')}
+                      </div>
                     </div>
-                  </>
-                )}
-              </div>
+
+                    <div className="welcome-step">
+                      <div className="welcome-step-num">{t('step 2', 'étape 2')}</div>
+                      <div className="welcome-step-title">{t('Compute on the GPU', 'Calculez sur le GPU')}</div>
+                      <div className="welcome-step-desc">
+                        {t('The JS parser extracts the tensors and our WGSL kernels run the forward pass live.', 'Le parser JS extrait les tenseurs et nos kernels WGSL effectuent le forward pass en direct.')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Deux sorties pour le curieux pas prêt à télécharger : le SDK (vraie 2e page) et
+                      les autres modalités — mêmes filets d'encre que les étapes, mais cliquables. */}
+                  <div className="welcome-steps" style={{ marginTop: '28px' }}>
+                    <Link href="/local-ai" className="welcome-step welcome-card">
+                      <div className="welcome-step-num">SDK</div>
+                      <div className="welcome-step-title">{t('Add it to your site', 'Intégrez-le à votre site')}</div>
+                      <div className="welcome-step-desc">
+                        {t('One <script> tag gives any page a local, free, private AI assistant. →', "Une balise <script> donne à n'importe quelle page un assistant IA local, gratuit et privé. →")}
+                      </div>
+                    </Link>
+                    <button type="button" className="welcome-step welcome-card" onClick={() => setBrowseOpen(true)}>
+                      <div className="welcome-step-num">{t('also', 'aussi')}</div>
+                      <div className="welcome-step-title">{t('Images & vision', 'Images & vision')}</div>
+                      <div className="welcome-step-desc">
+                        {t('Generate images (SD-Turbo) or describe photos (Qwen2-VL), still fully in-browser. →', 'Générez des images (SD-Turbo) ou décrivez des photos (Qwen2-VL), toujours 100 % dans le navigateur. →')}
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
