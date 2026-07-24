@@ -7,7 +7,7 @@
 // badges) are injected via `deps`. Returned values keep the SAME names the page used, so call sites
 // (render + chat loop) are unchanged. Precision/benchmark handlers stay in the page and consume this.
 
-import { useState, useEffect, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 // transformers.js is a heavy dependency only needed once a model is loaded (for its tokenizer). It's
 // imported DYNAMICALLY at load time (see `await import('@huggingface/transformers')` below) so it
 // stays out of the main bundle — the landing page doesn't pay for it.
@@ -23,6 +23,7 @@ import { loadBrikStream } from '@/lib/webgpu/source';
 import { PRESET_MODELS, type ArchType } from '@/lib/presets';
 import { MOBILE_BRIK_URL, pickAutoPrecision, GGUF_ARCH_FAMILY } from '@/lib/modelCatalog';
 import { useT } from '@/lib/i18n';
+import { metric, metricOnce } from '@/lib/metrics';
 import type { Message } from './types';
 
 export interface ModelEngineDeps {
@@ -82,9 +83,16 @@ export function useModelEngine(deps: ModelEngineDeps) {
   useEffect(() => {
     let cancelled = false;
     const detect = async () => {
+      // ?webgpu=0 : force « non supporté » (test de l'accueil dédié sans dénicher un navigateur
+      // sans WebGPU) — même famille de kill-switchs URL que ?attnfullwg= / ?duty=.
+      if (new URLSearchParams(window.location.search).get('webgpu') === '0') {
+        setWebGpuSupported(false);
+        return;
+      }
       const gpu = (navigator as any).gpu;
       if (!gpu) {
         console.warn('[webgpu] navigator.gpu absent — contexte non sécurisé (page en http ?) ou navigateur sans WebGPU');
+        metricOnce('webgpu_unsupported', { reason: 'no-api' });
         setWebGpuSupported(false);
         return;
       }
@@ -100,11 +108,20 @@ export function useModelEngine(deps: ModelEngineDeps) {
         await new Promise((r) => setTimeout(r, 1200));
         if (cancelled) return;
       }
+      metricOnce('webgpu_unsupported', { reason: 'no-adapter' });
       setWebGpuSupported(false);
     };
     detect();
     return () => { cancelled = true; };
   }, []);
+
+  // Chrono du funnel : armé à CHAQUE point d'entrée de chargement (URL GGUF, stream BRIK, fichier,
+  // bibliothèque), lu quand activateModel passe « ready » → durée réelle téléchargement compris.
+  const loadStartRef = useRef<number>(0);
+  const markLoadStart = (model: string, source: string) => {
+    loadStartRef.current = performance.now();
+    metric('model_load_started', { model, source });
+  };
 
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
@@ -391,6 +408,10 @@ export function useModelEngine(deps: ModelEngineDeps) {
       setWeightPrec(startPrec);
       setKvQuantOn(startKv);
       setModelIsBrik(sourceLabel.startsWith('BRIK'));
+      if (loadStartRef.current) {
+        metric('model_loaded', { model: modelName, seconds: Math.round((performance.now() - loadStartRef.current) / 1000) });
+        loadStartRef.current = 0;
+      }
       setModelState('ready');
       cachedModelUrls().then(setCachedUrls).catch(() => { /* ignore */ });
 
@@ -578,6 +599,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
 
     const parts = url.split('/');
     const name = parts[parts.length - 1];
+    markLoadStart(name, 'gguf-url');
 
     try {
       const blob = await fetchWithCacheAndProgress(url, (loaded, total) => {
@@ -632,6 +654,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
     if (!bytes) return false;
     setLoadedModelUrl('');
     setBrowseOpen(false);
+    markLoadStart(name, 'library');
     return loadBrikFile(new Blob([bytes as BlobPart]), name);
   };
 
@@ -644,6 +667,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
     const sig = new Uint8Array(await selectedFile.slice(0, 4).arrayBuffer());
     const isBrik = sig[0] === 0x42 && sig[1] === 0x52 && sig[2] === 0x49 && sig[3] === 0x4B; // "BRIK"
     rememberLocalModel(selectedFile.name); // add to the library
+    markLoadStart(selectedFile.name, 'local-file');
     if (isBrik) {
       const ok = await loadBrikFile(selectedFile, selectedFile.name);
       // Persiste le .brik importé (≤ 700 Mo) dans l'IndexedDB APRÈS un chargement réussi : la
@@ -660,7 +684,8 @@ export function useModelEngine(deps: ModelEngineDeps) {
   };
 
   // Stream-load a hosted .brik by URL (header first, tensors range-fetched + cached).
-  const handleStreamBrik = async (urlOverride?: string) => {
+  // `source` qualifie la provenance du clic dans le funnel (welcome / sidebar / browse…).
+  const handleStreamBrik = async (urlOverride?: string, source: string = 'brik-stream') => {
     const u = (urlOverride ?? brikUrl).trim();
     if (!u) return;
     if (isMobile) setIsSidebarOpen(false);
@@ -669,6 +694,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
     setBrowseOpen(false);
     setModelState('initializing');
     setErrorMsg(null);
+    markLoadStart(u.split('/').pop() || u, source);
     try {
       await loadBrikUrl(u);
     } catch (e: any) {
