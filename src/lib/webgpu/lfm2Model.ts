@@ -125,6 +125,11 @@ export class Lfm2Model {
 		this.pos = pastLen + tokenIds.length;
 		return this.engine.lfm2TopKGpu(this.embedsFor(tokenIds), tokenIds.length, this.cfg(), this.rLayers, this.g.get('head'), this.tokNormGpu, pastLen, sessionId, recent, penalty, K);
 	}
+	// Prefill pur (état K/V + conv avancé, PAS de projection de tête) — tranches non finales.
+	async prefillGpu(tokenIds: number[], pastLen: number, sessionId: string): Promise<void> {
+		this.pos = pastLen + tokenIds.length;
+		await this.engine.lfm2PrefillGpu(this.embedsFor(tokenIds), tokenIds.length, this.cfg(), this.rLayers, this.tokNormGpu, pastLen, sessionId);
+	}
 
 	private up(a: Uint16Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
 	private upI8(a: Int8Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
@@ -301,14 +306,36 @@ export class Lfm2Model {
 		return out.length ? this.tok.decode(out) : ''; // decode([]) jette dans transformers.js
 	}
 
-	// Comme generate() mais sur le chemin RÉSIDENT (logitsGpu) : prefill du prompt en UNE soumission
-	// (au lieu de N×~100 readbacks) + décodage 1 submit/token → nettement plus rapide. Repli sur
+	// Prefill par TRANCHES : un prompt long enregistré en une seule soumission a deux effets fatals —
+	// l'enregistrement JS de dizaines de milliers de passes (T × NL × ~10) fige le main thread pendant
+	// des secondes, puis le command buffer géant dépasse le watchdog GPU de l'OS (device lost, «
+	// affichage cassé » jusqu'au redémarrage du navigateur). Constaté en prod sur les prompts de
+	// ~400+ tokens (chess-academy, 2026-07-29). Le cache K/V et l'état conv étant persistants par
+	// session (pastLen > 0 ne reset pas), on découpe : une soumission bornée par tranche, le GPU et
+	// le main thread respirent entre deux.
+	// Depuis le prefill BATCHÉ (recordLfm2), une tranche ne coûte plus que ~10·NL passes quel que
+	// soit T : la tranche peut donc être large (le GPU travaille sur des matmuls (T,IN)×(IN,OUT) au
+	// lieu de T matmuls-vecteur). 128 = compromis mesuré : assez gros pour saturer les kernels
+	// tuilés, assez petit pour garder le scratch (T×ffn f32) et la latence par soumission modestes.
+	private static readonly PREFILL_CHUNK = 128;
+
+	// Comme generate() mais sur le chemin RÉSIDENT (logitsGpu) : prefill du prompt par tranches
+	// bornées (voir PREFILL_CHUNK) + décodage 1 submit/token → nettement plus rapide. Repli sur
 	// generate() (forwardToken JS) si le résident n'est pas dispo. Session neuve (pastLen 0) → reset.
 	async generateResident(prompt: string, n: number, onToken?: (text: string) => void, stop?: () => boolean, opts?: SampleOpts & { sample?: boolean }): Promise<string> {
 		if (!this.residentAvailable()) return this.generate(prompt, n, onToken, stop, opts);
 		const sid = 'gen';
 		const ids = this.tok.encode(prompt);
-		let logits = await this.logitsGpu(ids, 0, sid); // prefill (reset via pastLen 0), 1 submit
+		let logits!: Float32Array;
+		let done = 0;
+		while (done < ids.length) {
+			if (stop?.()) return '';
+			const end = Math.min(done + Lfm2Model.PREFILL_CHUNK, ids.length);
+			const part = ids.slice(done, end);
+			if (end < ids.length) await this.prefillGpu(part, done, sid); // 1re tranche : pastLen 0 → reset
+			else logits = await this.logitsGpu(part, done, sid);          // dernière : logits pour amorcer le décodage
+			done = end;
+		}
 		let pos = ids.length;
 		const out: number[] = [];
 		for (let s = 0; s < n; s++) {

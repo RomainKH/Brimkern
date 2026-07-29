@@ -257,6 +257,63 @@ export const SHADERS = {
 			outv[i] = y * bcx[D + i];
 		}`,
 
+	// Shortconv BATCHÉE (prefill) : même sémantique que lfm2_shortconv, mais les T tokens sont traités
+	// en UNE passe — une invocation par (token, canal). La fenêtre de la conv étant CAUSALE et de taille
+	// fixe LC, le token t ne dépend que de bx[t-LC+1..t] : les indices ≥ 0 se lisent dans bcx (le batch
+	// lui-même), les négatifs dans l'état ENTRANT (read-only ici) → aucune dépendance séquentielle,
+	// aucune course. bcx est [T][3D] (B|C|X par ligne), outv [T][D].
+	// L'état n'est PAS mis à jour ici : lfm2_shortconv_state le fait dans une passe suivante (une même
+	// invocation ne peut pas lire l'ancien état et en écrire le nouveau sans course).
+	// Exige T ≥ LC-1 (garanti par l'appelant : sous ce seuil il déroule le kernel mono-token).
+	lfm2_shortconv_batch: `
+		struct Dims { d: u32, lc: u32, t: u32 };
+		@group(0) @binding(0) var<uniform> dm: Dims;
+		@group(0) @binding(1) var<storage, read> bcx: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read> state: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> outv: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			let D = dm.d; let LC = dm.lc; let T = dm.t;
+			if (idx >= T * D) { return; }
+			let t = idx / D; let i = idx % D;
+			let row = 3u * D;
+			var y = 0.0;
+			for (var k = 0u; k < LC; k = k + 1u) {
+				// indice DANS LE BATCH du token dont on lit bx (négatif → état entrant)
+				let j = i32(t) + i32(k) - (i32(LC) - 1);
+				var bx: f32;
+				if (j < 0) {
+					bx = state[u32(j + i32(LC) - 1) * D + i];
+				} else {
+					let b = u32(j) * row;
+					bx = bcx[b + i] * bcx[b + 2u * D + i];
+				}
+				y = y + w[i * LC + k] * bx;
+			}
+			outv[idx] = y * bcx[t * row + D + i];
+		}`,
+
+	// Nouvel état de la shortconv après un batch de T tokens (T ≥ LC-1) : state[k] = bx du token
+	// (T + k - LC + 1) du batch — toutes les valeurs viennent de bcx, l'ancien état n'est jamais relu
+	// (donc pas de course avec les écritures). Passe séparée, exécutée après lfm2_shortconv_batch.
+	lfm2_shortconv_state: `
+		struct Dims { d: u32, lc: u32, t: u32 };
+		@group(0) @binding(0) var<uniform> dm: Dims;
+		@group(0) @binding(1) var<storage, read> bcx: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> state: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			let D = dm.d; let LC = dm.lc; let T = dm.t;
+			if (idx >= (LC - 1u) * D) { return; }
+			let k = idx / D; let i = idx % D;
+			let j = T + k + 1u - LC;
+			let b = j * 3u * D;
+			state[idx] = bcx[b + i] * bcx[b + 2u * D + i];
+		}`,
+
 	// Fused q3web matmul: C = A · Wᵀ where W is BRIK int3 (kept 3-bit in VRAM, dequantized in
 	// registers). Requires k % 32 == 0. The "extra-light" tier: ~20% less weight traffic than q4.
 	// Codes are split into bit planes (byte-aligned, no code straddles a u32): `lo` = 2 low bits ×16

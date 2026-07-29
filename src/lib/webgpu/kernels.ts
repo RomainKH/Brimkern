@@ -142,6 +142,10 @@ export class WebGpuEngine {
 	// Chemin LFM2 100 % RÉSIDENT (forwardToken → une soumission/un readback, état conv + K/V GPU) :
 	// true par défaut ; false → repli sur le forwardToken JS (correct, lent). Forcé par ?lfm2resident=0.
 	lfm2ResidentOk = true;
+	// Prefill LFM2 BATCHÉ (les T tokens d'une tranche en une passe par opérateur, cf. recordLfm2) :
+	// true par défaut ; false → prefill token par token dans le même encodeur (correct, ~10× plus lent).
+	// Forcé par ?lfm2batch=0 — sert à valider l'équivalence batché/séquentiel (greedy → token-exact).
+	lfm2BatchOk = true;
 	// Chemin VIDÉO (module motion AnimateDiff) : coupé par ?video=0. Pas de kernel WGSL propre —
 	// le module réutilise matmul q8/attention existants ; la validation se fait vs le dump de
 	// l'oracle diffusers (page /video-test). false → le mode vidéo refuse de charger.
@@ -195,6 +199,10 @@ export class WebGpuEngine {
 			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('lfm2resident') === '0') {
 				this.lfm2ResidentOk = false;
 				console.warn('[webgpu] LFM2 résident COUPÉ par ?lfm2resident=0 — forwardToken JS+readback');
+			}
+			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('lfm2batch') === '0') {
+				this.lfm2BatchOk = false;
+				console.warn('[webgpu] prefill LFM2 batché COUPÉ par ?lfm2batch=0 — token par token');
 			}
 			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('video') === '0') {
 				this.videoOk = false;
@@ -2000,8 +2008,30 @@ export class WebGpuEngine {
 		return b;
 	}
 
+	// Shortconv BATCHÉE : y pour les T tokens en une passe (état entrant lu read-only), puis nouvel
+	// état dans une passe séparée (voir les shaders : lire l'ancien état et écrire le nouveau dans la
+	// même invocation serait une course). Exige T ≥ lc-1.
+	private recLfm2ShortConvBatch(enc: GPUAny, trash: GPUAny[], bcx: GPUAny, stateBuf: GPUAny, wConv: GPUAny, D: number, LC: number, T: number): GPUAny {
+		const p = this.uniform([D, LC, T]);
+		const out = this.storage(T * D * 4);
+		this.recordPass(enc, 'lfm2_shortconv_batch', [p, bcx, wConv, stateBuf, out], this.grid1D(T * D));
+		const p2 = this.uniform([D, LC, T]);
+		this.recordPass(enc, 'lfm2_shortconv_state', [p2, bcx, stateBuf], this.grid1D((LC - 1) * D));
+		trash.push(p, p2, out); // stateBuf persiste
+		return out;
+	}
+
 	// Enregistre le stack LFM2 pour les T tokens dans `enc`. Retourne le buffer [D] du dernier token
 	// APRÈS la norme finale (token_embd_norm) — prêt pour la tête liée.
+	//
+	// Deux régimes :
+	//  - BATCHÉ (T ≥ lc-1, gate lfm2BatchOk) : une passe par opérateur pour les T tokens — matmuls
+	//    (T,IN)×(IN,OUT) qui tapent les kernels tuilés/shared, rmsnorm/rope par lignes, attention
+	//    causale via pastLen, shortconv batchée. Le NOMBRE de passes devient indépendant de T
+	//    (~10·NL) : c'est ce qui rend le prefill d'un prompt long tenable (avant, T·NL·~10 passes
+	//    figeaient le main thread et dépassaient le watchdog GPU → device lost).
+	//  - SÉQUENTIEL (T < lc-1, ou gate coupé) : la boucle token par token d'origine, conservée comme
+	//    référence de correction (?lfm2batch=0 → sortie token-exacte identique en greedy).
 	private recordLfm2(enc: GPUAny, trash: GPUAny[], embeds: Float32Array, T: number, cfg: Lfm2Cfg, layers: Lfm2LayerGpu[], tokEmbdNorm: GPUAny, pastLen: number): GPUAny {
 		const { D, nHeads, nKvHeads, headDim, ffn, eps, theta, lc } = cfg;
 		const kvDim = nKvHeads * headDim, qDim = nHeads * headDim, rowBytes = kvDim * 4;
@@ -2009,6 +2039,49 @@ export class WebGpuEngine {
 			if (layers[L].conv) this.ensureLfm2Conv(L, (lc - 1) * D);
 			else this.ensureLfm2Kv(L, pastLen + T, kvDim);
 		}
+
+		if (T >= lc - 1 && this.lfm2BatchOk) {
+			let x = this.storage(T * D * 4);
+			this.device.queue.writeBuffer(x, 0, embeds);
+			trash.push(x);
+			for (let L = 0; L < layers.length; L++) {
+				const w = layers[L];
+				const h = this.recRmsnorm(enc, trash, x, w.attnNorm, T, D, eps);
+				let out: GPUAny;
+				if (w.conv) {
+					const bcx = this.recMM(enc, trash, h, w.inProj, T, D, 3 * D, false);
+					const conv = this.recLfm2ShortConvBatch(enc, trash, bcx, this.lfm2ConvGpu.get(L)!, w.convW, D, lc, T);
+					out = this.recMM(enc, trash, conv, w.outProj, T, D, D, false);
+				} else {
+					let q = this.recMM(enc, trash, h, w.wq, T, D, qDim, false);
+					let k = this.recMM(enc, trash, h, w.wk, T, D, kvDim, false);
+					const v = this.recMM(enc, trash, h, w.wv, T, D, kvDim, false);
+					q = this.recRmsnorm(enc, trash, q, w.qNorm, T * nHeads, headDim, eps);   // qk-norm par tête
+					k = this.recRmsnorm(enc, trash, k, w.kNorm, T * nKvHeads, headDim, eps);
+					q = this.recRope(enc, trash, q, T * nHeads, headDim, nHeads, pastLen, theta);
+					k = this.recRope(enc, trash, k, T * nKvHeads, headDim, nKvHeads, pastLen, theta);
+					const kv = this.lfm2KvGpu.get(L)!;
+					enc.copyBufferToBuffer(k, 0, kv.k, pastLen * rowBytes, T * rowBytes);
+					enc.copyBufferToBuffer(v, 0, kv.v, pastLen * rowBytes, T * rowBytes);
+					const attn = this.recAttention(enc, trash, q, kv.k, kv.v, T, nHeads, nKvHeads, headDim, pastLen + T, pastLen);
+					out = this.recMM(enc, trash, attn, w.wo, T, qDim, D, false);
+				}
+				x = this.recBinary(enc, trash, 'add', x, out, T * D);
+				const h2 = this.recRmsnorm(enc, trash, x, w.ffnNorm, T, D, eps);
+				const gate = this.recMM(enc, trash, h2, w.wgate, T, D, ffn, false);
+				const up = this.recMM(enc, trash, h2, w.wup, T, D, ffn, false);
+				const g = this.recBinary(enc, trash, 'swiglu', gate, up, T * ffn);
+				const down = this.recMM(enc, trash, g, w.wdown, T, ffn, D, false);
+				x = this.recBinary(enc, trash, 'add', x, down, T * D);
+			}
+			// Seul le DERNIER token porte les logits utiles : on n'extrait qu'une ligne avant la norme
+			// finale (la tête D×vocab est de loin la plus chère — inutile de la payer T fois).
+			const lastRow = this.storage(D * 4);
+			trash.push(lastRow);
+			enc.copyBufferToBuffer(x, (T - 1) * D * 4, lastRow, 0, D * 4);
+			return this.recRmsnorm(enc, trash, lastRow, tokEmbdNorm, 1, D, eps);
+		}
+
 		let lastNormed: GPUAny = null;
 		for (let t = 0; t < T; t++) {
 			const pos = pastLen + t;
@@ -2056,6 +2129,19 @@ export class WebGpuEngine {
 			this.resetLfm2State();
 			this.lfm2Session = sessionId;
 		}
+	}
+
+	// Prefill PUR (pas de tête, pas de logits) : avance l'état K/V + conv de T tokens, une soumission,
+	// synchronisée par onSubmittedWorkDone (pas de readback). Utilisé par le prefill par tranches de
+	// generateResident — la projection de tête (D×vocab) ne se paye que sur la DERNIÈRE tranche.
+	async lfm2PrefillGpu(embeds: Float32Array, T: number, cfg: Lfm2Cfg, layers: Lfm2LayerGpu[], tokEmbdNorm: GPUAny, pastLen: number, sessionId: string): Promise<void> {
+		this.lfm2SessionReset(sessionId, pastLen);
+		const trash: GPUAny[] = [];
+		const enc = this.device.createCommandEncoder();
+		this.recordLfm2(enc, trash, embeds, T, cfg, layers, tokEmbdNorm, pastLen);
+		this.device.queue.submit([enc.finish()]);
+		await this.device.queue.onSubmittedWorkDone();
+		this.release(trash);
 	}
 
 	// Logits complets du dernier token (classify / bench). UN submit, UN readback.
