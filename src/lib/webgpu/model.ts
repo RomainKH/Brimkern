@@ -13,6 +13,7 @@ import { coalescedSpan } from './layerSpans';
 import { unpackQ4 } from '../brik/q4web';
 import { unpackQ8 } from '../brik/q8web';
 import { unpackQ3 } from '../brik/q3web';
+import { urlFlag } from './urlFlags';
 
 // Layer-weight precision tiers, fastest-loading → smallest-VRAM: f32 (1×), f16 (½), q8 (~¼,
 // near-f16 quality), q4 (⅛, int4). q8/q4 keep the weights quantized in VRAM and dequant on-the-fly.
@@ -134,9 +135,9 @@ export class CustomWebModel {
 	//                 le jour où la vraie cause est trouvée et qu'un modèle de la famille répond juste.
 	//   ?unperm=0   → aucune dé-permutation du tout (isole cette réécriture de poids).
 	// ?timing=1 → chronométrage par étape du forward (diagnostic, cf. logitsKV).
-	static timingOn = (() => { try { return new URLSearchParams(location.search).get('timing') === '1'; } catch { return false; } })();
-	static ropeNormOn = (() => { try { return new URLSearchParams(location.search).get('ropenorm') === '1'; } catch { return false; } })();
-	static unpermOn = (() => { try { return new URLSearchParams(location.search).get('unperm') !== '0'; } catch { return true; } })();
+	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
+	static ropeNormOn = (() => { try { return urlFlag('ropenorm') === '1'; } catch { return false; } })();
+	static unpermOn = (() => { try { return urlFlag('unperm') !== '0'; } catch { return true; } })();
 	private maybeUnpermuteLlamaQk(name: string, raw: Uint8Array): Uint8Array {
 		if (!CustomWebModel.unpermOn) return raw;
 		// Le kernel tourne les paires ADJACENTES comme ggml : les poids se lisent alors TELS QUELS,
@@ -724,7 +725,7 @@ export class CustomWebModel {
 	// Kill-switch de banc : ?ropefactors=0 → RoPE standard (ni scaling llama3 ni YaRN). Sert à isoler
 	// le scaling quand une famille sort du charabia (il agit à TOUTE position, pas seulement au-delà
 	// du contexte d'origine : il divise les basses fréquences).
-	private static ropeFactorsOn = (() => { try { return new URLSearchParams(location.search).get('ropefactors') !== '0'; } catch { return true; } })();
+	private static ropeFactorsOn = (() => { try { return urlFlag('ropefactors') !== '0'; } catch { return true; } })();
 	private async getRopeFactors(): Promise<Float32Array | null> {
 		if (this.ropeFactorsCache !== undefined) return this.ropeFactorsCache;
 		if (!CustomWebModel.ropeFactorsOn) {

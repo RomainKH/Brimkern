@@ -12,7 +12,7 @@ import {
   Zap, Trash2, CheckCircle, AlertCircle,
   Loader2, Menu, X, Sparkles,
   Info, ShieldCheck, Database, ArrowRight,
-  Plus, MessageSquare, ChevronDown, Sun, Moon, HardDrive, Settings, RefreshCw, Image as ImageIcon, Film, BookOpen
+  Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon, Film, BookOpen
 } from 'lucide-react';
 import { cachedModelUrls } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
@@ -32,6 +32,7 @@ import HfModelInput from './HfModelInput';
 import { markModelUsed, evictStaleModels } from '@/lib/modelUsage';
 import ByLine from './ByLine';
 import GithubMark from './GithubMark';
+import ThemeToggle from './ThemeToggle';
 import Link from 'next/link';
 import { useModelEngine } from './useModelEngine';
 import { ModelBrowserModal } from './ModelBrowserModal';
@@ -230,10 +231,7 @@ function App() {
   // Recherche web opt-in (Réglages → Web & outils) : OFF par défaut — quand actif, la question de
   // l'utilisateur (elle seule) est envoyée à Wikipédia et les extraits sont injectés dans le prompt.
   const [webSearchOn, setWebSearchOn] = useState<boolean>(false);
-  // Starts `false` on BOTH server and client so the first render matches (the toggle icon would
-  // otherwise mismatch → hydration error). The real theme is applied to <html> before paint by
-  // the inline script in layout.tsx; this state just drives the header icon.
-  const [dark, setDark] = useState<boolean>(false);
+  // Le thème vit désormais dans useTheme()/ThemeToggle (partagé avec la landing, cf. src/lib/useTheme.ts).
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -254,7 +252,6 @@ function App() {
   const [prefetchPct, setPrefetchPct] = useState<number | null>(null);
   const [prefetchDone, setPrefetchDone] = useState(false);
   const prefetchCtl = useRef<AbortController | null>(null);
-  const themeAdopted = useRef(false);
   const uiRestored = useRef(false);
 
   // Restore UI flags that should survive a page navigation (this client page unmounts when you go to
@@ -662,6 +659,35 @@ function App() {
     };
   }, []);
 
+  // __gpuProfile() : le BUDGET GPU PAR PASSE du modèle réellement chargé (?gpuprofile=1).
+  //
+  // C'est le seul banc du repo qui doit lire le moteur VIVANT : les autres (__decodeBench,
+  // __gemmBench) fabriquent leur propre moteur sur des formes synthétiques et mesurent un PLAFOND.
+  // Ici on veut justement l'écart entre ce plafond et le réel — donc les passes du vrai forward, sur
+  // les vrais poids. D'où l'effet dédié qui dépend de `activeEngine` : posé dans l'effet de montage,
+  // le hook capturerait `null` pour toujours et rendrait « aucune mesure » quel que soit l'état réel
+  // (exactement le piège de __tokIds, cf. ROADMAP § tokenizer).
+  //
+  // Usage : charger la page avec ?gpuprofile=1, charger un modèle, envoyer quelques messages
+  // (quelques centaines de tokens décodés — cf. MIN_SAMPLES), puis __gpuProfile() en console.
+  // __gpuProfile(true) remet les compteurs à zéro après lecture, pour mesurer une phase à la fois.
+  useEffect(() => {
+    (window as any).__gpuProfile = async (reset = false) => {
+      const eng = activeEngine;
+      if (!eng) return { error: 'aucun modèle chargé — le profileur lit le moteur vivant' };
+      if (!eng.profiler) {
+        const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+        return { error: WebGpuEngine.profileOn
+          ? 'timestamp-query absente de cet adapter — rien n’a pu être mesuré'
+          : 'profilage éteint : rechargez la page avec ?gpuprofile=1' };
+      }
+      const { formatProfile } = await import('@/lib/webgpu/gpuProfile');
+      const r = await eng.profiler.report();
+      console.log(formatProfile(r));
+      if (reset) eng.profiler.reset();
+      return r;
+    };
+  }, [activeEngine]);
   // Le hook de banc de tokenisation doit voir le modèle COURANT : dans l'effet de montage il
   // capturerait le tokenizer de la première render (null). Effet dédié, re-posé à chaque
   // changement de modèle/tokenizer.
@@ -1119,19 +1145,6 @@ function App() {
     listCustomSkills().then((s) => { if (active) setCustomSkills(s); }).catch(() => { /* IndexedDB unavailable */ });
     return () => { active = false; };
   }, []);
-
-  // Dark mode. On the FIRST run we adopt whatever theme the inline script already put on <html>
-  // (without toggling the class — toggling with the initial `false` is what stripped it and
-  // flashed white on navigation). Afterwards (user clicks the toggle) we apply + persist.
-  useEffect(() => {
-    if (!themeAdopted.current) {
-      themeAdopted.current = true;
-      if (document.documentElement.classList.contains('dark')) setDark(true);
-      return;
-    }
-    document.documentElement.classList.toggle('dark', dark);
-    localStorage.setItem('brimkern-theme', dark ? 'dark' : 'light');
-  }, [dark]);
 
   // Track small / touch screens (limited GPU + memory → mobile warning, icon-only header).
   useEffect(() => {
@@ -2518,14 +2531,7 @@ function App() {
             >
               {locale === 'fr' ? 'EN' : 'FR'}
             </button>
-            <button
-              onClick={() => setDark((d) => !d)}
-              title={dark ? (locale === 'fr' ? 'Mode clair' : 'Light mode') : (locale === 'fr' ? 'Mode nuit' : 'Dark mode')}
-              aria-label={dark ? (locale === 'fr' ? 'Mode clair' : 'Light mode') : (locale === 'fr' ? 'Mode nuit' : 'Dark mode')}
-              style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px' }}
-            >
-              {dark ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
+            <ThemeToggle variant="header" />
             {isMobile && (
               <button
                 onClick={() => setIsSidebarOpen(false)}

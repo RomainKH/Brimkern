@@ -1266,6 +1266,15 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-weight: 700;
 }
 
+/* Le bouton de thème reprend l'habillage de la langue (même survol, même zone de clic) mais porte
+   une icône : sans `display:flex` le SVG s'aligne sur la ligne de base du texte et le bouton pend
+   deux pixels plus bas que son voisin. */
+.lp-nav-theme {
+  display: flex;
+  align-items: center;
+  padding: 7px 8px;
+}
+
 .lp-nav-icon {
   display: flex;
   align-items: center;

@@ -14,6 +14,8 @@ import { quantizeQ4, dequantizeQ4, unpackQ4 } from '../brik/q4web';
 import { quantizeQ8, dequantizeQ8, unpackQ8 } from '../brik/q8web';
 import { quantizeQ3, dequantizeQ3, unpackQ3 } from '../brik/q3web';
 import { SHADERS, MATMUL_T_F16W } from "./shaders";
+import { GpuProfiler } from "./gpuProfile";
+import { urlFlag } from "./urlFlags";
 
 type GPUAny = any;
 
@@ -210,7 +212,13 @@ export class WebGpuEngine {
 	// 7 threads sur 8 inutilisés à m = 1 : 15 Go/s effectifs mesurés contre ~56 chez WebLLM).
 	gemvOk = true;
 	// ?timing=1 → chronométrage interne du forward (diagnostic ; cf. decodeTopKQ8).
-	static timingOn = (() => { try { return new URLSearchParams(location.search).get('timing') === '1'; } catch { return false; } })();
+	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
+	// ?gpuprofile=1 → budget GPU PAR PASSE via timestamp-query (cf. ./gpuProfile.ts pour le pourquoi :
+	// ?timing=1 mesure l'enveloppe d'UNE soumission et ne peut rien répartir à l'intérieur).
+	// Strictement opt-in : sans le drapeau la feature n'est même pas demandée au device, donc une
+	// session normale est bit à bit celle d'avant.
+	static profileOn = (() => { try { return urlFlag('gpuprofile') === '1'; } catch { return false; } })();
+	profiler: GpuProfiler | null = null;
 
 	async init(): Promise<boolean> {
 		const gpu = (navigator as any).gpu;
@@ -227,6 +235,10 @@ export class WebGpuEngine {
 		// Opt into shader-f16 when the adapter offers it (BRIK's f16-weight matmul needs it).
 		const features: string[] = [];
 		try { if (adapter.features?.has('shader-f16')) features.push('shader-f16'); } catch { /* older impls */ }
+		// timestamp-query UNIQUEMENT sous ?gpuprofile=1 : la demander toujours changerait la création
+		// du device de toutes les sessions pour un outil de diagnostic. Elle reste optionnelle — un
+		// adapter qui ne l'offre pas laisse simplement `profiler` à null (message explicite plus bas).
+		try { if (WebGpuEngine.profileOn && adapter.features?.has('timestamp-query')) features.push('timestamp-query'); } catch { /* older impls */ }
 		try {
 			this.device = await adapter.requestDevice({ requiredLimits: want, requiredFeatures: features });
 		} catch {
@@ -235,57 +247,67 @@ export class WebGpuEngine {
 		}
 		this.maxStorageBufferBindingSize = this.device.limits?.maxStorageBufferBindingSize ?? 134217728;
 		this.hasF16 = !!this.device.features?.has?.('shader-f16');
+		if (WebGpuEngine.profileOn) {
+			if (this.device.features?.has?.('timestamp-query')) {
+				this.profiler = new GpuProfiler(this.device);
+				console.info('[webgpu] profilage par passe ACTIF (?gpuprofile=1) — __gpuProfile() pour le rapport');
+			} else {
+				// Le dire, et fort : un profileur silencieusement inactif rendrait un rapport vide qu'on
+				// lirait comme « rien à optimiser » (le piège du commutateur qui ne commute rien).
+				console.warn('[webgpu] ?gpuprofile=1 demandé mais la feature timestamp-query est ABSENTE de cet adapter — aucune mesure ne sera prise.');
+			}
+		}
 		// Kill-switch diagnostic : ?attndecode=0 → kernels d'attention classiques uniquement.
 		try {
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('attndecode') === '0') {
+			if (urlFlag('attndecode') === '0') {
 				this.attnDecodeOk = false;
 				console.warn('[webgpu] attention décodage COUPÉE par ?attndecode=0 — kernels classiques');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('attnfullwg') === '0') {
+			if (urlFlag('attnfullwg') === '0') {
 				this.attnFullWgOk = false;
 				console.warn('[webgpu] attention_full workgroup COUPÉE par ?attnfullwg=0 — kernel classique');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('rwkv') === '0') {
+			if (urlFlag('rwkv') === '0') {
 				this.rwkvWkv7Ok = false;
 				console.warn('[webgpu] kernel RWKV-7 WKV COUPÉ par ?rwkv=0');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('lfm2') === '0') {
+			if (urlFlag('lfm2') === '0') {
 				this.lfm2ShortConvOk = false;
 				console.warn('[webgpu] kernel shortconv LFM2 COUPÉ par ?lfm2=0');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('lfm2resident') === '0') {
+			if (urlFlag('lfm2resident') === '0') {
 				this.lfm2ResidentOk = false;
 				console.warn('[webgpu] LFM2 résident COUPÉ par ?lfm2resident=0 — forwardToken JS+readback');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('lfm2batch') === '0') {
+			if (urlFlag('lfm2batch') === '0') {
 				this.lfm2BatchOk = false;
 				console.warn('[webgpu] prefill LFM2 batché COUPÉ par ?lfm2batch=0 — token par token');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('swa') === '0') {
+			if (urlFlag('swa') === '0') {
 				this.swaOk = false;
 				console.warn('[webgpu] fenêtre glissante COUPÉE par ?swa=0 — attention causale pleine sur toutes les couches');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('rwkvresident') === '0') {
+			if (urlFlag('rwkvresident') === '0') {
 				this.rwkvResidentOk = false;
 				console.warn('[webgpu] RWKV résident COUPÉ par ?rwkvresident=0 — forwardToken JS+readback');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('video') === '0') {
+			if (urlFlag('video') === '0') {
 				this.videoOk = false;
 				console.warn('[webgpu] chemin vidéo (module motion) COUPÉ par ?video=0');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('f16shared') === '0') {
+			if (urlFlag('f16shared') === '0') {
 				this.f16SharedOk = false;
 				console.warn('[webgpu] GEMM f16 tuilé COUPÉ par ?f16shared=0 — matmul_t_f16w pour tous les m');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('gemv') === '0') {
+			if (urlFlag('gemv') === '0') {
 				this.gemvOk = false;
 				console.warn('[webgpu] GEMV de décodage COUPÉ par ?gemv=0 — kernels par lignes');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('qshared') === '0') {
+			if (urlFlag('qshared') === '0') {
 				this.qSharedOk = false;
 				console.warn('[webgpu] GEMM q8/q4 tuilés COUPÉS par ?qshared=0 — kernels 4 lignes/invocation');
 			}
-			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('videoresident') === '0') {
+			if (urlFlag('videoresident') === '0') {
 				this.videoResidentOk = false;
 				console.warn('[webgpu] motion résident COUPÉ par ?videoresident=0 — chemin JS+readback');
 			}
@@ -440,7 +462,10 @@ export class WebGpuEngine {
 			layout: pipeline.getBindGroupLayout(0),
 			entries: buffers.map((buffer, i) => ({ binding: i, resource: { buffer } }))
 		});
-		const pass = enc.beginComputePass();
+		// Le SEUL point d'accroche du profileur : toutes les passes du chemin résident passent ici, et
+		// `name` est déjà le nom du kernel. `?.` quand c'est éteint — cf. ./gpuProfile.ts.
+		const ts = this.profiler?.slot(name);
+		const pass = enc.beginComputePass(ts ? { timestampWrites: ts } : undefined);
 		pass.setPipeline(pipeline);
 		pass.setBindGroup(0, bind);
 		pass.dispatchWorkgroups(...workgroups);
@@ -1581,6 +1606,9 @@ export class WebGpuEngine {
 	// at once (the image pipeline holds ~1 GB of resident weights — dropping JS references alone
 	// leaves that VRAM to the GC's mercy). The engine is unusable afterwards.
 	destroy(): void {
+		// Avant le device : les jeux de requêtes et leurs buffers lui appartiennent.
+		try { this.profiler?.destroy(); } catch { /* déjà libéré */ }
+		this.profiler = null;
 		try { this.device?.destroy?.(); } catch { /* already lost */ }
 		this.bufferPool.clear();
 		this.uniformPool.clear();

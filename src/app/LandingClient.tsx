@@ -30,6 +30,7 @@ import { SDK_URL } from '@/lib/site';
 import HfModelInput from './HfModelInput';
 import GithubMark from './GithubMark';
 import ByLine from './ByLine';
+import ThemeToggle from './ThemeToggle';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
 // mort serait la pire première impression pour un visiteur venu de Hugging Face).
@@ -148,6 +149,11 @@ export default function LandingClient() {
           >
             {locale === 'fr' ? 'EN' : 'FR'}
           </button>
+          {/* Le thème se règle ici aussi : il ne se réglait QUE dans l'en-tête du chat, alors que la
+              landing est la première page vue. Volontairement à côté de la langue — ce sont les deux
+              mêmes préférences d'affichage, et elles restent visibles sur mobile (contrairement à
+              .lp-nav-icon, masquée sous 1000 px). */}
+          <ThemeToggle size={16} />
           <Link href={href('/chat')} className="btn btn-primary lp-nav-cta">{t('Open the chat', 'Ouvrir le chat')}</Link>
         </nav>
       </header>
