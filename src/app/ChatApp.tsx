@@ -2267,7 +2267,14 @@ function App() {
           return true;
         }).join('\n').trimEnd();
       }
-      pushUi(assistantText, hitCap);
+      // <think> jamais refermé sur un message POSÉ : quel que soit ce qui a arrêté la génération
+      // (stop token émis en pleine réflexion — vu sur un petit modèle avec un long system prompt —,
+      // garde-fou anti-boucle, plafond), il n'y a AUCUNE réponse à afficher. Sans ce marquage, la
+      // bulle restait figée sur « Réflexion… » pour toujours, sans note ni issue (2026-08-14).
+      // `truncated` déclenche la note « Réponse coupée » + le bouton Continuer, et le rendu affiche
+      // le raisonnement interrompu en bloc repliable (cf. renderMessageContent).
+      const thinkUnclosed = assistantText.includes('<think>') && !assistantText.includes('</think>');
+      pushUi(assistantText, hitCap || thinkUnclosed);
 
       // Funnel : le « wow » a eu lieu — une première réponse complète cette session.
       metricOnce('first_reply', { model: loadedModelName });

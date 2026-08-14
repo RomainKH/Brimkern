@@ -6,6 +6,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { CheckCircle, Copy, Brain, ChevronDown } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
@@ -49,8 +50,11 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
 
 // DeepSeek-R1 reasoning: the <think>…</think> block, shown as a collapsible dimmed box (default
 // collapsed) so the actual answer stays readable. Still streams live.
-function ReasoningBlock({ text, streaming }: { text: string; streaming: boolean }) {
+// `interrupted` : la génération s'est POSÉE sans jamais refermer le <think> (stop token en pleine
+// réflexion, garde-fou anti-boucle, plafond…) — on l'affiche comme un raisonnement interrompu.
+function ReasoningBlock({ text, streaming, interrupted = false }: { text: string; streaming: boolean; interrupted?: boolean }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
   return (
     <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, margin: '2px 0 10px', background: 'var(--bg-sidebar)', overflow: 'hidden' }}>
       <button
@@ -58,7 +62,11 @@ function ReasoningBlock({ text, streaming }: { text: string; streaming: boolean 
         style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}
       >
         <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-        <span style={{ flex: 1, textAlign: 'left' }}>{streaming ? 'Réflexion en cours…' : 'Raisonnement'}</span>
+        <span style={{ flex: 1, textAlign: 'left' }}>
+          {streaming ? t('Thinking…', 'Réflexion en cours…')
+            : interrupted ? t('Reasoning (interrupted)', 'Raisonnement (interrompu)')
+            : t('Reasoning', 'Raisonnement')}
+        </span>
         <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }} />
       </button>
       {open && (
@@ -132,13 +140,29 @@ function renderBlocks(t: string, keyPrefix: string) {
   });
 }
 
+// Ligne minimale « Réflexion… » pendant que le modèle est encore dans son <think> (raisonnement
+// masqué) : sinon la bulle reste vide de longues secondes et l'interface paraît figée.
+function ThinkingLine() {
+  const t = useT();
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--text-muted)', fontSize: 13, margin: '2px 0 6px' }}>
+      <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+      <span>{t('Thinking…', 'Réflexion…')}</span>
+    </div>
+  );
+}
+
 // Full message body: splits out a DeepSeek-R1 <think>…</think> block from the answer.
 // `showReasoning` (false par défaut, réglage « Afficher le raisonnement ») : sans lui, le
 // raisonnement n'est plus affiché du tout — sur un modèle de raisonnement il occupait le haut de
-// chaque réponse alors que ce qui intéresse, c'est la réponse. Pendant que le modèle est ENCORE dans
-// son <think>, on garde une ligne minimale « Réflexion… » : sinon la bulle reste vide de longues
-// secondes et l'interface paraît figée.
-export function renderMessageContent(text: string, showReasoning = false): ReactNode {
+// chaque réponse alors que ce qui intéresse, c'est la réponse.
+// `settled` : la génération de CE message est TERMINÉE. Un <think> jamais refermé sur un message
+// posé (stop token émis en pleine réflexion, garde-fou anti-boucle, plafond) laissait la ligne
+// « Réflexion… » affichée POUR TOUJOURS — l'utilisateur voyait une réponse figée sans aucune issue
+// (constaté le 2026-08-14, « gros bug général »). Désormais : le raisonnement interrompu s'affiche
+// en bloc repliable, même quand le réglage le masque — c'est la SEULE trace de ce que le modèle a
+// produit, et le message est par ailleurs marqué « coupé » par l'appelant (note + Continuer).
+export function renderMessageContent(text: string, showReasoning = false, settled = false): ReactNode {
   if (!text) return null;
   const open = text.indexOf('<think>');
   if (open !== -1) {
@@ -147,16 +171,14 @@ export function renderMessageContent(text: string, showReasoning = false): React
     const close = after.indexOf('</think>');
     const thinking = close === -1 ? after : after.slice(0, close);
     const answer = close === -1 ? '' : after.slice(close + 8);
+    const unclosedSettled = close === -1 && settled;
     return (
       <>
         {before.trim() && renderBlocks(before, 'pre')}
-        {showReasoning ? (
-          <ReasoningBlock text={thinking} streaming={close === -1} />
+        {showReasoning || unclosedSettled ? (
+          <ReasoningBlock text={thinking} streaming={close === -1 && !settled} interrupted={unclosedSettled} />
         ) : close === -1 ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--text-muted)', fontSize: 13, margin: '2px 0 6px' }}>
-            <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-            <span>Réflexion…</span>
-          </div>
+          <ThinkingLine />
         ) : null}
         {answer.trim() && renderBlocks(answer, 'ans')}
       </>

@@ -111,7 +111,9 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                     </span>
                   </button>)
               : msg.content
-              ? renderMessageContent(msg.content, showReasoning)
+              // `settled` = ce message n'est plus en cours de génération : un <think> resté ouvert
+              // s'y affiche en « Raisonnement (interrompu) » au lieu d'un « Réflexion… » éternel.
+              ? renderMessageContent(msg.content, showReasoning, !showTyping)
               : null}
             {/* « Affiner » : reprend prompt + seed dans le composer — préciser le texte en gardant
                 la même composition (même bruit initial). Visible sous toute image générée. */}

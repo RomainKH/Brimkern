@@ -35,8 +35,22 @@ export const stripTurnMarkers = (text: string) =>
 export type ReflectionLevel = 'off' | 'low' | 'medium' | 'high';
 export const THINK_BUDGETS: Record<ReflectionLevel, number> = { off: 0, low: 200, medium: 700, high: 2000 };
 
+// Le raisonnement <think>…</think> d'un tour PASSÉ ne doit pas repartir dans le prompt : les
+// templates officiels (Qwen3, DeepSeek-R1) le RETIRENT de l'historique. Le renvoyer gaspille le
+// budget de contexte (150 tokens de réflexion par tour, constaté), casse la réutilisation du
+// préfixe KV, et un bloc resté OUVERT (génération coupée en pleine réflexion) injecterait un
+// <think> nu au milieu de l'historique — le modèle en déduit qu'il est encore en train de penser.
+export function stripReasoning(s: string): string {
+  const i = s.indexOf('<think>');
+  if (i === -1) return s;
+  const j = s.indexOf('</think>', i);
+  return (j === -1 ? s.slice(0, i) : s.slice(0, i) + s.slice(j + 8)).trim();
+}
+
 // Build the model-ready prompt string from the chat history, per architecture chat template.
+// Les messages assistant de l'HISTORIQUE sont débarrassés de leur raisonnement (cf. stripReasoning).
 export function formatPrompt(chatMsgs: { role: string; content: string }[], archType: ArchType, systemText: string): string {
+  chatMsgs = chatMsgs.map((m) => m.role === 'assistant' ? { ...m, content: stripReasoning(m.content) } : m);
   let formatted = '';
 
   if (archType === 'deepseek') {
