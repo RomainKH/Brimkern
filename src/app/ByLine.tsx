@@ -25,7 +25,7 @@ export default function ByLine({ compact = false }: { compact?: boolean }) {
       >
         Romain Khanoyan
       </a>
-      {t('. Freelance — local AI, WebGPU, on-device engines.', '. Indépendant — IA locale, WebGPU, moteurs on-device.')}
+      {t('. Local AI, WebGPU, on-device engines.', '. IA locale, WebGPU, moteurs on-device.')}
     </p>
   );
 }
