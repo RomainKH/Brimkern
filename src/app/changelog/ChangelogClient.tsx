@@ -21,6 +21,55 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'August 14, 2026', fr: '14 août 2026' },
+    tagline: {
+      en: 'Answers arrive about 40 % faster: the normalization step of every layer was running on a single GPU thread. Reasoning models no longer get stuck on “Thinking…”, the storage panel stops hoarding ranges that will never be read again, and a measured comparison with WebLLM is now online.',
+      fr: 'Les réponses arrivent environ 40 % plus vite : l’étape de normalisation de chaque couche tournait sur un seul thread du GPU. Les modèles à raisonnement ne restent plus bloqués sur « Réflexion… », le stockage cesse de garder des morceaux qui ne seront jamais relus, et une comparaison mesurée avec WebLLM est en ligne.',
+    },
+    groups: [
+      {
+        title: { en: 'Faster answers', fr: 'Des réponses plus rapides' },
+        items: [
+          { en: 'Every layer normalizes its values twice per token, and that step was written one row per thread — fine when reading your prompt (hundreds of rows at once), wasteful when writing the answer (one row, so 63 threads out of 64 idle). Rewritten to split the row across the whole workgroup: decoding goes from 36.0 to 49.5 tok/s (×1.38) on a Qwen3 0.6B, prompt reading unchanged.',
+            fr: 'Chaque couche normalise ses valeurs deux fois par token, et cette étape était écrite une ligne par thread — correct pour lire votre question (des centaines de lignes d’un coup), gâché pour écrire la réponse (une seule ligne, donc 63 threads sur 64 inutilisés). Réécrite pour répartir la ligne sur tout le groupe : le décodage passe de 36,0 à 49,5 tok/s (×1,38) sur un Qwen3 0.6B, la lecture du prompt est inchangée.' },
+          { en: 'The measurement that found it: a per-pass GPU profiler (?gpuprofile=1) added the same day, which showed normalization eating 51.9 % of decode time — twice the cost of the matrix multiplies it feeds.',
+            fr: 'La mesure qui l’a trouvé : un profileur GPU par passe (?gpuprofile=1) ajouté le même jour, qui montrait la normalisation à 51,9 % du temps de décodage — deux fois le coût des multiplications matricielles qu’elle alimente.' },
+        ],
+      },
+      {
+        title: { en: 'Reasoning models: no more dead end', fr: 'Modèles à raisonnement : plus de cul-de-sac' },
+        items: [
+          { en: 'When a model stopped in the middle of its reasoning, the bubble stayed on “Thinking…” forever — no answer, no explanation, no way out. That state is now shown as a collapsible “Reasoning (interrupted)” block, the reply is marked as cut off, and a Continue button picks it back up.',
+            fr: 'Quand un modèle s’arrêtait au milieu de sa réflexion, la bulle restait sur « Réflexion… » pour toujours — sans réponse, sans explication, sans issue. Cet état s’affiche désormais en bloc repliable « Raisonnement (interrompu) », la réponse est marquée comme coupée, et un bouton Continuer la reprend.' },
+          { en: 'Past reasoning is no longer sent back to the model on the next turn (the official Qwen3/R1 templates drop it too): the second-turn prompt shrank from ~240 to 68 tokens, leaving more room for the conversation itself.',
+            fr: 'Le raisonnement des tours passés n’est plus renvoyé au modèle (les gabarits officiels Qwen3/R1 le retirent aussi) : le prompt du 2e tour passe de ~240 à 68 tokens, ce qui laisse plus de place à la conversation elle-même.' },
+        ],
+      },
+      {
+        title: { en: 'Storage that stops growing for nothing', fr: 'Un stockage qui ne gonfle plus pour rien' },
+        items: [
+          { en: 'A model could occupy 239 MB of cache for a 149 MB file: pieces left behind by an older download plan, never read again but still counted against the browser quota that decides whether a model can be kept at all. They are now cleaned up automatically — only pieces fully contained in a larger one, so nothing you already have is lost.',
+            fr: 'Un modèle pouvait occuper 239 Mo de cache pour un fichier de 149 Mo : des morceaux laissés par un ancien plan de téléchargement, jamais relus mais toujours comptés dans le quota du navigateur — celui-là même qui décide si un modèle peut être gardé. Ils sont nettoyés automatiquement, et uniquement ceux entièrement contenus dans un plus grand : rien de ce que vous avez déjà n’est perdu.' },
+          { en: 'Models whose download link carries a query string (a common Hugging Face form) were invisible to the storage panel, to “delete this model”, and to automatic cleanup. They are recognized again.',
+            fr: 'Les modèles dont le lien de téléchargement porte une query (une forme courante chez Hugging Face) étaient invisibles pour le panneau Stockage, pour « supprimer ce modèle » et pour le nettoyage automatique. Ils sont de nouveau reconnus.' },
+        ],
+      },
+      {
+        title: { en: 'The site', fr: 'Le site' },
+        items: [
+          { en: 'A measured comparison with WebLLM at /vs-webllm: same GPU, same 7B int4 model, prefill and decode side by side — including where WebLLM is ahead.',
+            fr: 'Une comparaison mesurée avec WebLLM sur /vs-webllm : même GPU, même modèle 7B int4, prefill et décodage côte à côte — y compris là où WebLLM est devant.' },
+          { en: 'Accessibility: the four secondary pages carried contrast violations in dark mode that no audit had ever covered (the red used for solid buttons was also being used for small text). Eight pages × two themes now pass with zero violations.',
+            fr: 'Accessibilité : les quatre pages secondaires portaient des défauts de contraste en thème sombre qu’aucun audit n’avait couverts (le rouge des aplats servait aussi aux petits textes). Huit pages × deux thèmes passent désormais à zéro violation.' },
+          { en: 'On the French home page, the terminal panel stayed permanently faded because longer French sentences pushed it below the fold, where its scroll-driven appearance never completed. It now fades in with the rest of the hero.',
+            fr: 'Sur l’accueil français, le panneau terminal restait délavé en permanence : les phrases françaises, plus longues, le repoussaient sous la ligne de flottaison où son apparition liée au défilement ne se terminait jamais. Il apparaît maintenant avec le reste du hero.' },
+          { en: 'The layer diagram now draws itself piece by piece as you scroll, and the measured figures count up when they come into view.',
+            fr: 'Le schéma des couches se dessine morceau par morceau au défilement, et les chiffres mesurés se comptent en arrivant à l’écran.' },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'August 13, 2026', fr: '13 août 2026' },
     tagline: {
       en: 'Any single-file GGUF from Hugging Face now runs here — paste an author/model and go. Decoding is 4× faster on large models, the first reply no longer costs ten seconds, the Llama family answers correctly again, and the site finally has a front door separate from the app.',
