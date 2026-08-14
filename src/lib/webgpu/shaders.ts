@@ -1029,6 +1029,52 @@ export const SHADERS = {
 			}
 		}`,
 
+	// RMSNorm PARALLÈLE PAR LIGNE — le kernel du chemin chaud depuis le 2026-08-14.
+	//
+	// Pourquoi il existe : `rmsnorm` ci-dessus traite UNE LIGNE PAR THREAD. C'est correct au prefill
+	// (des centaines de lignes), mais en DÉCODAGE il n'y a qu'une ligne : 63 threads sur 64 sortent
+	// immédiatement et le 64e parcourt seul la dimension du modèle — DEUX FOIS (somme des carrés,
+	// puis écriture). C'est exactement le défaut qui plombait le GEMV avant le 2026-08-13, et c'est
+	// ce que le profileur par passe a fait remonter : rmsnorm = 51,9 % du temps GPU du décodage,
+	// DEUX FOIS le GEMV, sur un modèle où il ne fait que normaliser 1024 flottants par appel.
+	//
+	// Ici : UN workgroup de 256 threads PAR LIGNE, les threads se partagent la ligne (foulée 256),
+	// réduction en arbre pour la somme des carrés, puis écriture parallèle. Chaque thread travaille,
+	// et les lectures sont contiguës. Même contrat que `rmsnorm` (mêmes bindings, mêmes uniformes) —
+	// seule la répartition change, ce qui rend le repli `?rmsvec=0` exact.
+	rmsnorm_vec: `
+		struct P { rows: u32, dim: u32, eps: f32, onePlus: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		var<workgroup> part: array<f32, 256>;
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let r = wid.x;
+			let tid = lid.x;
+			let base = r * p.dim;
+			var ss = 0.0;
+			// (r < p.rows) est UNIFORME dans le workgroup (r vient de workgroup_id) : les barrières
+			// restent en flux uniforme même quand le dernier workgroup dépasse le nombre de lignes.
+			if (r < p.rows) {
+				for (var i = tid; i < p.dim; i = i + 256u) { let v = x[base + i]; ss = ss + v * v; }
+			}
+			part[tid] = ss;
+			workgroupBarrier();
+			for (var stride = 128u; stride > 0u; stride = stride >> 1u) {
+				if (tid < stride) { part[tid] = part[tid] + part[tid + stride]; }
+				workgroupBarrier();
+			}
+			if (r >= p.rows) { return; }
+			let inv = 1.0 / sqrt(part[0] / f32(p.dim) + p.eps);
+			for (var i = tid; i < p.dim; i = i + 256u) {
+				// Gemma scales by (1 + w) instead of w; onePlus selects the convention.
+				let g = select(w[i], 1.0 + w[i], p.onePlus == 1u);
+				o[base + i] = x[base + i] * inv * g;
+			}
+		}`,
+
 	// o = silu(a) * b   (SwiGLU gate: silu(gate) * up)
 	swiglu: `
 		@group(0) @binding(0) var<storage, read> a: array<f32>;

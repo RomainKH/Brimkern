@@ -211,6 +211,10 @@ export class WebGpuEngine {
 	// selfValidate, ou forcé par ?gemv=0 → retour aux kernels par lignes (corrects, mais qui laissent
 	// 7 threads sur 8 inutilisés à m = 1 : 15 Go/s effectifs mesurés contre ~56 chez WebLLM).
 	gemvOk = true;
+	// RMSNorm PARALLÈLE par ligne (kernel rmsnorm_vec) : gate NON BLOQUANT posé par selfValidate, ou
+	// forcé par ?rmsvec=0 → retour au kernel une-ligne-par-thread (correct, mais qui laisse 63 threads
+	// sur 64 inutilisés en décodage — 51,9 % du temps GPU relevé au profileur pour une normalisation).
+	rmsVecOk = true;
 	// ?timing=1 → chronométrage interne du forward (diagnostic ; cf. decodeTopKQ8).
 	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
 	// ?gpuprofile=1 → budget GPU PAR PASSE via timestamp-query (cf. ./gpuProfile.ts pour le pourquoi :
@@ -266,6 +270,10 @@ export class WebGpuEngine {
 			if (urlFlag('attnfullwg') === '0') {
 				this.attnFullWgOk = false;
 				console.warn('[webgpu] attention_full workgroup COUPÉE par ?attnfullwg=0 — kernel classique');
+			}
+			if (urlFlag('rmsvec') === '0') {
+				this.rmsVecOk = false;
+				console.warn('[webgpu] RMSNorm parallèle COUPÉE par ?rmsvec=0 — kernel une-ligne-par-thread');
 			}
 			if (urlFlag('rwkv') === '0') {
 				this.rwkvWkv7Ok = false;
@@ -545,6 +553,19 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 12, new Uint32Array([onePlus ? 1 : 0]));
 		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('rmsnorm', [p, this.buf(x, ST), this.buf(w, ST), out], [Math.ceil(rows / WG), 1, 1], out, x.byteLength);
+	}
+
+	// RMSNorm parallèle par ligne avec readback — pour selfValidate (le chemin chaud passe par
+	// recRmsnorm, qui enregistre la passe sans readback).
+	async rmsnormVec(x: Float32Array, w: Float32Array, rows: number, dim: number, eps = 1e-5, onePlus = false): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const p = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(p, 0, new Uint32Array([rows, dim]));
+		this.device.queue.writeBuffer(p, 8, new Float32Array([eps]));
+		this.device.queue.writeBuffer(p, 12, new Uint32Array([onePlus ? 1 : 0]));
+		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('rmsnorm_vec', [p, this.buf(x, ST), this.buf(w, ST), out], [rows, 1, 1], out, x.byteLength);
 	}
 
 	private async binary(name: string, a: Float32Array, b: Float32Array): Promise<Float32Array> {
@@ -1754,7 +1775,15 @@ export class WebGpuEngine {
 		// u32[2]=onePlus placeholder at offset 8 is overwritten by the eps float tail; onePlus sits at 12.
 		const p = this.uniform([rows, dim, 0, onePlus ? 1 : 0], { offset: 8, value: eps });
 		const out = this.storage(rows * dim * 4);
-		this.recordPass(enc, 'rmsnorm', [p, x, w, out], [Math.ceil(rows / WG), 1, 1]);
+		// Un workgroup PAR LIGNE (rmsnorm_vec) : en décodage il n'y a qu'une ligne, et le kernel
+		// une-ligne-par-thread y laissait 63 threads sur 64 inutilisés. La grid vaut `rows`, d'où la
+		// garde à 65 535 (limite de workgroups par dimension) — au-delà, retour au kernel par lignes,
+		// qui est justement bon dans ce régime (beaucoup de lignes, donc beaucoup de threads utiles).
+		if (this.rmsVecOk && rows <= 65535) {
+			this.recordPass(enc, 'rmsnorm_vec', [p, x, w, out], [rows, 1, 1]);
+		} else {
+			this.recordPass(enc, 'rmsnorm', [p, x, w, out], [Math.ceil(rows / WG), 1, 1]);
+		}
 		trash.push(p, out);
 		return out;
 	}
@@ -3144,6 +3173,37 @@ export class WebGpuEngine {
 				const q = rand(nT * nH * hd), k = rand((past + nT) * nKv * hd), v = rand((past + nT) * nKv * hd);
 				if (!closeRel(await this.attentionDecode(q, k, v, nT, nH, nKv, hd, past),
 					attentionCpu(q, k, v, nT, nH, nKv, hd, past))) failSoft('decode.hd128');
+			}
+		}
+
+		// RMSNorm PARALLÈLE par ligne (rmsnorm_vec) : gate NON BLOQUANT — un GPU qui la compile mal
+		// bascule rmsVecOk=false → repli sur le kernel une-ligne-par-thread, correct partout.
+		// Formes choisies pour exercer ce qui casse : la ligne UNIQUE du décodage (rows=1, le cas
+		// chaud), une dimension NON multiple des 256 threads (donc une foulée qui retombe au milieu
+		// et une réduction sur des cases partiellement nulles), une dimension PLUS PETITE que le
+		// workgroup (qNorm : headDim 64 < 256 threads, la majorité des threads n'entre jamais dans la
+		// boucle), plusieurs lignes à la fois (qNorm/kNorm en prefill), et la convention (1+w) de
+		// Gemma. Référence : le kernel `rmsnorm` déjà validé contre le CPU plus haut.
+		{
+			const failSoft = (stage: string): void => {
+				this.rmsVecOk = false;
+				console.error('[selfValidate] RMSNorm parallèle HS sur ce GPU (étape :', stage, ') → repli kernel une-ligne-par-thread (correct, plus lent en décodage)');
+			};
+			const cases = [
+				{ rows: 1, dim: 1024, onePlus: false },   // décodage, dimension pleine
+				{ rows: 1, dim: 1536, onePlus: false },   // dim non multiple de 256 (6 tours + reste)
+				{ rows: 1, dim: 100, onePlus: false },    // dim < workgroup : 156 threads inactifs
+				{ rows: 14, dim: 64, onePlus: false },    // qNorm en décodage (nHeads lignes, headDim)
+				{ rows: 37, dim: 2048, onePlus: false },  // plusieurs lignes, dim pleine
+				{ rows: 3, dim: 128, onePlus: true },     // convention Gemma (1 + w)
+			];
+			for (const c of cases) {
+				const x = rand(c.rows * c.dim), w = rand(c.dim);
+				const got = await this.rmsnormVec(x, w, c.rows, c.dim, 1e-6, c.onePlus);
+				const ref = await this.rmsnorm(x, w, c.rows, c.dim, 1e-6, c.onePlus);
+				// Tolérance RELATIVE : la réduction en arbre ne somme pas dans le même ordre que la
+				// boucle séquentielle — les deux sont justes, leurs derniers bits diffèrent.
+				if (!closeRel(got, ref, 5e-3)) { failSoft(`rmsnorm_vec(${c.rows}×${c.dim}${c.onePlus ? ',1+w' : ''})`); break; }
 			}
 		}
 
