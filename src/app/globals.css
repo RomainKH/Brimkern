@@ -1767,7 +1767,8 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .lp-cta:active {
-  transform: translateY(0);
+  /* L'appui se SENT : le bouton redescend et se tasse d'un cheveu — l'interface a entendu. */
+  transform: translateY(0) scale(0.98);
 }
 
 /* La flèche du lien fantôme avance — l'affordance « ça mène ailleurs ». */
@@ -1810,25 +1811,37 @@ html.dark ::-webkit-scrollbar-thumb:hover {
     animation-range: entry 0% cover 22%;
   }
 
-  /* Le schéma « une couche = une plage » se DESSINE en streamant : la barre du fichier se révèle
-     de gauche à droite au fil du défilement — l'animation mime exactement ce que la section
-     explique (des plages qui arrivent dans l'ordre), elle n'est pas un ornement. Liée au scroll
-     (pas au temps) : on peut la rejouer, la ralentir, la lire — comme la jauge en haut de page. */
-  .lp-slices-svg {
-    animation: lp-stream linear both;
-    animation-timeline: view();
-    animation-range: entry 20% cover 55%;
+  /* Le schéma « une couche = une plage » : les plages POUSSENT une à une au fil du défilement —
+     chaque rectangle grossit puis se pose (léger dépassement à 1.08, jamais depuis scale(0)).
+     L'animation mime exactement ce que la section explique (des plages qui arrivent dans l'ordre),
+     et elle est liée au scroll : on peut la rejouer, la ralentir, la lire — comme la jauge en haut.
+     La timeline est NOMMÉE et portée par le conteneur : quatorze rectangles à la même hauteur ont
+     la même timeline view() individuelle — c'est le décalage d'animation-range par --i qui fait la
+     file, pas quatorze timelines. */
+  .lp-slices {
+    view-timeline: --lp-slices;
   }
+  .lp-slices-svg rect {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    animation: lp-pop linear both;
+    animation-timeline: --lp-slices;
+    /* Le 14e rect doit être POSÉ avant que le schéma n'atteigne le milieu de l'écran (cover ~50 %
+       pour un élément de cette hauteur) — mesuré : à 3,2 % de pas il finissait à 61 %, invisible
+       pour qui s'arrête au centre. */
+    animation-range: cover calc(5% + var(--i, 0) * 2.4%) cover calc(17% + var(--i, 0) * 2.4%);
+  }
+}
+
+@keyframes lp-pop {
+  from { opacity: 0; transform: scale(0.4); }
+  70% { opacity: 1; transform: scale(1.08); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes lp-reveal {
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: none; }
-}
-
-@keyframes lp-stream {
-  from { clip-path: inset(0 100% 0 0); }
-  to { clip-path: inset(0 0 0 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1842,7 +1855,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   .lp-console-wrap,
   .lp-section > .lp-eyebrow,
   .lp-section > .lp-h2,
-  .lp-slices-svg {
+  .lp-slices-svg rect {
     animation: none;
     opacity: 1;
   }

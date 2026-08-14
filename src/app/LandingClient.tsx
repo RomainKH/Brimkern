@@ -41,10 +41,43 @@ const HF_EXAMPLES = [
 ];
 
 // Un chiffre MESURÉ (aucun n'est estimé : ils viennent tous du banc décrit dans le README).
+// Le nombre SE COMPTE quand la rangée entre à l'écran (900 ms, une seule fois) : c'est l'animation
+// qui met l'accent là où la page met son argument — sur la mesure. Le HTML servi porte la valeur
+// finale (SEO, hydratation, lecteurs d'écran : les mutations d'un nœud non-live ne sont pas
+// annoncées) ; le JS ne fait que la rejouer visuellement. Rien sous prefers-reduced-motion.
 function Figure({ value, label, i = 0 }: { value: string; label: string; i?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Le format vient de la chaîne elle-même (décimales, séparateur, suffixe) — pas de table locale.
+    const m = /^(\d+)([.,]\d+)?/.exec(value);
+    if (!m) return;
+    const final = parseFloat(m[0].replace(',', '.'));
+    if (final === 0) return; // « 0 » : rien à compter
+    const decimals = m[2] ? m[2].length - 1 : 0;
+    const sep = m[2] ? m[2][0] : '.';
+    const suffix = value.slice(m[0].length);
+    let raf = 0;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      const t0 = performance.now();
+      const tick = (now: number) => {
+        const p = Math.min(1, (now - t0) / 900);
+        const eased = 1 - Math.pow(1 - p, 3); // ease-out : file vite, se pose doucement sur la valeur
+        el.textContent = (final * eased).toFixed(decimals).replace('.', sep) + suffix;
+        if (p < 1) raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    }, { threshold: 0.6 });
+    io.observe(el);
+    return () => { io.disconnect(); cancelAnimationFrame(raf); };
+  }, [value]);
   return (
     <div className="lp-figure" style={{ '--i': i } as React.CSSProperties}>
-      <div className="lp-figure-value">{value}</div>
+      <div className="lp-figure-value" ref={ref}>{value}</div>
       <div className="lp-figure-label">{label}</div>
     </div>
   );
@@ -311,13 +344,17 @@ export default function LandingClient() {
             ))}
           </ol>
           {/* La découpe elle-même : un fichier, ses couches, et ce qui descend. Décoratif au sens
-              strict (le texte au-dessus dit déjà tout) → aria-hidden, pas de rôle image. */}
+              strict (le texte au-dessus dit déjà tout) → aria-hidden, pas de rôle image.
+              Au défilement, les plages POUSSENT une à une (--i porte le rang, le CSS fait le reste) :
+              le schéma mime des plages qui arrivent dans l'ordre — demande de Romain, préférée à la
+              première version qui révélait la barre d'un seul geste. */}
           <div className="lp-slices" aria-hidden>
             <span className="lp-slices-label">{t('the file', 'le fichier')}</span>
             <svg viewBox="0 0 600 34" preserveAspectRatio="none" className="lp-slices-svg">
               {Array.from({ length: 14 }, (_, i) => (
                 <rect key={i} x={i * 43 + 1} y={i % 3 === 1 ? 4 : 9} width={40} height={i % 3 === 1 ? 26 : 16}
-                      rx={3} fill={i % 3 === 1 ? 'var(--accent)' : 'var(--border-color)'} />
+                      rx={3} fill={i % 3 === 1 ? 'var(--accent)' : 'var(--border-color)'}
+                      style={{ '--i': i } as React.CSSProperties} />
               ))}
             </svg>
             <span className="lp-slices-label">{t('the layers being loaded', 'les couches en cours de chargement')}</span>
