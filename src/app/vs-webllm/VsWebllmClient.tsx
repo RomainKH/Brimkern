@@ -59,12 +59,15 @@ export default function VsWebllmClient() {
               'WebLLM a des années d’usage en production, des kernels auto-tunés et une API compatible OpenAI. Pour une liste de modèles choisis qui marchent, c’est le choix le plus sûr aujourd’hui.'),
     },
     {
-      metric: t('Modalities', 'Modalités'),
-      us: t('text, vision, image, video', 'texte, vision, image, vidéo'),
-      them: t('text (+ embeddings)', 'texte (+ embeddings)'),
+      // (Les modalités image/vidéo existent chez nous mais restent expérimentales et lentes : en
+      // faire un point gagné du tableau serait promettre ce qu'on ne tient pas. Ce qui suit est
+      // vérifiable au chargement de n'importe quel modèle, console ouverte.)
+      metric: t('Kernels checked at load', 'Kernels vérifiés au chargement'),
+      us: t('CPU reference + fallback', 'référence CPU + repli'),
+      them: t('trusted as compiled', 'compilés, donc supposés justes'),
       win: 'us',
-      note: t('One WGSL kernel library shared by all four, each kernel self-validating against a CPU reference at load.',
-              'Une seule bibliothèque de kernels WGSL pour les quatre, chacun se validant contre une référence CPU au chargement.'),
+      note: t('Every hand-written kernel validates itself against a CPU reference when the engine starts, and falls back to a simpler path if a GPU miscompiles it — a real failure mode on the variety of GPUs the web runs on. Each one also has a URL kill-switch to isolate it.',
+              'Chaque kernel écrit à la main se valide contre une référence CPU au démarrage du moteur, et retombe sur un chemin plus simple si un GPU le compile mal — une panne réelle sur la variété de GPU qu’on trouve sur le web. Chacun a aussi un commutateur d’URL pour l’isoler.'),
     },
   ];
 

@@ -420,6 +420,10 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   // refus des BRIK llama), et à l'origine du charabia de ces modèles (cf. docs/ROADMAP.md §6).
   // Kill-switch `?ropenorm=0` (lu côté model.ts) → on revient à l'ancien couple dé-permutation +
   // rotate_half, pour l'A/B.
+  // ⚠️ Même règle que ropeConvention.ts, RECOPIÉE ici à dessein : ce fichier est compilé à plat par
+  // les scripts Node (build:*-brik, test:ggtok) et un import vers un autre dossier de src/lib
+  // imbriquerait leur sortie — les require('.brik-build/container.js') casseraient. Toute
+  // modification doit toucher les DEUX (model.ts consomme ropeConvention.ts pour les .brik).
   if (arch === 'llama' || arch === 'mistral3' || arch === 'smollm3') {
     config.ropeInterleaved = true;
   }

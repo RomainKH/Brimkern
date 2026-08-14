@@ -48,8 +48,13 @@ export default function LocalAiDemo() {
       tmpl: (s) => ask(`Quel est l’email dans ce texte ? Réponds uniquement avec l’email. Texte : « ${s} »`) },
     // Le chat qui a motivé le passage au 230M : réponses françaises propres (« Salut ! Comment
     // puis-je t'aider ? »), arrêt naturel sur <|im_end|> (stops du manifest).
-    { key: 'free', label: t('Chat (light model)', 'Chat (modèle léger)'), kind: 'generate', nTokens: 100, sample: true, multiline: true,
-      example: t('Tell me a short story about a robot.', 'Raconte-moi une petite histoire sur un robot.'),
+    // ⚠️ L'exemple DEMANDE une longueur, et le budget la couvre. Avant : « une petite histoire sur
+    // un robot » sous un plafond de 100 tokens — le modèle partait dans un récit et la démo
+    // s'arrêtait au milieu d'une phrase (signalé par Romain). Une vitrine ne doit pas montrer une
+    // réponse tronquée : soit on borne la demande, soit on relève le plafond. Ici les deux, la
+    // borne d'abord — c'est aussi la bonne pratique qu'on veut enseigner à qui intègre le SDK.
+    { key: 'free', label: t('Chat (light model)', 'Chat (modèle léger)'), kind: 'generate', nTokens: 140, sample: true, multiline: true,
+      example: t('Tell me a story about a robot, in three sentences.', 'Raconte-moi une histoire de robot, en trois phrases.'),
       tmpl: (s) => ask(s) },
   ];
 

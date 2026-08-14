@@ -10,6 +10,7 @@
 import { WebGpuEngine, type LayerCfg, type LayerWeights, type LayerWeightsGpu } from './kernels';
 import { type Manifest } from './ggufParser';
 import { coalescedSpan } from './layerSpans';
+import { ropeInterleavedFor } from './ropeConvention';
 import { unpackQ4 } from '../brik/q4web';
 import { unpackQ8 } from '../brik/q8web';
 import { unpackQ3 } from '../brik/q3web';
@@ -127,22 +128,31 @@ export class CustomWebModel {
 	// taille uniforme). Les quants BRIK (Q8W/Q4W, layout SoA plein-tenseur) ne s'y prêtent pas →
 	// erreur claire (convertir un GGUF llama en BRIK n'est pas encore supporté).
 	// Kill-switches de diagnostic (convention du repo) :
-	//   ?ropenorm=1 → OPT-IN du kernel RoPE à paires adjacentes (ggml NORM) : les poids sont lus tels
-	//                 quels, sans dé-permutation. Le kernel est validé (selfValidate, dont l'équivalence
-	//                 par permutation avec rotate_half) mais il NE RÉPARE PAS le charabia des modèles
-	//                 llama (cf. docs/ROADMAP.md §6) : il reste donc OPT-IN, pour ne pas risquer de
-	//                 casser Ministral 3 / SmolLM3, qui n'ont pas été retestés. À basculer par défaut
-	//                 le jour où la vraie cause est trouvée et qu'un modèle de la famille répond juste.
+	//   ?ropenorm=0 → RETOUR à l'ancien couple : dé-permutation des lignes Q/K au chargement +
+	//                 kernel rotate_half. Sert à l'A/B ; c'était le défaut jusqu'au 2026-08-14.
 	//   ?unperm=0   → aucune dé-permutation du tout (isole cette réécriture de poids).
+	//
+	// DEPUIS LE 2026-08-14, le kernel à paires adjacentes est le DÉFAUT pour llama/mistral3/smollm3.
+	// Ce qui a levé la réserve : la cause du charabia llama était ailleurs (le préchargement par span
+	// court-circuitait la dé-permutation — corrigé le 2026-08-13, cf. ROADMAP §6), et les trois
+	// familles ont été retestées en vrai Chrome avec ce kernel, chacune répondant juste.
+	// Ce que ça change concrètement :
+	//   * plus de RÉÉCRITURE des lignes Q/K au chargement (une passe CPU sur deux tenseurs par couche) ;
+	//   * les BRIK de ces archs redeviennent lisibles — la dé-permutation par lignes était impossible
+	//     sur un layout SoA quantifié (Q8W/Q4W/Q3W), d'où le refus historique de convertir un GGUF
+	//     llama en .brik. C'est ce refus qui saute.
 	// ?timing=1 → chronométrage par étape du forward (diagnostic, cf. logitsKV).
 	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
-	static ropeNormOn = (() => { try { return urlFlag('ropenorm') === '1'; } catch { return false; } })();
+	static ropeNormOn = (() => { try { return urlFlag('ropenorm') !== '0'; } catch { return true; } })();
 	static unpermOn = (() => { try { return urlFlag('unperm') !== '0'; } catch { return true; } })();
 	private maybeUnpermuteLlamaQk(name: string, raw: Uint8Array): Uint8Array {
 		if (!CustomWebModel.unpermOn) return raw;
 		// Le kernel tourne les paires ADJACENTES comme ggml : les poids se lisent alors TELS QUELS,
 		// il n'y a plus rien à réécrire (et les BRIK quantifiés de ces archs redeviennent lisibles).
-		if (CustomWebModel.ropeNormOn && this.manifest.config.ropeInterleaved) return raw;
+		// On interroge l'ARCH (ropeConvention.ts) et non `config.ropeInterleaved` : ce drapeau n'est
+		// posé que par le parser GGUF. Un .brik de la même arch ne le porte pas — il retombait donc
+		// sur la dé-permutation, impossible sur son layout SoA quantifié, d'où le refus de charger.
+		if (CustomWebModel.ropeNormOn && ropeInterleavedFor(this.manifest.arch)) return raw;
 		// Toutes les archs converties en RoPE « NORM » par llama.cpp (Q/K permutés) : llama (3.x),
 		// mistral3 (Ministral 3), smollm3 — vérifié dans llama-model.cpp (LLAMA_ROPE_TYPE_NORM).
 		if (!['llama', 'mistral3', 'smollm3'].includes(this.manifest.arch)) return raw;
@@ -681,7 +691,8 @@ export class CustomWebModel {
 			windowPerLayer: c.windowPerLayer, ropeThetaPerLayer: c.ropeThetaPerLayer, skipRopePerLayer: c.skipRopePerLayer,
 			// Convention d'appariement du RoPE (ggml NORM pour llama/mistral/smollm3). Coupée par
 			// ?ropenorm=0 → on retombe sur rotate_half + dé-permutation des lignes Q/K, l'ancien couple.
-			ropeInterleaved: CustomWebModel.ropeNormOn ? c.ropeInterleaved : undefined,
+			// `?? ropeInterleavedFor(arch)` : le drapeau vient du parser GGUF, un .brik ne le porte pas.
+			ropeInterleaved: CustomWebModel.ropeNormOn ? (c.ropeInterleaved ?? (ropeInterleavedFor(this.manifest.arch) || undefined)) : undefined,
 		};
 	}
 

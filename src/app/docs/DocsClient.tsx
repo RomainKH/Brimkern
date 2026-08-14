@@ -84,6 +84,7 @@ export default function DocsClient() {
     { id: 'sdk', label: t('Embeddable SDK', 'SDK embarquable') },
     { id: 'storage', label: t('Storage & offline', 'Stockage & hors-ligne') },
     { id: 'diagnostics', label: t('Diagnostics', 'Diagnostics') },
+    { id: 'vs-webllm', label: t('Compared to WebLLM', 'Comparé à WebLLM') },
     { id: 'changelog', label: 'Changelog' },
   ];
 
@@ -287,6 +288,18 @@ import { embed, createSession } from 'brimkern';`}</Code>
 ?ggufstream=0  ${t('GGUF as one download instead of ranges', 'GGUF en un seul téléchargement au lieu de plages')}
 ?kvq=0         ${t('KV cache in f32 instead of int8', 'cache KV en f32 au lieu de int8')}
 ?timing=1      ${t('per-stage timing of the forward pass, in the console', 'chronométrage du forward par étape, dans la console')}`}</Code>
+      </Section>
+
+      <Section id="vs-webllm" title={t('Compared to WebLLM', 'Comparé à WebLLM')}>
+        <P>
+          {t('If you already know WebLLM — the other WebGPU engine that runs a large language model client-side — the two differ on one decisive point: what you must do to a model before it can run. We read single-file GGUF straight from Hugging Face; WebLLM needs weights compiled with MLC/TVM first. ',
+             'Si vous connaissez déjà WebLLM — l’autre moteur WebGPU qui exécute un grand modèle de langage côté client — les deux diffèrent sur un point décisif : ce qu’il faut faire subir à un modèle avant qu’il tourne. Nous lisons les GGUF mono-fichier directement depuis Hugging Face ; WebLLM exige des poids compilés avec MLC/TVM. ')}
+          <Link href={href('/vs-webllm')} style={{ color: 'var(--accent-text)' }}>
+            {t('the measured comparison', 'la comparaison mesurée')}
+          </Link>
+          {t(' puts both throughputs side by side on the same GPU and the same model — including where WebLLM is ahead.',
+             ' met les deux débits côte à côte sur le même GPU et le même modèle — y compris là où WebLLM est devant.')}
+        </P>
       </Section>
 
       <Section id="changelog" title="Changelog">
