@@ -4,8 +4,7 @@
 // everything rendered lives here so the FR/EN toggle (useLocale) and t() can run. Every string is
 // stored bilingual as { en, fr } and resolved at render time via the current locale.
 
-import Link from 'next/link';
-import { useLocale, useT, useHref } from '@/lib/i18n';
+import { useLocale, useT } from '@/lib/i18n';
 import ByLine from '../ByLine';
 import BackLink from '../BackLink';
 
@@ -914,8 +913,6 @@ const RELEASES: Release[] = [
 export default function ChangelogClient() {
   const { locale, setLocale } = useLocale();
   const t = useT();
-  // Liens internes préfixés par la locale (voir useHref) : rester dans sa langue en naviguant.
-  const href = useHref();
   // Resolve a bilingual data string for the current locale (same semantics as t(en, fr)).
   const tr = (s: L) => t(s.en, s.fr);
 

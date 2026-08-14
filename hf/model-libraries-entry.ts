@@ -9,7 +9,6 @@
 // on y déclare le MOTEUR (SDK npm `brimkern`), le conteneur .brik n'étant qu'un détail interne.
 
 // ── 1) model-libraries.ts ─────────────────────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const library = {
 	brimkern: {
 		prettyLabel: "BRIMKERN",
@@ -24,7 +23,6 @@ const library = {
 };
 
 // ── 2) model-libraries-snippets.ts ────────────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const brimkern = (model: { id: string }): string[] => [
 	`<!-- Runs fully in the browser on the visitor's GPU (WebGPU). No server, no API key. -->
 <script src="https://brimkern.com/sdk.js"></script>

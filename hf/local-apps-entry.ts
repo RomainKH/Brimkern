@@ -8,7 +8,6 @@
 // mono-fichier du Hub directement, plus son propre format streamé .brik. Étant une app web,
 // le deeplink n'installe rien : il ouvre le modèle dans l'onglet.
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const entry = {
 	"le-kern": {
 		prettyLabel: "Le Kern",

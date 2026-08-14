@@ -14,7 +14,7 @@ execFileSync('npx', ['tsc', path.join(__dirname, '..', 'src', 'sdk', 'knowledge.
 const K = require(path.join(OUT, 'knowledge.js'));
 
 let ok = 0, ko = 0;
-const check = (c, m) => { c ? ok++ : ko++; console.log(`${c ? '  ok  ' : '  FAIL'} ${m}`); };
+const check = (c, m) => { if (c) ok++; else ko++; console.log(`${c ? '  ok  ' : '  FAIL'} ${m}`); };
 
 // ── Le corpus d'une vraie boutique : c'est le cas d'usage du widget. ──────────────────────────
 const DOCS = [

@@ -5,12 +5,11 @@
 // main app — this page is about producing and managing .brik files.
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { Trash2, RefreshCw, Database } from 'lucide-react';
 import BrikConvertPanel from '../BrikConvertPanel';
 import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
 import { listBrik, deleteBrik, type BrikCacheMeta } from '@/lib/brikCache';
-import { useT, useLocale, useHref } from '@/lib/i18n';
+import { useT, useLocale } from '@/lib/i18n';
 import ByLine from '../ByLine';
 import BackLink from '../BackLink';
 
@@ -44,8 +43,6 @@ function tierLabel(tier: string, t: (en: string, fr: string) => string): string 
 
 export default function ConvertClient() {
 	const t = useT();
-	// Liens internes préfixés par la locale (voir useHref) : rester dans sa langue en naviguant.
-	const href = useHref();
 	const { locale } = useLocale();
 	const formatBytes = (n: number) => formatBytesU(n, locale === 'fr' ? ['Ko', 'Mo', 'Go'] : ['KB', 'MB', 'GB']);
 	const [cache, setCache] = useState<BrikCacheMeta[]>([]);

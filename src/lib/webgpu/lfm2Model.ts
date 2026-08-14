@@ -212,7 +212,6 @@ export class Lfm2Model {
 				st.conv = r.state;
 				out = await this.gemm(p + 'shortconv.out_proj.weight', r.out);
 			} else {
-				const kvD = this.NKV * this.HD;
 				let q = await this.gemm(p + 'attn_q.weight', h);
 				let k = await this.gemm(p + 'attn_k.weight', h);
 				const v = await this.gemm(p + 'attn_v.weight', h);

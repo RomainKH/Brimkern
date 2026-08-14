@@ -12,7 +12,7 @@ import {
   Zap, Trash2, CheckCircle, AlertCircle,
   Loader2, Menu, X, Sparkles,
   Info, ShieldCheck, Database, ArrowRight,
-  Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon, Film, BookOpen
+  Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon, BookOpen
 } from 'lucide-react';
 import { cachedModelUrls } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
