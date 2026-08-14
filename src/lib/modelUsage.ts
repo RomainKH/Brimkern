@@ -22,10 +22,15 @@ const DAY_MS = 86400000;
 
 export const DEFAULT_EVICT_DAYS = 30;
 
-// La clé d'un modèle = son URL SANS la query de plage (`?__brik=…`), donc la même que les lignes
-// regroupées du panneau Stockage. Un modèle local (fichier importé) n'a pas d'URL : il n'entre pas ici.
+// La clé d'un modèle = son URL SANS la query de plage (`?__brik=…` ou `&__brik=…`), donc la même
+// que les lignes regroupées du panneau Stockage. Un modèle local (fichier importé) n'a pas d'URL :
+// il n'entre pas ici.
+// ⚠️ Les DEUX séparateurs comptent : source.ts écrit `&__brik=` dès que l'URL du modèle porte déjà
+// une query. Ne reconnaître que `?` faisait de chaque plage un « modèle » différent — donc jamais
+// daté, donc jamais évincé, pour exactement les modèles dont l'URL vient d'un lien de téléchargement.
 export function modelKey(url: string): string {
-  return (url || '').split('?__brik=')[0];
+  const m = /[?&]__brik=/.exec(url || '');
+  return m ? (url || '').slice(0, m.index) : (url || '');
 }
 
 type UsageMap = Record<string, number>;

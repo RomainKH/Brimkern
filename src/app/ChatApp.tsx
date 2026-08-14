@@ -14,7 +14,7 @@ import {
   Info, ShieldCheck, Database, ArrowRight,
   Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon, BookOpen
 } from 'lucide-react';
-import { cachedModelUrls } from '@/lib/storage';
+import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
 import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
@@ -1356,6 +1356,18 @@ function App() {
     const id = setTimeout(() => {
       evictStaleModels(loadedModelUrl ? [loadedModelUrl] : [])
         .then((r) => { if (r.models.length) handleCacheChanged(); }) // badges « en cache » + bibliothèque à jour
+        .catch(() => { /* stockage indisponible — sans effet */ });
+      // Dans la foulée : les PLAGES REDONDANTES, l'autre moitié du problème de quota. L'éviction
+      // supprime des modèles entiers devenus inutiles ; celle-ci supprime, DANS un modèle qu'on
+      // garde, les plages qu'un ancien plan de découpage a laissées derrière lui (mesuré :
+      // 239,4 Mo en cache pour un fichier de 149 Mo). Ne touche que ce qui est strictement inclus
+      // dans une plage plus large — donc aucun octet qu'on possède ne peut être perdu.
+      pruneRedundantRanges()
+        .then((r) => {
+          if (!r.removed) return;
+          console.info(`[cache] ${r.removed} plage(s) redondante(s) supprimée(s) — ${(r.freed / 1048576).toFixed(1)} Mo libérés`);
+          handleCacheChanged();
+        })
         .catch(() => { /* stockage indisponible — sans effet */ });
     }, 4000);
     return () => clearTimeout(id);

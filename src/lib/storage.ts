@@ -68,7 +68,7 @@ export interface CacheGroup { key: string; label: string; bytes: number; parts: 
 export function groupCacheEntries(entries: CacheEntry[]): CacheGroup[] {
 	const byModel = new Map<string, CacheGroup>();
 	for (const e of entries) {
-		const key = e.url.split('?__brik=')[0];
+		const key = stripRangeQuery(e.url);
 		let g = byModel.get(key);
 		if (!g) {
 			// Nom de fichier lisible (dernier segment de chemin, sans query), repli sur l'URL entière.
@@ -81,6 +81,96 @@ export function groupCacheEntries(entries: CacheEntry[]): CacheGroup[] {
 	return [...byModel.values()].sort((a, b) => b.bytes - a.bytes);
 }
 
+// ── PLAGES REDONDANTES ─────────────────────────────────────────────────────────────────────────
+// Le panneau Stockage a rendu visible un vrai défaut le 2026-08-13 : 239,4 Mo en cache pour un
+// fichier de 149 Mo. Aucun doublon EXACT — des plages qui se CHEVAUCHENT, la signature d'un plan de
+// découpage qui a changé entre deux versions du code. Le chargeur d'aujourd'hui demande un span par
+// couche ; les résidus d'un plan par-tenseur restent en cache, ne resserviront jamais, et comptent
+// dans le quota du navigateur (celui-là même qui décide si un modèle peut être gardé).
+//
+// La règle est volontairement CONSERVATRICE : on ne supprime que les plages STRICTEMENT INCLUSES
+// dans une autre plage du même fichier. Tout ce qu'elles contiennent est déjà servi par la plage
+// englobante, donc leur suppression ne peut jamais provoquer un re-téléchargement de bytes qu'on
+// possède encore. Les plages qui se chevauchent PARTIELLEMENT sont laissées : on ne peut pas prouver
+// qu'elles sont mortes, et un faux positif ferait re-télécharger des mégaoctets.
+//
+// Fonction PURE (aucun accès au cache) pour être testable sans navigateur — cf. npm run test:ranges.
+export interface RangeKey { url: string; start: number; end: number }
+
+// ⚠️ Le séparateur peut être `?` OU `&` : source.ts écrit `?__brik=` sur une URL nue mais
+// `&__brik=` dès que l'URL porte déjà une query (`…/resolve/main/x.brik?download=true`, une forme
+// courante côté Hugging Face). Tout le code qui ne cherchait que `?__brik=` traitait alors chaque
+// PLAGE comme un modèle distinct : le panneau Stockage réaffichait des centaines de lignes et
+// l'éviction ne reconnaissait plus le modèle. D'où ce découpage unique, partagé.
+const RANGE_MARK = /[?&]__brik=/;
+
+/** L'URL du FICHIER derrière une clé de cache (la clé elle-même si ce n'est pas une plage). */
+export function stripRangeQuery(url: string): string {
+  const m = RANGE_MARK.exec(url);
+  return m ? url.slice(0, m.index) : url;
+}
+
+/** Découpe une clé de plage `<url>[?&]__brik=<début>-<fin>`, ou null si ce n'en est pas une. */
+export function parseRangeKey(url: string): RangeKey | null {
+  const m0 = RANGE_MARK.exec(url);
+  if (!m0) return null;
+  const i = m0.index;
+  const m = /^(\d+)-(\d+)$/.exec(url.slice(i + m0[0].length));
+  if (!m) return null;
+  const start = Number(m[1]), end = Number(m[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return { url: url.slice(0, i), start, end };
+}
+
+/**
+ * Parmi des clés de cache, celles à supprimer : une plage strictement incluse dans une autre plage
+ * du MÊME fichier. « Strictement » = bornes distinctes d'au moins un côté — deux clés identiques
+ * n'existent pas dans un cache (la seconde écrase la première), donc aucune inclusion mutuelle.
+ */
+export function redundantRangeKeys(urls: string[]): string[] {
+  const byFile = new Map<string, { key: string; start: number; end: number }[]>();
+  for (const u of urls) {
+    const r = parseRangeKey(u);
+    if (!r) continue; // entrée plein-fichier : jamais concernée
+    let g = byFile.get(r.url);
+    if (!g) byFile.set(r.url, (g = []));
+    g.push({ key: u, start: r.start, end: r.end });
+  }
+  const out: string[] = [];
+  for (const ranges of byFile.values()) {
+    // Tri par début croissant, puis par fin DÉCROISSANTE : la plage englobante passe avant celles
+    // qu'elle contient, ce qui suffit à décider en un seul balayage (`maxEnd` du préfixe).
+    const sorted = [...ranges].sort((a, b) => a.start - b.start || b.end - a.end);
+    let maxEnd = -1;
+    for (const r of sorted) {
+      // Incluse dans une plage DÉJÀ vue (qui commence avant ou au même point et finit au moins
+      // aussi loin) → morte. `maxEnd` porte la meilleure couverture rencontrée jusqu'ici.
+      if (r.end <= maxEnd) out.push(r.key);
+      else maxEnd = r.end;
+    }
+  }
+  return out;
+}
+
+/** Applique `redundantRangeKeys` au cache par plages. Rend le nombre d'entrées et les octets libérés. */
+export async function pruneRedundantRanges(): Promise<{ removed: number; freed: number }> {
+  try {
+    const cache = await caches.open(BRIK_RANGE_CACHE);
+    const keys = await cache.keys();
+    const dead = new Set(redundantRangeKeys(keys.map((r) => r.url)));
+    if (!dead.size) return { removed: 0, freed: 0 };
+    let removed = 0, freed = 0;
+    for (const req of keys) {
+      if (!dead.has(req.url)) continue;
+      // Taille lue AVANT suppression (Content-Length posé à l'écriture par source.ts).
+      const hit = await cache.match(req);
+      const n = Number(hit?.headers.get('content-length') || 0);
+      if (await cache.delete(req)) { removed++; freed += Number.isFinite(n) ? n : 0; }
+    }
+    return { removed, freed };
+  } catch { return { removed: 0, freed: 0 }; }
+}
+
 // Supprime toutes les entrées d'un modèle dans un cache (toutes ses plages), sans toucher au reste.
 export async function deleteCacheEntriesFor(cacheName: string, keyPrefix: string): Promise<number> {
 	try {
@@ -88,7 +178,9 @@ export async function deleteCacheEntriesFor(cacheName: string, keyPrefix: string
 		const keys = await cache.keys();
 		let n = 0;
 		for (const req of keys) {
-			if (req.url === keyPrefix || req.url.startsWith(`${keyPrefix}?__brik=`)) {
+			// `?__brik=` ET `&__brik=` (cf. RANGE_MARK) : sans le second, « supprimer ce modèle » ne
+			// touchait AUCUNE plage d'un modèle dont l'URL porte déjà une query.
+			if (req.url === keyPrefix || stripRangeQuery(req.url) === keyPrefix) {
 				if (await cache.delete(req)) n++;
 			}
 		}

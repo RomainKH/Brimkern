@@ -20,7 +20,8 @@
     "test:ggtok": "node scripts/test-gguf-tokenizer.cjs",
     "test:websearch": "node scripts/test-websearch.cjs",
     "test:evict": "node scripts/test-evict.cjs",
-    "test:knowledge": "node scripts/test-knowledge.cjs"
+    "test:knowledge": "node scripts/test-knowledge.cjs",
+    "test:ranges": "node scripts/test-ranges.cjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
