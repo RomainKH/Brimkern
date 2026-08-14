@@ -55,6 +55,15 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Llama, Mistral and SmolLM3 load differently', fr: 'Llama, Mistral et SmolLM3 se chargent autrement' },
+        items: [
+          { en: 'These three families order two of their attention matrices differently from the rest. Until now we rewrote those matrices at load time to match our kernel; the kernel now handles their convention directly. Llama 3.2, Ministral 3 and SmolLM3 were all re-checked and answer correctly either way (?ropenorm=0 restores the old path).',
+            fr: 'Ces trois familles rangent deux de leurs matrices d’attention autrement que les autres. Jusqu’ici nous réécrivions ces matrices au chargement pour coller à notre kernel ; le kernel gère désormais leur convention directement. Llama 3.2, Ministral 3 et SmolLM3 ont été revérifiés et répondent juste dans les deux cas (?ropenorm=0 rétablit l’ancien chemin).' },
+          { en: 'Consequence: these models can now be packaged as .brik. That rewrite was impossible on a quantized layout, which is why converting a Llama GGUF to .brik was refused.',
+            fr: 'Conséquence : ces modèles peuvent désormais être empaquetés en .brik. Cette réécriture était impossible sur un layout quantifié — c’est ce qui faisait refuser la conversion d’un GGUF Llama en .brik.' },
+        ],
+      },
+      {
         title: { en: 'The site', fr: 'Le site' },
         items: [
           { en: 'A measured comparison with WebLLM at /vs-webllm: same GPU, same 7B int4 model, prefill and decode side by side — including where WebLLM is ahead.',
@@ -65,6 +74,8 @@ const RELEASES: Release[] = [
             fr: 'Sur l’accueil français, le panneau terminal restait délavé en permanence : les phrases françaises, plus longues, le repoussaient sous la ligne de flottaison où son apparition liée au défilement ne se terminait jamais. Il apparaît maintenant avec le reste du hero.' },
           { en: 'The layer diagram now draws itself piece by piece as you scroll, and the measured figures count up when they come into view.',
             fr: 'Le schéma des couches se dessine morceau par morceau au défilement, et les chiffres mesurés se comptent en arrivant à l’écran.' },
+          { en: 'The SDK demo asked for “a short story” under a 100-token budget and stopped mid-sentence. It now asks for three sentences, and has the budget for them.',
+            fr: 'La démo du SDK demandait « une petite histoire » sous un budget de 100 tokens et s’arrêtait au milieu d’une phrase. Elle demande trois phrases, et a le budget pour.' },
         ],
       },
     ],
