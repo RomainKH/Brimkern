@@ -8,9 +8,10 @@
 // fragment shader WGSL sur le GPU du visiteur, avant tout clic, et une ligne le dit sous le hero.
 // C'est la même famille de preuve que les chiffres mesurés : rien d'affirmé qui ne soit exécuté.
 //
-// Le dessin reste dans la langue de la page (spécimen d'imprimeur) : une trame de POINTS DE DEMI-TON
-// aux couleurs du thème (--dot), qui respire lentement, et que le curseur repousse comme une loupe
-// dans l'encre — les points gonflent et rougissent (--accent) autour de lui.
+// Le dessin reste dans la langue de la page (spécimen d'imprimeur) : un LAVIS D'ENCRE très dilué —
+// des nappes douces aux tons du papier (--dot), qui dérivent à peine, et un halo discret au curseur
+// qui les teinte vers l'accent. (Une première version en trame de demi-ton a été jugée trop
+// présente par Romain — « plus sobre » : le lavis garde la preuve, sans le motif.)
 //
 // Garde-fous, sans lesquels ce serait une nuisance :
 // - prefers-reduced-motion, absence de WebGPU, ou ?webgpu=0 → AUCUN canvas, page identique à avant ;
@@ -27,18 +28,18 @@ import { useT } from '@/lib/i18n';
 type GPUAny = any;
 const G = globalThis as GPUAny;
 
-// Trame de demi-ton plein écran : un triangle qui couvre tout, le fragment shader fait le reste.
-// Les rayons sont en pixels PHYSIQUES (fragPos l'est) — d'où le facteur dpr sur toutes les distances.
+// Lavis plein écran : un triangle qui couvre tout, le fragment shader fait le reste.
+// Les distances sont en pixels PHYSIQUES (fragPos l'est) — d'où le facteur dpr partout.
 const WGSL = /* wgsl */ `
 struct U {
   res:    vec2f,  // taille du canvas (px physiques)
   mouse:  vec2f,  // curseur lissé (px physiques)
   t:      f32,    // secondes
   mouseIn:f32,    // présence du curseur, 0..1 (amortie côté JS)
-  cell:   f32,    // pas de la trame (px physiques)
+  scale:  f32,    // taille des nappes (px physiques)
   dpr:    f32,
-  base:   vec4f,  // couleur des points au repos (rgb + alpha max)
-  accent: vec4f,  // couleur au voisinage du curseur
+  base:   vec4f,  // couleur du lavis au repos (rgb + alpha PLAFOND — la sobriété se règle ici)
+  accent: vec4f,  // teinte au voisinage du curseur
 }
 @group(0) @binding(0) var<uniform> u: U;
 
@@ -51,39 +52,51 @@ fn hash(p: vec2f) -> f32 {
   return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453);
 }
 
+// Bruit de valeur lissé + 3 octaves : la matière du lavis. Pas de texture, pas de table — tout se
+// calcule, le composant n'a rien à charger.
+fn vnoise(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let s = f * f * (3.0 - 2.0 * f);
+  let a = hash(i);
+  let b = hash(i + vec2f(1.0, 0.0));
+  let c = hash(i + vec2f(0.0, 1.0));
+  let d = hash(i + vec2f(1.0, 1.0));
+  return mix(mix(a, b, s.x), mix(c, d, s.x), s.y);
+}
+
+fn fbm(p: vec2f) -> f32 {
+  var v = 0.0;
+  var amp = 0.5;
+  var q = p;
+  for (var o = 0; o < 3; o++) {
+    v += amp * vnoise(q);
+    q = q * 2.03 + vec2f(17.0, 9.0);
+    amp *= 0.5;
+  }
+  return v;
+}
+
 @fragment fn fs(@builtin(position) fragPos: vec4f) -> @location(0) vec4f {
   let px = fragPos.xy;
+  let uv = px / u.scale;
 
-  // Répulsion : on échantillonne la trame en AMONT du déplacement, donc les points semblent
-  // s'écarter du curseur (l'encre chassée par la loupe), et reviennent d'eux-mêmes (le lissage
-  // du curseur côté JS fait l'inertie).
-  let toMouse = px - u.mouse;
-  let dm = length(toMouse);
-  let reach = 210.0 * u.dpr;
-  let swell = smoothstep(reach, 0.0, dm) * u.mouseIn;
-  let dir = toMouse / max(dm, 0.001);
-  let q = px - dir * swell * 9.0 * u.dpr;
+  // Dérive TRÈS lente + gauchissement de domaine : l'encre diffuse, elle ne défile pas.
+  let drift = vec2f(u.t * 0.014, -u.t * 0.009);
+  let w = fbm(uv * 1.6 + drift * 1.4);
+  var n = fbm(uv + drift + vec2f(w, w) * 0.4);
 
-  let id = floor(q / u.cell);
-  let center = (id + 0.5) * u.cell;
-  let h = hash(id);
+  // Halo au curseur : il SOULÈVE doucement le lavis alentour (aucune forme dessinée, aucun bord).
+  let halo = smoothstep(300.0 * u.dpr, 0.0, distance(px, u.mouse)) * u.mouseIn;
+  n += halo * 0.18;
 
-  // Respiration : chaque point à sa phase, plus une onde lente qui traverse la nappe en diagonale
-  // (c'est elle qu'on voit au doigt, sans curseur).
-  let breathe = 0.5 + 0.5 * sin(u.t * 0.9 + h * 6.2831);
-  let wave = 0.5 + 0.5 * sin(u.t * 0.55 + (id.x + id.y) * 0.32);
-  var r = u.cell * (0.055 + 0.055 * breathe * 0.45 + 0.055 * wave * 0.55);
+  // Seuil haut : seules les crêtes du bruit deviennent des nappes — beaucoup de papier nu,
+  // c'est ce qui fait la sobriété.
+  let wash = smoothstep(0.52, 0.98, n);
 
-  // Le gonflement au curseur, recalculé au point ÉCHANTILLONNÉ pour suivre la répulsion.
-  let swellQ = smoothstep(reach, 0.0, distance(center, u.mouse)) * u.mouseIn;
-  r += swellQ * u.cell * 0.30;
-
-  let dd = distance(q, center);
-  let cover = smoothstep(r + 0.75 * u.dpr, r - 0.75 * u.dpr, dd);
-
-  let tint = clamp(swellQ * 1.5, 0.0, 1.0);
+  let tint = clamp(halo * 1.1, 0.0, 1.0) * u.accent.a;
   let rgb = mix(u.base.rgb, u.accent.rgb, tint);
-  let a = cover * mix(u.base.a, u.accent.a, tint);
+  let a = wash * u.base.a * (1.0 + tint * 0.5);
   return vec4f(rgb * a, a); // alpha prémultiplié (alphaMode: 'premultiplied')
 }
 `;
@@ -202,10 +215,10 @@ export default function LandingGpu() {
           u[2] = cur.x; u[3] = cur.y;
           u[4] = (performance.now() - t0) / 1000;
           u[5] = presence;
-          u[6] = 22 * dpr; // pas de la trame (px CSS → physiques)
+          u[6] = 460 * dpr; // taille des nappes (px CSS → physiques)
           u[7] = dpr;
-          u[8] = base[0]; u[9] = base[1]; u[10] = base[2]; u[11] = 0.55;
-          u[12] = accent[0]; u[13] = accent[1]; u[14] = accent[2]; u[15] = 0.8;
+          u[8] = base[0]; u[9] = base[1]; u[10] = base[2]; u[11] = 0.35;   // plafond d'alpha : la sobriété
+          u[12] = accent[0]; u[13] = accent[1]; u[14] = accent[2]; u[15] = 0.5; // force max de la teinte au curseur
           device.queue.writeBuffer(ubuf, 0, u);
 
           const enc = device.createCommandEncoder();
@@ -247,8 +260,8 @@ export default function LandingGpu() {
       <canvas ref={canvasRef} className="lp-gpu" data-ready={active || undefined} aria-hidden />
       {active && (
         <p className="lp-gpu-note">
-          {t('This halftone field is being rendered by your GPU right now — a WGSL shader, live in this tab.',
-             'Cette trame est rendue par votre GPU en ce moment même — un shader WGSL, en direct dans cet onglet.')}
+          {t('This ink wash is being rendered by your GPU right now — a WGSL shader, live in this tab.',
+             'Ce lavis d’encre est rendu par votre GPU en ce moment même — un shader WGSL, en direct dans cet onglet.')}
         </p>
       )}
     </>

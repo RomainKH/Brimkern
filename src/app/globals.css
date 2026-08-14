@@ -1834,8 +1834,8 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   to { clip-path: inset(0 0 0 0); }
 }
 
-/* ── La trame WebGPU du hero (LandingGpu.tsx) ─────────────────────────────────────────────────
-   Une nappe de points de demi-ton rendue par un shader WGSL sur le GPU du visiteur : la promesse
+/* ── Le lavis WebGPU du hero (LandingGpu.tsx) ─────────────────────────────────────────────────
+   Un lavis d'encre très dilué rendu par un shader WGSL sur le GPU du visiteur : la promesse
    de la page, exécutée avant tout clic. Le canvas n'existe que si l'init a réussi ; sans WebGPU,
    sous prefers-reduced-motion ou avec ?webgpu=0, la page est exactement celle d'avant. */
 .lp-gpu {
@@ -1853,9 +1853,16 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   opacity: 0;              /* fondu à la PREMIÈRE frame rendue (data-ready), pas au montage :
                               un canvas visible avant d'avoir peint ferait un carré noir/vide */
   transition: opacity 0.9s ease-out;
-  /* Le bord bas se dissout au lieu de couper la trame net au milieu de la page. */
-  mask-image: linear-gradient(to bottom, black 0, black 62%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, black 0, black 62%, transparent 100%);
+  /* Les bords se dissolvent au lieu de couper le lavis net : en bas (milieu de page) et sur les
+     côtés (le halo au curseur touchait le bord droit du canvas et y finissait en ligne droite). */
+  mask-image:
+    linear-gradient(to bottom, black 0, black 62%, transparent 100%),
+    linear-gradient(to right, transparent 0, black 7%, black 93%, transparent 100%);
+  mask-composite: intersect;
+  -webkit-mask-image:
+    linear-gradient(to bottom, black 0, black 62%, transparent 100%),
+    linear-gradient(to right, transparent 0, black 7%, black 93%, transparent 100%);
+  -webkit-mask-composite: source-in;
 }
 
 .lp-gpu[data-ready] {

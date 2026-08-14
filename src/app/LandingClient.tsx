@@ -156,7 +156,7 @@ export default function LandingClient() {
 
       <main>
         {/* ── HERO ─────────────────────────────────────────────────────────────────────────────── */}
-        {/* LandingGpu : la trame de demi-ton derrière le titre est rendue par un shader WebGPU sur
+        {/* LandingGpu : le lavis d'encre derrière le titre est rendu par un shader WebGPU sur
             le GPU du visiteur — la promesse de la page, exécutée avant tout clic (cf. LandingGpu.tsx
             pour les garde-fous : reduced-motion, ?webgpu=0, onglet caché, erreurs → page inchangée). */}
         <section className="lp-hero">
