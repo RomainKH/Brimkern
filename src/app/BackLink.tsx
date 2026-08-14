@@ -48,7 +48,7 @@ export default function BackLink({ fallback = '/chat' }: { fallback?: string }) 
   // titre — au hub. Un libellé doit décrire ce qui se passe, et la destination dépend d'où l'on vient.
   const texte = `← ${t('Back', 'Retour')}`;
   const style: React.CSSProperties = {
-    color: 'var(--accent)', textDecoration: 'none', fontSize: 14, fontWeight: 500,
+    color: 'var(--accent-text)', textDecoration: 'none', fontSize: 14, fontWeight: 500,
     background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
   };
 

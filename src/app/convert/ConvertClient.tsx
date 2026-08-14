@@ -88,7 +88,7 @@ export default function ConvertClient() {
 			<div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, alignItems: 'start' }}>
 				{/* Conversion */}
 				<div className="card" style={{ padding: 18 }}>
-					<h2 className="section-title" style={{ fontSize: 12, margin: '0 0 12px', color: 'var(--accent)' }}>{t('Convert a model', 'Convertir un modèle')}</h2>
+					<h2 className="section-title" style={{ fontSize: 12, margin: '0 0 12px', color: 'var(--accent-text)' }}>{t('Convert a model', 'Convertir un modèle')}</h2>
 					<BrikConvertPanel
 						disabled={false}
 						tokenizerPresets={TOKENIZER_PRESETS}
@@ -101,7 +101,7 @@ export default function ConvertClient() {
 				{/* Cache management */}
 				<div className="card" style={{ padding: 18 }}>
 					<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-						<h2 className="section-title" style={{ fontSize: 12, margin: 0, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+						<h2 className="section-title" style={{ fontSize: 12, margin: 0, color: 'var(--accent-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
 							<Database size={13} /> {t('Cached BRIK models', 'Modèles BRIK en cache')}
 						</h2>
 						<button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 8px' }} onClick={refresh}>

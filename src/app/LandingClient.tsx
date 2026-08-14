@@ -316,6 +316,14 @@ export default function LandingClient() {
                  'Notre conteneur range les poids déjà quantifiés dans la disposition exacte que lisent les kernels, une couche par plage contiguë. Un modèle de 4,7 Go revient du cache en 15,8 s — reprise possible, partielle, vraiment hors-ligne ensuite.')}
             </Strength>
           </div>
+          {/* Le visiteur qui connaît déjà WebLLM se pose la question tout de suite — on l'emmène
+              vers la comparaison chiffrée au lieu de la laisser sans réponse (et c'est le lien
+              interne qui fait vivre cette page côté moteurs). */}
+          <p className="lp-fineprint" style={{ marginTop: 18 }}>
+            <Link href={href('/vs-webllm')} className="lp-cta-ghost">
+              {t('How this compares to WebLLM, measured', 'Ce que ça donne face à WebLLM, mesuré')} <ArrowRight size={13} />
+            </Link>
+          </p>
         </section>
 
         {/* ── LE MÉCANISME ─────────────────────────────────────────────────────────────────────
@@ -412,6 +420,9 @@ export default function LandingClient() {
           <Link href={href('/chat')}>{t('Chat', 'Chat')}</Link>
           <Link href={href('/docs')}>{t('Documentation', 'Documentation')}</Link>
           <Link href={href('/local-ai')}>SDK</Link>
+          {/* La comparaison mesurée : c'est la question que se pose tout visiteur qui connaît
+              déjà WebLLM, et la porte d'entrée SEO sur « run an LLM in the browser ». */}
+          <Link href={href('/vs-webllm')}>{t('vs WebLLM', 'vs WebLLM')}</Link>
           <Link href={href('/convert')}>{t('Converter', 'Convertisseur')}</Link>
           <Link href={href('/changelog')}>Changelog</Link>
           <a href="https://huggingface.co/romainkh14" target="_blank" rel="noopener noreferrer">{t('Models', 'Modèles')}</a>

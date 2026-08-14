@@ -226,7 +226,7 @@ ${SITE_URL}/chat?brik=https://example.com/model.brik`}</Code>
         </P>
         <P>
           {t('You can convert a GGUF yourself, in the browser — the file never leaves your machine: ', "Vous pouvez convertir un GGUF vous-même, dans le navigateur — le fichier ne quitte jamais votre machine : ")}
-          <Link href={href('/convert')} style={{ color: 'var(--accent)' }}>{t('open the converter', 'ouvrir le convertisseur')}</Link>.
+          <Link href={href('/convert')} style={{ color: 'var(--accent-text)' }}>{t('open the converter', 'ouvrir le convertisseur')}</Link>.
         </P>
       </Section>
 
@@ -250,7 +250,7 @@ ${SITE_URL}/chat?brik=https://example.com/model.brik`}</Code>
 </script>`}</Code>
         <P>
           {t('The model only downloads when a visitor actually opens the widget, so your page speed is untouched. Knowledge documents stay on the page: they are chunked and ranked in the browser, and only the passages matching the question reach the model. ', "Le modèle ne se télécharge que lorsqu'un visiteur ouvre réellement le widget : votre vitesse de page reste intacte. Les documents de connaissance restent sur la page : ils sont découpés et classés dans le navigateur, et seuls les passages qui correspondent à la question atteignent le modèle. ")}
-          <Link href={href('/local-ai')} style={{ color: 'var(--accent)' }}>{t('Full SDK page and live demo', 'Page SDK complète et démo live')}</Link>.
+          <Link href={href('/local-ai')} style={{ color: 'var(--accent-text)' }}>{t('Full SDK page and live demo', 'Page SDK complète et démo live')}</Link>.
         </P>
         <P>
           {t('It is also a package — types included, and importing it on a server does nothing (Next, Remix, Astro are safe):', 'C’est aussi un paquet — types inclus, et l’importer côté serveur ne fait rien (Next, Remix, Astro passent sans risque) :')}
@@ -292,7 +292,7 @@ import { embed, createSession } from 'brimkern';`}</Code>
       <Section id="changelog" title="Changelog">
         <P>
           {t('What changed, release by release, with the measurements behind each claim: ', 'Ce qui a changé, version par version, avec les mesures derrière chaque affirmation : ')}
-          <Link href={href('/changelog')} style={{ color: 'var(--accent)' }}>{t('read the changelog', 'lire le changelog')}</Link>.
+          <Link href={href('/changelog')} style={{ color: 'var(--accent-text)' }}>{t('read the changelog', 'lire le changelog')}</Link>.
         </P>
       </Section>
 

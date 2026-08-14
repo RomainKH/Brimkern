@@ -174,13 +174,17 @@ export function renderMessageContent(text: string, showReasoning = false, settle
     const unclosedSettled = close === -1 && settled;
     return (
       <>
-        {before.trim() && renderBlocks(before, 'pre')}
+        {/* `.trim()` sur ce qu'on REND, pas seulement sur ce qu'on teste : le texte qui suit
+            </think> commence par « \n\n » (les templates de raisonnement en écrivent deux), et
+            renderRichText fabrique un <div height:6px> par ligne vide — deux cales de 6 px
+            poussaient donc la réponse vers le bas quand le raisonnement est masqué. */}
+        {before.trim() && renderBlocks(before.trim(), 'pre')}
         {showReasoning || unclosedSettled ? (
           <ReasoningBlock text={thinking} streaming={close === -1 && !settled} interrupted={unclosedSettled} />
         ) : close === -1 ? (
           <ThinkingLine />
         ) : null}
-        {answer.trim() && renderBlocks(answer, 'ans')}
+        {answer.trim() && renderBlocks(answer.trim(), 'ans')}
       </>
     );
   }

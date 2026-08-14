@@ -39,6 +39,11 @@
      la norme. Un jeton dédié évite de re-corriger au cas par cas à chaque nouvel élément rouge
      (c'est arrivé deux fois : le sur-titre, puis les numéros du schéma). */
   --accent-text: #c72c1e;
+  /* Rouge d'APLAT portant du texte blanc. Troisième cas, distinct des deux précédents : sur l'encre,
+     `--accent` est éclairci pour rester visible en aplat, or du blanc dessus ne fait plus que 4,29:1.
+     `.btn-primary` avait été corrigé à la main le 2026-08-13 ; ce jeton évite de le refaire pour
+     chaque nouvel élément rouge plein (les pilules de /local-ai, trouvées le 14/08). */
+  --accent-solid: #c72c1e;
   --dot: #d8d3c6;            /* trame de fond de la landing */
 
   --text-primary: #1a1a1a;
@@ -307,7 +312,7 @@ html.dark .btn-primary:hover:not(:disabled) {
   color: var(--accent-hover);
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
 }
-html.dark .badge-accent { color: var(--accent); }
+html.dark .badge-accent { color: var(--accent-text); }  /* --accent ne tenait que 3,77:1 sur le fond teinté */
 
 .status-badge.supported {
   background: color-mix(in srgb, var(--success) 10%, transparent);
@@ -328,7 +333,7 @@ html.dark .badge-accent { color: var(--accent); }
   border: 1px solid rgba(199, 44, 30, 0.2); /* rouge Kern — dernier reliquat violet purgé */
   white-space: nowrap;
 }
-html.dark .status-badge.gpu { color: var(--accent); }
+html.dark .status-badge.gpu { color: var(--accent-text); }  /* idem : 3,77:1 avec --accent */
 
 /* Tabs */
 .tabs-container {
@@ -1100,7 +1105,7 @@ html.dark {
   --bg-elevated: #211f1c;
   --bg-code: #1c1b18;
   --bg-code-inline: #2a2823;
-  --code-inline-text: #e05a4e;
+  --code-inline-text: #ec7266;  /* éclairci le 14/08 : #e05a4e ne tenait que 4,02:1 sur le fond de code teinté (norme 4,5) */
   --bubble-user-bg: #2a2823;
   --bubble-user-border: #3a372f;
   --border-color: #33302a;
@@ -1108,6 +1113,7 @@ html.dark {
   --accent: #d9463a;         /* rouge éclairci pour tenir le contraste sur l'encre */
   --accent-hover: #c72c1e;
   --accent-text: #e2604f;    /* 5,2:1 sur --bg-main : le rouge des petits textes */
+  --accent-solid: #b8291c;   /* aplat sous du texte blanc : 6,2:1 (le rouge profond du papier) */
   --dot: #2b2925;
   --accent-bg-rgba: rgba(217, 70, 58, 0.12);
   --text-primary: #ece9e1;
@@ -1800,10 +1806,16 @@ html.dark ::-webkit-scrollbar-thumb:hover {
    deux fondus imbriqués donnent un rendu trouble et une opacité qui se multiplie. Restent les blocs
    qui n'ont pas d'enfants à échelonner (la capture, le panneau encre) ; les rangées, elles,
    s'animent enfant par enfant. */
+/* ⚠️ `.lp-console-wrap` n'est PAS dans cette liste, et c'est délibéré : elle est trop haut dans la
+   page pour une apparition au défilement. En français — dont les phrases sont plus longues — le
+   hero la repousse sous la ligne de flottaison, sa plage `entry → cover 22%` n'est donc jamais
+   parcourue tant qu'on ne scrolle pas, et elle restait affichée à **73,7 % d'opacité** (mesuré au
+   chargement de /fr, contre 100 % sur la version anglaise où elle tient dans l'écran). Une
+   animation liée au scroll ne convient qu'à ce qui est SOUS la première vue ; ce qui est visible
+   d'emblée s'anime dans le temps, comme le hero (cf. `.lp-console-wrap` plus bas). */
 @supports (animation-timeline: view()) {
   .lp-proof,
   .lp-ink,
-  .lp-console-wrap,
   .lp-section > .lp-eyebrow,
   .lp-section > .lp-h2 {
     animation: lp-reveal linear both;
@@ -2073,6 +2085,13 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 .lp-hero > *:nth-child(3) { animation-delay: .18s; }
 .lp-hero > *:nth-child(4) { animation-delay: .26s; }
 .lp-hero > *:nth-child(5) { animation-delay: .34s; }
+
+/* La console suit le hero dans la même cascade TEMPORELLE (et non au défilement) : elle est dans la
+   première vue sur écran large, et juste dessous en français — dans les deux cas elle doit être
+   pleinement lisible sans avoir à scroller. */
+.lp-console-wrap {
+  animation: lp-rise .5s ease .42s both;
+}
 
 /* La marque tourne d'un cheveu au survol : un clin d'œil, pas un manège. */
 .lp-brand svg {

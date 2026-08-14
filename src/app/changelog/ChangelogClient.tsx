@@ -955,7 +955,7 @@ export default function ChangelogClient() {
               <div key={g.title.fr} className="card" style={{ padding: 18 }}>
                 <h2
                   className="section-title"
-                  style={{ fontSize: 12, margin: '0 0 10px', color: 'var(--accent)' }}
+                  style={{ fontSize: 12, margin: '0 0 10px', color: 'var(--accent-text)' }}
                 >
                   {tr(g.title)}
                 </h2>

@@ -27,7 +27,14 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "Brimkern — Local WebGPU LLM engine in your browser",
   description: "Run any single-file GGUF from Hugging Face directly in your browser — WebGPU acceleration, hand-written WGSL kernels, no server, no API key, works offline.",
-  keywords: ["local LLM", "WebGPU", "browser AI", "WGSL", "GGUF", "in-browser inference", "on-device AI", "private AI", "offline AI", "LLM local", "IA navigateur"],
+  // Les termes que notre public tape RÉELLEMENT — dont « web LLM » et « WebLLM alternative », la
+  // requête par laquelle on cherche ce genre de moteur (cf. /vs-webllm, la comparaison mesurée).
+  keywords: [
+    "local LLM", "WebGPU", "browser AI", "WGSL", "GGUF", "in-browser inference", "on-device AI",
+    "private AI", "offline AI", "LLM local", "IA navigateur",
+    "web LLM", "WebLLM alternative", "run LLM in browser", "client-side LLM", "WebGPU inference",
+    "browser LLM without server", "LLM dans le navigateur",
+  ],
   authors: [{ name: "Romain Khanoyan", url: "https://romainkhanoyan.fr" }],
   creator: "Romain Khanoyan",
   publisher: "Romain Khanoyan",

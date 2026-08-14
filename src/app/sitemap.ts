@@ -10,6 +10,7 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   { path: '/chat', freq: 'weekly', prio: 0.95 },     // l'application, sur son adresse stable
   { path: '/docs', freq: 'weekly', prio: 0.9 },      // documentation unique (tout y renvoie)
   { path: '/local-ai', freq: 'monthly', prio: 0.8 }, // SDK / offre pro
+  { path: '/vs-webllm', freq: 'monthly', prio: 0.8 }, // comparaison mesurée (porte d'entrée SEO)
   { path: '/convert', freq: 'monthly', prio: 0.6 },  // convertisseur GGUF→BRIK
   { path: '/changelog', freq: 'weekly', prio: 0.5 },
 ];

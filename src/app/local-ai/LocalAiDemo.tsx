@@ -150,7 +150,7 @@ export default function LocalAiDemo() {
   if (supported === false) {
     return (
       <div id="demo" className="card" style={{ padding: 20, marginTop: 40, borderColor: 'color-mix(in srgb, var(--accent) 30%, transparent)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: 6 }}><Sparkles size={18} style={{ color: 'var(--accent)' }} /> {t('Live demo', 'Démo live')}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-heading)', fontWeight: 700, marginBottom: 6 }}><Sparkles size={18} style={{ color: 'var(--accent-text)' }} /> {t('Live demo', 'Démo live')}</div>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>{t('This demo needs a WebGPU browser (Chrome, Edge, Safari 18+, Firefox). Open it there to try the AI running fully on your machine.', 'Cette démo nécessite un navigateur WebGPU (Chrome, Edge, Safari 18+, Firefox). Ouvre-la là pour essayer l’IA qui tourne entièrement sur ta machine.')}</p>
       </div>
     );
@@ -159,7 +159,7 @@ export default function LocalAiDemo() {
   return (
     <div id="demo" style={{ marginTop: 48, scrollMarginTop: 20 }}>
       <div style={{ borderTop: '2px solid var(--accent)', paddingTop: 20 }}>
-        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent)' }}>{t('Live demo — runs on your GPU', 'Démo live — tourne sur ton GPU')}</span>
+        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>{t('Live demo — runs on your GPU', 'Démo live — tourne sur ton GPU')}</span>
         <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '8px 0 6px' }}>{t('Try it — classify, extract & chat, on your GPU', 'Essaie — classer, extraire & discuter, sur ton GPU')}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 16px' }}>
           {t('An ultra-light model (LFM2.5 230M) classifies, extracts and chats — in French too — shaped by a prompt, running entirely in your browser (no server). First run downloads it once (~149 MB), then it’s cached & offline.', 'Un modèle ultra-léger (LFM2.5 230M) classe, extrait et discute — même en français — façonné par un prompt, tournant entièrement dans ton navigateur (sans serveur). La 1ʳᵉ fois il se télécharge (~149 Mo), ensuite c’est en cache & hors ligne.')}
@@ -170,8 +170,10 @@ export default function LocalAiDemo() {
         {cases.map((c) => (
           <button key={c.key} onClick={() => { setUc(c); setInput(c.example); setOutput(''); }}
             style={{ fontSize: 13, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',
-              background: uc.key === c.key ? 'var(--accent)' : 'var(--bg-card)', color: uc.key === c.key ? '#fff' : 'var(--text-secondary)',
-              border: `1px solid ${uc.key === c.key ? 'var(--accent)' : 'var(--border-color)'}` }}>
+              // --accent-solid et non --accent : ce fond porte du texte BLANC (cf. le jeton dans
+              // globals.css — sur l'encre, --accent n'y tient que 4,29:1).
+              background: uc.key === c.key ? 'var(--accent-solid)' : 'var(--bg-card)', color: uc.key === c.key ? '#fff' : 'var(--text-secondary)',
+              border: `1px solid ${uc.key === c.key ? 'var(--accent-solid)' : 'var(--border-color)'}` }}>
             {c.label}
           </button>
         ))}

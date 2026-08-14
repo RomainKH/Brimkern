@@ -85,7 +85,7 @@ export default function LocalAiClient() {
 
       {/* Hero */}
       <div style={{ borderTop: '2px solid var(--accent)', marginTop: 20, paddingTop: 22 }}>
-        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent)' }}>
+        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>
           {t('For websites', 'Pour les sites web')}
         </span>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 42, fontWeight: 800, lineHeight: 1.1, margin: '10px 0 14px', color: 'var(--text-primary)' }}>
@@ -116,7 +116,7 @@ export default function LocalAiClient() {
         {args.map(({ Icon, title, body }) => (
           <div key={title} className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              <Icon size={20} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
               {/* h2 (pas h3) : ces cartes viennent juste après le <h1>, sauter un niveau casse la
                   navigation par titres des lecteurs d'écran (axe heading-order). */}
               <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>{title}</h2>
@@ -136,7 +136,7 @@ export default function LocalAiClient() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {steps.map((s, i) => (
           <div key={i} className="card" style={{ padding: 16, display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <span style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, color: 'var(--accent)', lineHeight: 1, flexShrink: 0, width: 28 }}>{i + 1}</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, color: 'var(--accent-text)', lineHeight: 1, flexShrink: 0, width: 28 }}>{i + 1}</span>
             <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.55, margin: 0 }}>{s}</p>
           </div>
         ))}
@@ -186,7 +186,7 @@ export default function LocalAiClient() {
 
       {/* Sous le capot / crédibilité */}
       <div className="card" style={{ padding: 22, marginTop: 44, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-        <Cpu size={22} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
+        <Cpu size={22} style={{ color: 'var(--accent-text)', flexShrink: 0, marginTop: 2 }} />
         <div>
           <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 18, fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)' }}>
             {t('Our own engine, not a black box', 'Notre propre moteur, pas une boîte noire')}
