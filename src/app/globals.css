@@ -50,7 +50,14 @@
   /* Sémantiques « encrées » — assez sombres pour tenir sur le papier (texte 11–13px). */
   --success: #1a7f4e;
   --warning: #a86a0c;
-  --error: #ef4444;
+  /* `--error` était resté au rouge VIF de Tailwind (#ef4444) alors que ses deux voisins avaient été
+     encrés : l'oubli se voyait sur `.btn-danger`, qui pose ce rouge sur un fond teinté à 10 % du même
+     rouge — mesuré à 3,29:1, donc sous la norme, et sur les boutons les plus destructifs de l'app
+     (« Tout supprimer », « Vider »). Relevé par axe-core le 2026-08-14 : le panneau Stockage n'avait
+     jamais été audité, parce qu'il faut l'ouvrir pour le voir.
+     #b42318 mesuré : 5,58:1 au repos et 5,11:1 au survol sur carte blanche, 5,32 / 4,87 sur le papier.
+     (L'accent lui-même, #c72c1e, ne tenait que 4,35:1 au survol — sous la norme.) */
+  --error: #b42318;
 
   --shadow-sm: 0 1px 2px 0 rgba(26, 26, 26, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(26, 26, 26, 0.05), 0 2px 4px -1px rgba(26, 26, 26, 0.03);

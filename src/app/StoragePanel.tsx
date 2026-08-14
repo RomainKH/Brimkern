@@ -11,6 +11,7 @@ import { listBrik, deleteBrik, type BrikCacheMeta } from '@/lib/brikCache';
 import { clearAllConversations } from '@/lib/chatStore';
 import { allCaches, cacheEntries, clearCache, deleteCacheEntriesFor, groupCacheEntries, historyUsage, storageEstimate, isStoragePersisted, requestPersistentStorage, type NamedUsage, type Usage, type CacheEntry } from '@/lib/storage';
 import { useT, useLocale } from '@/lib/i18n';
+import ConfirmDialog from './ConfirmDialog';
 import { getEvictDays, setEvictDays, getLastEvictReport, evictStaleModels, getUsageMap, modelKey } from '@/lib/modelUsage';
 
 const fmtBytes = (n: number, u: string[]): string => {
@@ -34,6 +35,9 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
   const [history, setHistory] = useState<Usage>({ count: 0, bytes: 0 });
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null); // which cache bucket is expanded
+  // Quelle confirmation est ouverte (null = aucune). Un état, pas deux booléens : les deux dialogues
+  // sont mutuellement exclusifs et un seul peut être monté à la fois.
+  const [confirming, setConfirming] = useState<'history' | 'all' | null>(null);
   const [entries, setEntries] = useState<Record<string, CacheEntry[]>>({}); // lazily-loaded per-bucket detail
   // Politique d'éviction des POIDS inutilisés + bilan de la dernière purge (lus au montage : ce sont
   // des valeurs localStorage, pas un état serveur).
@@ -96,19 +100,16 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
   const run = async (id: string, fn: () => Promise<void>) => { setBusy(id); try { await fn(); } catch { /* ignore */ } await refresh(); onCacheChanged?.(); setBusy(null); };
   const delCache = (name: string) => run(`c:${name}`, () => clearCache(name));
   const delPackage = (key: string) => run(key, () => deleteBrik(key));
-  const clearHistory = () => {
-    if (!confirm(t('Delete the entire conversation history? This cannot be undone.', 'Supprimer tout l’historique des conversations ? Cette action est irréversible.'))) return;
-    return run('history', async () => { await clearAllConversations(); onHistoryCleared?.(); });
-  };
-  const clearAll = () => {
-    if (!confirm(t('Delete everything: model caches (streamed/GGUF/tokenizers), converted BRIKs AND conversation history? Irreversible. The active model stays loaded in memory until the page is reloaded.', 'Tout supprimer : caches modèles (streamés/GGUF/tokenizers), BRIK convertis ET historique des conversations ? Irréversible. Le modèle actif reste chargé en mémoire jusqu’au rechargement de la page.'))) return;
-    return run('all', async () => {
-      await Promise.all(cacheList.map((c) => clearCache(c.name)));
-      await Promise.all(packages.map((p) => deleteBrik(p.key)));
-      await clearAllConversations();
-      onHistoryCleared?.();
-    });
-  };
+  // Les deux actions destructrices passent par un dialogue du produit (cf. ./ConfirmDialog.tsx) au
+  // lieu de `confirm()`. On ne garde donc ici que L'ACTION ; le texte, lui, vit dans le rendu, où il
+  // peut enfin être structuré (titre / ce qui part / la nuance) plutôt qu'empilé dans une ligne.
+  const doClearHistory = () => run('history', async () => { await clearAllConversations(); onHistoryCleared?.(); });
+  const doClearAll = () => run('all', async () => {
+    await Promise.all(cacheList.map((c) => clearCache(c.name)));
+    await Promise.all(packages.map((p) => deleteBrik(p.key)));
+    await clearAllConversations();
+    onHistoryCleared?.();
+  });
 
   const packagesBytes = packages.reduce((a, p) => a + p.byteLength, 0);
   const cachesBytes = cacheList.reduce((a, c) => a + c.bytes, 0);
@@ -134,10 +135,25 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: '100%', maxWidth: 540, maxHeight: '85vh', overflowY: 'auto', padding: 22 }}>
+      {/* `role="dialog"` + `aria-modal` : ce panneau EST une fenêtre modale (fond assombri, clic hors
+          cadre pour fermer) mais il ne le DISAIT pas — un lecteur d'écran l'annonçait comme du contenu
+          de page ordinaire, et axe-core relevait 11 violations `region` (« du contenu hors de tout
+          repère »), parce que rien ici n'est dans un landmark. Le rôle règle les deux d'un coup.
+          Trouvé le 2026-08-14 : le panneau n'avait jamais été audité, il faut l'ouvrir pour le voir.
+          `aria-modal` n'est porté QUE quand aucune confirmation n'est ouverte : deux modales
+          imbriquées ne peuvent pas être « la » modale en même temps, et c'est la confirmation qui
+          capte quand elle est là. */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="card"
+        role="dialog"
+        aria-modal={confirming ? undefined : 'true'}
+        aria-labelledby="storage-titre"
+        style={{ width: '100%', maxWidth: 540, maxHeight: '85vh', overflowY: 'auto', padding: 22 }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <HardDrive size={20} style={{ color: 'var(--accent)' }} />
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: 20, flex: 1 }}>{t('Storage', 'Stockage')}</h2>
+          <HardDrive size={20} style={{ color: 'var(--accent)' }} aria-hidden />
+          <h2 id="storage-titre" style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: 20, flex: 1 }}>{t('Storage', 'Stockage')}</h2>
           <button onClick={onClose} className="circle-btn" style={{ width: 30, height: 30 }} title={t('Close', 'Fermer')}><X size={16} /></button>
         </div>
 
@@ -327,7 +343,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
             )}
 
             {usageRow('history', <MessageSquare size={18} />, t('Conversation history', 'Historique des conversations'), `${history.count} conversation(s)`, history.bytes,
-              clearBtn('history', clearHistory, history.count === 0))}
+              clearBtn('history', () => setConfirming('history'), history.count === 0))}
           </div>
         )}
 
@@ -335,7 +351,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
           <button
             className="btn btn-danger"
             style={{ width: '100%', marginTop: 16, justifyContent: 'center', gap: 8, fontSize: 13, padding: '9px' }}
-            onClick={clearAll}
+            onClick={() => setConfirming('all')}
             disabled={busy !== null}
             title={t('Clear all caches, BRIKs and the history', 'Vider tous les caches, BRIK et l’historique')}
           >
@@ -347,6 +363,53 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
           {t('Everything is stored ', 'Tout est stocké ')}<strong>{t('locally', 'localement')}</strong>{t(' in your browser. Clearing a cache deletes nothing online — a model just re-downloads on its next load.', ' dans ton navigateur. Vider un cache n’efface rien en ligne — un modèle se re-télécharge au prochain chargement.')}
         </div>
       </div>
+
+      {/* ── Confirmations ─────────────────────────────────────────────────────────────────────────
+          Le texte de « Tout supprimer » tenait en UNE phrase parce que `confirm()` n'accepte que ça :
+          la liste de ce qui part, l'irréversibilité et la nuance sur le modèle en mémoire y étaient
+          empilées. Ici chacune a sa place, et on peut afficher en plus le POIDS RÉEL de ce qu'on
+          s'apprête à effacer — on l'a déjà sous la main, et c'est l'information qui fait décider. */}
+      {confirming === 'history' && (
+        <ConfirmDialog
+          title={t('Delete the conversation history?', 'Supprimer l’historique des conversations ?')}
+          confirmLabel={t('Delete the history', 'Supprimer l’historique')}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => { setConfirming(null); void doClearHistory(); }}
+        >
+          <p style={{ margin: 0 }}>
+            <strong>{history.count}</strong>{t(' conversation(s), ', ' conversation(s), ')}<strong>{fmt(history.bytes)}</strong>
+            {t('. This cannot be undone.', '. Cette action est irréversible.')}
+          </p>
+          <p style={{ margin: '8px 0 0' }}>
+            {t('Your downloaded models are NOT affected.', 'Tes modèles téléchargés ne sont PAS touchés.')}
+          </p>
+        </ConfirmDialog>
+      )}
+
+      {confirming === 'all' && (
+        <ConfirmDialog
+          title={t('Delete everything?', 'Tout supprimer ?')}
+          confirmLabel={t('Delete everything', 'Tout supprimer')}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => { setConfirming(null); void doClearAll(); }}
+        >
+          <p style={{ margin: 0 }}>
+            {t('About to be deleted — ', 'Va être supprimé — ')}<strong>{fmt(brikkernTotal)}</strong>{t(' in total:', ' au total :')}
+          </p>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 18, listStyle: 'disc' }}>
+            <li>{t('model caches (streamed, GGUF, tokenizers) — ', 'caches modèles (streamés, GGUF, tokenizers) — ')}<strong>{fmt(cachesBytes)}</strong></li>
+            <li>{t('converted .brik packages — ', 'paquets .brik convertis — ')}<strong>{fmt(packagesBytes)}</strong></li>
+            <li>{history.count} {t('conversation(s) — ', 'conversation(s) — ')}<strong>{fmt(history.bytes)}</strong></li>
+          </ul>
+          <p style={{ margin: '10px 0 0', color: 'var(--accent)', fontWeight: 600 }}>
+            {t('Irreversible.', 'Irréversible.')}
+          </p>
+          <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+            {t('The model currently loaded stays in memory until you reload the page — so the answer in progress keeps working.',
+               'Le modèle actuellement chargé reste en mémoire jusqu’au rechargement de la page — la réponse en cours continue donc de fonctionner.')}
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
