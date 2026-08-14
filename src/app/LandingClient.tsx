@@ -31,6 +31,7 @@ import HfModelInput from './HfModelInput';
 import GithubMark from './GithubMark';
 import ByLine from './ByLine';
 import ThemeToggle from './ThemeToggle';
+import LandingGpu from './LandingGpu';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
 // mort serait la pire première impression pour un visiteur venu de Hugging Face).
@@ -103,11 +104,6 @@ export default function LandingClient() {
   // c'est entre les deux que se joue le rebond qu'on cherche à mesurer.
   useEffect(() => { if (gpuOk !== null) metricOnce('landing_view', { webgpu: gpuOk }); }, [gpuOk]);
 
-  // La console s'incline LÉGÈREMENT vers le curseur (±3°). C'est le seul effet de cette page qui
-  // demande du JS : une inclinaison suit une position, ce que le CSS seul ne sait pas faire.
-  // Trois garde-fous, sans quoi ce serait une nuisance : rien si le pointeur n'est pas fin (au
-  // doigt, il n'y a pas de survol), rien si l'on a demandé moins de mouvement, et une seule écriture
-  // par frame (rAF) — un `pointermove` non throttlé écrit des dizaines de fois par frame pour rien.
   // Le champ « n'importe quel modèle » : ici il ne charge rien (la landing n'embarque pas le moteur),
   // il VALIDE la saisie — même parseur que l'app — puis envoie sur /chat avec le deeplink qui va bien.
   const goToChatWith = async (raw: string): Promise<string | null> => {
@@ -160,6 +156,9 @@ export default function LandingClient() {
 
       <main>
         {/* ── HERO ─────────────────────────────────────────────────────────────────────────────── */}
+        {/* LandingGpu : la trame de demi-ton derrière le titre est rendue par un shader WebGPU sur
+            le GPU du visiteur — la promesse de la page, exécutée avant tout clic (cf. LandingGpu.tsx
+            pour les garde-fous : reduced-motion, ?webgpu=0, onglet caché, erreurs → page inchangée). */}
         <section className="lp-hero">
           <div className="lp-eyebrow">{t('WebGPU · hand-written WGSL · nothing leaves the tab', 'WebGPU · WGSL écrit à la main · rien ne sort de l’onglet')}</div>
           <h1 className="lp-h1">
@@ -199,6 +198,7 @@ export default function LandingClient() {
                  'Chrome, Edge, ou Safari 18+. Gratuit, open source (MIT), sans compte.')}
             </p>
           )}
+          <LandingGpu />
         </section>
 
         {/* ── LE GESTE DU PRODUIT ──────────────────────────────────────────────────────────────
