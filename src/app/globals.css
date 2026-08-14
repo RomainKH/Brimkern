@@ -1193,9 +1193,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   max-width: 980px;
   margin: 0 auto;
   padding: 0 24px 64px;
-  /* Ancre de .lp-gpu : la trame WebGPU du hero se cale sur la page entière (980 px), pas sur le
-     hero (720 px) — des insets négatifs sur le hero déborderaient l'écran sur mobile. */
-  position: relative;
 }
 
 /* Le filet rouge d'imprimeur en tête de page — même signature que l'app. Il sert aussi de jauge de
@@ -1834,57 +1831,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   to { clip-path: inset(0 0 0 0); }
 }
 
-/* ── Le lavis WebGPU du hero (LandingGpu.tsx) ─────────────────────────────────────────────────
-   Un lavis d'encre très dilué rendu par un shader WGSL sur le GPU du visiteur : la promesse
-   de la page, exécutée avant tout clic. Le canvas n'existe que si l'init a réussi ; sans WebGPU,
-   sous prefers-reduced-motion ou avec ?webgpu=0, la page est exactement celle d'avant. */
-.lp-gpu {
-  position: absolute;
-  top: 0;
-  left: 0;
-  /* width EXPLICITE et non `left:0; right:0` : un canvas est un élément REMPLACÉ, la paire
-     left/right ne l'étire pas — il garde sa taille intrinsèque (l'attribut width), et le
-     ResizeObserver du composant partait alors en boucle d'agrandissement (300 → ×1,5 par frame,
-     constaté : 1120 px sur un viewport de 390). */
-  width: 100%;
-  height: 560px;
-  z-index: -1;             /* derrière la barre et le hero, devant le fond de page */
-  pointer-events: none;    /* les clics traversent : la nappe n'est pas une surface */
-  opacity: 0;              /* fondu à la PREMIÈRE frame rendue (data-ready), pas au montage :
-                              un canvas visible avant d'avoir peint ferait un carré noir/vide */
-  transition: opacity 0.9s ease-out;
-  /* Les bords se dissolvent au lieu de couper le lavis net : en bas (milieu de page) et sur les
-     côtés (le halo au curseur touchait le bord droit du canvas et y finissait en ligne droite). */
-  mask-image:
-    linear-gradient(to bottom, black 0, black 62%, transparent 100%),
-    linear-gradient(to right, transparent 0, black 7%, black 93%, transparent 100%);
-  mask-composite: intersect;
-  -webkit-mask-image:
-    linear-gradient(to bottom, black 0, black 62%, transparent 100%),
-    linear-gradient(to right, transparent 0, black 7%, black 93%, transparent 100%);
-  -webkit-mask-composite: source-in;
-}
-
-.lp-gpu[data-ready] {
-  opacity: 1;
-}
-
-/* La ligne de preuve sous le hero : elle n'apparaît que si le shader TOURNE (React ne la rend
-   qu'à l'init réussie) — une page qui dirait « rendu par votre GPU » sans rien rendre mentirait. */
-.lp-gpu-note {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.2px;
-  color: var(--text-muted);
-  margin: 10px 0 0;
-  animation: lp-note-in 0.9s ease-out both;
-}
-
-@keyframes lp-note-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .lp-cta,
   .lp-cta:hover,
@@ -1899,12 +1845,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   .lp-slices-svg {
     animation: none;
     opacity: 1;
-  }
-  /* Ceinture et bretelles : le JS de LandingGpu n'initialise rien sous reduced-motion, mais si la
-     préférence change en cours de visite, le canvas déjà peint doit disparaître aussi. */
-  .lp-gpu,
-  .lp-gpu-note {
-    display: none;
   }
 }
 

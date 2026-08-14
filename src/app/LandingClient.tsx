@@ -31,7 +31,6 @@ import HfModelInput from './HfModelInput';
 import GithubMark from './GithubMark';
 import ByLine from './ByLine';
 import ThemeToggle from './ThemeToggle';
-import LandingGpu from './LandingGpu';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
 // mort serait la pire première impression pour un visiteur venu de Hugging Face).
@@ -156,9 +155,8 @@ export default function LandingClient() {
 
       <main>
         {/* ── HERO ─────────────────────────────────────────────────────────────────────────────── */}
-        {/* LandingGpu : le lavis d'encre derrière le titre est rendu par un shader WebGPU sur
-            le GPU du visiteur — la promesse de la page, exécutée avant tout clic (cf. LandingGpu.tsx
-            pour les garde-fous : reduced-motion, ?webgpu=0, onglet caché, erreurs → page inchangée). */}
+        {/* Pas d'effet de fond derrière le hero : deux tentatives (trame de demi-ton WebGPU, puis
+            lavis d'encre) ont été retirées sur décision de Romain — la page reste du papier nu. */}
         <section className="lp-hero">
           <div className="lp-eyebrow">{t('WebGPU · hand-written WGSL · nothing leaves the tab', 'WebGPU · WGSL écrit à la main · rien ne sort de l’onglet')}</div>
           <h1 className="lp-h1">
@@ -198,7 +196,6 @@ export default function LandingClient() {
                  'Chrome, Edge, ou Safari 18+. Gratuit, open source (MIT), sans compte.')}
             </p>
           )}
-          <LandingGpu />
         </section>
 
         {/* ── LE GESTE DU PRODUIT ──────────────────────────────────────────────────────────────
