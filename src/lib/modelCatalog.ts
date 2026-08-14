@@ -54,11 +54,22 @@ export const COMING_SOON: { vendor: string; name: string; params: string; modali
   { vendor: 'Stability AI', name: 'Stable Diffusion Turbo', params: 'SD', modality: 'text2img', desc: 'Génération d’images depuis du texte — poids BRIK pré-quantifiés streamés (~1,3 Go au lieu de 2,4). Sur mobile, la tuile charge SDXS-512 distillé (~720 Mo, 1 step).', tags: ['diffusion', 'BRIK q8'] },
   { vendor: 'Alibaba', name: 'Qwen2-VL 2B', params: '~2B', modality: 'vision', desc: 'Décrit / interroge une image (image + texte → texte). Encodeur visuel à porter.', tags: ['multimodal', 'OCR'] },
 ];
-export const MODALITY_PILL: Record<Modality, { label: string; bg: string; fg: string }> = {
-  text: { label: 'Texte', bg: 'var(--accent-bg-rgba)', fg: 'var(--accent)' },
-  text2img: { label: 'Texte → Image', bg: 'rgba(236,72,153,0.14)', fg: '#ec4899' },
-  vision: { label: 'Image+Texte → Texte', bg: 'rgba(14,165,233,0.14)', fg: '#0ea5e9' },
+export const MODALITY_PILL: Record<Modality, { label: { en: string; fr: string }; bg: string; fg: string }> = {
+  text: { label: { en: 'Text', fr: 'Texte' }, bg: 'var(--accent-bg-rgba)', fg: 'var(--accent)' },
+  text2img: { label: { en: 'Text → Image', fr: 'Texte → Image' }, bg: 'rgba(236,72,153,0.14)', fg: '#ec4899' },
+  vision: { label: { en: 'Image+Text → Text', fr: 'Image+Texte → Texte' }, bg: 'rgba(14,165,233,0.14)', fg: '#0ea5e9' },
 };
+
+// Taille d'un modèle telle qu'AFFICHÉE. Les presets portent une chaîne française figée (« 2,53 Go »)
+// qui s'affichait telle quelle en anglais : on formate donc le nombre d'octets selon la locale.
+// Décimal (Go/GB, pas Gio) : c'est ce qu'affichent le Finder et Hugging Face, donc ce que
+// l'utilisateur retrouvera ailleurs.
+export function fmtModelSize(bytes: number, fr: boolean): string {
+  const giga = bytes >= 1e9;
+  const v = giga ? bytes / 1e9 : bytes / 1e6;
+  const n = giga ? v.toFixed(2) : String(Math.round(v));
+  return `${fr ? n.replace('.', ',') : n} ${giga ? (fr ? 'Go' : 'GB') : (fr ? 'Mo' : 'MB')}`;
+}
 
 // Auto-pick weight precision from model size × device (VRAM-driven). A model that fits f16 stays f16
 // (fastest, best quality); too big → q8 (½ VRAM, near-f16, robust); huge / mobile → q4. Falls back to
@@ -71,10 +82,18 @@ export function pickAutoPrecision(totalParams: number, supportsQ8: boolean, hasF
   // 0.5B (absurd refusals, verbatim echo of the previous turn) while the SAME model at q8/f16 is
   // perfectly coherent. int4's job is fitting big models, not shaving bytes off tiny ones.
   if (isMobile) return totalParams <= 1.2e9 ? 'q8' : 'q4';
-  const f16GB = (totalParams * 2) / 1e9;
+  // Bureau : **q8 par défaut, plus f16** (2026-08-13). Le décodage lit TOUS les poids à chaque
+  // token : il est limité par la BANDE PASSANTE, et le f16 lit deux fois plus d'octets que le q8
+  // pour le même calcul. Mesuré en vrai sur Llama 3.2 1B, même question, même machine :
+  //     f16 → prefill 220,4 t/s · décodage 21,5 t/s · total 4,61 s
+  //     q8  → prefill 221,8 t/s · décodage 32,2 t/s · total 3,81 s
+  // Le prefill est IDENTIQUE (il est limité par le calcul, et le GEMM tuilé q8 tient le même débit
+  // que le f16), le décodage gagne 50 %, et la VRAM est divisée par deux — donc des modèles plus
+  // gros passent. La qualité ne bouge pas : corrélation 0,9999 contre la référence CPU à un token,
+  // et les réponses restent correctes. Le f16 ne reste que pour un GPU sans chemin q8.
+  const q8GB = totalParams / 1e9;
   const budgetGB = maxBindBytes >= 1e9 ? 5 : 2.5; // large max-binding ≈ capable discrete GPU
-  if (f16GB <= budgetGB) return 'f16';
-  if (f16GB / 2 <= budgetGB) return 'q8';
+  if (q8GB <= budgetGB) return 'q8';
   return 'q4';
 }
 export const PREC_LABEL: Record<string, string> = { f32: 'f32', f16: 'f16', q8: 'int8', q4: 'int4', q3: 'int3' };
@@ -87,6 +106,36 @@ export const PREC_LABEL: Record<string, string> = { f32: 'f32', f16: 'f16', q8: 
 export const GGUF_ARCH_FAMILY: Partial<Record<string, { archType: ArchType; tokenizerId: string }>> = {
   gemma: { archType: 'gemma', tokenizerId: 'Xenova/gemma-tokenizer' },
   gemma2: { archType: 'gemma', tokenizerId: 'Xenova/gemma-tokenizer' },
+  // Gemma 3 : vocab 262k DIFFÉRENT de Gemma 1/2 (ids de tour décalés) → tokenizer dédié.
+  gemma3: { archType: 'gemma3', tokenizerId: 'unsloth/gemma-3-270m-it' },
+  // SmolLM3 : vocab Llama-like propre au modèle (NoPE côté moteur, cf. ggufParser).
+  smollm3: { archType: 'smollm3', tokenizerId: 'HuggingFaceTB/SmolLM3-3B' },
   qwen3: { archType: 'qwen3', tokenizerId: 'Qwen/Qwen3-0.6B' },
   mistral3: { archType: 'mistral3', tokenizerId: 'unsloth/Ministral-3-3B-Instruct-2512' },
+  // `llama` MANQUAIT (ajouté 2026-08-13) : un GGUF llama chargé HORS preset — champ « n'importe quel
+  // modèle », deeplink ?model=, URL collée — gardait le tokenizer sélectionné dans l'UI (souvent une
+  // autre famille) et sortait du charabia sans le moindre avertissement. C'est le cas d'usage central
+  // du produit (n'importe quel GGUF du Hub), donc le mapping doit couvrir l'arch la plus répandue.
+  // Le dépôt de référence est unsloth/* : les dépôts meta-llama sont GATED (401 sans jeton).
+  // ⚠️ L'arch `llama` couvre AUSSI Llama 2 / Mistral 7B / TinyLlama (vocab 32k, template
+  // « <s>[INST]… ») : le forçage ne s'applique donc qu'au vocab 128k de Llama 3.x — cf.
+  // ggufArchFamilyFor, qui discrimine sur la taille du vocab lue dans les poids.
+  llama: { archType: 'llama3', tokenizerId: 'unsloth/Llama-3.2-1B-Instruct' },
 };
+
+// Famille à forcer pour un GGUF, en tenant compte du vocab quand l'arch seule ne suffit pas.
+// `llama` est ambigu : 128k = Llama 3.x (tokenizer + template header-id), 32k = Llama 2 / Mistral /
+// TinyLlama (autre tokenizer, autre template). On ne force que ce dont on est sûr — pour le reste on
+// rend `undefined` (la sélection de l'utilisateur est conservée) plutôt que d'imposer un mauvais
+// tokenizer, qui produit du charabia silencieux.
+export function ggufArchFamilyFor(arch: string, vocabSize?: number | null): { archType: ArchType; tokenizerId: string } | undefined {
+	if (arch === 'llama') {
+		if (vocabSize && vocabSize >= 100000) return GGUF_ARCH_FAMILY.llama;
+		if (vocabSize && vocabSize < 100000) {
+			console.warn(`[brimkern] GGUF arch="llama" avec un vocab de ${vocabSize} → famille Llama 2 / Mistral / TinyLlama : pas de tokenizer par défaut pour celle-ci, la sélection actuelle est conservée (une réponse incohérente = mauvais tokenizer).`);
+			return undefined;
+		}
+		return undefined; // vocab inconnu → ne rien imposer
+	}
+	return GGUF_ARCH_FAMILY[arch];
+}

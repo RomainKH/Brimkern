@@ -9,8 +9,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Trash2, HardDrive, Database, Package, MessageSquare, Loader2, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
 import { listBrik, deleteBrik, type BrikCacheMeta } from '@/lib/brikCache';
 import { clearAllConversations } from '@/lib/chatStore';
-import { allCaches, cacheEntries, clearCache, historyUsage, storageEstimate, isStoragePersisted, requestPersistentStorage, type NamedUsage, type Usage, type CacheEntry } from '@/lib/storage';
+import { allCaches, cacheEntries, clearCache, deleteCacheEntriesFor, groupCacheEntries, historyUsage, storageEstimate, isStoragePersisted, requestPersistentStorage, type NamedUsage, type Usage, type CacheEntry } from '@/lib/storage';
 import { useT, useLocale } from '@/lib/i18n';
+import { getEvictDays, setEvictDays, getLastEvictReport, evictStaleModels, getUsageMap, modelKey } from '@/lib/modelUsage';
 
 const fmtBytes = (n: number, u: string[]): string => {
   if (!n) return `0 ${u[0]}`;
@@ -28,14 +29,30 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
   const [loading, setLoading] = useState(true);
   const [estimate, setEstimate] = useState<{ usage: number; quota: number } | null>(null);
   const [persisted, setPersisted] = useState<boolean | null>(null);
-  const [persistBusy, setPersistBusy] = useState(false);
-  const askPersist = async () => { setPersistBusy(true); try { setPersisted(await requestPersistentStorage()); } catch { /* ignore */ } setPersistBusy(false); };
   const [cacheList, setCacheList] = useState<NamedUsage[]>([]);
   const [packages, setPackages] = useState<BrikCacheMeta[]>([]);
   const [history, setHistory] = useState<Usage>({ count: 0, bytes: 0 });
   const [busy, setBusy] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null); // which cache bucket is expanded
   const [entries, setEntries] = useState<Record<string, CacheEntry[]>>({}); // lazily-loaded per-bucket detail
+  // Politique d'éviction des POIDS inutilisés + bilan de la dernière purge (lus au montage : ce sont
+  // des valeurs localStorage, pas un état serveur).
+  const [evictDays, setDays] = useState<number>(30);
+  const [evictReport, setEvictReport] = useState<ReturnType<typeof getLastEvictReport>>(null);
+  const [usage, setUsage] = useState<Record<string, number>>({});
+  // Lecture des valeurs localStorage APRÈS le premier paint : trois setState synchrones dans un effet
+  // déclenchent une cascade de rendus (règle react-hooks/set-state-in-effect). Un microtask suffit,
+  // et l'état initial (30 j) est le défaut réel — aucun scintillement visible.
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
+      setDays(getEvictDays());
+      setEvictReport(getLastEvictReport());
+      setUsage(getUsageMap());
+    });
+    return () => { active = false; };
+  }, []);
 
   const toggleExpand = async (name: string) => {
     if (expanded === name) { setExpanded(null); return; }
@@ -45,19 +62,28 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
 
   // No setState here — callers apply it in a promise callback (effect) or after await (handler), to
   // satisfy the "no synchronous setState in an effect" rule.
+  // Dépendance sur `locale`, pas sur `t` : useT() rend une nouvelle fonction à chaque rendu, ce qui
+  // relancerait l'effet (et le recensement des caches) en boucle.
   const fetchAll = useCallback(() => Promise.all([
     storageEstimate(),
-    allCaches(),
+    allCaches(t),
     listBrik().catch(() => [] as BrikCacheMeta[]),
     historyUsage(),
-  ]), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ]), [locale]);
 
   useEffect(() => {
     let active = true;
     fetchAll()
       .then((r) => { if (!active) return; setEstimate(r[0]); setCacheList(r[1]); setPackages(r[2]); setHistory(r[3]); setLoading(false); })
       .catch(() => { if (active) setLoading(false); });
-    isStoragePersisted().then((p) => { if (active) setPersisted(p); }).catch(() => { /* ignore */ });
+    // État de persistance : si le navigateur ne l'a pas encore accordée, on la demande UNE fois en
+    // silence (aucun dialogue — Chrome tranche seul selon l'engagement). Le résultat n'est
+    // qu'affiché : il n'y a rien à cliquer, cf. requestPersistentStorage.
+    isStoragePersisted()
+      .then((p) => (p ? p : requestPersistentStorage()))
+      .then((p) => { if (active) setPersisted(p); })
+      .catch(() => { /* ignore */ });
     return () => { active = false; };
   }, [fetchAll]);
 
@@ -147,21 +173,66 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
         })()}
 
         {/* Persistance : sans elle, un cache multi-Go peut être évincé sous pression disque et le
-            modèle se re-télécharge. persist() n'est pas toujours accordé (dépend de l'engagement). */}
+            modèle se re-télécharge. PUREMENT INFORMATIF — il y avait ici un bouton « Garder sur
+            l'appareil » (persist()) : Chrome n'affiche aucune demande et décide seul selon
+            l'engagement avec le site, donc le bouton ne faisait rien de visible. La demande est
+            désormais faite une fois en silence au montage, et on n'affiche que l'état. */}
         {persisted !== null && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', margin: '10px 0 4px', borderRadius: 10, background: persisted ? 'color-mix(in srgb, var(--success) 8%, transparent)' : 'var(--bg-card-hover, rgba(127,127,127,0.08))', border: `1px solid ${persisted ? 'color-mix(in srgb, var(--success) 40%, transparent)' : 'var(--border-color)'}` }}>
             {persisted ? <ShieldCheck size={18} style={{ color: 'var(--success)', flexShrink: 0 }} /> : <Shield size={18} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{persisted ? t('Storage kept on this device', 'Stockage gardé sur cet appareil') : t('Storage not guaranteed', 'Stockage non garanti')}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>{persisted ? t('Downloaded models are protected from automatic eviction.', 'Les modèles téléchargés sont protégés de l’éviction automatique.') : t('The browser may evict cached models under disk pressure (they’d re-download).', 'Le navigateur peut évincer les modèles en cache sous pression disque (re-téléchargement).')}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>{persisted
+                ? t('Downloaded models are protected from automatic eviction.', 'Les modèles téléchargés sont protégés de l’éviction automatique.')
+                : t('The browser may evict cached models under disk pressure (they’d re-download). The browser decides this on its own, based on how much you use the site — bookmarking it or installing the app makes it likely.', 'Le navigateur peut évincer les modèles en cache sous pression disque (re-téléchargement). Il en décide seul, selon votre usage du site — le mettre en favori ou installer l’app rend la conservation probable.')}</div>
             </div>
-            {!persisted && (
-              <button className="btn" style={{ fontSize: 11, padding: '5px 10px', flexShrink: 0 }} onClick={askPersist} disabled={persistBusy}>
-                {persistBusy ? <Loader2 size={13} className="spin" /> : t('Keep on device', 'Garder sur l’appareil')}
-              </button>
-            )}
           </div>
         )}
+
+        {/* Éviction automatique : un modèle essayé laisse 150 Mo à 2 Go de plages derrière lui et rien
+            ne les libérait. On purge les POIDS inutilisés depuis N jours — jamais les conversations,
+            jamais les .brik convertis localement, jamais le modèle chargé. Le réglage et le bilan sont
+            AFFICHÉS : effacer des centaines de Mo en silence serait pire que le problème. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', margin: '4px 0 10px', borderRadius: 10, background: 'var(--bg-card-hover, rgba(127,127,127,0.06))', border: '1px solid var(--border-color)' }}>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text-primary)' }}>
+              {t('Auto-clean unused models', 'Nettoyage auto des modèles inutilisés')}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+              {t('Weights only — conversations and locally converted .brik are never touched.',
+                 'Les poids seulement — conversations et .brik convertis en local ne sont jamais touchés.')}
+            </div>
+          </div>
+          <select
+            className="input-control"
+            aria-label={t('Delete weights unused for', 'Supprimer les poids inutilisés depuis')}
+            style={{ fontSize: 12, width: 'auto', flexShrink: 0 }}
+            value={evictDays}
+            onChange={(e) => { const d = Number(e.target.value); setDays(d); setEvictDays(d); }}
+          >
+            <option value={0}>{t('Never', 'Jamais')}</option>
+            <option value={7}>{t('After 7 days', 'Après 7 jours')}</option>
+            <option value={30}>{t('After 30 days', 'Après 30 jours')}</option>
+            <option value={90}>{t('After 90 days', 'Après 90 jours')}</option>
+          </select>
+          <button
+            className="btn"
+            style={{ fontSize: 11, padding: '5px 10px', flexShrink: 0 }}
+            disabled={busy !== null || evictDays === 0}
+            onClick={() => run('evict', async () => {
+              const r = await evictStaleModels([]);
+              setEvictReport(r.models.length ? r : getLastEvictReport());
+              setUsage(getUsageMap());
+            })}
+          >
+            {busy === 'evict' ? <Loader2 size={12} className="spin" /> : t('Clean now', 'Nettoyer maintenant')}
+          </button>
+          {evictReport && evictReport.models.length > 0 && (
+            <div style={{ flexBasis: '100%', fontSize: 10.5, color: 'var(--text-muted)' }}>
+              {t('Last clean:', 'Dernier nettoyage :')} {new Date(evictReport.at).toLocaleDateString()} — {fmt(evictReport.freedBytes)} ({evictReport.models.join(', ')})
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', color: 'var(--text-muted)', fontSize: 13 }}>
@@ -196,10 +267,34 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} className="spin" /> {t('Reading…', 'Lecture…')}</div>
                     ) : entries[c.name].length === 0 ? (
                       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('Empty.', 'Vide.')}</div>
-                    ) : entries[c.name].map((e, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }} title={e.url}>{e.url.split('/').pop() || e.url}</span>
-                        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{fmt(e.bytes)}</span>
+                    ) : groupCacheEntries(entries[c.name]).map((g) => (
+                      // UNE ligne par MODÈLE : les plages d'un même .brik sont sommées (elles
+                      // occupaient des centaines de lignes illisibles). Chaque modèle se supprime
+                      // seul — auparavant il fallait vider tout le bucket.
+                      <div key={g.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5 }}>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }} title={g.key}>{g.label}</span>
+                        {g.parts > 1 && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10.5, flexShrink: 0 }}>
+                            {g.parts} {t('parts', 'morceaux')}
+                          </span>
+                        )}
+                        {/* Dernier usage : c'est ce qui décide de l'éviction, donc ça doit être visible. */}
+                        {usage[modelKey(g.key)] && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10.5, flexShrink: 0 }} title={new Date(usage[modelKey(g.key)]).toLocaleString()}>
+                            {t('used', 'utilisé')} {new Date(usage[modelKey(g.key)]).toLocaleDateString()}
+                          </span>
+                        )}
+                        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>{fmt(g.bytes)}</span>
+                        <button
+                          className="btn btn-danger"
+                          style={{ fontSize: 10.5, padding: '3px 7px', flexShrink: 0 }}
+                          title={t(`Delete ${g.label}`, `Supprimer ${g.label}`)}
+                          aria-label={t(`Delete ${g.label}`, `Supprimer ${g.label}`)}
+                          disabled={busy === `m:${g.key}`}
+                          onClick={() => run(`m:${g.key}`, async () => { await deleteCacheEntriesFor(c.name, g.key); })}
+                        >
+                          {busy === `m:${g.key}` ? <Loader2 size={11} className="spin" /> : <Trash2 size={11} />}
+                        </button>
                       </div>
                     ))}
                   </div>

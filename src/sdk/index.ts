@@ -15,8 +15,14 @@
 import { WebGpuEngine } from '../lib/webgpu/kernels';
 import { Lfm2Model } from '../lib/webgpu/lfm2Model';
 import { loadBrikStream } from '../lib/webgpu/source';
+import { spanRawTensor } from '../lib/webgpu/layerSpans';
 import { formatPrompt } from '../lib/chatFormat';
+import { chunkDocuments, selectChunks, buildKnowledgeBlock, normalizeDocs, type Chunk } from './knowledge';
+import { BpeTokenizer } from '../lib/bpeTokenizer';
 
+// Repli UNIQUEMENT (tokenizer.json non-BPE) : le chemin nominal est le BpeTokenizer BUNDLÉ —
+// vérifié token-exact vs transformers.js (scripts/test-bpe-tokenizer.cjs). Fini la dépendance
+// réseau tierce sur le chemin critique (hors-ligne réel, CSP hôte stricte OK).
 const TRANSFORMERS_CDN = 'https://esm.sh/@huggingface/transformers@4.2.0';
 const MODELS: Record<string, string> = {
   'lfm2.5-230m': 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
@@ -43,6 +49,11 @@ export interface EmbedConfig {
   greeting?: string;    // 1er message de l'assistant
   accent?: string;      // couleur d'accent (défaut rouge Brimkern)
   maxTokens?: number;   // plafond de génération par réponse
+  // Mêmes documents de connaissance que la session programmatique (cf. SessionConfig.knowledge) :
+  // c'est le cas d'usage principal du widget — répondre sur le contenu du site qui l'héberge.
+  knowledge?: SessionConfig['knowledge'];
+  knowledgeBudget?: number;
+  examples?: SessionConfig['examples'];  // few-shot : le seul levier de TON efficace sur un 230M
 }
 
 export interface SessionConfig {
@@ -56,6 +67,14 @@ export interface SessionConfig {
   // système ne suffit pas (il paraphrase la consigne) — le MONTRER fonctionne (cf. Lfm2Model.classify,
   // bancs q4 2026-07-21). 2 à 3 exemples suffisent ; au-delà on paye du prefill pour rien.
   examples?: { user: string; assistant: string }[];
+  // DOCUMENTS DE CONNAISSANCE — « l'assistant répond sur MON contenu ».
+  // Une chaîne, un objet { title, text }, ou un tableau des deux. Ils sont découpés en passages une
+  // fois, puis à CHAQUE question on n'injecte que les 1 à 3 passages les plus proches : le modèle
+  // par défaut est un 230M à fenêtre courte, lui verser tout un site dégrade la réponse au lieu de
+  // l'améliorer. Rien ne part sur un réseau — le tri est lexical et local (cf. ./knowledge.ts).
+  knowledge?: string | { title?: string; text: string } | Array<string | { title?: string; text: string }>;
+  // Budget de caractères des passages injectés par tour (défaut 1200 ≈ 300 tokens).
+  knowledgeBudget?: number;
 }
 
 export interface AskOptions {
@@ -65,8 +84,10 @@ export interface AskOptions {
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
+export interface LoadProgress { loaded: number; total: number }
+
 // ── Chargement du modèle LFM2 (même recette que l'app : BRIK streamé + tokenizer embarqué) ──
-async function buildModel(url: string, onProgress: (s: string) => void) {
+async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress) => void) {
   const engine = new WebGpuEngine();
   if (!(await engine.init())) throw new Error('WebGPU indisponible sur ce navigateur.');
   // Perte du device (TDR, mémoire reprise par l'OS, process GPU du navigateur qui tombe) : le
@@ -81,6 +102,17 @@ async function buildModel(url: string, onProgress: (s: string) => void) {
   onProgress('téléchargement du modèle…');
   const loadable: any = await loadBrikStream(url);
   const m = loadable.manifest;
+  // Garde EXPLICITE avant de construire quoi que ce soit. Sans elle, l'erreur venait du fond du
+  // moteur (« manifest sans profil lfm2 ») : exacte, mais illisible pour un intégrateur qui a juste
+  // pointé une URL. On dit ce qui a été trouvé, ce qui est supporté, et où aller.
+  if (!m?.config?.lfm2) {
+    const arch = m?.arch ?? m?.config?.arch ?? 'unknown';
+    throw new Error(
+      `Brimkern SDK v0 runs LFM2 .brik models only — this file's architecture is "${arch}". ` +
+      'Use the default model (omit `model`), or convert/pick an LFM2 .brik. ' +
+      'Full model support lives in the app: https://brimkern.com/chat',
+    );
+  }
   const emb = m.tensors['token_embd.weight'];
   const bm: any = {
     arch: { ...m.config, arch: 'lfm2', vocab: emb ? emb.nElems / m.config.d : 0 },
@@ -92,18 +124,40 @@ async function buildModel(url: string, onProgress: (s: string) => void) {
     // LFM2.5 hallucine des appels d'outil (et 10 est special=false → s'afficherait brut), le widget n'a pas d'outils.
     chat: { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] },
   };
+  // Progression en OCTETS : Lfm2Model.load lit chaque tenseur via rawTensor — on compte au fil de
+  // l'eau (le point de rebond n°1 d'un widget qui télécharge ~150 Mo chez un visiteur tiers était
+  // une phase muette). Total = somme des tailles du manifeste.
+  const totalBytes = Object.values(m.tensors as Record<string, { bytes: number }>).reduce((a, t) => a + t.bytes, 0);
+  let loadedBytes = 0;
+  // Lecture PAR SPAN DE COUCHE (spanRawTensor), pas tenseur par tenseur : c'est le découpage que le
+  // préchargement utilise, donc les mêmes octets sous les mêmes clés de cache. Le widget demandait
+  // 148 plages HTTP pour un modèle de 149 Mo là où 18 suffisent — sur le site d'un tiers, chaque
+  // aller-retour se paie. (Même défaut corrigé dans l'app le 2026-08-13 : deux découpages pour les
+  // mêmes octets, donc un fichier téléchargé deux fois.)
+  const readSpan = spanRawTensor(m.tensors, loadable.source);
   const rawTensor = async (name: string) => {
     const tt = m.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`);
-    return loadable.source.bytes(tt.offset, tt.bytes);
+    const bytes = await readSpan(name);
+    loadedBytes += tt.bytes;
+    onProgress('téléchargement du modèle…', { loaded: loadedBytes, total: totalBytes });
+    return bytes;
   };
   onProgress('tokenizer…');
-  const url2 = TRANSFORMERS_CDN;
-  const tf: any = await import(/* @vite-ignore */ url2);
-  const hf = new tf.PreTrainedTokenizer(JSON.parse(loadable.tokenizer.json), JSON.parse(loadable.tokenizer.config));
-  const tok = {
-    encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
-    decode: (ids: number[]) => hf.decode(ids, { skip_special_tokens: true }) as string,
-  };
+  // Tokenizer BUNDLÉ (BpeTokenizer, token-exact vs transformers.js) ; CDN en repli si la config
+  // n'est pas couverte (modèle non-BPE) — jamais sur le chemin nominal LFM2.5.
+  let tok: { encode(s: string): number[]; decode(ids: number[]): string };
+  try {
+    const bpe = new BpeTokenizer(loadable.tokenizer.json);
+    tok = { encode: (s) => bpe.encode(s), decode: (ids) => bpe.decode(ids) };
+  } catch (e) {
+    console.warn('[brimkern] tokenizer.json non couvert par le BPE bundlé — repli transformers.js (CDN)', e);
+    const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
+    const hf = new tf.PreTrainedTokenizer(JSON.parse(loadable.tokenizer.json), JSON.parse(loadable.tokenizer.config));
+    tok = {
+      encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
+      decode: (ids: number[]) => hf.decode(ids, { skip_special_tokens: true }) as string,
+    };
+  }
   const core = new Lfm2Model(engine, bm, rawTensor);
   onProgress('poids sur le GPU…');
   await core.load(tok);
@@ -115,8 +169,9 @@ type Loaded = { core: Lfm2Model; engine: WebGpuEngine };
 type ModelEntry = {
   promise: Promise<Loaded>;
   status: string;                       // dernière phase de progression
+  progress?: LoadProgress;              // octets téléchargés / total (phase modèle)
   state: 'loading' | 'ready' | 'error';
-  listeners: Set<(s: string) => void>;
+  listeners: Set<(s: string, p?: LoadProgress) => void>;
 };
 const models = new Map<string, ModelEntry>();
 
@@ -127,18 +182,18 @@ function resolveModelUrl(model?: string): string {
   return isUrl ? model! : MODELS[model || 'lfm2.5-230m'] || MODELS['lfm2.5-230m'];
 }
 
-function getModel(url: string, onProgress?: (s: string) => void): Promise<Loaded> {
+function getModel(url: string, onProgress?: (s: string, p?: LoadProgress) => void): Promise<Loaded> {
   let e = models.get(url);
   if (!e) {
     const entry: ModelEntry = { status: 'initialisation…', state: 'loading', listeners: new Set(), promise: null! };
-    entry.promise = buildModel(url, (s) => { entry.status = s; entry.listeners.forEach((f) => f(s)); })
+    entry.promise = buildModel(url, (s, p) => { entry.status = s; entry.progress = p; entry.listeners.forEach((f) => f(s, p)); })
       .then((c) => { entry.state = 'ready'; return c; })
       .catch((err) => { entry.state = 'error'; models.delete(url); throw err; });
     models.set(url, entry);
     e = entry;
   }
   if (onProgress) {
-    onProgress(e.status);
+    onProgress(e.status, e.progress);
     e.listeners.add(onProgress);
     void e.promise.finally(() => e!.listeners.delete(onProgress)).catch(() => { /* signalé à l'appelant */ });
   }
@@ -211,6 +266,61 @@ async function runTurn(
   return acc;
 }
 
+
+// Composition du prompt, au même endroit pour la session programmatique ET pour le widget — il était
+// reconstruit dans les deux, ce qui garantissait qu'un ajout (les documents de connaissance)
+// n'atterrisse que dans l'un des deux.
+//
+// Deux sorties, et la seconde est celle qui compte : les passages retenus sont collés JUSTE AVANT
+// la question, dans le tour utilisateur — pas dans le prompt système. Mesuré sur le modèle par
+// défaut (230M) : avec les notes dans le système, il refusait « je n'ai pas accès à cette
+// information » alors que le passage sélectionné contenait la réponse (score 0,935). Un petit
+// modèle regarde ce qui est PROCHE du point de génération ; le prompt système, après quelques tours
+// d'historique, est déjà loin. Le système ne garde donc que la CONSIGNE, l'utilisateur porte les
+// notes.
+function makeSystemBuilder(cfg: { system?: string; knowledge?: SessionConfig['knowledge']; knowledgeBudget?: number; examples?: { user: string; assistant: string }[] }): {
+	system: (q: string) => string;
+	/** Le message réellement envoyé au modèle pour ce tour (notes + question). L'historique affiché, lui, garde la question seule. */
+	userTurn: (q: string) => string;
+	/** Tours de démonstration épinglés en tête du prompt (jamais élagués). */
+	pinned: Msg[];
+} {
+	const base = (cfg.system || 'You are a helpful assistant.') + GUARDRAILS;
+	const epingler = (ex: { user: string; assistant: string }[]): Msg[] =>
+		ex.flatMap((e) => [{ role: 'user' as const, content: e.user }, { role: 'assistant' as const, content: e.assistant }]);
+	if (!cfg.knowledge) return { system: () => base, userTurn: (q) => q, pinned: epingler(cfg.examples || []) };
+	const chunks: Chunk[] = chunkDocuments(normalizeDocs(cfg.knowledge));
+	const budget = cfg.knowledgeBudget ?? 1200;
+	const consigne = base +
+		'\n\nThe user message may include reference notes between --- markers. When it does, answer from those notes and quote their figures exactly. When it says no note matches, say you do not have that information.';
+	return {
+		system: () => consigne,
+		userTurn: (q: string) => buildKnowledgeBlock(selectChunks(q, chunks, budget)).trim() + `\n\nQuestion: ${q}`,
+		// Les exemples de connaissance viennent EN PREMIER : ils montrent la mécanique (notes →
+		// réponse), ceux de l'intégrateur montrent ensuite le ton. L'ordre compte pour un petit modèle.
+		pinned: epingler([...knowledgeExamples(), ...(cfg.examples || [])]),
+	};
+}
+
+// Exemples ÉPINGLÉS quand des documents sont fournis. Ce ne sont pas des fioritures : sur le modèle
+// par défaut (230M), la consigne écrite ne suffit pas — mesuré, il refusait « je n'ai pas cette
+// information » alors que le passage contenant la réponse était juste au-dessus. La leçon est déjà
+// dans le moteur (cf. Lfm2Model.classify) : à cette taille, DÉCRIRE le comportement échoue, le
+// MONTRER fonctionne. Deux exemples suffisent, un par cas : la note répond, ou aucune note ne
+// correspond.
+function knowledgeExamples(): { user: string; assistant: string }[] {
+	return [
+		{
+			user: '--- NOTES ---\n[1] Opening hours\nThe workshop is open on Thursday until 8pm.\n--- END OF NOTES ---\n\nQuestion: Are you open on Thursday evening?',
+			assistant: 'Yes — the workshop is open on Thursday until 8pm.',
+		},
+		{
+			user: 'No reference note matches this question.\n\nQuestion: Who won the 1998 World Cup?',
+			assistant: 'I do not have that information in my notes.',
+		},
+	];
+}
+
 // ── API programmatique : sessions sans DOM ──
 export interface BrimkernSession {
   ask(text: string, opts?: AskOptions): Promise<string>;
@@ -223,11 +333,10 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
   const url = resolveModelUrl(cfg.model);
   const maxTokens = cfg.maxTokens || 220;
   const temperature = cfg.temperature ?? 0.55;
-  const system = (cfg.system || 'You are a helpful assistant.') + GUARDRAILS;
-  const pinned: Msg[] = (cfg.examples || []).flatMap((e) => [
-    { role: 'user' as const, content: e.user },
-    { role: 'assistant' as const, content: e.assistant },
-  ]);
+  // Découpage fait UNE FOIS ici (coût en O(taille des documents), aucune raison de le repayer à
+  // chaque question) ; la sélection, elle, dépend de la question.
+  const promptOf = makeSystemBuilder(cfg);
+  const pinned: Msg[] = promptOf.pinned;
   let history: Msg[] = [];
   let busy = false;
   let destroyed = false;
@@ -239,8 +348,11 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
       busy = true;
       history.push({ role: 'user', content: text });
       try {
+        // Le dernier tour part AUGMENTÉ des notes ; `history` (affiché, et réutilisé aux tours
+        // suivants) garde la question seule — sinon les notes s'accumuleraient dans le contexte.
+        const envoye = [...history.slice(0, -1), { role: 'user' as const, content: promptOf.userTurn(text) }];
         const acc = await withDeviceRetry(url, (core) =>
-          runTurn(core, history, system, maxTokens, temperature, opts.onToken, () => !!opts.signal?.aborted, pinned));
+          runTurn(core, envoye, promptOf.system(text), maxTokens, temperature, opts.onToken, () => !!opts.signal?.aborted, pinned));
         if (opts.signal?.aborted) { history.pop(); return ''; } // tour annulé : l'historique reste propre
         history.push({ role: 'assistant', content: acc });
         return acc;
@@ -292,6 +404,7 @@ function safeAccent(accent?: string) {
 }
 
 function mountWidget(cfg: EmbedConfig) {
+  const promptOf = makeSystemBuilder(cfg);
   const accent = safeAccent(cfg.accent);
   const title = cfg.title || 'Assistant';
   const maxTokens = cfg.maxTokens || 220;
@@ -329,7 +442,7 @@ function mountWidget(cfg: EmbedConfig) {
     if (!engaged) {
       engaged = true;
       const s = addBubble('assistant', 'Initialisation…'); s.classList.add('bk-status');
-      getModel(url, (m) => { s.textContent = m; })
+      getModel(url, (m, p) => { s.textContent = p?.total ? `${m} ${Math.round(p.loaded / 1048576)} / ${Math.round(p.total / 1048576)} Mo` : m; })
         .then(() => s.remove())
         .catch((e) => { s.textContent = 'Erreur : ' + (e?.message || e); engaged = false; });
     }
@@ -343,10 +456,10 @@ function mountWidget(cfg: EmbedConfig) {
     const bubble = addBubble('assistant', '…');
     try {
       await ensureModel();
-      const system = (cfg.system || 'You are a helpful assistant.') + GUARDRAILS;
-      let acc = await withDeviceRetry(url, (c) => runTurn(c, history, system, maxTokens, 0.55, (t) => {
+      const envoye = [...history.slice(0, -1), { role: 'user' as const, content: promptOf.userTurn(text) }];
+      let acc = await withDeviceRetry(url, (c) => runTurn(c, envoye, promptOf.system(text), maxTokens, 0.55, (t) => {
         bubble.textContent = t || '…'; msgsEl.scrollTop = msgsEl.scrollHeight;
-      }));
+      }, undefined, promptOf.pinned));
       // Réponse vide (ultra-rare : stop en 1er token) → repli poli plutôt qu'une bulle « (vide) ».
       if (!acc) acc = 'Sorry, I can only answer in plain text here — could you rephrase?';
       bubble.textContent = acc;
@@ -363,30 +476,64 @@ function mountWidget(cfg: EmbedConfig) {
 
 function escapeHtml(s: string) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string)); }
 
-// API globale
-(window as any).Brimkern = {
-  embed: (cfg: EmbedConfig = {}) => { if (document.body) mountWidget(cfg); else window.addEventListener('DOMContentLoaded', () => mountWidget(cfg)); },
+// ── L'API, exportée ET posée sur window ─────────────────────────────────────────────────────────
+// Deux publics, un seul objet :
+//   • la balise <script> (build IIFE) → window.Brimkern.embed({...})
+//   • le paquet npm (build ESM)       → import { embed } from 'brimkern'
+// Les membres sont donc de VRAIS exports nommés. Avant, ils n'existaient que sur `window` : le
+// build ESM ne publiait que des types, donc rien d'utilisable, et le simple fait d'importer le
+// paquet plantait au rendu SERVEUR (« window is not defined ») dans une app Next/Remix/Astro.
+// L'affectation à window est donc conditionnée au navigateur, et l'import est devenu inoffensif.
 
-  // ── API programmatique (sans DOM) ──
-  createSession,
-
-  // One-shot : une question, une réponse, pas d'historique conservé.
-  generate: async (opts: SessionConfig & { prompt: string; onToken?: (t: string) => void; signal?: AbortSignal }): Promise<string> => {
-    const session = createSession(opts);
-    return session.ask(opts.prompt, { onToken: opts.onToken, signal: opts.signal });
-  },
-
-  // Précharge moteur + modèle (progression structurée). À appeler au chargement de la page hôte.
-  preload: (opts: { model?: string; onProgress?: (status: string) => void } = {}): Promise<boolean> =>
-    typeof navigator !== 'undefined' && 'gpu' in navigator
-      ? getModel(resolveModelUrl(opts.model), opts.onProgress).then(() => true).catch(() => false)
-      : Promise.resolve(false),
-
-  // État du modèle : 'unavailable' (pas de WebGPU), 'idle' (pas encore demandé — ou device perdu, la
-  // prochaine demande recharge), 'loading', 'ready', 'error'.
-  status: (model?: string): 'unavailable' | 'idle' | 'loading' | 'ready' | 'error' => {
-    if (typeof navigator === 'undefined' || !('gpu' in navigator)) return 'unavailable';
-    const e = models.get(resolveModelUrl(model));
-    return e ? e.state : 'idle';
-  },
+/** Monte le widget de chat (DOM). Attend le document s'il n'est pas encore prêt. */
+export const embed = (cfg: EmbedConfig = {}): void => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    console.warn('[brimkern] embed() ignoré : aucun DOM (rendu serveur ?). Appelez-le dans un effet client.');
+    return;
+  }
+  if (document.body) mountWidget(cfg);
+  else window.addEventListener('DOMContentLoaded', () => mountWidget(cfg));
 };
+
+export { createSession };
+
+/** One-shot : une question, une réponse, pas d'historique conservé. */
+export const generate = async (opts: SessionConfig & { prompt: string; onToken?: (t: string) => void; signal?: AbortSignal }): Promise<string> => {
+  // L'API prend UN objet. Appelée à tort comme `generate('question', { model })` — l'erreur la
+  // plus naturelle du monde — elle recevait la chaîne en guise d'options : `prompt` valait
+  // `undefined`, le modèle répondait littéralement à « undefined » et l'option `model` était
+  // ignorée en silence. Une signature qu'on peut mal appeler doit le DIRE, pas deviner.
+  if (typeof opts !== 'object' || opts === null || typeof opts.prompt !== 'string') {
+    throw new TypeError(
+      'Brimkern.generate expects a single object: generate({ prompt: "…", model?, system? }). ' +
+      `Received ${typeof opts}${typeof opts === 'object' && opts ? ' without a `prompt` string' : ''}.`,
+    );
+  }
+  const session = createSession(opts);
+  return session.ask(opts.prompt, { onToken: opts.onToken, signal: opts.signal });
+};
+
+/**
+ * Précharge moteur + modèle. onProgress reçoit la phase ET, pendant le téléchargement, les octets :
+ * (status, {loaded, total}) — l'intégrateur peut afficher une vraie barre.
+ */
+export const preload = (opts: { model?: string; onProgress?: (status: string, progress?: LoadProgress) => void } = {}): Promise<boolean> =>
+  typeof navigator !== 'undefined' && 'gpu' in navigator
+    ? getModel(resolveModelUrl(opts.model), opts.onProgress).then(() => true).catch(() => false)
+    : Promise.resolve(false);
+
+/**
+ * État du modèle : 'unavailable' (pas de WebGPU), 'idle' (pas encore demandé — ou device perdu, la
+ * prochaine demande recharge), 'loading', 'ready', 'error'.
+ */
+export const status = (model?: string): 'unavailable' | 'idle' | 'loading' | 'ready' | 'error' => {
+  if (typeof navigator === 'undefined' || !('gpu' in navigator)) return 'unavailable';
+  const e = models.get(resolveModelUrl(model));
+  return e ? e.state : 'idle';
+};
+
+// La surface globale de la balise <script>. Conditionnée : importer le paquet côté serveur ne doit
+// RIEN faire, pas planter.
+if (typeof window !== 'undefined') {
+  (window as any).Brimkern = { embed, createSession, generate, preload, status };
+}

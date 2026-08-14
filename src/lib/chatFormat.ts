@@ -68,7 +68,9 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
   // Qwen3 : même template ChatML que Qwen2 ; le raisonnement (<think>) est natif — le budget de
   // réflexion de la page (préfixe vide pour 'off', clôture forcée au budget) s'applique tel quel.
   // LFM2/LFM2.5 : ChatML identique (le BOS <|startoftext|> est ajouté par le tokenizer à l'encode).
-  if (archType === 'qwen' || archType === 'qwen3' || archType === 'lfm2') {
+  // SmolLM3 : ChatML aussi (<|im_start|>/<|im_end|>) ; l'arrêt passe par le marqueur textuel
+  // <|im_end|> de TURN_MARKERS — son id dépend du vocab, on ne le code pas en dur.
+  if (archType === 'qwen' || archType === 'qwen3' || archType === 'lfm2' || archType === 'smollm3') {
     if (systemText.trim()) {
       formatted += `<|im_start|>system\n${systemText}<|im_end|>\n`;
     }
@@ -94,7 +96,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       if (msg.role === 'user') formatted += `[INST]${msg.content}[/INST]`;
       else if (msg.role === 'assistant') formatted += `${msg.content}</s>`;
     }
-  } else if (archType === 'gemma') {
+  } else if (archType === 'gemma' || archType === 'gemma3') {
     if (systemText.trim()) {
       formatted += `<start_of_turn>model\n${systemText}<end_of_turn>\n`;
     }
@@ -107,15 +109,51 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
   return formatted;
 }
 
-// True when generation should stop: an architecture-specific EOS/turn id, or any control marker in
-// the recent decoded tail (`includes`, to catch markers the tokenizer didn't flag special).
-export function isStopToken(tokenId: number, text: string, archType: ArchType): boolean {
+// Le template de cette arch écrit-il LUI-MÊME le token de début de séquence ?
+//   llama3   → « <|begin_of_text|> »   mistral3 → « <s> »
+// Les autres (ChatML : qwen, qwen3, lfm2, smollm3 ; Gemma : <start_of_turn>) n'en écrivent pas et
+// comptent sur le tokenizer pour l'ajouter à l'encodage.
+//
+// ⚠️ C'est ce qui décide de `add_special_tokens` à la tokenisation, et ce n'est pas cosmétique :
+// tokeniser un prompt llama3 avec l'ajout automatique produisait « 128000, 128000, … » — un BOS
+// DOUBLÉ. Llama 3 est très sensible à son premier token : la sortie devenait du charabia (mesuré
+// 2026-08-13 sur Llama 3.2 1B, symptôme identique à des poids corrompus, d'où le temps perdu à
+// soupçonner la dé-permutation Q/K et les kernels). Même piège pour Ministral 3 avec « <s> ».
+export function templateWritesBos(archType: ArchType): boolean {
+  return archType === 'llama3' || archType === 'mistral3';
+}
+
+// Les ids d'arrêt DÉCLARÉS PAR LE FICHIER lui-même (GGUF : tokenizer.ggml.eos_token_id, et l'id de
+// fin de tour du template quand il en désigne un). C'est la source la plus fiable, et elle évite une
+// classe entière de bugs : la table par architecture ci-dessous doit être complétée à la main pour
+// CHAQUE nouvelle famille, et l'oublier ne casse rien de visible au chargement — le modèle répond,
+// puis continue tout seul en inventant le tour suivant (« The capital of France is Paris. user Can
+// you tell me… », observé sur SmolLM3 3B, dont l'arch n'avait pas d'entrée ici).
+// `skip_special_tokens` masque les marqueurs au détokenizeur, donc le repli textuel (TURN_MARKERS)
+// ne les voit pas non plus : sans id, rien n'arrête la génération.
+export function declaredStopIds(metadata: Record<string, unknown> | undefined): number[] {
+  const ids = new Set<number>();
+  for (const key of ['tokenizer.ggml.eos_token_id', 'tokenizer.ggml.eot_token_id', 'tokenizer.ggml.eom_token_id']) {
+    const v = metadata?.[key];
+    const n = typeof v === 'number' ? v : Number(v);
+    if (Number.isFinite(n) && n >= 0) ids.add(n);
+  }
+  return [...ids];
+}
+
+// True when generation should stop: an id declared by the model file, an architecture-specific
+// EOS/turn id, or any control marker in the recent decoded tail (`includes`, to catch markers the
+// tokenizer didn't flag special).
+export function isStopToken(tokenId: number, text: string, archType: ArchType, declaredIds?: number[]): boolean {
+  if (declaredIds?.includes(tokenId)) return true;
   // Llama 3.x : <|eot_id|> (fin de tour), <|end_of_text|>, <|eom_id|> (fin de message outillé).
   if ((tokenId === 128009 || tokenId === 128001 || tokenId === 128008) && archType === 'llama3') return true;
   // Ministral 3 (Tekken) : </s> = id 2.
   if (tokenId === 2 && archType === 'mistral3') return true;
-  if (tokenId === 1 && archType === 'gemma') return true;
+  if (tokenId === 1 && (archType === 'gemma' || archType === 'gemma3')) return true;
   if (tokenId === 107 && archType === 'gemma') return true;
+  // Gemma 3 : nouveau vocab 262k — <end_of_turn> = 106 (et non 107 comme Gemma 1/2).
+  if (tokenId === 106 && archType === 'gemma3') return true;
   if (tokenId === 151645 && (archType === 'qwen' || archType === 'qwen3')) return true;
   if (tokenId === 151643 && (archType === 'qwen' || archType === 'qwen3')) return true;
   // LFM2/LFM2.5 : <|im_end|> = 7, <|endoftext|> = 2 (vocab 65536, ids ChatML propres au modèle).

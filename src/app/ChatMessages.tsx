@@ -25,6 +25,12 @@ interface Props {
   // « Affiner » : reprend le prompt ET la seed d'une image générée dans le composer — préciser le
   // texte en gardant la même composition (même bruit initial). Absent → bouton masqué.
   onRefineImage?: (prompt: string, seed: number, url?: string) => void;
+  // Réponse coupée au plafond de tokens : bouton « Continuer ». Absent → la note s'affiche sans bouton.
+  onContinue?: () => void;
+  // Vrai quand la génération tourne : on masque le bouton pendant ce temps.
+  busy?: boolean;
+  // Affiche le bloc de raisonnement des modèles qui en émettent (réglage, faux par défaut).
+  showReasoning?: boolean;
 }
 
 interface ItemProps {
@@ -36,6 +42,9 @@ interface ItemProps {
   copyToClipboard: (text: string, index: number) => void;
   onRevealImage?: (id: string, prompt?: string, seed?: number) => void;
   onRefineImage?: (prompt: string, seed: number, url?: string) => void;
+  onContinue?: () => void;
+  busy?: boolean;
+  showReasoning?: boolean;
 }
 
 // One bubble, MEMOIZED on the message object's identity: during streaming, setMessages only creates
@@ -43,7 +52,7 @@ interface ItemProps {
 // only ONE bubble re-renders/re-parses its markdown instead of the whole list (the mobile jank).
 // Function props are deliberately excluded from the comparison (recreated per parent render but
 // semantically stable).
-const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, canReveal, copyToClipboard, onRevealImage, onRefineImage }: ItemProps) {
+const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, canReveal, copyToClipboard, onRevealImage, onRefineImage, onContinue, busy, showReasoning }: ItemProps) {
   // Locale comes from context, which bypasses the memo comparison — a language switch still re-renders.
   const t = useT();
   return (
@@ -102,7 +111,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                     </span>
                   </button>)
               : msg.content
-              ? renderMessageContent(msg.content)
+              ? renderMessageContent(msg.content, showReasoning)
               : null}
             {/* « Affiner » : reprend prompt + seed dans le composer — préciser le texte en gardant
                 la même composition (même bruit initial). Visible sous toute image générée. */}
@@ -126,6 +135,20 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
             )}
           </div>
         </div>
+
+        {/* Réponse coupée au PLAFOND de tokens (et non sur une fin de phrase du modèle) : on le dit
+            et on propose de reprendre. Avant, le texte s'arrêtait au milieu d'une phrase sans aucune
+            explication — l'utilisateur en concluait que la génération avait planté. */}
+        {msg.truncated && msg.role === 'assistant' && !showTyping && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>
+            <span>{t('Reply cut off at the token budget.', 'Réponse coupée au budget de tokens.')}</span>
+            {onContinue && (
+              <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={onContinue} disabled={busy}>
+                {t('Continue', 'Continuer')}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Timing statistics */}
         {msg.timings && msg.role === 'assistant' && (
@@ -157,7 +180,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
   a.canReveal === b.canReveal && a.index === b.index
 );
 
-export function ChatMessages({ messages, modelState, copiedIndex, copyToClipboard, messagesEndRef, onRevealImage, canReveal, onRefineImage }: Props) {
+export function ChatMessages({ messages, modelState, copiedIndex, copyToClipboard, messagesEndRef, onRevealImage, canReveal, onRefineImage, onContinue, busy, showReasoning }: Props) {
   return (
     <>
       {/* List of messages */}
@@ -172,6 +195,9 @@ export function ChatMessages({ messages, modelState, copiedIndex, copyToClipboar
           copyToClipboard={copyToClipboard}
           onRevealImage={onRevealImage}
           onRefineImage={onRefineImage}
+          onContinue={onContinue}
+          busy={busy}
+          showReasoning={showReasoning}
         />
       ))}
 

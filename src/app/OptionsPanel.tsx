@@ -26,6 +26,8 @@ interface Props {
   setLocalToolsOn: (on: boolean) => void;
   urlReadOn: boolean;
   setUrlReadOn: (on: boolean) => void;
+  showReasoning: boolean;
+  setShowReasoning: (on: boolean) => void;
 }
 
 // Une option à cocher, avec le cadre accentué quand elle est active.
@@ -48,7 +50,7 @@ function Check({ checked, onChange, title, desc }: { checked: boolean; onChange:
   );
 }
 
-export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, webSearchOn, setWebSearchOn, localToolsOn, setLocalToolsOn, urlReadOn, setUrlReadOn }: Props) {
+export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, webSearchOn, setWebSearchOn, localToolsOn, setLocalToolsOn, urlReadOn, setUrlReadOn, showReasoning, setShowReasoning }: Props) {
   const t = useT();
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -110,6 +112,12 @@ export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, webSearchOn
             onChange={setWebSearchOn}
             title={t('🌐 Web search (Wikipedia)', '🌐 Recherche web (Wikipédia)')}
             desc={<>{t('The model draws on Wikipedia excerpts and cites its sources. ', 'Le modèle s’appuie sur des extraits Wikipédia et cite ses sources. ')}<strong>{t('Only your question is sent', 'Seule votre question est envoyée')}</strong>{t(' to Wikipedia — never the conversation or your documents. Flagged under each affected reply, and a little slower (longer context).', ' à Wikipédia — jamais la conversation ni vos documents. Signalé sous chaque réponse concernée, et un peu plus lent (contexte plus long).')}</>}
+          />
+          <Check
+            checked={showReasoning}
+            onChange={setShowReasoning}
+            title={t('🧠 Show the reasoning', '🧠 Afficher le raisonnement')}
+            desc={<>{t('Reasoning models (DeepSeek-R1, Qwen3) think before answering. That reasoning is ', 'Les modèles de raisonnement (DeepSeek-R1, Qwen3) réfléchissent avant de répondre. Ce raisonnement est ')}<strong>{t('hidden by default', 'masqué par défaut')}</strong>{t(' — the answer is what you asked for. Enable this to read it.', ' — c’est la réponse qui vous intéresse. Activez ceci pour le lire.')}</>}
           />
           <Check
             checked={urlReadOn}

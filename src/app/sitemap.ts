@@ -1,13 +1,28 @@
 import type { MetadataRoute } from 'next';
 
 // SEO : sitemap. Pages PRODUIT uniquement — le labo /video-test (beta) est volontairement exclu.
-const SITE = 'https://brimkern.romainkhanoyan.fr';
+import { SITE_URL as SITE } from '@/lib/site';
+
+// Les DEUX langues, chacune déclarant ses alternates : c'est ce qui dit au moteur que /x et /fr/x sont
+// la même page en deux langues (et non deux contenus concurrents).
+const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
+  { path: '', freq: 'weekly', prio: 1 },
+  { path: '/chat', freq: 'weekly', prio: 0.95 },     // l'application, sur son adresse stable
+  { path: '/docs', freq: 'weekly', prio: 0.9 },      // documentation unique (tout y renvoie)
+  { path: '/local-ai', freq: 'monthly', prio: 0.8 }, // SDK / offre pro
+  { path: '/convert', freq: 'monthly', prio: 0.6 },  // convertisseur GGUF→BRIK
+  { path: '/changelog', freq: 'weekly', prio: 0.5 },
+];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [
-    { url: `${SITE}/`, changeFrequency: 'weekly', priority: 1 },
-    { url: `${SITE}/local-ai`, changeFrequency: 'monthly', priority: 0.8 }, // SDK / offre pro
-    { url: `${SITE}/convert`, changeFrequency: 'monthly', priority: 0.6 },  // convertisseur GGUF→BRIK
-    { url: `${SITE}/changelog`, changeFrequency: 'weekly', priority: 0.5 },
-  ];
+  return PAGES.flatMap(({ path, freq, prio }) => {
+    const en = `${SITE}${path || '/'}`;
+    const fr = `${SITE}/fr${path}`;
+    const languages = { en, fr };
+    return [
+      { url: en, changeFrequency: freq, priority: prio, alternates: { languages } },
+      // La version traduite pèse un cran de moins : l'anglais est la version canonique.
+      { url: fr, changeFrequency: freq, priority: Math.max(0.1, prio - 0.1), alternates: { languages } },
+    ];
+  });
 }

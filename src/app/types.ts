@@ -17,6 +17,11 @@ export interface Message {
     total_time_ms: number;
   };
   isError?: boolean;
+  // La génération s'est arrêtée sur le PLAFOND de tokens, pas sur une fin de phrase du modèle
+  // (256 sur mobile, 512 au bureau). Sans ce marqueur, l'utilisateur voyait une réponse coupée en
+  // plein milieu sans savoir pourquoi ni comment la reprendre (retour Romain 2026-08-13) : la bulle
+  // affiche donc une note et un bouton « Continuer ».
+  truncated?: boolean;
   // Image-generation result (text→image models). When set, the bubble renders the image instead of
   // markdown text. `url` = full PNG (in memory; absent after reload → show the blurred `thumb` with a
   // click-to-reveal that regenerates from `prompt`+`seed`). Only thumb/prompt/seed/w/h are persisted.

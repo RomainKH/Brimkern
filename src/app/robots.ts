@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 
-// SEO : robots.txt généré. Hébergé sur brimkern.romainkhanoyan.fr (sous-domaine de romainkhanoyan.fr) (cf. metadataBase du layout).
-const SITE = 'https://brimkern.romainkhanoyan.fr';
+// SEO : robots.txt généré. Domaine unique dans src/lib/site.ts (cf. metadataBase du layout).
+import { SITE_URL as SITE } from '@/lib/site';
 
 export default function robots(): MetadataRoute.Robots {
   return {

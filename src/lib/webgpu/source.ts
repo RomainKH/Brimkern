@@ -6,7 +6,9 @@
 // in the Cache API so repeat loads are instant and offline-capable. Falls back to a single full
 // download if the host doesn't honour Range requests.
 
-import { coalescedSpan, type TensorSource } from './model';
+import { coalescedSpan } from './layerSpans';
+import { type TensorSource } from './model';
+import { parseGguf } from './ggufParser';
 import { parseBrik, parseBrikHeader } from '../brik/container';
 import { brikToGgufManifest, computeShardBases, type GgufManifest } from '../brik/loader';
 import type { BrikManifest, BrikTensorEntry } from '../brik/format';
@@ -222,6 +224,55 @@ export async function imageBrikCacheComplete(url: string): Promise<boolean> {
 	}
 }
 
+// ── GGUF STREAMÉ (mêmes plages que le BRIK) ───────────────────────────────────────────────────
+// Un GGUF distant se chargeait en UN SEUL téléchargement monolithique : tous les octets en RAM,
+// puis un Blob de plusieurs centaines de Mo posé dans le Cache API. Au-delà de ~770 Mo, Chrome
+// refuse l'écriture (quota) ET le stockage blob de l'origine part avec — le Blob rendu devient
+// illisible et le chargement meurt sur « NotReadableError ». D'où : Llama 3.2 1B, DeepSeek 1.5B,
+// Qwen 2.5 1.5B et Ministral 3 inutilisables, et les presets ~1 Go (Falcon 3, Granite) bloqués.
+// Le format GGUF n'y est pour rien : les offsets des tenseurs sont ABSOLUS dans le fichier, donc la
+// même infra de plages que le BRIK marche telle quelle — aucun gros Blob, reprise après coupure,
+// hors-ligne réel, et le chargement démarre dès l'en-tête lu.
+// `null` = pas de Range côté hôte → l'appelant retombe sur le téléchargement complet.
+export interface GgufStream { manifest: GgufManifest; source: TensorSource }
+export async function loadGgufStream(url: string, signal?: AbortSignal): Promise<GgufStream | null> {
+	// Fichier DÉJÀ téléchargé en entier par l'ancien chemin (bucket plein-fichier) : on le laisse
+	// servir. Repasser en plages re-téléchargerait tout et occuperait le disque en double, alors que
+	// cette copie-là a forcément tenu sous le quota (elle est en cache) et se chargeait déjà bien.
+	if (await ggufFullCached(url)) return null;
+	const probe = await fetchRange(url, 0, 12, signal);
+	if (!probe.ranged) return null;
+	return { manifest: await parseGgufHeaderRanged(url, signal), source: rangeSource(url, 0) };
+}
+
+// Une copie plein-fichier de ce GGUF est-elle en cache ? (ancien chemin monolithique.)
+export async function ggufFullCached(url: string): Promise<boolean> {
+	try {
+		const c = await caches.open(FULL_CACHE);
+		return !!(await c.match(url));
+	} catch {
+		return false;
+	}
+}
+
+// En-tête GGUF par plages : sa taille n'est pas connue d'avance (le vocabulaire du tokenizer y est
+// EMBARQUÉ — plusieurs Mo pour un vocab de 131k), donc on lit 8 Mo puis on double jusqu'à 128 Mo.
+// parseGguf ne touche qu'à l'en-tête : un Blob partiel suffit (même ruse que le chargeur mmproj).
+async function parseGgufHeaderRanged(url: string, signal?: AbortSignal): Promise<GgufManifest> {
+	const src = rangeSource(url, 0);
+	let lastErr: unknown;
+	for (let size = 8 * 1024 * 1024; size <= 128 * 1024 * 1024; size *= 2) {
+		try {
+			const head = await src.bytes(0, size);
+			return await parseGguf(new Blob([head.slice() as unknown as BlobPart])) as unknown as GgufManifest;
+		} catch (e) {
+			if (signal?.aborted) throw e;
+			lastErr = e;
+		}
+	}
+	throw lastErr instanceof Error ? lastErr : new Error('en-tête GGUF illisible par plages');
+}
+
 export interface PrefetchProgress { doneBytes: number; totalBytes: number }
 
 // Plan des plages que le loader streamé demandera, offsets ABSOLUS dans le fichier (rangeSource
@@ -238,8 +289,13 @@ async function planBrikRanges(url: string, signal?: AbortSignal): Promise<{ cach
 	const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
 	const header = await fetchRange(url, 0, 12 + manifestLen, signal);
 	const { manifest, dataStart } = parseBrikHeader(header.bytes);
-	const gg = brikToGgufManifest(manifest);
+	return { cache, ranges: planTensorRanges(brikToGgufManifest(manifest), dataStart) };
+}
 
+// Plan des plages depuis un manifeste de forme GGUF, en offsets ABSOLUS. Partagé par le BRIK
+// (base = dataStart) et le GGUF brut (base = 0, ses offsets sont déjà absolus) : un seul endroit où
+// vit la règle « un span par couche, les tenseurs hors couche à l'unité ».
+function planTensorRanges(gg: GgufManifest, base: number): { off: number; len: number }[] {
 	const byLayer = new Map<string, { offset: number; bytes: number }[]>();
 	const ranges: { off: number; len: number }[] = [];
 	for (const [name, t] of Object.entries(gg.tensors)) {
@@ -249,15 +305,25 @@ async function planBrikRanges(url: string, signal?: AbortSignal): Promise<{ cach
 			if (!g) byLayer.set(m[1], (g = []));
 			g.push(t);
 		} else {
-			ranges.push({ off: dataStart + t.offset, len: t.bytes });
+			ranges.push({ off: base + t.offset, len: t.bytes });
 		}
 	}
 	for (const group of byLayer.values()) {
 		const s = coalescedSpan(group);
-		if (s) ranges.push({ off: dataStart + s.start, len: s.end - s.start });
-		else for (const t of group) ranges.push({ off: dataStart + t.offset, len: t.bytes });
+		if (s) ranges.push({ off: base + s.start, len: s.end - s.start });
+		else for (const t of group) ranges.push({ off: base + t.offset, len: t.bytes });
 	}
-	return { cache, ranges };
+	return ranges;
+}
+
+// Même plan pour un GGUF distant. L'en-tête (lu par plages, donc servi du cache aux ouvertures
+// suivantes) donne les offsets absolus des tenseurs.
+async function planGgufRanges(url: string, signal?: AbortSignal): Promise<{ cache: NonNullable<Awaited<ReturnType<typeof openCache>>>; ranges: { off: number; len: number }[] } | null> {
+	const cache = await openCache();
+	if (!cache) return null;
+	const probe = await fetchRange(url, 0, 12, signal);
+	if (!probe.ranged) return null;
+	return { cache, ranges: planTensorRanges(await parseGgufHeaderRanged(url, signal), 0) };
 }
 
 // Le fichier est-il INTÉGRALEMENT en cache ? (aucun téléchargement — que des cache.match, plus les
@@ -268,10 +334,10 @@ export async function brikCacheComplete(url: string): Promise<boolean> {
 	try {
 		const plan = await planBrikRanges(url);
 		if (!plan) return false;
-		for (const r of plan.ranges) {
-			if (!(await plan.cache.match(rangeKey(url, r.off, r.off + r.len - 1)))) return false;
-		}
-		return true;
+		// cache.match en parallèle : en série, ~25 lookups ajoutaient ~1 s de latence à chaque
+		// ouverture avant même de décider quoi que ce soit.
+		const hits = await Promise.all(plan.ranges.map((r) => plan.cache.match(rangeKey(url, r.off, r.off + r.len - 1))));
+		return hits.every(Boolean);
 	} catch {
 		return false; // hors-ligne sans en-tête caché, etc. → pas d'auto-chargement, jamais d'erreur
 	}
@@ -282,34 +348,74 @@ export async function prefetchBrik(
 	onProgress?: (p: PrefetchProgress) => void,
 	signal?: AbortSignal,
 ): Promise<'done' | 'aborted' | 'unstorable'> {
-	const plan = await planBrikRanges(url, signal);
+	return prefetchPlanned(url, await planBrikRanges(url, signal), onProgress, signal);
+}
+
+// Préchargement d'un GGUF distant : mêmes spans, même parallélisme, même reprise que le BRIK.
+export async function prefetchGguf(
+	url: string,
+	onProgress?: (p: PrefetchProgress) => void,
+	signal?: AbortSignal,
+): Promise<'done' | 'aborted' | 'unstorable'> {
+	return prefetchPlanned(url, await planGgufRanges(url, signal), onProgress, signal);
+}
+
+// Le GGUF est-il INTÉGRALEMENT en cache ? (que des cache.match — miroir de brikCacheComplete.)
+export async function ggufCacheComplete(url: string): Promise<boolean> {
+	try {
+		const plan = await planGgufRanges(url);
+		if (!plan) return false;
+		const hits = await Promise.all(plan.ranges.map((r) => plan.cache.match(rangeKey(url, r.off, r.off + r.len - 1))));
+		return hits.every(Boolean);
+	} catch {
+		return false;
+	}
+}
+
+async function prefetchPlanned(
+	url: string,
+	plan: { cache: NonNullable<Awaited<ReturnType<typeof openCache>>>; ranges: { off: number; len: number }[] } | null,
+	onProgress?: (p: PrefetchProgress) => void,
+	signal?: AbortSignal,
+): Promise<'done' | 'aborted' | 'unstorable'> {
 	if (!plan) return 'unstorable';
 	const { cache, ranges } = plan;
 	ranges.sort((a, b) => a.off - b.off); // ordre du fichier ≈ ordre de lecture du loader
 
 	// Recensement : ce qui est déjà en cache compte comme fait (reprise après onglet fermé/annulation).
+	// Lookups en parallèle — en série ils coûtaient ~1 s à vide avant le premier octet téléchargé.
 	const totalBytes = ranges.reduce((a, r) => a + r.len, 0);
+	const cachedHits = await Promise.all(ranges.map((r) => cache.match(rangeKey(url, r.off, r.off + r.len - 1))));
 	let doneBytes = 0;
 	const missing: { off: number; len: number }[] = [];
-	for (const r of ranges) {
-		if (await cache.match(rangeKey(url, r.off, r.off + r.len - 1))) doneBytes += r.len;
-		else missing.push(r);
-	}
+	ranges.forEach((r, i) => { if (cachedHits[i]) doneBytes += r.len; else missing.push(r); });
 	onProgress?.({ doneBytes, totalBytes });
 
-	for (const r of missing) {
-		if (signal?.aborted) return 'aborted';
-		try {
-			await fetchRange(url, r.off, r.len, signal);
-		} catch (e) {
-			if (signal?.aborted) return 'aborted';
-			throw e;
+	// Téléchargement parallèle (4 plages en vol) : en série, ~25 spans de 10-20 Mo ne saturaient
+	// jamais une bonne connexion. Un drapeau partagé arrête les autres ouvriers dès qu'une plage
+	// est instockable (quota) ou en échec — inutile de continuer à télécharger dans le vide.
+	let next = 0, unstorable = false, failed: unknown = null;
+	const worker = async () => {
+		while (!unstorable && failed === null) {
+			const i = next++;
+			if (i >= missing.length) return;
+			const r = missing[i];
+			if (signal?.aborted) return;
+			try {
+				await fetchRange(url, r.off, r.len, signal);
+			} catch (e) {
+				failed = e;
+				return;
+			}
+			// fetchRange avale les échecs de cache.put (quota) — vérifier que la plage est bien stockée.
+			if (!(await cache.match(rangeKey(url, r.off, r.off + r.len - 1)))) { unstorable = true; return; }
+			doneBytes += r.len;
+			onProgress?.({ doneBytes, totalBytes });
 		}
-		// fetchRange avale les échecs de cache.put (quota) — vérifier que la plage est bien stockée,
-		// sinon on téléchargerait tout le fichier dans le vide.
-		if (!(await cache.match(rangeKey(url, r.off, r.off + r.len - 1)))) return 'unstorable';
-		doneBytes += r.len;
-		onProgress?.({ doneBytes, totalBytes });
-	}
+	};
+	await Promise.all(Array.from({ length: Math.min(4, missing.length) }, worker));
+	if (signal?.aborted) return 'aborted';
+	if (failed !== null) throw failed instanceof Error ? failed : new Error(String(failed));
+	if (unstorable) return 'unstorable';
 	return 'done';
 }

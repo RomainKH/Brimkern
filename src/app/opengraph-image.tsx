@@ -1,8 +1,14 @@
 import { ImageResponse } from 'next/og';
 
-// Dynamic 1200×630 social-share card (no static PNG needed). Next wires it to og:image
-// (and twitter:image) automatically.
-export const alt = 'Brimkern — Inférence LLM accélérée par WebGPU, 100% dans le navigateur';
+// Carte de partage 1200×630, générée (aucun PNG statique à maintenir). Next la câble sur og:image et
+// twitter:image automatiquement.
+//
+// EN ANGLAIS depuis le 2026-08-13 : elle était en français alors que l'anglais est la version
+// canonique du site et que les partages viennent surtout de Hugging Face, Reddit et X. La version
+// française vit désormais dans src/app/fr/opengraph-image.tsx, servie pour les routes /fr.
+// La promesse reprend MOT POUR MOT celle de la landing : l'aperçu et la page doivent dire la même
+// chose, sinon le clic est déçu à l'arrivée.
+export const alt = 'Brimkern — run any Hugging Face GGUF in your browser, on your own GPU';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -22,22 +28,25 @@ export default function OpengraphImage() {
           color: '#1a1a1a',
         }}
       >
-        <div style={{ display: 'flex', fontSize: 120, fontWeight: 800, letterSpacing: '-4px', color: '#1a1a1a' }}>
+        <div style={{ display: 'flex', fontSize: 110, fontWeight: 800, letterSpacing: '-4px', color: '#1a1a1a' }}>
           Brim<span style={{ color: '#c72c1e' }}>kern</span>
         </div>
-        <div style={{ display: 'flex', fontSize: 42, marginTop: 12, color: '#1a1a1a', fontWeight: 600 }}>
-          Des LLM dans votre navigateur.
+        <div style={{ display: 'flex', fontSize: 44, marginTop: 10, color: '#1a1a1a', fontWeight: 600 }}>
+          Any model on the Hub.
         </div>
-        <div style={{ display: 'flex', fontSize: 30, marginTop: 8, color: '#52504a' }}>
-          Inférence accélérée par WebGPU · 100% local & privé · GGUF
+        <div style={{ display: 'flex', fontSize: 44, color: '#c72c1e', fontWeight: 600 }}>
+          Running in your browser.
         </div>
-        <div style={{ display: 'flex', marginTop: 40, gap: 12 }}>
-          {['WebGPU', 'WGSL', 'int4 / f16', 'GGUF'].map((t) => (
+        <div style={{ display: 'flex', fontSize: 27, marginTop: 14, color: '#52504a' }}>
+          Single-file GGUF, straight from Hugging Face · no server, no API key
+        </div>
+        <div style={{ display: 'flex', marginTop: 36, gap: 12 }}>
+          {['WebGPU', 'hand-written WGSL', '.brik streaming', '100% local'].map((t) => (
             <div
               key={t}
               style={{
                 display: 'flex',
-                fontSize: 24,
+                fontSize: 22,
                 color: '#c72c1e',
                 border: '2px solid #c72c1e',
                 background: '#ffffff',

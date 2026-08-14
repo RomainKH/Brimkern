@@ -6,11 +6,15 @@
 
 import Link from 'next/link';
 import { Zap, ShieldCheck, ServerOff, MessageSquareText, WifiOff, Cpu, ArrowRight } from 'lucide-react';
-import { useLocale, useT } from '@/lib/i18n';
+import { useLocale, useT, useHref } from '@/lib/i18n';
+import ByLine from '../ByLine';
+import BackLink from '../BackLink';
 import LocalAiDemo from './LocalAiDemo';
 
 export default function LocalAiClient() {
   const t = useT();
+  // Liens internes préfixés par la locale (voir useHref) : rester dans sa langue en naviguant.
+  const href = useHref();
   const { locale, setLocale } = useLocale();
 
   const args = [
@@ -67,12 +71,10 @@ export default function LocalAiClient() {
   ];
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto', padding: '48px 24px 80px' }}>
+    <main style={{ maxWidth: 860, margin: '0 auto', padding: '48px 24px 80px' }}>
       {/* Barre haut : retour + toggle langue (même patron que /changelog) */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <Link href="/" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>
-          ← Brimkern
-        </Link>
+        <BackLink />
         <button
           onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
           style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}
@@ -103,7 +105,7 @@ export default function LocalAiClient() {
           >
             {t('Try it live', 'Essayer en live')} <ArrowRight size={15} />
           </a>
-          <Link href="/changelog" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
+          <Link href={href('/changelog')} className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
             {t('See what it runs', 'Voir ce qu’il fait tourner')}
           </Link>
         </div>
@@ -115,7 +117,9 @@ export default function LocalAiClient() {
           <div key={title} className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Icon size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>{title}</h3>
+              {/* h2 (pas h3) : ces cartes viennent juste après le <h1>, sauter un niveau casse la
+                  navigation par titres des lecteurs d'écran (axe heading-order). */}
+              <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>{title}</h2>
             </div>
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: 0 }}>{body}</p>
           </div>
@@ -148,7 +152,7 @@ export default function LocalAiClient() {
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {useCases.map((u) => (
-          <span key={u} style={{ fontSize: 13, fontWeight: 600, padding: '6px 12px', borderRadius: 999, background: 'var(--accent-bg-rgba)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)' }}>{u}</span>
+          <span key={u} className="badge-accent" style={{ fontSize: 13, fontWeight: 600, padding: '6px 12px', borderRadius: 999 }}>{u}</span>
         ))}
       </div>
 
@@ -160,8 +164,10 @@ export default function LocalAiClient() {
         {t('The SDK is live. One script tag mounts the assistant; a prompt shapes it. The model only downloads when a visitor opens the widget — your page score is untouched.',
           'Le SDK est disponible. Une balise script monte l’assistant ; un prompt le façonne. Le modèle ne se télécharge que quand un visiteur ouvre le widget — le score de votre page reste intact.')}
       </p>
-      <pre className="card" style={{ padding: 18, margin: 0, overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)' }}>
-{`<script src="https://brimkern.romainkhanoyan.fr/sdk.js"></script>
+      {/* tabIndex/role : une zone qui DÉFILE doit être atteignable au clavier (axe
+          scrollable-region-focusable) — sinon le snippet est illisible sans souris sur mobile. */}
+      <pre tabIndex={0} role="group" aria-label={t('SDK integration snippet', "Extrait de code d'intégration du SDK")} className="card" style={{ padding: 18, margin: 0, overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)' }}>
+{`<script src="https://brimkern.com/sdk.js"></script>
 <script>
   Brimkern.embed({
     system: ${locale === 'fr' ? "'Tu es l’assistant de support d’Acme, amical et concis.'" : "'You are a friendly, concise support assistant for Acme.'"},
@@ -169,12 +175,12 @@ export default function LocalAiClient() {
 </script>`}
       </pre>
       <p style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 0', flexWrap: 'wrap' }}>
-        <a href="/sdk-demo.html" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
+        <a href="/sdk-demo" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
           {t('See a live integration', 'Voir une intégration live')} <ArrowRight size={15} />
         </a>
         <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
-          {t('v0 — chat widget, custom model URL, colors & wording. Knowledge documents and tools are next.',
-            'v0 — widget de chat, URL de modèle custom, couleurs & libellés. Documents de connaissance et outils arrivent ensuite.')}
+          {t('v0 — chat widget, LFM2 .brik model URL, colors & wording, few-shot examples, and knowledge documents (answers from YOUR content, selected locally, nothing sent anywhere). Tools are next. On the default 230M model, keep notes short and factual: it quotes them well, but it can mix up two numbers sitting in the same paragraph.',
+            'v0 — widget de chat, URL de modèle LFM2 .brik, couleurs & libellés, exemples few-shot, et documents de connaissance (il répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). Les outils arrivent ensuite. Sur le modèle 230M par défaut, gardez des notes courtes et factuelles : il les cite bien, mais il peut confondre deux nombres présents dans le même paragraphe.')}
         </span>
       </p>
 
@@ -203,6 +209,7 @@ export default function LocalAiClient() {
         {t('Brimkern — local WebGPU inference. The embeddable SDK (v0) is live and free — the engine is open source (MIT).',
           "Brimkern — inférence WebGPU locale. Le SDK embarquable (v0) est disponible et gratuit — le moteur est open source (MIT).")}
       </p>
-    </div>
+      <ByLine />
+    </main>
   );
 }

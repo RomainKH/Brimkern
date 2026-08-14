@@ -15,9 +15,12 @@ import { serializeBrik, parseBrik } from '@/lib/brik/container';
 import { readZip } from '@/lib/brik/zip';
 import type { BrikManifest } from '@/lib/brik/format';
 import { useT } from '@/lib/i18n';
+import { fmtModelSize } from '@/lib/modelCatalog';
 
 interface TokenizerPreset { name: string; id: string; type: string }
-interface PresetModel { name: string; url: string; size: string }
+// Vue MINIMALE d'un preset (le panneau n'a besoin que de ça) — `sizeBytes` sert à afficher la taille
+// dans la langue active plutôt que la chaîne française figée du catalogue.
+interface PresetModel { name: string; url: string; size: string; sizeBytes: number }
 
 interface Props {
 	disabled: boolean;
@@ -228,22 +231,22 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 			) : (
 				<div className="input-group">
 					<span className="input-label">{t('Preset model to download then convert:', 'Modèle preset à télécharger puis convertir :')}</span>
-					<select className="input-control" value={url} onChange={(e) => setUrl(e.target.value)} disabled={blocked}>
-						{presetModels.map((m, i) => <option key={i} value={m.url}>{m.name} ({m.size})</option>)}
+					<select className="input-control" aria-label={t('Preset model to download then convert', 'Modèle preset à télécharger puis convertir')} value={url} onChange={(e) => setUrl(e.target.value)} disabled={blocked}>
+						{presetModels.map((m, i) => <option key={i} value={m.url}>{m.name} ({fmtModelSize(m.sizeBytes, t('en', 'fr') === 'fr')})</option>)}
 					</select>
 				</div>
 			)}
 
 			<div className="input-group">
 				<span className="input-label">{t('Tokenizer / architecture:', 'Tokenizer / architecture :')}</span>
-				<select className="input-control" value={tokenizerId} onChange={(e) => setTokenizerId(e.target.value)} disabled={blocked}>
+				<select className="input-control" aria-label={t('Tokenizer / architecture', 'Tokenizer / architecture')} value={tokenizerId} onChange={(e) => setTokenizerId(e.target.value)} disabled={blocked}>
 					{tokenizerPresets.map((t, i) => <option key={i} value={t.id}>{t.name}</option>)}
 				</select>
 			</div>
 
 			<div className="input-group">
 				<span className="input-label">{t('Conversion profile:', 'Profil de conversion :')}</span>
-				<select className="input-control" value={weightDType} onChange={(e) => setWeightDType(e.target.value as WeightDType)} disabled={blocked}>
+				<select className="input-control" aria-label={t('Conversion profile', 'Profil de conversion')} value={weightDType} onChange={(e) => setWeightDType(e.target.value as WeightDType)} disabled={blocked}>
 					<option value="f16">{t('Quality — f16 (heavier)', 'Qualité — f16 (plus lourd)')}</option>
 					<option value="q8">{t('Balanced ★ — int8 (recommended)', 'Équilibré ★ — int8 (recommandé)')}</option>
 					<option value="mixed">{t('Mixed — int4 + int8 attention (small models)', 'Mixte — int4 + attention int8 (petits modèles)')}</option>

@@ -319,35 +319,55 @@ export class Lfm2Model {
 	// tuilés, assez petit pour garder le scratch (T×ffn f32) et la latence par soumission modestes.
 	private static readonly PREFILL_CHUNK = 128;
 
-	// Comme generate() mais sur le chemin RÉSIDENT (logitsGpu) : prefill du prompt par tranches
-	// bornées (voir PREFILL_CHUNK) + décodage 1 submit/token → nettement plus rapide. Repli sur
+	// Choisit dans un top-K GPU (ids/vals triés décroissants, pénalité déjà appliquée sur le GPU) :
+	// filtre TOOL_BAN, puis greedy (ids[0]) ou softmax température sur les topK premiers candidats.
+	private pickFromTopK(r: { ids: Uint32Array; vals: Float32Array }, opts?: SampleOpts & { sample?: boolean }): number {
+		const ids: number[] = [], vals: number[] = [];
+		for (let i = 0; i < r.ids.length; i++) {
+			if (Lfm2Model.TOOL_BAN.includes(r.ids[i])) continue;
+			if (r.vals[i] === -Infinity) break;
+			ids.push(r.ids[i]); vals.push(r.vals[i]);
+		}
+		if (!ids.length) return r.ids[0];
+		if (!opts?.sample) return ids[0];
+		const { temperature = 0.8, topK = 40 } = opts;
+		const k = Math.min(topK, ids.length), mx = vals[0];
+		let sum = 0;
+		const p = new Array<number>(k);
+		for (let i = 0; i < k; i++) { p[i] = Math.exp((vals[i] - mx) / temperature); sum += p[i]; }
+		let rr = Math.random() * sum;
+		for (let i = 0; i < k; i++) { rr -= p[i]; if (rr <= 0) return ids[i]; }
+		return ids[0];
+	}
+
+	// Comme generate() mais sur le chemin RÉSIDENT : prefill du prompt par tranches bornées (voir
+	// PREFILL_CHUNK) + décodage via topKGpu — le readback par token passe du vocab entier (256 Ko,
+	// LE plancher mobile) à ~512 o, pénalité de répétition appliquée sur le GPU. Repli sur
 	// generate() (forwardToken JS) si le résident n'est pas dispo. Session neuve (pastLen 0) → reset.
 	async generateResident(prompt: string, n: number, onToken?: (text: string) => void, stop?: () => boolean, opts?: SampleOpts & { sample?: boolean }): Promise<string> {
 		if (!this.residentAvailable()) return this.generate(prompt, n, onToken, stop, opts);
 		const sid = 'gen';
+		const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1);
 		const ids = this.tok.encode(prompt);
-		let logits!: Float32Array;
+		let top!: { ids: Uint32Array; vals: Float32Array };
 		let done = 0;
 		while (done < ids.length) {
 			if (stop?.()) return '';
 			const end = Math.min(done + Lfm2Model.PREFILL_CHUNK, ids.length);
 			const part = ids.slice(done, end);
 			if (end < ids.length) await this.prefillGpu(part, done, sid); // 1re tranche : pastLen 0 → reset
-			else logits = await this.logitsGpu(part, done, sid);          // dernière : logits pour amorcer le décodage
+			else top = await this.topKGpu(part, done, sid, [], 1, 48);    // dernière : top-K pour amorcer
 			done = end;
 		}
 		let pos = ids.length;
 		const out: number[] = [];
 		for (let s = 0; s < n; s++) {
 			if (stop?.()) break;
-			this.banTools(logits);
-			let best: number;
-			if (opts?.sample) best = this.sampleTok(logits, out.slice(-64), opts);
-			else { best = 0; for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i; }
+			const best = this.pickFromTopK(top, opts);
 			if (this.stops.has(best)) break;
 			out.push(best);
 			if (onToken) onToken(this.tok.decode(out));
-			logits = await this.logitsGpu([best], pos, sid);
+			top = await this.topKGpu([best], pos, sid, penalty !== 1 ? [...new Set(out.slice(-64))] : [], penalty, 48);
 			pos++;
 		}
 		return out.length ? this.tok.decode(out) : ''; // decode([]) jette dans transformers.js

@@ -12,16 +12,16 @@ import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type D
 // imported DYNAMICALLY at load time (see `await import('@huggingface/transformers')` below) so it
 // stays out of the main bundle — the landing page doesn't pay for it.
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
-import { CustomWebModel, type TensorSource } from '@/lib/webgpu/model';
+import { CustomWebModel, spanRawTensor, type TensorSource } from '@/lib/webgpu/model';
 import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
 import { brikFileToLoadable, brikToGgufManifest, type BrikLoadable } from '@/lib/brik/loader';
 import { convertModelToBrik, type WeightDType } from '@/lib/brik/convert';
 import { serializeBrik, parseBrik, parseBrikHeader } from '@/lib/brik/container';
 import { brikCacheKey, getBrik, putBrik } from '@/lib/brikCache';
 import { cachedModelUrls } from '@/lib/storage';
-import { loadBrikStream } from '@/lib/webgpu/source';
+import { loadBrikStream, prefetchBrik, loadGgufStream, prefetchGguf } from '@/lib/webgpu/source';
 import { PRESET_MODELS, type ArchType } from '@/lib/presets';
-import { MOBILE_BRIK_URL, pickAutoPrecision, GGUF_ARCH_FAMILY } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, pickAutoPrecision, ggufArchFamilyFor } from '@/lib/modelCatalog';
 import { useT } from '@/lib/i18n';
 import { metric, metricOnce } from '@/lib/metrics';
 import type { Message } from './types';
@@ -185,7 +185,13 @@ export function useModelEngine(deps: ModelEngineDeps) {
         headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': blob.size.toString() }
       }));
     } catch (e) {
-      console.warn("Échec de la mise en cache (quota dépassé ?) :", e);
+      // ⚠️ Un quota saturé ne coûte pas que la réutilisation : Chrome adosse le corps de la Response
+      // au stockage blob de l'ORIGINE, et l'échec peut emporter ce stockage — le blob retourné
+      // devient illisible et le chargement meurt plus loin sur « NotReadableError ». Reconstruire le
+      // blob depuis `chunks` ne sauve rien (le registre blob est lui aussi à sec). Rien à corriger
+      // ici : c'est une limite du format mono-fichier, et l'argument du BRIK (plages indépendantes,
+      // reprise, hors-ligne réel). Message explicite pour que l'utilisateur comprenne.
+      console.warn('Échec de la mise en cache (quota dépassé ? navigation privée ?) — le modèle ne sera pas réutilisable hors ligne, et un quota saturé peut faire échouer ce chargement (préférez un BRIK) :', e);
     }
 
     return blob;
@@ -272,7 +278,9 @@ export function useModelEngine(deps: ModelEngineDeps) {
           shards: [{ id: 0, file: '', byteLength: 0 }],
           chat: { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] }, // <|im_end|>, <|endoftext|> + blocs outil (hallucination tool-call, cf. isStopToken lfm2)
         } as unknown as import('@/lib/brik/format').BrikManifest;
-        const rawTensor = async (name: string) => { const tt = manifest.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`); return source.bytes(tt.offset, tt.bytes); };
+        // Même découpage que le préchargement (un span par couche) : sans ça, les deux demandaient
+        // les mêmes octets sous des clés de cache différentes et le fichier descendait DEUX FOIS.
+        const rawTensor = spanRawTensor(manifest.tensors, source);
         const core = new Lfm2Model(engine, bm, rawTensor);
         setLoadingStep(t('Loading the weights onto the GPU…', 'Chargement des poids sur le GPU…'));
         // Le chat tokenise à l'extérieur (transformers.js) : generate()/classify() de la classe pure
@@ -300,7 +308,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
           shards: [{ id: 0, file: '', byteLength: 0 }],
           chat: { template: 'rwkv', stopTokenIds: [0] }, // eos World
         } as unknown as import('@/lib/brik/format').BrikManifest;
-        const rawTensor = async (name: string) => { const tt = manifest.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`); return source.bytes(tt.offset, tt.bytes); };
+        const rawTensor = spanRawTensor(manifest.tensors, source); // cf. lfm2 ci-dessus
         const core = new RwkvModel(engine, bm, rawTensor);
         setLoadingStep(t('Loading the weights onto the GPU…', 'Chargement des poids sur le GPU…'));
         await core.load(world.tokens);
@@ -340,6 +348,45 @@ export function useModelEngine(deps: ModelEngineDeps) {
         shim.decode = (ids: ArrayLike<number | bigint>) => wt.decode(Array.from(ids, Number).filter((i) => i > 0)); // 0 = eos, jamais affiché
         tokenizer = shim;
       }
+      // ── Le tokenizer LU DANS LE GGUF ────────────────────────────────────────────────────────
+      // C'est ce que la landing, la doc et le README promettent depuis toujours (« le tokenizer suit
+      // le fichier ») — et ce n'était pas vrai : un GGUF téléchargeait son tokenizer depuis un AUTRE
+      // dépôt Hugging Face, choisi par une table `arch → dépôt` avec une heuristique sur la taille
+      // du vocabulaire. Cette table est un piège : l'entrée `llama` y manquait, et tout GGUF llama
+      // chargé hors preset gardait le tokenizer sélectionné dans l'UI — charabia silencieux.
+      // Le GGUF, lui, EMBARQUE son vocabulaire, ses merges et ses ids spéciaux. On les lit.
+      // Conséquences : plus de table à tenir, plus de dépôt tiers à supposer public, et un modèle
+      // qui se charge sans autre réseau que ses propres poids.
+      // Repli conservé de bout en bout : `tokenizerFromGguf` rend `null` dès qu'il n'est pas sûr
+      // (vocabulaire SentencePiece sans merges — Gemma 3 —, modèle non gpt2/llama), et toute
+      // exception retombe sur le chemin réseau. Kill-switch `?ggtok=0` (convention du repo).
+      const ggTokOn = new URLSearchParams(window.location.search).get('ggtok') !== '0';
+      if (!tokenizer && ggTokOn && manifest.metadata?.['tokenizer.ggml.tokens']) {
+        try {
+          const { tokenizerFromGguf } = await import('@/lib/ggufTokenizer');
+          const gg = tokenizerFromGguf(manifest);
+          if (gg) {
+            setLoadingStep(t('Reading the tokenizer from the file (offline)…', 'Lecture du tokenizer dans le fichier (hors-ligne)…'));
+            const bt = gg.tokenizer;
+            // `encode()` pose déjà le préfixe du post-processeur (BOS) quand le GGUF le demande.
+            // Encoder la chaîne VIDE donne donc exactement ce préfixe : c'est ce qu'on retire quand
+            // l'appelant passe `add_special_tokens: false` (le gabarit de chat écrit alors son
+            // propre BOS, et le doubler suffit à faire dérailler la famille llama).
+            const bosPrefix = bt.encode('').length;
+            const shim: any = (text: string, opts?: { add_special_tokens?: boolean }) => {
+              const ids = bt.encode(text);
+              return { input_ids: { data: opts?.add_special_tokens === false ? ids.slice(bosPrefix) : ids } };
+            };
+            // `BpeTokenizer.decode` saute déjà les spéciaux — le seul mode que le chat utilise.
+            shim.decode = (ids: ArrayLike<number | bigint>) => bt.decode(Array.from(ids, Number));
+            tokenizer = shim;
+            console.log(`[gguf-tok] tokenizer lu dans le fichier : ${gg.nVocab} tokens, pré-tokeniseur « ${gg.pre} », BOS ${gg.bosId}, EOS ${gg.eosId} — aucun téléchargement`);
+          }
+        } catch (e) {
+          console.warn('[gguf-tok] lecture impossible, repli sur le tokenizer Hugging Face :', e);
+        }
+      }
+
       // Pull transformers.js on demand (kept out of the main bundle). Both the embedded-tokenizer and
       // the HF-download paths need it, so load the module once here.
       const { AutoTokenizer, PreTrainedTokenizer } = await import('@huggingface/transformers');
@@ -380,6 +427,12 @@ export function useModelEngine(deps: ModelEngineDeps) {
       setModelMetadata(manifest);
       let startPrec = model.precision;
       let startKv = model.kvQuant;
+      // Kill-switch de banc ?kvq=0 : force le cache KV en f32. C'est ICI que la précision KV se
+      // décide au chargement (l'auto l'active dès 1,2 Md de paramètres ou des poids q4/q3), donc
+      // c'est ici que le commutateur doit vivre — le poser dans applyAutoPrec ne servait à rien,
+      // cette fonction n'étant appelée que par le bouton « Auto » de l'UI.
+      const kvCut = (() => { try { return new URLSearchParams(location.search).get('kvq') === '0'; } catch { return false; } })();
+      if (kvCut) console.warn('[brimkern] cache KV int8 COUPÉ par ?kvq=0 — cache KV en f32');
       if (autoPrec) {
         const totalParams = Object.values(manifest.tensors as Record<string, { nElems?: number }>).reduce((a, t) => a + (t.nElems || 0), 0);
         const native = model.nativePrecision;
@@ -389,14 +442,14 @@ export function useModelEngine(deps: ModelEngineDeps) {
           // pour une qualité strictement identique (un quant requantifié RESTE au même nombre de bits) ;
           // la resserrer détruirait la qualité que le fichier paye. Constaté en vrai : le 4B q4 chargé
           // « int8 (source int4) » par l'auto → VRAM ×2. L'utilisateur peut toujours forcer à la main.
-          const autoKv = native === 'q4' || native === 'q3' || totalParams > 1.2e9;
+          const autoKv = !kvCut && (native === 'q4' || native === 'q3' || totalParams > 1.2e9);
           try { model.setKvQuant(autoKv); startKv = autoKv; } catch { /* keep native */ }
         } else {
           const auto = pickAutoPrecision(totalParams, model.supportsQ8, !!engine.hasF16, mobileNow, engine.maxStorageBufferBindingSize || 0);
           // KV int8 = ÷4 la VRAM du cache mais du travail en plus PAR token (quantif + déquant fusionnée).
           // Sur un petit modèle la VRAM du cache est négligeable → KV f32, plus rapide. On ne quantifie
           // le cache que quand ça compte : gros modèle ou poids déjà en q4 (appareil contraint).
-          const autoKv = auto === 'q4' || totalParams > 1.2e9;
+          const autoKv = !kvCut && (auto === 'q4' || totalParams > 1.2e9);
           try { model.setWeightPrecision(auto); startPrec = auto; } catch { startPrec = model.precision; }
           try { model.setKvQuant(autoKv); startKv = autoKv; } catch { /* keep native */ }
         }
@@ -408,10 +461,45 @@ export function useModelEngine(deps: ModelEngineDeps) {
       setWeightPrec(startPrec);
       setKvQuantOn(startKv);
       setModelIsBrik(sourceLabel.startsWith('BRIK'));
+      // Préchauffe GPU : sans elle, « Prêt » mentait — l'upload des poids en VRAM n'avait lieu
+      // qu'au premier message (parfois des dizaines de secondes, trois points de frappe pour tout
+      // feedback). On paye ici, avec progression, pendant que l'écran de chargement est affiché.
+      // APRÈS le choix de précision (auto/forcée) : préchauffer avant uploadait au mauvais tier
+      // puis jetait tout. Lfm2Model/RwkvModel uploadent déjà tout dans core.load → pas de méthode.
+      if (typeof model.prewarmGpu === 'function') {
+        setLoadingStep(t('Uploading the weights to the GPU…', 'Chargement des poids sur le GPU…'));
+        setLoadingProgress({ loaded: 0, total: 0, percentage: 0 });
+        await model.prewarmGpu((loaded: number, total: number) => {
+          setLoadingProgress({ loaded, total, percentage: total ? Math.round((loaded / total) * 100) : 0 });
+        });
+        setLoadingProgress(null);
+      }
       if (loadStartRef.current) {
         metric('model_loaded', { model: modelName, seconds: Math.round((performance.now() - loadStartRef.current) / 1000) });
         loadStartRef.current = 0;
       }
+      // PRÉCHAUFFE : mettre les poids sur le GPU maintenant, pas au premier message. Sans elle, le
+      // chargement paresseux était facturé au prefill du 1er message — 10,9 s sur un 7B (3,9 t/s,
+      // contre ~20 t/s ensuite) après un « chargé ✓ » trompeur. Le temps ne disparaît pas, il revient
+      // là où l'utilisateur l'attend, avec une progression. Kill-switch ?warmup=0.
+      // Chemins v2 (lfm2/rwkv) exclus : leur `load()` charge déjà tout.
+      const warmupOn = new URLSearchParams(window.location.search).get('warmup') !== '0';
+      if (warmupOn && model instanceof CustomWebModel) {
+        setLoadingStep(t('Putting the weights on the GPU…', 'Mise des poids sur le GPU…'));
+        const tWarm = performance.now();
+        try {
+          await model.warmup((done, total) => {
+            setLoadingProgress({ loaded: done, total, percentage: Math.round((done / total) * 100) });
+          });
+          console.info(`[warmup] poids sur le GPU en ${((performance.now() - tWarm) / 1000).toFixed(1)} s`);
+        } catch (e) {
+          // Échec de préchauffe (VRAM insuffisante) : on NE bloque pas le chargement — le chemin
+          // paresseux reste valable et le premier message retentera, couche par couche.
+          console.warn('[warmup] préchauffe interrompue — retour au chargement paresseux :', e);
+        }
+        setLoadingProgress(null);
+      }
+
       setModelState('ready');
       cachedModelUrls().then(setCachedUrls).catch(() => { /* ignore */ });
 
@@ -498,6 +586,53 @@ export function useModelEngine(deps: ModelEngineDeps) {
     return brikFileToLoadable(manifest, data);
   };
 
+  // Force the tokenizer/arch to match the model's own vocabulary family (from the GGUF), overriding a
+  // stale UI selection — otherwise e.g. a Gemma model tokenized with the Qwen tokenizer gets garbage.
+  // Partagé par les deux chemins GGUF (monolithique et streamé par plages).
+  const forceTokArchFromGguf = (manifest: Manifest, tokOverride?: string, archOverride?: ArchType) => {
+    let tokId = tokOverride ?? selectedTokenizerId, archT = archOverride ?? modelArchType;
+    // Vocab lu dans les POIDS (token_embd), pas dans les métadonnées : c'est ce qui distingue
+    // Llama 3.x (128k) de Llama 2 / Mistral / TinyLlama (32k) sous la même arch `llama`.
+    const emb = manifest.tensors['token_embd.weight'];
+    const vocab = emb && manifest.config.d ? emb.nElems / manifest.config.d : null;
+    const forced = ggufArchFamilyFor(manifest.arch, vocab);
+    if (forced && (forced.tokenizerId !== selectedTokenizerId || forced.archType !== modelArchType)) {
+      console.warn(`[brimkern] GGUF arch="${manifest.arch}" → tokenizer/arch forcés sur « ${forced.tokenizerId} » / « ${forced.archType} » (sélection: « ${selectedTokenizerId} » / « ${modelArchType} ») pour éviter un mismatch de vocabulaire.`);
+      tokId = forced.tokenizerId; archT = forced.archType;
+      setSelectedTokenizerId(forced.tokenizerId);
+      setModelArchType(forced.archType);
+    }
+    return { tokId, archT };
+  };
+
+  // Préchargement par plages avec REPRISE réseau : mêmes règles pour le BRIK et le GGUF streamés —
+  // chaque plage déjà en cache compte comme faite, donc une coupure ne re-télécharge rien, et on
+  // attend le retour de la connexion plutôt que de faire échouer le chargement.
+  const prefetchWithResume = async (run: (onProgress: (p: { doneBytes: number; totalBytes: number }) => void) => Promise<unknown>) => {
+    const waitForResume = () => new Promise<void>((resolve) => {
+      if (navigator.onLine) { setTimeout(resolve, 1500); return; }
+      const on = () => { window.removeEventListener('online', on); resolve(); };
+      window.addEventListener('online', on);
+      setTimeout(() => { window.removeEventListener('online', on); resolve(); }, 8000);
+    });
+    for (let pauses = 0; ; ) {
+      try {
+        await run(({ doneBytes, totalBytes }) => {
+          setLoadingProgress({ loaded: doneBytes, total: totalBytes, percentage: totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0 });
+        });
+        return;
+      } catch (e) {
+        const msg = String((e as Error)?.message || e);
+        const isNetwork = !navigator.onLine || e instanceof TypeError || /failed to fetch|load failed|network/i.test(msg);
+        if (!isNetwork || ++pauses > 60) throw e;
+        if (isMobile) setIsSidebarOpen(false);
+        setLoadingStep(t('Download paused (network interrupted) — resumes automatically once the connection returns…', 'Chargement en pause (réseau interrompu) — reprise automatique dès le retour de la connexion…'));
+        await waitForResume();
+        setLoadingStep(t('Resuming the download…', 'Reprise du téléchargement…'));
+      }
+    }
+  };
+
   // `tokOverride`/`archOverride` carry the freshly-selected preset values DIRECTLY (not via state):
   // handleLoadModelFromUrl calls setSelectedTokenizerId() then this in the same tick, so reading the
   // state here would see the STALE previous value (e.g. Gemma's tokenizer when loading Qwen → garbage).
@@ -514,16 +649,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
       setModelState('error');
       return;
     }
-    // Force the tokenizer/arch to match the model's own vocabulary family (from the GGUF), overriding a
-    // stale UI selection — otherwise e.g. a Gemma model tokenized with the Qwen tokenizer gets garbage.
-    let tokId = tokOverride ?? selectedTokenizerId, archT = archOverride ?? modelArchType;
-    const forced = GGUF_ARCH_FAMILY[manifest.arch];
-    if (forced && (forced.tokenizerId !== selectedTokenizerId || forced.archType !== modelArchType)) {
-      console.warn(`[brimkern] GGUF arch="${manifest.arch}" → tokenizer/arch forcés sur « ${forced.tokenizerId} » / « ${forced.archType} » (sélection: « ${selectedTokenizerId} » / « ${modelArchType} ») pour éviter un mismatch de vocabulaire.`);
-      tokId = forced.tokenizerId; archT = forced.archType;
-      setSelectedTokenizerId(forced.tokenizerId);
-      setModelArchType(forced.archType);
-    }
+    const { tokId, archT } = forceTokArchFromGguf(manifest, tokOverride, archOverride);
 
     if (autoConvert) {
       try {
@@ -538,37 +664,17 @@ export function useModelEngine(deps: ModelEngineDeps) {
     await activateModel(manifest, fileBlob, modelName, tokId, archT, 'GGUF');
   };
 
-  // Streaming BRIK-by-URL: header first, then range-fetch each tensor (Cache-API backed), pre-warmed.
+  // Streaming BRIK-by-URL: header first, then pre-warm the Cache API with the EXACT ranges the
+  // forward pass will request (prefetchBrik = même plan de spans coalescés que fetchLayerSpan).
+  // Une préchauffe par-tenseur produirait d'autres clés de cache → le premier message
+  // RE-téléchargerait tout le modèle (sans progression) et doublerait l'occupation disque.
   const loadBrikUrl = async (url: string) => {
     const loadable = await loadBrikStream(url);
-    const tensors = Object.values(loadable.manifest.tensors) as { offset: number; bytes: number }[];
-    const total = tensors.reduce((a, t) => a + t.bytes, 0);
-    const BATCH = 6;
     setLoadingStep(t('Downloading the model (streamed, cached then available offline)…', 'Téléchargement du modèle (streaming, mis en cache puis hors-ligne)…'));
-    setLoadingProgress({ loaded: 0, total, percentage: 0 });
-    const waitForResume = () => new Promise<void>((resolve) => {
-      if (navigator.onLine) { setTimeout(resolve, 1500); return; }
-      const on = () => { window.removeEventListener('online', on); resolve(); };
-      window.addEventListener('online', on);
-      setTimeout(() => { window.removeEventListener('online', on); resolve(); }, 8000);
-    });
-    let i = 0, pauses = 0;
-    while (i < tensors.length) {
-      try {
-        await Promise.all(tensors.slice(i, i + BATCH).map((t) => loadable.source.bytes(t.offset, t.bytes)));
-        i += BATCH;
-        const done = Math.min(tensors.slice(0, i).reduce((a, t) => a + t.bytes, 0), total);
-        setLoadingProgress({ loaded: done, total, percentage: Math.round((done / total) * 100) });
-      } catch (e) {
-        const msg = String((e as Error)?.message || e);
-        const isNetwork = !navigator.onLine || e instanceof TypeError || /failed to fetch|load failed|network/i.test(msg);
-        if (!isNetwork || ++pauses > 60) throw e;
-        if (isMobile) setIsSidebarOpen(false);
-        setLoadingStep(t('Download paused (network interrupted) — resumes automatically once the connection returns…', 'Chargement en pause (réseau interrompu) — reprise automatique dès le retour de la connexion…'));
-        await waitForResume();
-        setLoadingStep(t('Resuming the download…', 'Reprise du téléchargement…'));
-      }
-    }
+    setLoadingProgress({ loaded: 0, total: 0, percentage: 0 });
+    // 'unstorable' = pas de Range (fichier déjà entier en mémoire) ou Cache API absente/pleine :
+    // rien à préchauffer, le chargement réel fera ses propres fetchs.
+    await prefetchWithResume((onProgress) => prefetchBrik(url, onProgress));
     await activateModel(
       loadable.manifest as Manifest,
       loadable.source,
@@ -602,6 +708,29 @@ export function useModelEngine(deps: ModelEngineDeps) {
     markLoadStart(name, 'gguf-url');
 
     try {
+      // GGUF STREAMÉ (par plages, comme le BRIK) : l'en-tête d'abord, puis les spans par couche
+      // préchauffés dans le cache. C'est ce qui débloque les gros mono-fichiers — l'ancien chemin
+      // téléchargeait tout en RAM puis posait un Blob de plusieurs centaines de Mo dans le Cache API,
+      // et au-delà de ~770 Mo Chrome refusait l'écriture EN EMPORTANT le stockage blob de l'origine
+      // (« NotReadableError » plus loin, chargement mort). Bonus : reprise après coupure et
+      // hors-ligne réel, gratuits puisque chaque plage est cachée séparément.
+      // L'auto-conversion GGUF→BRIK a besoin de TOUS les octets d'un coup → elle reste sur l'ancien
+      // chemin ; idem si l'hôte ignore Range (loadGgufStream rend null).
+      // Kill-switch de banc : ?ggufstream=0 force l'ancien chemin monolithique (A/B du streaming).
+      const streamCut = typeof location !== 'undefined' && new URLSearchParams(location.search).get('ggufstream') === '0';
+      if (streamCut) console.warn('[gguf] streaming par plages COUPÉ par ?ggufstream=0 — téléchargement complet');
+      const stream = (autoConvert || streamCut) ? null : await loadGgufStream(url).catch((e: unknown) => {
+        console.warn('[gguf] en-tête par plages indisponible — repli sur le téléchargement complet :', e);
+        return null;
+      });
+      if (stream) {
+        const { tokId, archT } = forceTokArchFromGguf(stream.manifest as unknown as Manifest, preset?.tokenizer, preset?.type);
+        setLoadingStep(t('Downloading the model (streamed, cached then available offline)…', 'Téléchargement du modèle (streaming, mis en cache puis hors-ligne)…'));
+        setLoadingProgress({ loaded: 0, total: 0, percentage: 0 });
+        await prefetchWithResume((onProgress) => prefetchGguf(url, onProgress));
+        await activateModel(stream.manifest as unknown as Manifest, stream.source, name, tokId, archT, 'GGUF (stream)');
+        return;
+      }
       const blob = await fetchWithCacheAndProgress(url, (loaded, total) => {
         const percentage = Math.round((loaded / total) * 100);
         setLoadingProgress({ loaded, total, percentage });

@@ -5,7 +5,9 @@
 // stored bilingual as { en, fr } and resolved at render time via the current locale.
 
 import Link from 'next/link';
-import { useLocale, useT } from '@/lib/i18n';
+import { useLocale, useT, useHref } from '@/lib/i18n';
+import ByLine from '../ByLine';
+import BackLink from '../BackLink';
 
 interface L {
   en: string;
@@ -19,6 +21,52 @@ interface Release {
 }
 
 const RELEASES: Release[] = [
+  {
+    date: { en: 'August 13, 2026', fr: '13 août 2026' },
+    tagline: {
+      en: 'Any single-file GGUF from Hugging Face now runs here — paste an author/model and go. Decoding is 4× faster on large models, the first reply no longer costs ten seconds, the Llama family answers correctly again, and the site finally has a front door separate from the app.',
+      fr: 'N’importe quel GGUF mono-fichier de Hugging Face tourne désormais ici — collez auteur/modèle et c’est parti. Le décodage est 4× plus rapide sur les gros modèles, la première réponse ne coûte plus dix secondes, la famille Llama répond de nouveau juste, et le site a enfin une porte d’entrée distincte de l’application.',
+    },
+    groups: [
+      {
+        title: { en: 'A front door — and the app on its own address', fr: 'Une porte d’entrée — et l’app à son adresse' },
+        items: [
+          { en: 'The home page is now a real landing page explaining what the engine does; the chat lives at /chat. Links published earlier (?model=…) still land in the app.', fr: 'L’accueil est désormais une vraie landing qui explique ce que fait le moteur ; le chat vit sur /chat. Les liens déjà publiés (?model=…) atterrissent toujours dans l’application.' },
+          { en: 'A documentation hub at /docs gathers everything: loading a model, instant test links, the .brik format and its converter, the SDK, storage, diagnostics.', fr: 'Un hub de documentation sur /docs rassemble tout : charger un modèle, liens de test instantané, format .brik et convertisseur, SDK, stockage, diagnostics.' },
+          { en: 'English is now the canonical version of the site (French at /fr), each language on its own indexable URL.', fr: 'L’anglais devient la version canonique du site (français sur /fr), chaque langue sur son URL indexable.' },
+        ],
+      },
+      {
+        title: { en: 'Any model from the Hub, in one paste', fr: 'N’importe quel modèle du Hub, en un collage' },
+        items: [
+          { en: 'Paste author/model, a Hugging Face URL, or a direct .gguf / .brik link: the best quantization is picked for you and the tokenizer is read from the file itself — nothing to configure.', fr: 'Collez auteur/modèle, une URL Hugging Face, ou un lien direct .gguf / .brik : la meilleure quantification est choisie et le tokenizer est lu dans le fichier — rien à régler.' },
+          { en: 'Large GGUFs stream by HTTP range instead of downloading whole: a 4.7 GB model reloads from cache in 15.8 s.', fr: 'Les gros GGUF arrivent par plages HTTP au lieu d’un téléchargement complet : un modèle de 4,7 Go recharge depuis le cache en 15,8 s.' },
+        ],
+      },
+      {
+        title: { en: 'Speed', fr: 'Vitesse' },
+        items: [
+          { en: 'Decoding was reusing a kernel built for many tokens at once, leaving seven threads out of eight idle. A dedicated one: ×4.2 on 7B shapes (3.4 → 14.4 tok/s), ×2.4 on a 0.5B.', fr: 'Le décodage réutilisait un kernel taillé pour plusieurs tokens à la fois, laissant sept threads sur huit inutilisés. Un kernel dédié : ×4,2 sur les formes 7B (3,4 → 14,4 tok/s), ×2,4 sur un 0.5B.' },
+          { en: 'The first message of a session paid for moving the weights into VRAM (10.9 s on a 7B). A throwaway warm-up pass moves that cost off your first prompt: 1.1 s.', fr: 'Le premier message d’une session payait la mise en VRAM des poids (10,9 s sur un 7B). Une préchauffe jetable déplace ce coût hors de votre première question : 1,1 s.' },
+          { en: 'Prefill GEMMs are tiled and register-blocked in all three precisions: ×2–2.7 at kernel level, and ~1 TFLOP/s sustained on 7B shapes.', fr: 'Les GEMM du prefill sont tuilés et bloqués en registres dans les trois précisions : ×2–2,7 au niveau kernel, et ~1 TFLOP/s tenus sur les formes 7B.' },
+        ],
+      },
+      {
+        title: { en: 'The Llama family answers correctly again', fr: 'La famille Llama répond de nouveau juste' },
+        items: [
+          { en: 'Llama 3.2 produced fluent nonsense. Cause: a load-time optimization (one HTTP range per layer) filled the weight cache directly, bypassing the row fix these models need on their Q/K matrices — so the chat path read mis-ordered weights. Fixed; Llama now answers correctly, and a CPU reference validates the engine layer by layer.', fr: 'Llama 3.2 produisait du charabia fluide. Cause : une optimisation de chargement (une plage HTTP par couche) remplissait le cache de poids directement, en sautant la correction de lignes que ces modèles exigent sur leurs matrices Q/K — le chat lisait donc des poids mal ordonnés. Corrigé ; Llama répond juste, et une référence CPU valide le moteur couche par couche.' },
+        ],
+      },
+      {
+        title: { en: 'Everyday things', fr: 'Le quotidien' },
+        items: [
+          { en: 'Models unused for 30 days are cleaned up automatically (adjustable, or off). The Storage panel now groups by model instead of listing hundreds of HTTP ranges.', fr: 'Les modèles inutilisés depuis 30 jours sont nettoyés automatiquement (réglable, ou désactivable). Le panneau Stockage regroupe par modèle au lieu de lister des centaines de plages HTTP.' },
+          { en: 'Web search no longer fires on small talk, a truncated reply says so and offers Continue, and reasoning blocks are hidden by default.', fr: 'La recherche web ne se déclenche plus sur du bavardage, une réponse coupée le dit et propose Continuer, et les blocs de raisonnement sont masqués par défaut.' },
+          { en: 'Accessibility: 7 violations → 0 (contrast, form labels, landmarks, heading order), light and dark.', fr: 'Accessibilité : 7 violations → 0 (contrastes, libellés de champs, points de repère, ordre des titres), en clair comme en sombre.' },
+        ],
+      },
+    ],
+  },
   {
     date: { en: 'July 22, 2026', fr: '22 juillet 2026' },
     tagline: {
@@ -866,18 +914,16 @@ const RELEASES: Release[] = [
 export default function ChangelogClient() {
   const { locale, setLocale } = useLocale();
   const t = useT();
+  // Liens internes préfixés par la locale (voir useHref) : rester dans sa langue en naviguant.
+  const href = useHref();
   // Resolve a bilingual data string for the current locale (same semantics as t(en, fr)).
   const tr = (s: L) => t(s.en, s.fr);
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', padding: '48px 24px 80px' }}>
+    <main style={{ maxWidth: 820, margin: '0 auto', padding: '48px 24px 80px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <Link
-          href="/"
-          style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}
-        >
-          {t('← Back to the app', "← Retour à l'application")}
-        </Link>
+        {/* cf. /convert : la racine est la landing, « retour à l'application » doit mener au chat. */}
+        <BackLink />
         <button
           onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
           title={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
@@ -927,9 +973,7 @@ export default function ChangelogClient() {
         </section>
       ))}
 
-      <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 24 }}>
-        {t('Brimkern — open WebGPU engine. Created by Romain Khanoyan.', 'Brimkern — moteur WebGPU open. Créé par Romain Khanoyan.')}
-      </p>
-    </div>
+      <ByLine />
+    </main>
   );
 }

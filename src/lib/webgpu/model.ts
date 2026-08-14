@@ -9,6 +9,7 @@
 
 import { WebGpuEngine, type LayerCfg, type LayerWeights, type LayerWeightsGpu } from './kernels';
 import { type Manifest } from './ggufParser';
+import { coalescedSpan } from './layerSpans';
 import { unpackQ4 } from '../brik/q4web';
 import { unpackQ8 } from '../brik/q8web';
 import { unpackQ3 } from '../brik/q3web';
@@ -34,18 +35,9 @@ function asSource(src: Blob | File | TensorSource): TensorSource {
 	return src as TensorSource;
 }
 
-// Span contigu [start, end) couvrant un groupe de tenseurs, pour le fetch coalescé par couche.
-// Garde-fou : une couche fait quelques Mo ; un span aberrant (manifeste exotique, tenseurs non
-// contigus) → null, l'appelant repasse en par-tenseur plutôt que de télécharger un bloc géant.
-// Partagé entre le chargement réel (fetchLayerSpan) et le préchargement (source.ts prefetchBrik) :
-// les deux doivent découper le fichier EXACTEMENT pareil pour partager les clés du cache HTTP.
-export function coalescedSpan(tensors: { offset: number; bytes: number }[]): { start: number; end: number } | null {
-	if (!tensors.length) return null;
-	let start = Infinity, end = 0, totalBytes = 0;
-	for (const t of tensors) { start = Math.min(start, t.offset); end = Math.max(end, t.offset + t.bytes); totalBytes += t.bytes; }
-	if (end - start > 64 << 20 || end - start > totalBytes * 1.5) return null;
-	return { start, end };
-}
+// `coalescedSpan` et `spanRawTensor` vivent dans ./layerSpans (module feuille, cf. son en-tête) ;
+// ré-exportés ici pour ne pas casser les appelants historiques.
+export { coalescedSpan, spanRawTensor } from './layerSpans';
 
 export class CustomWebModel {
 	private engine: WebGpuEngine;
@@ -73,9 +65,13 @@ export class CustomWebModel {
 		if (t?.type === 'Q4W') return 'q4';
 		if (t?.type === 'Q8W') return 'q8';
 		if (t?.type === 'Q3W') return 'q3';
-		// f16 when the GPU supports it: BRIK-f16 uploads raw (no conversion); a GGUF k-quant pays a
-		// one-time GPU dequant+pack at first build (no CPU loop, no freeze — verified ~1s on a 0.5B)
-		// in exchange for ~2× faster decode + ½ VRAM vs f32. f32 only without shader-f16.
+		// Source NON quantifiée (GGUF k-quant, BRIK f16) : on vise **q8**, pas f16. Le décodage relit
+		// tous les poids à chaque token, donc il est limité par la bande passante — et le q8 lit deux
+		// fois moins d'octets que le f16 pour un prefill identique et une qualité qui ne bouge pas
+		// (mesures dans pickAutoPrecision). Le coût de conversion est le même dans les deux cas : un
+		// dequant+pack sur GPU au premier chargement, sans boucle CPU ni gel de l'onglet.
+		// f16 ne subsiste que si le chemin q8 est indisponible ; f32 si même le f16 manque.
+		if (this.supportsQ8) return 'q8';
 		return this.engine?.hasF16 ? 'f16' : 'f32';
 	}
 
@@ -104,11 +100,22 @@ export class CustomWebModel {
 		if (!t) throw new Error('tensor absent du manifeste: ' + name);
 
 		// Pull this tensor's specific binary block (in-memory slice, or an HTTP range fetch).
-		let bytes = await this.source.bytes(t.offset, t.bytes);
-		bytes = this.maybeUnpermuteLlamaQk(name, bytes);
+		const bytes = await this.source.bytes(t.offset, t.bytes);
+		return this.cacheRaw(name, bytes);
+	}
 
-		this.rawCache.set(name, bytes);
-		return bytes;
+	// LE point d'entrée UNIQUE du cache d'octets bruts. Il existe parce qu'il a été contourné :
+	// `fetchLayerSpan` (une requête Range pour toute une couche) remplissait `rawCache` directement,
+	// donc les poids servis au chemin RÉSIDENT n'avaient jamais subi la dé-permutation Q/K de la
+	// famille llama — alors que le chemin classique, qui passe par `rawTensor`, l'avait. Symptôme :
+	// Llama 3.2 répondait du charabia, tout en corrélant à 1,0000 avec la référence CPU sur UN token
+	// (à la position 0 le RoPE est l'identité, et une permutation appliquée à Q ET à K se simplifie
+	// dans le produit scalaire — la faute était donc invisible exactement là où on la cherchait).
+	// Toute nouvelle voie d'alimentation du cache DOIT passer ici.
+	private cacheRaw(name: string, bytes: Uint8Array): Uint8Array {
+		const fixed = this.maybeUnpermuteLlamaQk(name, bytes);
+		this.rawCache.set(name, fixed);
+		return fixed;
 	}
 
 	// ── Fix Llama : dé-permutation des lignes Q/K au chargement. ───────────────────────────────────
@@ -118,7 +125,23 @@ export class CustomWebModel {
 	// les bytes bruts : valable pour tous les dtypes GGUF (F32/F16/Q*_0/Q*_K, lignes autonomes de
 	// taille uniforme). Les quants BRIK (Q8W/Q4W, layout SoA plein-tenseur) ne s'y prêtent pas →
 	// erreur claire (convertir un GGUF llama en BRIK n'est pas encore supporté).
+	// Kill-switches de diagnostic (convention du repo) :
+	//   ?ropenorm=1 → OPT-IN du kernel RoPE à paires adjacentes (ggml NORM) : les poids sont lus tels
+	//                 quels, sans dé-permutation. Le kernel est validé (selfValidate, dont l'équivalence
+	//                 par permutation avec rotate_half) mais il NE RÉPARE PAS le charabia des modèles
+	//                 llama (cf. docs/ROADMAP.md §6) : il reste donc OPT-IN, pour ne pas risquer de
+	//                 casser Ministral 3 / SmolLM3, qui n'ont pas été retestés. À basculer par défaut
+	//                 le jour où la vraie cause est trouvée et qu'un modèle de la famille répond juste.
+	//   ?unperm=0   → aucune dé-permutation du tout (isole cette réécriture de poids).
+	// ?timing=1 → chronométrage par étape du forward (diagnostic, cf. logitsKV).
+	static timingOn = (() => { try { return new URLSearchParams(location.search).get('timing') === '1'; } catch { return false; } })();
+	static ropeNormOn = (() => { try { return new URLSearchParams(location.search).get('ropenorm') === '1'; } catch { return false; } })();
+	static unpermOn = (() => { try { return new URLSearchParams(location.search).get('unperm') !== '0'; } catch { return true; } })();
 	private maybeUnpermuteLlamaQk(name: string, raw: Uint8Array): Uint8Array {
+		if (!CustomWebModel.unpermOn) return raw;
+		// Le kernel tourne les paires ADJACENTES comme ggml : les poids se lisent alors TELS QUELS,
+		// il n'y a plus rien à réécrire (et les BRIK quantifiés de ces archs redeviennent lisibles).
+		if (CustomWebModel.ropeNormOn && this.manifest.config.ropeInterleaved) return raw;
 		// Toutes les archs converties en RoPE « NORM » par llama.cpp (Q/K permutés) : llama (3.x),
 		// mistral3 (Ministral 3), smollm3 — vérifié dans llama-model.cpp (LLAMA_ROPE_TYPE_NORM).
 		if (!['llama', 'mistral3', 'smollm3'].includes(this.manifest.arch)) return raw;
@@ -126,7 +149,9 @@ export class CustomWebModel {
 		if (!isQ && !isK) return raw;
 		const { nHeads, nKvHeads, headDim } = this.manifest.config;
 		const t = this.manifest.tensors[name];
-		if (t.type === 'Q8W' || t.type === 'Q4W') throw new Error('BRIK d’un modèle llama non supporté (lignes Q/K permutées) — charger le GGUF directement.');
+		// Q3W inclus : ses plans de bits (q3web) ne sont pas non plus dé-permutables par lignes — sans
+		// cette garde, un BRIK q3 de llama passait et sortait des poids CORROMPUS sans erreur.
+		if (t.type === 'Q8W' || t.type === 'Q4W' || t.type === 'Q3W') throw new Error('BRIK d’un modèle llama non supporté (lignes Q/K permutées) — charger le GGUF directement.');
 		const heads = isQ ? nHeads : nKvHeads;
 		const nRows = heads * headDim;
 		const rowBytes = t.bytes / nRows;
@@ -167,12 +192,38 @@ export class CustomWebModel {
 		if (!s) return;
 		const span = await this.source.bytes(s.start, s.end - s.start);
 		for (const [n, t] of entries) {
-			if (!this.rawCache.has(n)) this.rawCache.set(n, span.subarray(t.offset - s.start, t.offset - s.start + t.bytes));
+			// `cacheRaw` et non `rawCache.set` : c'est ici que la dé-permutation Q/K était sautée.
+			if (!this.rawCache.has(n)) this.cacheRaw(n, span.subarray(t.offset - s.start, t.offset - s.start + t.bytes));
 		}
 	}
 
 	// Dequantize a full tensor (by manifest type) to f32 (CPU-visible). Used for small tensors
 	// (norms/biases).
+	// Accès DIAGNOSTIC à un tenseur en f32 (déquantifié) — pour écrire une référence CPU du forward
+	// indépendante du pipeline GPU. Sans ça, impossible de départager « kernels justes mais mal
+	// composés » de « kernels faux » : selfValidate ne teste que les kernels, un par un.
+	// Coûteux (readback complet) : usage banc uniquement.
+	// `raw` : renvoie les octets TELS QU'ILS SONT DANS LE FICHIER, sans la dé-permutation des lignes
+	// Q/K appliquée au chargement pour la famille llama. Indispensable pour écrire une référence
+	// honnête : comparer le GPU à une référence qui consomme les MÊMES poids dé-permutés validerait
+	// une dé-permutation fautive (les deux seraient faux à l'identique). Avec `raw`, la référence
+	// applique la convention de ggml (paires adjacentes) sur les poids d'origine — la vraie vérité.
+	async debugTensorF32(name: string, raw = false): Promise<Float32Array> {
+		if (!raw) return this.dequant(name);
+		const prev = CustomWebModel.unpermOn;
+		const hadCache = this.rawCache.has(name);
+		const cached = this.rawCache.get(name);
+		try {
+			CustomWebModel.unpermOn = false;   // court-circuite maybeUnpermuteLlamaQk
+			this.rawCache.delete(name);        // le cache contient la version dé-permutée
+			return await this.dequant(name);
+		} finally {
+			CustomWebModel.unpermOn = prev;
+			this.rawCache.delete(name);
+			if (hadCache && cached) this.rawCache.set(name, cached);
+		}
+	}
+
 	private async dequant(name: string): Promise<Float32Array> {
 		const t = this.manifest.tensors[name];
 		const bytes = await this.rawTensor(name);
@@ -372,6 +423,44 @@ export class CustomWebModel {
 	private layerGpuCache = new Map<number, LayerWeightsGpu>();
 	private finalNormGpu: any = null;
 
+	// ── Préchauffe : mettre les poids sur le GPU AVANT le premier message ────────────────────────
+	// Les poids d'une couche étaient chargés et quantifiés au PREMIER forward qui en a besoin. L'UI
+	// annonçait donc « chargé », puis le premier message payait toute la mise en VRAM : mesuré le
+	// 2026-08-13 sur DeepSeek-R1-Distill-Qwen-7B (4,7 Go) → **10,9 s facturés au prefill du 1er
+	// message** (3,9 t/s), contre ~20 t/s dès le 2e. Vu de l'utilisateur : « chargé ✓ » puis onze
+	// secondes d'attente inexpliquées, et une statistique de prefill fausse.
+	// Ici on fait le travail pendant l'écran de chargement, où l'attente est attendue et affichée.
+	// Bonus : un modèle trop gros pour la VRAM échoue MAINTENANT, avec un message clair, au lieu de
+	// mourir au premier message.
+	async warmup(onProgress?: (done: number, total: number) => void): Promise<void> {
+		const { blockCount, d } = this.manifest.config;
+		const total = blockCount + 1; // couches + tête de projection
+		for (let i = 0; i < blockCount; i++) {
+			await this.layerWeightsGpu(i);
+			onProgress?.(i + 1, total);
+		}
+		await this.getFinalNormGpu();
+		await this.getRopeFactors();
+		// La tête logits (vocab × d, quantifiée en tuiles) est le plus gros poste unitaire.
+		await this.getProjectionQ8(d);
+
+		// ⚠️ CRÉER les buffers ne suffit PAS. `queue.writeBuffer` est différé : le driver ne
+		// matérialise réellement les octets qu'au premier shader qui les LIT. Mesuré sur le 7B :
+		// préparer les poids « coûtait » 0 ms, puis le premier forward passait 5,4 s dans l'exécution
+		// GPU (contre 97 ms ensuite) — soit ~4,7 Go transférés à ce moment-là, facturés au prefill du
+		// premier message. On force donc un forward JETABLE d'un token : il touche tous les poids,
+		// toutes les couches et la tête, et c'est lui qui paye le transfert, ici, sous la barre de
+		// progression. La session KV « warmup » est écartée juste après (le premier vrai message
+		// arrive avec pastLen = 0, ce qui réinitialise le cache de toute façon).
+		try {
+			await this.topKKV([0], 0, 'brimkern-warmup', [], 1);
+			this.reset();
+		} catch (e) {
+			console.warn('[warmup] passe à blanc impossible — le premier message paiera le transfert :', e);
+		}
+		onProgress?.(total, total);
+	}
+
 	private async layerWeightsGpu(idx: number): Promise<LayerWeightsGpu> {
 		const cached = this.layerGpuCache.get(idx);
 		if (cached) return cached;
@@ -413,12 +502,46 @@ export class CustomWebModel {
 		]);
 		const w = { attnNorm, wq, wk, wv, wo, ffnNorm, wgate, wup, wdown, bq, bk, bv, postAttnNorm, postFfnNorm, qNorm, kNorm, matF16: f16 } as LayerWeightsGpu;
 		this.layerGpuCache.set(idx, w);
+		// Les octets bruts de la couche ont fini leur vie : tout est en VRAM. Les garder gardait le
+		// MODÈLE ENTIER dupliqué dans le tas JS (les subarray retiennent l'ArrayBuffer du span) —
+		// ~0,5 Go de heap sur un BRIK mobile, évictions et device-lost à la clé. On purge aussi
+		// l'entrée layerSpan : un rebuild (setWeightPrecision) repasse par ensureLayerSpan, resservi
+		// par le Cache API (mêmes clés), au lieu de retomber en fetchs par-tenseur. Les tenseurs hors
+		// couche (token_embd relu à chaque prefill, normes finales, tête) restent en cache.
+		const prefix = `blk.${idx}.`;
+		for (const name of this.rawCache.keys()) if (name.startsWith(prefix)) this.rawCache.delete(name);
+		this.layerSpan.delete(idx);
 		return w;
 	}
 
 	private async getFinalNormGpu(): Promise<any> {
 		if (!this.finalNormGpu) this.finalNormGpu = this.engine.uploadGpu(await this.dequant('output_norm.weight'));
 		return this.finalNormGpu;
+	}
+
+	// Préchauffe : uploade couches + norme finale + tuiles de projection en VRAM AVANT que l'UI
+	// annonce « Prêt ». Sans elle, tout ça se payait au PREMIER MESSAGE — parfois des dizaines de
+	// secondes avec trois points de frappe pour seul feedback. Progression en OCTETS (tailles du
+	// manifeste) pour brancher la barre de chargement existante. Batch de 4 : assez pour recouvrir
+	// fetch/déquant/upload, sans le pic mémoire d'un Promise.all sur toutes les couches.
+	public async prewarmGpu(onProgress?: (doneBytes: number, totalBytes: number) => void): Promise<void> {
+		const { blockCount, d } = this.manifest.config;
+		const layerBytes = new Array<number>(blockCount).fill(0);
+		for (const [n, t] of Object.entries(this.manifest.tensors)) {
+			const m = n.match(/^blk\.(\d+)\./);
+			if (m) layerBytes[Number(m[1])] += t.bytes;
+		}
+		const totalBytes = layerBytes.reduce((a, b) => a + b, 0);
+		let done = 0;
+		const BATCH = 4;
+		for (let i = 0; i < blockCount; i += BATCH) {
+			const n = Math.min(BATCH, blockCount - i);
+			await Promise.all(Array.from({ length: n }, (_, j) => this.layerWeightsGpu(i + j)));
+			for (let j = 0; j < n; j++) done += layerBytes[i + j];
+			onProgress?.(done, totalBytes);
+		}
+		await this.getFinalNormGpu();
+		await this.getProjectionQ8(d);
 	}
 
 	// Reconstruct a contiguous q8web blob for `rows` rows (each d wide) from the SoA full blob (codes
@@ -550,7 +673,15 @@ export class CustomWebModel {
 	// Qwen2/Llama, so the kernels take their default Qwen/Llama path).
 	private archFlags(): Partial<LayerCfg> {
 		const c = this.manifest.config;
-		return { attnScale: c.attnScale, attnLogitSoftcap: c.attnLogitSoftcap, act: c.act, rmsGainOnePlus: c.rmsGainOnePlus };
+		return {
+			attnScale: c.attnScale, attnLogitSoftcap: c.attnLogitSoftcap, act: c.act, rmsGainOnePlus: c.rmsGainOnePlus,
+			// Par couche : fenêtre glissante + base RoPE (Gemma 3, 5 locales / 1 globale), NoPE (SmolLM3).
+			// Absents sur toutes les autres archis → le moteur reprend exactement le chemin historique.
+			windowPerLayer: c.windowPerLayer, ropeThetaPerLayer: c.ropeThetaPerLayer, skipRopePerLayer: c.skipRopePerLayer,
+			// Convention d'appariement du RoPE (ggml NORM pour llama/mistral/smollm3). Coupée par
+			// ?ropenorm=0 → on retombe sur rotate_half + dé-permutation des lignes Q/K, l'ancien couple.
+			ropeInterleaved: CustomWebModel.ropeNormOn ? c.ropeInterleaved : undefined,
+		};
 	}
 
 	// ── Vision (arch qwen2vl) : segments image du prompt courant + positions M-RoPE. ──────────────
@@ -590,8 +721,17 @@ export class CustomWebModel {
 	// Facteurs de fréquence RoPE (Llama 3.1/3.2 : tenseur optionnel rope_freqs.weight, [headDim/2]
 	// diviseurs). Chargés une fois ; absents → null → rope standard.
 	private ropeFactorsCache: Float32Array | null | undefined;
+	// Kill-switch de banc : ?ropefactors=0 → RoPE standard (ni scaling llama3 ni YaRN). Sert à isoler
+	// le scaling quand une famille sort du charabia (il agit à TOUTE position, pas seulement au-delà
+	// du contexte d'origine : il divise les basses fréquences).
+	private static ropeFactorsOn = (() => { try { return new URLSearchParams(location.search).get('ropefactors') !== '0'; } catch { return true; } })();
 	private async getRopeFactors(): Promise<Float32Array | null> {
 		if (this.ropeFactorsCache !== undefined) return this.ropeFactorsCache;
+		if (!CustomWebModel.ropeFactorsOn) {
+			console.warn('[model] facteurs RoPE COUPÉS par ?ropefactors=0 — RoPE standard');
+			this.ropeFactorsCache = null;
+			return null;
+		}
 		if (this.manifest.tensors['rope_freqs.weight']) {
 			this.ropeFactorsCache = await this.dequant('rope_freqs.weight');
 			console.log('[model] rope_freqs.weight présent — RoPE à facteurs (scaling llama3) actif');
@@ -704,14 +844,24 @@ export class CustomWebModel {
 		const cfg: LayerCfg = { seq: tokens.length, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps: rmsEps, ...this.archFlags() };
 		this.applyMrope(cfg, pastLen, tokens.length);
 		cfg.ropeFactors = (await this.getRopeFactors()) ?? undefined;
+		// Chronométrage par ÉTAPE, activé par ?timing=1 : le premier message d'une session payait
+		// 10 s inexpliquées sur un 7B (prefill affiché à 3,9 t/s contre ~20 ensuite). Sans découpage,
+		// impossible de dire si le coût vient de l'embedding, des poids de couches, de la tête de
+		// projection ou du forward lui-même.
+		const T = CustomWebModel.timingOn ? (label: string, t0: number) => console.info(`[timing] ${label} ${(performance.now() - t0).toFixed(0)} ms`) : null;
+		let t0 = performance.now();
 		const embeds = await this.embed(tokens, d);
+		T?.('embed', t0); t0 = performance.now();
 		CustomWebModel.applyInjections(embeds, d, pastLen, tokens.length, inject);
 		const layers = await Promise.all(
 			Array.from({ length: blockCount }, (_, i) => this.layerWeightsGpu(i))
 		);
+		T?.('poids des couches', t0); t0 = performance.now();
 		const finalNorm = await this.getFinalNormGpu();
 		const tiles = await this.getProjectionQ8(d);
+		T?.('norme finale + tête de projection', t0); t0 = performance.now();
 		const logits = await this.engine.decodeLogitsQ8(embeds, cfg, layers, pastLen, finalNorm, sessionId, tiles, this.projVocab);
+		T?.('forward + logits', t0);
 		const cap = m.config.finalLogitSoftcap;
 		if (cap && cap > 0) for (let i = 0; i < logits.length; i++) logits[i] = cap * Math.tanh(logits[i] / cap);
 		return logits;
@@ -727,14 +877,51 @@ export class CustomWebModel {
 		const cfg: LayerCfg = { seq: tokens.length, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps: rmsEps, ...this.archFlags() };
 		this.applyMrope(cfg, pastLen, tokens.length);
 		cfg.ropeFactors = (await this.getRopeFactors()) ?? undefined;
+		// Chronométrage par ÉTAPE (?timing=1) : c'est CE chemin que le chat emprunte (topKKV), pas
+		// logitsKV. Sert à découper les ~10 s payées au tout premier message d'une session sur un 7B.
+		const T = CustomWebModel.timingOn ? (label: string, t0: number) => console.info(`[timing] ${label} ${(performance.now() - t0).toFixed(0)} ms`) : null;
+		let t0 = performance.now();
 		const embeds = await this.embed(tokens, d);
+		T?.('embed', t0); t0 = performance.now();
 		CustomWebModel.applyInjections(embeds, d, pastLen, tokens.length, inject);
 		const layers = await Promise.all(
 			Array.from({ length: blockCount }, (_, i) => this.layerWeightsGpu(i))
 		);
+		T?.('poids des couches', t0); t0 = performance.now();
 		const finalNorm = await this.getFinalNormGpu();
 		const tiles = await this.getProjectionQ8(d);
-		return this.engine.decodeTopKQ8(embeds, cfg, layers, pastLen, finalNorm, sessionId, tiles, this.projVocab, recent, penalty, m.config.finalLogitSoftcap ?? 0);
+		T?.('norme finale + tete de projection', t0); t0 = performance.now();
+		const out = await this.engine.decodeTopKQ8(embeds, cfg, layers, pastLen, finalNorm, sessionId, tiles, this.projVocab, recent, penalty, m.config.finalLogitSoftcap ?? 0);
+		T?.('forward + top-k', t0);
+		return out;
+	}
+
+	// BANC : l'état caché APRÈS CHAQUE COUCHE, pour dichotomiser une divergence.
+	//
+	// Pourquoi ce hook existe : la référence CPU (__refForward) ne comparait que les LOGITS. Un écart
+	// y est un verdict sans adresse — il peut naître à la couche 0 comme à l'avant-dernière, et se
+	// propage de toute façon jusqu'au bout. En rendant l'état après chaque couche, on trouve la
+	// PREMIÈRE qui diverge : au-dessus d'elle tout est sain, donc la cause est dans ce bloc-là.
+	//
+	// Ce chemin est volontairement le chemin CLASSIQUE (`layerForward`, poids déquantifiés, pas de
+	// cache KV), pas le chemin résident fusionné du chat (`decodeLogitsQ8`). C'est le deuxième
+	// partage utile : si la référence CPU et CE chemin concordent alors que les logits du chat
+	// divergent, le défaut est dans la fusion/le cache KV, pas dans la composition du forward.
+	// `ropeFactors` est posé comme dans logitsKV (generateNext, lui, l'oublie — cf. ROADMAP §6).
+	// Coûteux (readback complet par couche) : usage banc uniquement.
+	async debugHiddenPerLayer(tokens: number[]): Promise<Float32Array[]> {
+		const m = this.manifest;
+		const { d, nHeads, nKvHeads, headDim, ffn, blockCount, ropeTheta, rmsEps } = m.config;
+		const seq = tokens.length;
+		const cfg: LayerCfg = { seq, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps: rmsEps, ...this.archFlags() };
+		cfg.ropeFactors = (await this.getRopeFactors()) ?? undefined;
+		let x = await this.embed(tokens, d);
+		const out: Float32Array[] = [];
+		for (let idx = 0; idx < blockCount; idx++) {
+			x = await this.engine.layerForward(x, cfg, await this.layerWeights(idx), true);
+			out.push(Float32Array.from(x));
+		}
+		return out;
 	}
 
 	// Full forward over the token sequence (prefill and greedy decode, no KV cache).

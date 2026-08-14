@@ -28,6 +28,15 @@ export interface Manifest {
     rmsGainOnePlus?: boolean;   // RMSNorm gain (1+w) convention (Gemma)
     embedScale?: number;        // multiply token embeddings by this (Gemma = sqrt(d))
     mropeSections?: number[];   // M-RoPE (Qwen2-VL) : sections de fréquences [t, h, w]
+    // ── Attention par couche (Gemma 3) : fenêtre glissante (0 = pleine) et base RoPE, alternées
+    // 5 locales / 1 globale. Absents ⇒ toutes les couches en causal plein avec ropeTheta. ──
+    windowPerLayer?: number[];
+    ropeThetaPerLayer?: number[];
+    // NoPE (SmolLM3) : couches SANS RoPE (1 sur 4). Absent ⇒ RoPE partout (comportement historique).
+    skipRopePerLayer?: boolean[];
+    // Convention d'appariement du RoPE : true = paires adjacentes (2i, 2i+1) = ggml NORM (llama,
+    // mistral, smollm3) ; absent ⇒ rotate_half (i, i+headDim/2) = convention Hugging Face.
+    ropeInterleaved?: boolean;
     // YaRN (Ministral 3, …) : transform STATIQUE par fréquence (calculé en buffer rope_factors
     // par model.ts) ; l'échelle d'attention mscale² est déjà pliée dans attnScale par le parser.
     yarn?: { factor: number; betaFast: number; betaSlow: number; origCtx: number };
@@ -370,6 +379,49 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
       const mscale = 1 + 0.1 * Math.log(factor);
       config.attnScale = (mscale * mscale) / Math.sqrt(headDim);
     }
+  }
+
+  // Gemma 3 : GELU + embedScale comme Gemma 1/2, MAIS plus de softcaps (remplacés par le QK-Norm,
+  // détecté tout seul via attn_q_norm/attn_k_norm) et surtout une ATTENTION ALTERNÉE — 5 couches
+  // « locales » (fenêtre glissante `sliding_window`, RoPE θ local) pour 1 « globale » (attention
+  // pleine, θ = rope.freq_base = 1e6). llama.cpp : set_swa_pattern(6) → la couche i est GLOBALE si
+  // (i+1) % 6 == 0. Le θ local (10 000) n'est pas écrit dans le GGUF par convert_hf_to_gguf : il est
+  // codé en dur côté llama.cpp (rope_freq_base_train_swa), on garde la clé au cas où elle apparaisse.
+  // ⚠️ headDim (key_length = 256) ≠ d/nHeads (160) sur le 270M : déjà géré (qDim ≠ d).
+  if (arch === 'gemma3') {
+    config.act = 'gelu';
+    config.embedScale = Math.sqrt(d);
+    const win = getMetaU32('attention.sliding_window', 512);
+    const pattern = getMetaU32('attention.sliding_window_pattern', 6) || 6;
+    const localTheta = getMetaF32('rope.local_freq_base', 10000);
+    const isGlobal = (i: number) => (i + 1) % pattern === 0;
+    config.windowPerLayer = Array.from({ length: blockCount }, (_, i) => (isGlobal(i) ? 0 : win));
+    config.ropeThetaPerLayer = Array.from({ length: blockCount }, (_, i) => (isGlobal(i) ? ropeTheta : localTheta));
+  }
+
+  // SmolLM3 : Llama standard SAUF le NoPE — une couche sur 4 (indices 3, 7, 11…) n'applique PAS de
+  // RoPE (« no positional encoding », c'est ce qui lui donne son contexte long). llama.cpp lit la
+  // liste depuis rope.dimension_sections… non : la clé est `<arch>.no_rope_layers`, un tableau de
+  // 0/1 par couche (1 = RoPE appliqué). Absente → repli sur le motif publié (1 couche sur 4 sans).
+  if (arch === 'smollm3') {
+    const raw = metadata[`${arch}.no_rope_layers`];
+    const arr = Array.isArray(raw) ? raw.map(Number) : [];
+    config.skipRopePerLayer = arr.length === blockCount
+      ? arr.map((v) => v === 0)
+      : Array.from({ length: blockCount }, (_, i) => (i + 1) % 4 === 0);
+  }
+
+  // ── CONVENTION RoPE (LLAMA_ROPE_TYPE_NORM) ────────────────────────────────────────────────────
+  // ggml applique le RoPE par paires de dimensions ADJACENTES (2i, 2i+1) aux archs llama, mistral et
+  // smollm3, là où Hugging Face (donc Qwen, Gemma, Phi…) tourne i avec i+headDim/2 (« rotate_half »).
+  // On le signale au moteur, qui a les deux variantes dans un seul kernel. Avant cela, la seule
+  // parade était de RÉÉCRIRE l'ordre des lignes de Q et K au chargement (maybeUnpermuteLlamaQk) pour
+  // simuler la convention HF : coûteux, impossible sur les layouts quantifiés SoA du BRIK (d'où le
+  // refus des BRIK llama), et à l'origine du charabia de ces modèles (cf. docs/ROADMAP.md §6).
+  // Kill-switch `?ropenorm=0` (lu côté model.ts) → on revient à l'ancien couple dé-permutation +
+  // rotate_half, pour l'A/B.
+  if (arch === 'llama' || arch === 'mistral3' || arch === 'smollm3') {
+    config.ropeInterleaved = true;
   }
 
   // Qwen2-VL : le LLM est un Qwen2 standard + M-RoPE. Les sections de fréquences [t, h, w] viennent

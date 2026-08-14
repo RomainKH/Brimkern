@@ -29,11 +29,34 @@ export class Lfm2ChatAdapter {
 	reset(): void { this.sessionId = null; this.history = []; this.core.reset(); }
 	unload(): void { this.core.unload(); }
 
+	// Chemin résident : l'état GPU (conv + K/V) ne sait pas « reculer ». On garde l'historique des
+	// tokens nourris ; pastLen divergent (troncature/édition côté chat) → rejeu du préfixe depuis
+	// zéro via prefillGpu par tranches (pastLen 0 = reset moteur). Sans ce garde-fou, l'état conv
+	// contiendrait des tokens rétractés (l'attention se réécrit, l'état récurrent NON).
+	private async alignResident(pastLen: number, sessionId: string): Promise<void> {
+		if (sessionId !== this.sessionId || pastLen === 0) { this.sessionId = sessionId; this.history = []; }
+		if (pastLen !== this.history.length) {
+			const prefix = this.history.slice(0, pastLen);
+			this.history = [];
+			if (prefix.length) {
+				for (let done = 0; done < prefix.length; done += 128) {
+					await this.core.prefillGpu(prefix.slice(done, done + 128), done, sessionId);
+				}
+				this.history = prefix;
+			}
+		}
+	}
+
 	// Aligne l'état interne sur (sessionId, pastLen) puis nourrit `tokens`. Retourne les logits finaux.
 	// Chemin RÉSIDENT (défaut) : l'état conv + K/V vit sur le GPU côté moteur, keyé par (sessionId,
 	// pastLen) — une soumission / un readback pour tout le bloc `tokens` (fini le gel). Repli JS sinon.
 	async logitsKV(tokens: number[], pastLen: number, sessionId: string, _inject?: unknown): Promise<Float32Array> {
-		if (this.core.residentAvailable()) return this.core.logitsGpu(tokens, pastLen, sessionId);
+		if (this.core.residentAvailable()) {
+			await this.alignResident(pastLen, sessionId);
+			const logits = await this.core.logitsGpu(tokens, pastLen, sessionId);
+			this.history.push(...tokens);
+			return logits;
+		}
 		// ── Repli JS (forwardToken token par token) ──
 		if (sessionId !== this.sessionId || pastLen === 0) {
 			this.sessionId = sessionId; this.history = []; this.core.reset();
@@ -74,7 +97,12 @@ export class Lfm2ChatAdapter {
 	// divisés, négatifs multipliés) — même contrat que CustomWebModel.topKKV/decodeTopKQ8.
 	async topKKV(tokens: number[], pastLen: number, sessionId: string, recent: number[], penalty: number, _inject?: unknown): Promise<{ ids: Uint32Array; vals: Float32Array }> {
 		// Résident : projection tête + pénalité + top-K sur le GPU, un readback (~512 o).
-		if (this.core.residentAvailable()) return this.banTools(await this.core.topKGpu(tokens, pastLen, sessionId, [...new Set(recent)], penalty, 40));
+		if (this.core.residentAvailable()) {
+			await this.alignResident(pastLen, sessionId);
+			const r = this.banTools(await this.core.topKGpu(tokens, pastLen, sessionId, [...new Set(recent)], penalty, 40));
+			this.history.push(...tokens);
+			return r;
+		}
 		const logits = await this.logitsKV(tokens, pastLen, sessionId);
 		for (const id of Lfm2ChatAdapter.TOOL_BAN) if (id < logits.length) logits[id] = -1e30;
 		if (penalty && penalty !== 1) {

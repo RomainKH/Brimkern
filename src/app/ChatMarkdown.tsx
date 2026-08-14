@@ -132,8 +132,13 @@ function renderBlocks(t: string, keyPrefix: string) {
   });
 }
 
-// Full message body: splits out a DeepSeek-R1 <think>…</think> block (collapsible) from the answer.
-export function renderMessageContent(text: string): ReactNode {
+// Full message body: splits out a DeepSeek-R1 <think>…</think> block from the answer.
+// `showReasoning` (false par défaut, réglage « Afficher le raisonnement ») : sans lui, le
+// raisonnement n'est plus affiché du tout — sur un modèle de raisonnement il occupait le haut de
+// chaque réponse alors que ce qui intéresse, c'est la réponse. Pendant que le modèle est ENCORE dans
+// son <think>, on garde une ligne minimale « Réflexion… » : sinon la bulle reste vide de longues
+// secondes et l'interface paraît figée.
+export function renderMessageContent(text: string, showReasoning = false): ReactNode {
   if (!text) return null;
   const open = text.indexOf('<think>');
   if (open !== -1) {
@@ -145,7 +150,14 @@ export function renderMessageContent(text: string): ReactNode {
     return (
       <>
         {before.trim() && renderBlocks(before, 'pre')}
-        <ReasoningBlock text={thinking} streaming={close === -1} />
+        {showReasoning ? (
+          <ReasoningBlock text={thinking} streaming={close === -1} />
+        ) : close === -1 ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--text-muted)', fontSize: 13, margin: '2px 0 6px' }}>
+            <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <span>Réflexion…</span>
+          </div>
+        ) : null}
         {answer.trim() && renderBlocks(answer, 'ans')}
       </>
     );

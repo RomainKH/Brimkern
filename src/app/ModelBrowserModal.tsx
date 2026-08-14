@@ -7,14 +7,23 @@
 
 import { useEffect, useState, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 import Link from 'next/link';
-import { Database, X, Flame, Upload, Search, Info, Play, Download, Package, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Timer, Feather, HardDriveDownload, Cpu, Gauge } from 'lucide-react';
+import { Database, X, Flame, Upload, Search, Info, Play, Download, Package, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Timer, Feather, HardDriveDownload, Cpu, Gauge, AlertCircle, Film } from 'lucide-react';
 import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
-import { COMING_SOON, MODALITY_PILL, normModelName } from '@/lib/modelCatalog';
+import { COMING_SOON, MODALITY_PILL, fmtModelSize, normModelName } from '@/lib/modelCatalog';
 import { type WeightDType } from '@/lib/brik/convert';
 import { useNetworkStatus, estimateDownloadSeconds, formatDuration, type NetTier } from '@/lib/useNetworkStatus';
 import { useGpuCapability, gpuVerdict, type GpuVerdict } from '@/lib/useGpuCapability';
-import { isStoragePersisted, requestPersistentStorage } from '@/lib/storage';
-import { useT } from '@/lib/i18n';
+import { isStoragePersisted, requestPersistentStorage, storageEstimate } from '@/lib/storage';
+import { useT, useHref } from '@/lib/i18n';
+import HfModelInput from './HfModelInput';
+
+// Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
+// mort ferait une première impression désastreuse à un visiteur venu de Hugging Face).
+const HF_INPUT_EXAMPLES = [
+  { label: 'LFM2.5 230M (.brik)', value: 'romainkh14/LFM2.5-230M_BRIK' },
+  { label: 'Qwen3 0.6B (GGUF)', value: 'Qwen/Qwen3-0.6B-GGUF' },
+  { label: 'Gemma 3 270M (GGUF)', value: 'unsloth/gemma-3-270m-it-GGUF' },
+];
 
 type UserModel = { url?: string; name: string; kind: 'gguf' | 'brik' | 'local' };
 type ModelState = 'idle' | 'initializing' | 'loading' | 'ready' | 'generating' | 'error';
@@ -43,6 +52,8 @@ interface Props {
   handleStreamBrik: (urlOverride?: string) => void | Promise<void>;
   // Recharge un .brik importé depuis l'IndexedDB (bibliothèque) — false si absent → re-import.
   loadLocalBrikFromCache?: (name: string) => Promise<boolean>;
+  // Saisie libre « n'importe quel modèle du Hub » : rend un message d'erreur à afficher, ou null.
+  onLoadFromInput?: (raw: string) => Promise<string | null>;
   handleLoadLocalModel: () => void | Promise<void>;
   handleDragOver: (e: DragEvent) => void;
   handleDragLeave: () => void;
@@ -74,12 +85,17 @@ const fmtBytes = (bytes: number, dm = 2) => {
 export function ModelBrowserModal({
   setBrowseOpen, activeTab, setActiveTab, modelState, autoConvert, setAutoConvert, convertTier, setConvertTier,
   modelQuery, setModelQuery, isMobile, showAllModels, setShowAllModels, loadedModelName, isCached,
-  userModels, setUserModels, benchRunning, handleUnloadModel, handleLoadModelFromUrl, handleStreamBrik, loadLocalBrikFromCache,
+  userModels, setUserModels, benchRunning, handleUnloadModel, handleLoadModelFromUrl, handleStreamBrik, loadLocalBrikFromCache, onLoadFromInput,
   handleLoadLocalModel, handleDragOver, handleDragLeave, handleDrop, handleFileChange,
   selectedFile, setSelectedFile, customHFUrl, setCustomHFUrl, brikUrl, setBrikUrl,
   selectedTokenizerId, setSelectedTokenizerId, isDragging, onLoadImageModel, onLoadVisionModel,
 }: Props) {
   const t = useT();
+  // Les tailles et badges du catalogue sont des DONNÉES : elles se formatent selon la locale
+  // active (elles étaient figées en français, y compris dans l'interface anglaise).
+  const isFr = t('en', 'fr') === 'fr';
+  // Liens internes préfixés par la locale (voir useHref) : rester dans sa langue en naviguant.
+  const href = useHref();
   const formatBytes = fmtBytes;
 
   // Connexion + persistance — surfacés au moment où l'utilisateur choisit un modèle (potentiellement
@@ -95,12 +111,29 @@ export function ModelBrowserModal({
   };
   const verdictFor = (paramsB: number, name: string): GpuVerdict | null =>
     gpu.probed && gpu.supported && paramsB > 0 ? gpuVerdict(paramsB, name, gpu, isMobile) : null;
+  // Persistance du cache : demandée une fois en SILENCE (Chrome décide seul, aucun dialogue) puis
+  // seulement AFFICHÉE quand elle est accordée. L'ancien « Garder sur mon appareil » était un bouton
+  // qui ne faisait rien de visible — cf. requestPersistentStorage.
+  // Espace de stockage réellement disponible pour ce site. Chrome accorde une fraction de l'espace
+  // disque (≈ 300 Go sur une machine avec 150 Go libres… mais ≈ 1,5 Go seulement en navigation privée
+  // ou sur un profil éphémère). Un modèle plus gros que l'espace libre se télécharge, échoue à se
+  // mettre en cache, et se re-télécharge à chaque visite : autant le dire AVANT le clic, puisqu'on
+  // propose des modèles de plusieurs Go.
+  const [freeBytes, setFreeBytes] = useState<number | null>(null);
+  useEffect(() => {
+    storageEstimate()
+      .then((e) => { if (e && e.quota > 0) setFreeBytes(Math.max(0, e.quota - e.usage)); })
+      .catch(() => { /* API absente → aucun avertissement, comme avant */ });
+  }, []);
+  const wontFit = (sizeBytes: number) => freeBytes !== null && sizeBytes > freeBytes;
+
   const [persisted, setPersisted] = useState<boolean | null>(null);
-  useEffect(() => { isStoragePersisted().then(setPersisted).catch(() => setPersisted(null)); }, []);
-  const askPersist = async () => { try { setPersisted(await requestPersistentStorage()); } catch { /* ignore */ } };
-  // Un modèle est « léger » s'il est marqué mobile ou pèse ≤ 1 Go — les candidats mis en avant sur
-  // une connexion faible.
-  const isLight = (sizeBytes: number, mobile: boolean) => mobile || sizeBytes <= 1e9;
+  useEffect(() => {
+    isStoragePersisted()
+      .then((p) => (p ? p : requestPersistentStorage()))
+      .then(setPersisted)
+      .catch(() => setPersisted(null));
+  }, []);
   // Temps de téléchargement estimé pour un modèle non mis en cache (null si pas de débit connu).
   const etaFor = (sizeBytes: number): string | null => {
     const s = estimateDownloadSeconds(sizeBytes, net.downlinkMbps);
@@ -119,10 +152,10 @@ export function ModelBrowserModal({
   const visibleModels = isMobile && !showAllModels ? PRESET_MODELS.filter((m) => m.mobile) : PRESET_MODELS;
   const modelQ = modelQuery.trim().toLowerCase();
   const shownModels = modelQ
-    ? visibleModels.filter((m) => `${m.name} ${m.desc} ${m.useCase} ${m.tags.join(' ')}`.toLowerCase().includes(modelQ))
+    ? visibleModels.filter((m) => `${m.name} ${m.desc} ${m.useCase.en} ${m.useCase.fr} ${m.tags.join(' ')}`.toLowerCase().includes(modelQ))
     : visibleModels;
   const shownComingSoon = modelQ
-    ? COMING_SOON.filter((m) => `${m.vendor} ${m.name} ${m.desc} ${MODALITY_PILL[m.modality].label} ${m.tags.join(' ')}`.toLowerCase().includes(modelQ))
+    ? COMING_SOON.filter((m) => `${m.vendor} ${m.name} ${m.desc} ${MODALITY_PILL[m.modality].label.en} ${MODALITY_PILL[m.modality].label.fr} ${m.tags.join(' ')}`.toLowerCase().includes(modelQ))
     : COMING_SOON;
   const shownUserModels = modelQ
     ? userModels.filter((m) => `${m.name} ${m.url ?? ''} ${m.kind}`.toLowerCase().includes(modelQ))
@@ -216,16 +249,22 @@ export function ModelBrowserModal({
                       >
                         <HardDriveDownload size={12} /> {t('Kept on device', 'Gardé sur l’appareil')}
                       </span>
-                    ) : persisted === false ? (
-                      <button
-                        onClick={askPersist}
-                        title={t('Ask the browser to keep downloaded models on this device (protects the multi-GB cache from automatic eviction).', 'Demander au navigateur de garder les modèles téléchargés sur cet appareil (protège le cache multi-Go de l’éviction automatique).')}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '10.5px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', cursor: 'pointer', color: 'var(--text-secondary)', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', border: '1px dashed var(--border-color)' }}
-                      >
-                        <HardDriveDownload size={12} /> {t('Keep on my device', 'Garder sur mon appareil')}
-                      </button>
                     ) : null}
                   </div>
+                  {/* Le catalogue ne fait pas le produit : le moteur lit N'IMPORTE QUEL GGUF
+                      mono-fichier du Hub. Ce champ est donc placé AVANT la liste — c'était jusqu'ici
+                      deux champs d'URL enterrés dans l'onglet avancé, avec tokenizer à régler à la
+                      main (retour Romain : « on ne voit rien »). */}
+                  {onLoadFromInput && (
+                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--bg-card-hover, rgba(127,127,127,0.07))', border: '1px solid var(--border-color)' }}>
+                      <HfModelInput
+                        onLoad={onLoadFromInput}
+                        disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
+                        compact
+                        examples={HF_INPUT_EXAMPLES}
+                      />
+                    </div>
+                  )}
                   <div style={{ position: 'relative' }}>
                     <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                     <input
@@ -262,11 +301,7 @@ export function ModelBrowserModal({
                         </strong>{' '}
                         {net.tier === 'offline'
                           ? t('Only already-downloaded models (marked “Downloaded”) will load without network.', 'Seuls les modèles déjà téléchargés (badge « Téléchargé ») se chargeront sans réseau.')
-                          : t('Lightweight models (marked ', 'Les modèles légers (marqués ')}
-                        {net.tier !== 'offline' && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, verticalAlign: 'middle', color: 'var(--success)', fontWeight: 700 }}><Feather size={10} /> {t('Light', 'Léger')}</span>
-                        )}
-                        {net.tier !== 'offline' && t(') download faster and are recommended here.', ') se téléchargent plus vite et sont conseillés ici.')}
+                          : t('The smallest models download faster — check the size on each card.', 'Les plus petits modèles se téléchargent plus vite — regardez la taille sur chaque carte.')}
                       </span>
                     </div>
                   )}
@@ -274,11 +309,10 @@ export function ModelBrowserModal({
                   {shownModels.map((model, idx) => {
                     const isCurrentlyLoaded = !!loadedModelName && modelState !== 'initializing' && normModelName(loadedModelName) === normModelName(model.url.split('/').pop() || '');
                     const paramsB = parseFloat(model.name.match(/(\d+(?:\.\d+)?)\s*B/i)?.[1] || '0');
-                    const brikWorth = paramsB >= 1.5;
                     const cached = isCached(model.url);
-                    const light = isLight(model.sizeBytes, model.mobile);
                     const eta = !cached ? etaFor(model.sizeBytes) : null;
                     const gv = verdictFor(paramsB, model.name);
+                    const tooBig = !cached && wontFit(model.sizeBytes);
                     return (
                       <div
                         key={idx}
@@ -295,6 +329,15 @@ export function ModelBrowserModal({
                           transition: 'all 0.2s',
                         }}
                       >
+                        {tooBig && (
+                          // Plus gros que l'espace que le navigateur accorde : il se re-téléchargera
+                          // à chaque visite (et peut échouer en route). Dit avant, pas après.
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
+                            <AlertCircle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span>{t(`Larger than the ${fmtBytes(freeBytes || 0, 0)} your browser allows here — it won't stay cached.`,
+                                     `Plus gros que les ${fmtBytes(freeBytes || 0, 0)} que le navigateur accorde ici — il ne restera pas en cache.`)}</span>
+                          </div>
+                        )}
                         {/* Nom sur sa propre ligne (pleine largeur, plus tronqué par la pastille) ;
                             le qualificatif (« L'ultra-léger »…) passe en sous-titre dessous. */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
@@ -304,19 +347,19 @@ export function ModelBrowserModal({
                           <span
                             style={{ fontSize: '9.5px', padding: '2px 7px', borderRadius: '999px', fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--accent-bg-rgba)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
                           >
-                            {model.useCase}
+                            {t(model.useCase.en, model.useCase.fr)}
                           </span>
                         </div>
-                        <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>
-                          {model.desc}
-                        </p>
+                        {/* Ni description ni tags sur les cartes (décision 2026-08-13) : « mobile »,
+                            « récurrent v2 », « apache », « expérimental » ne servent pas à CHOISIR, et
+                            un paragraphe par carte remplissait l'écran (588 mots mesurés). Restent les
+                            trois signaux qui décident vraiment : déjà téléchargé, est-ce que ça
+                            tournera sur ce GPU, et la modalité (texte, texte→image…). Le détail d'un
+                            modèle se lit sur sa page Hugging Face. */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           {cached && (
                             // Pastille PLEINE (état acquis) vs verdicts estimés en contour teinté (« Tourne bien »…) — sinon deux pastilles vertes identiques qui se confondent.
                             <span title={t('Already downloaded locally → loads without network.', 'Déjà téléchargé localement → chargement sans réseau.')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--success)', color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><HardDriveDownload size={10} /> {t('Downloaded', 'Téléchargé')}</span>
-                          )}
-                          {net.preferLight && light && !cached && (
-                            <span title={t('Lightweight model — a good pick on a slow connection.', 'Modèle léger — un bon choix sur une connexion lente.')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'color-mix(in srgb, var(--success) 14%, transparent)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 45%, transparent)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Feather size={10} /> {t('Light', 'Léger')}</span>
                           )}
                           {eta && (
                             <span title={t('Estimated download time on your connection (one time — then it’s cached).', 'Temps de téléchargement estimé sur ta connexion (une seule fois — ensuite c’est en cache).')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Timer size={10} /> ~{eta}</span>
@@ -324,22 +367,11 @@ export function ModelBrowserModal({
                           {gv && (
                             <span title={t('Estimated fit on your GPU (approximate — WebGPU exposes no VRAM).', 'Adéquation estimée à ton GPU (approximatif — WebGPU n’expose pas la VRAM).')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: `color-mix(in srgb, ${gpuMeta[gv].color} 14%, transparent)`, color: gpuMeta[gv].color, border: `1px solid color-mix(in srgb, ${gpuMeta[gv].color} 45%, transparent)`, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Gauge size={10} /> {gpuMeta[gv].label}</span>
                           )}
-                          <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: MODALITY_PILL.text.bg, color: MODALITY_PILL.text.fg, border: `1px solid ${MODALITY_PILL.text.fg}33`, fontWeight: 700 }}>{MODALITY_PILL.text.label}</span>
-                          {model.tags.map((t, ti) => (
-                            <span key={ti} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>{t}</span>
-                          ))}
-                          {brikWorth && (
-                            <span
-                              title={t('BRIK conversion recommended: int4/int8 resident → ÷2–4 VRAM (the model fits + loads faster), and the converted file is cached for instant reopenings. Enable "Convert to BRIK" before loading.', 'Conversion BRIK conseillée : int4/int8 résident → ÷2–4 la VRAM (le modèle tient + charge plus vite), et le fichier converti est mis en cache pour des réouvertures instantanées. Active « Convertir en BRIK » avant de charger.')}
-                              style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--accent-bg-rgba)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', fontWeight: 700 }}
-                            >
-                              {t('↓ BRIK recommended', '↓ BRIK conseillé')}
-                            </span>
-                          )}
+                          <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: MODALITY_PILL.text.bg, color: MODALITY_PILL.text.fg, border: `1px solid ${MODALITY_PILL.text.fg}33`, fontWeight: 700 }}>{t(MODALITY_PILL.text.label.en, MODALITY_PILL.text.label.fr)}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: 'auto' }}>
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={t('Runs on our own WGSL kernels (not a generic runtime).', 'Tourne sur nos kernels WGSL maison (pas un runtime générique).')}>
-                            {paramsB > 0 ? `~${paramsB}B · ` : ''}{model.size} · {model.name.match(/\(([^)]+)\)/)?.[1] || 'GGUF'}
+                            {paramsB > 0 ? `~${paramsB}B · ` : ''}{fmtModelSize(model.sizeBytes, isFr)} · {model.name.match(/\(([^)]+)\)/)?.[1] || 'GGUF'}
                           </span>
                           {isCurrentlyLoaded ? (
                             <button
@@ -426,7 +458,7 @@ export function ModelBrowserModal({
                         </div>
                         <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>{m.desc}</p>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                          <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: pill.bg, color: pill.fg, border: `1px solid ${pill.fg}33`, fontWeight: 700 }}>{pill.label}</span>
+                          <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: pill.bg, color: pill.fg, border: `1px solid ${pill.fg}33`, fontWeight: 700 }}>{t(pill.label.en, pill.label.fr)}</span>
                           {m.tags.map((t, ti) => (
                             <span key={ti} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>{t}</span>
                           ))}
@@ -450,6 +482,38 @@ export function ModelBrowserModal({
                       </div>
                     );
                   })}
+                  {/* LABO VIDÉO : déplacé ici depuis la barre latérale (audit d'épuration 2026-08-13),
+                      où il occupait trois lignes permanentes dans toutes les sessions pour une
+                      fonctionnalité expérimentale. Sa place est parmi les modalités, et le COÛT reste
+                      annoncé avant le clic — sans ça l'utilisateur lance, ne voit rien pendant des
+                      minutes, et conclut que c'est cassé. Bureau uniquement (1,5 Go + minutes de GPU).
+                      Masqué quand une recherche est en cours et qu'elle ne le concerne pas. */}
+                  {!isMobile && (!modelQ || 'video vidéo clip animation labo'.includes(modelQ)) && (
+                    <div
+                      className="model-card"
+                      style={{ background: 'rgba(255,255,255,0.015)', border: '1px dashed var(--border-color)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>AnimateDiff · </span>{t('Video lab', 'Labo vidéo')}
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: MODALITY_PILL.text2img.bg, color: MODALITY_PILL.text2img.fg, border: `1px solid ${MODALITY_PILL.text2img.fg}33`, fontWeight: 700 }}>{t('video', 'vidéo')}</span>
+                        <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>bêta</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
+                        <AlertCircle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
+                        <span>{t('~1.5 GB to download, then several minutes of GPU work for a few seconds of video.',
+                                 '~1,5 Go à télécharger, puis plusieurs minutes de calcul GPU pour quelques secondes de vidéo.')}</span>
+                      </div>
+                      <a
+                        href="/video-test?gen=1"
+                        className="btn btn-secondary"
+                        style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', textDecoration: 'none', marginTop: 'auto', alignSelf: 'flex-start' }}
+                      >
+                        <Film size={12} /> {t('Open the lab', 'Ouvrir le labo')}
+                      </a>
+                    </div>
+                  )}
                   </div>
                   {modelQ && shownModels.length === 0 && shownUserModels.length === 0 && shownComingSoon.length === 0 && (
                     <div style={{ padding: '16px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -553,7 +617,7 @@ export function ModelBrowserModal({
                     <button className="btn btn-primary btn-block" onClick={() => handleStreamBrik()} disabled={!brikUrl.trim() || modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}>
                       <Download size={14} /> {t('Load via streaming', 'Charger en streaming')}
                     </button>
-                    <Link href="/convert" className="btn btn-secondary btn-block" style={{ fontSize: '12px', textDecoration: 'none' }}>
+                    <Link href={href('/convert')} className="btn btn-secondary btn-block" style={{ fontSize: '12px', textDecoration: 'none' }}>
                       <Package size={14} /> {t('Convert a GGUF → BRIK (dedicated page)', 'Convertir un GGUF → BRIK (page dédiée)')}
                     </Link>
                   </div>

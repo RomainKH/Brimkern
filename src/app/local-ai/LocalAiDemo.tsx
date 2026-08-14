@@ -66,7 +66,16 @@ export default function LocalAiDemo() {
 
   // WebGPU vérifié APRÈS montage (sinon SSR≠client → erreur d'hydratation). null = pas encore su.
   const [supported, setSupported] = useState<boolean | null>(null);
-  useEffect(() => { setSupported(typeof navigator !== 'undefined' && !!(navigator as Navigator & { gpu?: unknown }).gpu); }, []);
+  // Microtask (même motif que BackLink) : un setState SYNCHRONE dans le corps d'un effet déclenche
+  // une cascade de rendus — React 19 le signale comme une erreur. Le premier rendu reste identique
+  // au HTML serveur (`null` = « pas encore su »), ce qui est exactement le repli voulu.
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => {
+      if (active) setSupported(typeof navigator !== 'undefined' && !!(navigator as Navigator & { gpu?: unknown }).gpu);
+    });
+    return () => { active = false; };
+  }, []);
 
   const ensureModel = async () => {
     if (modelRef.current) return modelRef.current;
@@ -169,6 +178,7 @@ export default function LocalAiDemo() {
       </div>
 
       <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={3}
+        aria-label={t('Message to send to the local model', 'Message à envoyer au modèle local')}
         className="input-control" style={{ width: '100%', fontSize: 14, resize: 'vertical' }} />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0' }}>

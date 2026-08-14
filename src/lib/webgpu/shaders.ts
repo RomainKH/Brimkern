@@ -227,6 +227,171 @@ export const SHADERS = {
 			y[hb + i] = yi;
 		}`,
 
+	// ── Glu RWKV-7 en WGSL (chemin résident — sémantique verrouillée par scripts/rwkv-cpuref.cjs,
+	// chaque kernel validé vs sa réf JS dans selfValidate, gate rwkvResidentOk non bloquant). ──
+
+	// Lerp simple (token-shift du channel-mix) : out[i] = x[i] + (prev[i]-x[i])·lerp[i].
+	rwkv_lerp: `
+		@group(0) @binding(0) var<storage, read> x: array<f32>;
+		@group(0) @binding(1) var<storage, read> prev: array<f32>;
+		@group(0) @binding(2) var<storage, read> lerp: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			o[i] = x[i] + (prev[i] - x[i]) * lerp[i];
+		}`,
+
+	// Décroissance w : out[i] = exp(-0.606531 · sigmoid(w0[i] + wpre[i])) — wpre = w2·tanh(w1·xw).
+	rwkv_decay: `
+		@group(0) @binding(0) var<storage, read> w0: array<f32>;
+		@group(0) @binding(1) var<storage, read> wpre: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			o[i] = exp(-0.606531 / (1.0 + exp(-(w0[i] + wpre[i]))));
+		}`,
+
+	// Sigmoïde biaisée : out[i] = sigmoid(b[i] + x[i]) — sert au taux d'apprentissage en contexte a.
+	rwkv_bias_sigmoid: `
+		@group(0) @binding(0) var<storage, read> bb: array<f32>;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			o[i] = 1.0 / (1.0 + exp(-(bb[i] + x[i])));
+		}`,
+
+	// Résidu de valeur (couches > 0) : v[i] ← v[i] + (vFirst[i]−v[i])·sigmoid(v0[i]+vpre[i]), in-place.
+	rwkv_vresid: `
+		@group(0) @binding(0) var<storage, read_write> v: array<f32>;
+		@group(0) @binding(1) var<storage, read> vfirst: array<f32>;
+		@group(0) @binding(2) var<storage, read> v0: array<f32>;
+		@group(0) @binding(3) var<storage, read> vpre: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&v)) { return; }
+			let s = 1.0 / (1.0 + exp(-(v0[i] + vpre[i])));
+			v[i] = v[i] + (vfirst[i] - v[i]) * s;
+		}`,
+
+	// Préparation des clés WKV, une invocation PAR TÊTE (boucle sur les H canaux — normalisation L2
+	// intra-tête oblige) : kk = L2norm_tête(k·k_k) ; sorties negkk = −kk (vecteur a du WKV),
+	// kka = kk·a (vecteur b du WKV), kmod = k·(1+(a−1)·k_a) (vecteur k du WKV).
+	rwkv_kprep: `
+		struct Dims { nh: u32, hs: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> k: array<f32>;
+		@group(0) @binding(2) var<storage, read> a: array<f32>;
+		@group(0) @binding(3) var<storage, read> kkw: array<f32>;
+		@group(0) @binding(4) var<storage, read> kaw: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> kmod: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> negkk: array<f32>;
+		@group(0) @binding(7) var<storage, read_write> kka: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let h = gid.x;
+			if (h >= d.nh) { return; }
+			let H = d.hs; let hb = h * H;
+			var n = 0.0;
+			for (var j = 0u; j < H; j = j + 1u) { let kv = k[hb + j] * kkw[hb + j]; n = n + kv * kv; }
+			var nn = sqrt(n);
+			if (nn == 0.0) { nn = 1e-12; }
+			for (var j = 0u; j < H; j = j + 1u) {
+				let i = hb + j;
+				let kkn = (k[i] * kkw[i]) / nn;
+				negkk[i] = -kkn;
+				kka[i] = kkn * a[i];
+				kmod[i] = k[i] * (1.0 + (a[i] - 1.0) * kaw[i]);
+			}
+		}`,
+
+	// Sortie du time-mix, une invocation PAR TÊTE : GroupNorm intra-tête (eps 64e-5, affine lnw/lnb)
+	// puis bonus (Σ_j r·kmod·r_k)·v ajouté à toute la tête. Le gate g s'applique ensuite (passe mul).
+	rwkv_out_gn: `
+		struct Dims { nh: u32, hs: u32, eps: f32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> y: array<f32>;
+		@group(0) @binding(2) var<storage, read> r: array<f32>;
+		@group(0) @binding(3) var<storage, read> kmod: array<f32>;
+		@group(0) @binding(4) var<storage, read> rk: array<f32>;
+		@group(0) @binding(5) var<storage, read> v: array<f32>;
+		@group(0) @binding(6) var<storage, read> lnw: array<f32>;
+		@group(0) @binding(7) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let h = gid.x;
+			if (h >= d.nh) { return; }
+			let H = d.hs; let hb = h * H;
+			var m = 0.0;
+			for (var j = 0u; j < H; j = j + 1u) { m = m + y[hb + j]; }
+			m = m / f32(H);
+			var vv = 0.0;
+			for (var j = 0u; j < H; j = j + 1u) { let dj = y[hb + j] - m; vv = vv + dj * dj; }
+			vv = vv / f32(H);
+			let sc = 1.0 / sqrt(vv + d.eps);
+			var bonus = 0.0;
+			for (var j = 0u; j < H; j = j + 1u) { bonus = bonus + r[hb + j] * kmod[hb + j] * rk[hb + j]; }
+			// lnw contient [gamma | beta] concaténés (2·D) — 8 storage max par stage, on fusionne.
+			let D = d.nh * H;
+			for (var j = 0u; j < H; j = j + 1u) {
+				let i = hb + j;
+				o[i] = (y[i] - m) * sc * lnw[i] + lnw[D + i] + bonus * v[i];
+			}
+		}`,
+
+	// o = a · b (gate multiplicatif élémentaire)
+	mul: `
+		@group(0) @binding(0) var<storage, read> a: array<f32>;
+		@group(0) @binding(1) var<storage, read> b: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			o[i] = a[i] * b[i];
+		}`,
+
+	// o = sigmoid(x)
+	sigmoid: `
+		@group(0) @binding(0) var<storage, read> x: array<f32>;
+		@group(0) @binding(1) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			o[i] = 1.0 / (1.0 + exp(-x[i]));
+		}`,
+
+	// o = tanh(x) — argument clampé ±20 (les drivers qui passent par exp(2x) débordent f32, cf. geglu).
+	tanh_act: `
+		@group(0) @binding(0) var<storage, read> x: array<f32>;
+		@group(0) @binding(1) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			o[i] = tanh(clamp(x[i], -20.0, 20.0));
+		}`,
+
+	// o = max(x,0)² (channel-mix RWKV)
+	sqrelu: `
+		@group(0) @binding(0) var<storage, read> x: array<f32>;
+		@group(0) @binding(1) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= arrayLength(&o)) { return; }
+			let v = max(x[i], 0.0);
+			o[i] = v * v;
+		}`,
+
 	// LFM2/LFM2.5 shortconv (moteur v2, bloc hybride) : conv causale DEPTHWISE gatée, un token.
 	// Entrée bcx [3D] = in_proj·h, découpée en B (gate amont), C (gate aval), X ; par canal i :
 	//   bxₜ = B[i]·X[i] ; y = Σ_{k<LC-1} w[i·LC+k]·état[k][i] + w[i·LC+LC-1]·bxₜ ; out = y·C[i]
@@ -473,12 +638,16 @@ export const SHADERS = {
 			if (r3) { c[(row0 + 3u) * d.n + col] = acc3.x + acc3.y + acc3.z + acc3.w; }
 		}`,
 
-	// Shared-memory tiled GEMM for q8 weights — the big prefill lever. A 16×16 workgroup computes a
-	// 16×16 output tile; per k-tile it cooperatively loads a 16×16 block of activations AND a 16×16
-	// block of DEQUANTIZED weights into workgroup memory, so each weight is dequantized/read ONCE and
-	// reused across all 16 token rows (vs once-per-row in the scalar kernel). Barriers are in uniform
-	// control flow (the k-tile loop count depends only on k); out-of-range loads are zero-filled, so
-	// any m/n/k works. Used at prefill for m ≥ 16. Output identical to matmul_t_q8 (gated by selfValidate).
+	// GEMM TUILÉ + BLOQUÉ EN REGISTRES pour poids q8 — le gros levier prefill (docs/perf-webgpu.md
+	// §3.1), même schéma que matmul_t_f16w_shared : tuile de sortie 32 lignes × 64 colonnes par
+	// workgroup de 256 threads, 8 accumulateurs en REGISTRES par thread (2 lignes × 4 colonnes),
+	// mémoire partagée en ordre k-MAJEUR (pas de conflit de banques), blocs de k de 16. Chaque poids
+	// est déquantifié UNE fois puis réutilisé par les 32 lignes de tokens.
+	// Le chargement de W va par 4 valeurs contiguës en k : c'est EXACTEMENT un mot `codes` (4 int8) et
+	// UNE échelle de groupe (les groupes font 32 et k en est multiple), donc un seul accès chacun —
+	// et les 4 threads voisins couvrent les 16 k du bloc → lecture globale contiguë.
+	// Barrières en flux uniforme (nTiles ne dépend que de k), bords m/n gardés. Utilisé au prefill
+	// (m ≥ 32) ; sortie identique à matmul_t_q8 (selfValidate + kill-switch ?qshared=0).
 	matmul_t_q8_shared: `
 		struct Dims { m: u32, k: u32, n: u32 };
 		@group(0) @binding(0) var<uniform> d: Dims;
@@ -486,48 +655,77 @@ export const SHADERS = {
 		@group(0) @binding(2) var<storage, read> codes: array<u32>;
 		@group(0) @binding(3) var<storage, read> sc: array<u32>;
 		@group(0) @binding(4) var<storage, read_write> c: array<f32>;
-		var<workgroup> As: array<f32, 256>;
-		var<workgroup> Ws: array<f32, 256>;
+		var<workgroup> As: array<f32, 512>;   // [16 k][32 lignes]
+		var<workgroup> Ws: array<f32, 1024>;  // [16 k][64 colonnes]
 		fn f16d(h: u32) -> f32 {
 			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let mm = h & 0x3FFu; var v: f32;
 			if (e == 0u) { v = f32(mm) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
 			else { v = (1.0 + f32(mm) / 1024.0) * pow(2.0, f32(e) - 15.0); }
 			return select(v, -v, s == 1u);
 		}
-		@compute @workgroup_size(16, 16)
-		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-			let ty = lid.y; let tx = lid.x;
-			let row = wid.y * 16u + ty;
-			let col = wid.x * 16u + tx;
-			let k = d.k; let m = d.m; let n = d.n;
-			var acc = 0.0;
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+			let m = d.m; let k = d.k; let n = d.n;
+			let row0 = wid.y * 32u;
+			let col0 = wid.x * 64u;
+			let aRow = tid >> 3u; let aK = (tid & 7u) * 2u;
+			let aGRow = row0 + aRow;
+			let wCol = tid >> 2u; let wK = (tid & 3u) * 4u;
+			let wGCol = col0 + wCol;
+			let tr = (tid >> 4u) * 2u; let tc = (tid & 15u) * 4u;
+			var acc0 = 0.0; var acc1 = 0.0; var acc2 = 0.0; var acc3 = 0.0;
+			var acc4 = 0.0; var acc5 = 0.0; var acc6 = 0.0; var acc7 = 0.0;
 			let nTiles = (k + 15u) / 16u;
 			for (var t = 0u; t < nTiles; t = t + 1u) {
 				let kk = t * 16u;
-				let aCol = kk + tx;
-				As[ty * 16u + tx] = select(0.0, a[row * k + aCol], row < m && aCol < k);
-				let wK = kk + ty;
-				var wv = 0.0;
-				if (col < n && wK < k) {
-					let codeWord = codes[col * (k / 4u) + (wK / 4u)];
-					let code = f32(i32(codeWord << ((3u - (wK & 3u)) * 8u)) >> 24u);
-					let si = col * (k / 32u) + (wK / 32u);
+				let aOk = aGRow < m;
+				As[aK * 32u + aRow] = select(0.0, a[aGRow * k + kk + aK], aOk && (kk + aK) < k);
+				As[(aK + 1u) * 32u + aRow] = select(0.0, a[aGRow * k + kk + aK + 1u], aOk && (kk + aK + 1u) < k);
+				var v0 = 0.0; var v1 = 0.0; var v2 = 0.0; var v3 = 0.0;
+				if (wGCol < n && (kk + wK) < k) {
+					let idx = wGCol * k + kk + wK;
+					let word = codes[idx >> 2u];
+					let si = wGCol * (k / 32u) + ((kk + wK) / 32u);
 					let sw = sc[si >> 1u];
 					let s = f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
-					wv = code * s;
+					v0 = f32(i32(word << 24u) >> 24u) * s;
+					v1 = f32(i32(word << 16u) >> 24u) * s;
+					v2 = f32(i32(word << 8u) >> 24u) * s;
+					v3 = f32(i32(word) >> 24u) * s;
 				}
-				Ws[tx * 16u + ty] = wv;
+				Ws[wK * 64u + wCol] = v0;
+				Ws[(wK + 1u) * 64u + wCol] = v1;
+				Ws[(wK + 2u) * 64u + wCol] = v2;
+				Ws[(wK + 3u) * 64u + wCol] = v3;
 				workgroupBarrier();
 				for (var i = 0u; i < 16u; i = i + 1u) {
-					acc = acc + As[ty * 16u + i] * Ws[tx * 16u + i];
+					let ab = i * 32u + tr; let wb = i * 64u + tc;
+					let av0 = As[ab]; let av1 = As[ab + 1u];
+					let wv0 = Ws[wb]; let wv1 = Ws[wb + 1u]; let wv2 = Ws[wb + 2u]; let wv3 = Ws[wb + 3u];
+					acc0 = acc0 + av0 * wv0; acc1 = acc1 + av0 * wv1; acc2 = acc2 + av0 * wv2; acc3 = acc3 + av0 * wv3;
+					acc4 = acc4 + av1 * wv0; acc5 = acc5 + av1 * wv1; acc6 = acc6 + av1 * wv2; acc7 = acc7 + av1 * wv3;
 				}
 				workgroupBarrier();
 			}
-			if (row < m && col < n) { c[row * n + col] = acc; }
+			let gr0 = row0 + tr; let gr1 = gr0 + 1u; let gc = col0 + tc;
+			if (gr0 < m) {
+				if (gc < n) { c[gr0 * n + gc] = acc0; }
+				if (gc + 1u < n) { c[gr0 * n + gc + 1u] = acc1; }
+				if (gc + 2u < n) { c[gr0 * n + gc + 2u] = acc2; }
+				if (gc + 3u < n) { c[gr0 * n + gc + 3u] = acc3; }
+			}
+			if (gr1 < m) {
+				if (gc < n) { c[gr1 * n + gc] = acc4; }
+				if (gc + 1u < n) { c[gr1 * n + gc + 1u] = acc5; }
+				if (gc + 2u < n) { c[gr1 * n + gc + 2u] = acc6; }
+				if (gc + 3u < n) { c[gr1 * n + gc + 3u] = acc7; }
+			}
 		}`,
 
-	// Shared-memory tiled GEMM for q4 weights — same as matmul_t_q8_shared but the dequant is the
-	// asymmetric int4 one (nibble * scale + min). Used at prefill for m ≥ 16. Gated by selfValidate.
+	// Idem pour les poids q4 (le chemin des presets BRIK) : même tuile 32×64, mêmes 8 accumulateurs,
+	// seul le déquant change (nibble asymétrique × échelle + min). Les 4 valeurs contiguës d'un thread
+	// tiennent dans UN mot de nibbles (8 par mot, l'index est multiple de 4 → moitié basse ou haute)
+	// et partagent une échelle et un min. Utilisé au prefill (m ≥ 32) ; selfValidate + ?qshared=0.
 	matmul_t_q4_shared: `
 		struct Dims { m: u32, k: u32, n: u32 };
 		@group(0) @binding(0) var<uniform> d: Dims;
@@ -536,44 +734,278 @@ export const SHADERS = {
 		@group(0) @binding(3) var<storage, read> sc: array<u32>;
 		@group(0) @binding(4) var<storage, read> mn: array<u32>;
 		@group(0) @binding(5) var<storage, read_write> c: array<f32>;
-		var<workgroup> As: array<f32, 256>;
-		var<workgroup> Ws: array<f32, 256>;
+		var<workgroup> As: array<f32, 512>;
+		var<workgroup> Ws: array<f32, 1024>;
 		fn f16d(h: u32) -> f32 {
 			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let mm = h & 0x3FFu; var v: f32;
 			if (e == 0u) { v = f32(mm) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
 			else { v = (1.0 + f32(mm) / 1024.0) * pow(2.0, f32(e) - 15.0); }
 			return select(v, -v, s == 1u);
 		}
-		@compute @workgroup_size(16, 16)
-		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-			let ty = lid.y; let tx = lid.x;
-			let row = wid.y * 16u + ty;
-			let col = wid.x * 16u + tx;
-			let k = d.k; let m = d.m; let n = d.n;
-			var acc = 0.0;
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+			let m = d.m; let k = d.k; let n = d.n;
+			let row0 = wid.y * 32u;
+			let col0 = wid.x * 64u;
+			let aRow = tid >> 3u; let aK = (tid & 7u) * 2u;
+			let aGRow = row0 + aRow;
+			let wCol = tid >> 2u; let wK = (tid & 3u) * 4u;
+			let wGCol = col0 + wCol;
+			let tr = (tid >> 4u) * 2u; let tc = (tid & 15u) * 4u;
+			var acc0 = 0.0; var acc1 = 0.0; var acc2 = 0.0; var acc3 = 0.0;
+			var acc4 = 0.0; var acc5 = 0.0; var acc6 = 0.0; var acc7 = 0.0;
 			let nTiles = (k + 15u) / 16u;
 			for (var t = 0u; t < nTiles; t = t + 1u) {
 				let kk = t * 16u;
-				let aCol = kk + tx;
-				As[ty * 16u + tx] = select(0.0, a[row * k + aCol], row < m && aCol < k);
-				let wK = kk + ty;
-				var wv = 0.0;
-				if (col < n && wK < k) {
-					let nibWord = nib[col * (k / 8u) + (wK / 8u)];
-					let nib4 = (nibWord >> ((wK & 7u) * 4u)) & 0xFu;
-					let si = col * (k / 32u) + (wK / 32u);
+				let aOk = aGRow < m;
+				As[aK * 32u + aRow] = select(0.0, a[aGRow * k + kk + aK], aOk && (kk + aK) < k);
+				As[(aK + 1u) * 32u + aRow] = select(0.0, a[aGRow * k + kk + aK + 1u], aOk && (kk + aK + 1u) < k);
+				var v0 = 0.0; var v1 = 0.0; var v2 = 0.0; var v3 = 0.0;
+				if (wGCol < n && (kk + wK) < k) {
+					let idx = wGCol * k + kk + wK;
+					let word = nib[idx >> 3u];
+					let sh = (idx & 7u) * 4u;
+					let si = wGCol * (k / 32u) + ((kk + wK) / 32u);
 					let sw = sc[si >> 1u]; let s = f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
 					let mw = mn[si >> 1u]; let mnv = f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u));
-					wv = f32(nib4) * s + mnv;
+					v0 = f32((word >> sh) & 0xFu) * s + mnv;
+					v1 = f32((word >> (sh + 4u)) & 0xFu) * s + mnv;
+					v2 = f32((word >> (sh + 8u)) & 0xFu) * s + mnv;
+					v3 = f32((word >> (sh + 12u)) & 0xFu) * s + mnv;
 				}
-				Ws[tx * 16u + ty] = wv;
+				Ws[wK * 64u + wCol] = v0;
+				Ws[(wK + 1u) * 64u + wCol] = v1;
+				Ws[(wK + 2u) * 64u + wCol] = v2;
+				Ws[(wK + 3u) * 64u + wCol] = v3;
 				workgroupBarrier();
 				for (var i = 0u; i < 16u; i = i + 1u) {
-					acc = acc + As[ty * 16u + i] * Ws[tx * 16u + i];
+					let ab = i * 32u + tr; let wb = i * 64u + tc;
+					let av0 = As[ab]; let av1 = As[ab + 1u];
+					let wv0 = Ws[wb]; let wv1 = Ws[wb + 1u]; let wv2 = Ws[wb + 2u]; let wv3 = Ws[wb + 3u];
+					acc0 = acc0 + av0 * wv0; acc1 = acc1 + av0 * wv1; acc2 = acc2 + av0 * wv2; acc3 = acc3 + av0 * wv3;
+					acc4 = acc4 + av1 * wv0; acc5 = acc5 + av1 * wv1; acc6 = acc6 + av1 * wv2; acc7 = acc7 + av1 * wv3;
 				}
 				workgroupBarrier();
 			}
-			if (row < m && col < n) { c[row * n + col] = acc; }
+			let gr0 = row0 + tr; let gr1 = gr0 + 1u; let gc = col0 + tc;
+			if (gr0 < m) {
+				if (gc < n) { c[gr0 * n + gc] = acc0; }
+				if (gc + 1u < n) { c[gr0 * n + gc + 1u] = acc1; }
+				if (gc + 2u < n) { c[gr0 * n + gc + 2u] = acc2; }
+				if (gc + 3u < n) { c[gr0 * n + gc + 3u] = acc3; }
+			}
+			if (gr1 < m) {
+				if (gc < n) { c[gr1 * n + gc] = acc4; }
+				if (gc + 1u < n) { c[gr1 * n + gc + 1u] = acc5; }
+				if (gc + 2u < n) { c[gr1 * n + gc + 2u] = acc6; }
+				if (gc + 3u < n) { c[gr1 * n + gc + 3u] = acc7; }
+			}
+		}`,
+
+	// GEMM TUILÉ + BLOQUÉ EN REGISTRES pour poids f16 (le chemin par défaut desktop/BRIK, qui n'avait
+	// AUCUNE variante tuilée : chaque thread relisait k poids pour UNE ligne de tokens). C'est le gros
+	// levier prefill de docs/perf-webgpu.md §3.1. Trois choix, tous mesurés :
+	//   • tuile de sortie 32 lignes × 64 colonnes par workgroup de 256 threads, chaque thread tenant
+	//     2×4 = 8 ACCUMULATEURS EN REGISTRES → 8 FMA pour 6 lectures de mémoire partagée (une tuile
+	//     16×16 à 1 accumulateur, essayée d'abord, faisait 2 lectures par FMA : plus LENTE que le
+	//     kernel une-ligne-par-thread sur Apple/Metal) ;
+	//   • mémoire partagée en ORDRE k-MAJEUR (As[k][32], Ws[k][64]) : à un k donné, les threads
+	//     voisins lisent des adresses voisines → pas de conflit de banques (le rangement colonne-majeur
+	//     donnait 16 threads sur la même banque) ;
+	//   • poids lus en `array<u32>` + unpack2x16float (WGSL de base, PAS la feature shader-f16) et par
+	//     PAIRES (un mot = 2 poids, aucun demi-mot jeté) ; conversion IEEE identique à vec4<f16>.
+	// Barrières en flux uniforme (nTiles ne dépend que de k) ; bords m/n gardés élément par élément et
+	// bord k par groupes de 4 (k % 4 == 0 sur ce chemin, cf. matmulTPlan) → toutes les formes passent.
+	// Utilisé au prefill (m ≥ 16). Équivalence vs matmul_t_f16w gatée par selfValidate + ?f16shared=0.
+	matmul_t_f16w_shared: `
+		struct Dims { m: u32, k: u32, n: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+		var<workgroup> As: array<f32, 512>;   // [16 k][32 lignes]
+		var<workgroup> Ws: array<f32, 1024>;  // [16 k][64 colonnes]
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+			let m = d.m; let k = d.k; let n = d.n;
+			let row0 = wid.y * 32u;
+			let col0 = wid.x * 64u;
+			// Chargement de A : 512 éléments / 256 threads = 2 chacun. Un thread prend 2 k CONTIGUS
+			// d'une ligne, et 8 threads consécutifs couvrent les 16 k de la ligne → lecture globale
+			// contiguë (64 octets par groupe de 8).
+			let aRow = tid >> 3u;         // 0..31 (ligne locale)
+			let aK = (tid & 7u) * 2u;     // 0,2,…,14
+			let aGRow = row0 + aRow;
+			// Chargement de W : 1024 éléments / 256 threads = 4 chacun, soit 4 k contigus (= 2 mots u32)
+			// d'une colonne ; 4 threads consécutifs couvrent les 16 k (32 octets contigus).
+			let wCol = tid >> 2u;         // 0..63 (colonne locale)
+			let wK = (tid & 3u) * 4u;     // 0,4,8,12
+			let wGCol = col0 + wCol;
+			// Le thread calcule 2 lignes × 4 colonnes de la tuile.
+			let tr = (tid >> 4u) * 2u;    // 0,2,…,30
+			let tc = (tid & 15u) * 4u;    // 0,4,…,60
+			var acc0 = 0.0; var acc1 = 0.0; var acc2 = 0.0; var acc3 = 0.0;
+			var acc4 = 0.0; var acc5 = 0.0; var acc6 = 0.0; var acc7 = 0.0;
+			let nTiles = (k + 15u) / 16u;
+			for (var t = 0u; t < nTiles; t = t + 1u) {
+				let kk = t * 16u;
+				let aOk = aGRow < m;
+				let a0ok = aOk && (kk + aK) < k;
+				let a1ok = aOk && (kk + aK + 1u) < k;
+				As[aK * 32u + aRow] = select(0.0, a[aGRow * k + kk + aK], a0ok);
+				As[(aK + 1u) * 32u + aRow] = select(0.0, a[aGRow * k + kk + aK + 1u], a1ok);
+				// 4 poids = 2 mots u32. k % 4 == 0 et wK multiple de 4 → le groupe de 4 est ENTIER
+				// dedans ou ENTIER dehors : un seul garde suffit.
+				var p0 = vec2<f32>(0.0); var p1 = vec2<f32>(0.0);
+				if (wGCol < n && (kk + wK) < k) {
+					let word = (wGCol * k + kk + wK) >> 1u;
+					p0 = unpack2x16float(w[word]);
+					p1 = unpack2x16float(w[word + 1u]);
+				}
+				Ws[wK * 64u + wCol] = p0.x;
+				Ws[(wK + 1u) * 64u + wCol] = p0.y;
+				Ws[(wK + 2u) * 64u + wCol] = p1.x;
+				Ws[(wK + 3u) * 64u + wCol] = p1.y;
+				workgroupBarrier();
+				for (var i = 0u; i < 16u; i = i + 1u) {
+					let ab = i * 32u + tr; let wb = i * 64u + tc;
+					let av0 = As[ab]; let av1 = As[ab + 1u];
+					let wv0 = Ws[wb]; let wv1 = Ws[wb + 1u]; let wv2 = Ws[wb + 2u]; let wv3 = Ws[wb + 3u];
+					acc0 = acc0 + av0 * wv0; acc1 = acc1 + av0 * wv1; acc2 = acc2 + av0 * wv2; acc3 = acc3 + av0 * wv3;
+					acc4 = acc4 + av1 * wv0; acc5 = acc5 + av1 * wv1; acc6 = acc6 + av1 * wv2; acc7 = acc7 + av1 * wv3;
+				}
+				workgroupBarrier();
+			}
+			let gr0 = row0 + tr; let gr1 = gr0 + 1u; let gc = col0 + tc;
+			if (gr0 < m) {
+				if (gc < n) { c[gr0 * n + gc] = acc0; }
+				if (gc + 1u < n) { c[gr0 * n + gc + 1u] = acc1; }
+				if (gc + 2u < n) { c[gr0 * n + gc + 2u] = acc2; }
+				if (gc + 3u < n) { c[gr0 * n + gc + 3u] = acc3; }
+			}
+			if (gr1 < m) {
+				if (gc < n) { c[gr1 * n + gc] = acc4; }
+				if (gc + 1u < n) { c[gr1 * n + gc + 1u] = acc5; }
+				if (gc + 2u < n) { c[gr1 * n + gc + 2u] = acc6; }
+				if (gc + 3u < n) { c[gr1 * n + gc + 3u] = acc7; }
+			}
+		}`,
+
+	// ── GEMV : le matmul du DÉCODAGE (m = 1) ──────────────────────────────────────────────────────
+	// Le décodage relit TOUS les poids pour produire UN token : il est purement borné par la bande
+	// passante mémoire. Or les kernels matmul_t_q4/q8 sont dimensionnés pour plusieurs lignes de
+	// tokens — grid `ceil(m/8)` sur un workgroup 8×8 — donc à m = 1 : SEPT THREADS SUR HUIT sortent
+	// immédiatement (`row >= d.m`), et le huitième parcourt seul toute la boucle k. Mesuré le
+	// 2026-08-13 sur les formes d'un 7B : 15 Go/s effectifs, et le q8 aussi rapide que le q4 alors
+	// qu'il lit 70 % d'octets en plus — signature d'un kernel qui ne sature pas la mémoire.
+	//
+	// Ici : UN workgroup de 64 threads par ligne de sortie, les threads se partageant les groupes de
+	// quantification (32 éléments), puis réduction en mémoire partagée. Tous les threads travaillent,
+	// les lectures de poids sont contiguës par groupe, et l'activation est relue depuis le cache.
+	// `col` est reconstruit sur DEUX dimensions de grid : la tête logits atteint n = 152 064, au-delà
+	// de la limite de workgroups par dimension.
+	matmul_t_q4_vec: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 64>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let k = d.k;
+			let nGroups = k / 32u;
+			var acc = 0.0;
+			if (col < d.n) {
+				let wordCol = col * (k / 8u);   // 8 nibbles par mot
+				let gBase = col * nGroups;
+				// Chaque thread prend un groupe de 32 éléments sur 64 (foulée = taille du workgroup).
+				for (var g = tid; g < nGroups; g = g + 64u) {
+					let si = gBase + g;
+					let sw = sc[si >> 1u]; let s = f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
+					let mw = mn[si >> 1u]; let mnv = f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u));
+					let w0 = wordCol + g * 4u;   // 4 mots = 32 nibbles
+					let aBase = g * 8u;          // 8 vec4 = 32 activations
+					var sum = 0.0;
+					for (var j = 0u; j < 4u; j = j + 1u) {
+						let word = nib[w0 + j];
+						let av0 = a[aBase + j * 2u];
+						let av1 = a[aBase + j * 2u + 1u];
+						let q0 = vec4<f32>(f32(word & 0xFu), f32((word >> 4u) & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 12u) & 0xFu));
+						let q1 = vec4<f32>(f32((word >> 16u) & 0xFu), f32((word >> 20u) & 0xFu), f32((word >> 24u) & 0xFu), f32((word >> 28u) & 0xFu));
+						sum = sum + dot(av0, q0 * s + vec4<f32>(mnv)) + dot(av1, q1 * s + vec4<f32>(mnv));
+					}
+					acc = acc + sum;
+				}
+			}
+			part[tid] = acc;
+			workgroupBarrier();
+			// Réduction en arbre (flux uniforme : la barriere est hors de toute condition sur col).
+			for (var stride = 32u; stride > 0u; stride = stride >> 1u) {
+				if (tid < stride) { part[tid] = part[tid] + part[tid + stride]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = part[0]; }
+		}`,
+
+	// Même GEMV pour les poids q8 (codes int8, une échelle f16 par groupe de 32).
+	matmul_t_q8_vec: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 64>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let k = d.k;
+			let nGroups = k / 32u;
+			var acc = 0.0;
+			if (col < d.n) {
+				let wordCol = col * (k / 4u);   // 4 codes int8 par mot
+				let gBase = col * nGroups;
+				for (var g = tid; g < nGroups; g = g + 64u) {
+					let si = gBase + g;
+					let sw = sc[si >> 1u]; let s = f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
+					let w0 = wordCol + g * 8u;   // 8 mots = 32 codes
+					let aBase = g * 8u;
+					var sum = 0.0;
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let word = codes[w0 + j];
+						let q = vec4<f32>(
+							f32(i32(word << 24u) >> 24u), f32(i32(word << 16u) >> 24u),
+							f32(i32(word << 8u) >> 24u), f32(i32(word) >> 24u));
+						sum = sum + dot(a[aBase + j], q * s);
+					}
+					acc = acc + sum;
+				}
+			}
+			part[tid] = acc;
+			workgroupBarrier();
+			for (var stride = 32u; stride > 0u; stride = stride >> 1u) {
+				if (tid < stride) { part[tid] = part[tid] + part[tid + stride]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = part[0]; }
 		}`,
 
 	// RMSNorm over the last dimension (dim = cols), with a per-channel weight.
@@ -1358,8 +1790,16 @@ export const SHADERS = {
 	// Rotary position embedding (RoPE), Llama/NeoX "rotate_half" convention.
 	// Input is viewed as [rows, headDim] with rows = seq * nHeads; the token
 	// position of a row is pastLen + row/nHeads. One invocation per row.
+	// DEUX CONVENTIONS d'appariement des dimensions, choisies par `interleaved` :
+	//   0 = « rotate_half » / NEOX (paires i et i+headDim/2) — convention Hugging Face : Qwen, Gemma…
+	//   1 = « interleaved » / NORM (paires ADJACENTES 2i, 2i+1) — ce que ggml applique aux archs
+	//       llama / mistral / smollm3 (LLAMA_ROPE_TYPE_NORM).
+	// La fréquence est la MÊME dans les deux cas (index i) : seules les deux composantes tournées
+	// changent. Sans la variante NORM il fallait réécrire l'ordre des lignes de Q et K au chargement
+	// pour émuler HF (maybeUnpermuteLlamaQk) — coûteux, incompatible avec les layouts quantifiés SoA
+	// du BRIK, et source du charabia des modèles llama (cf. docs/ROADMAP.md §6).
 	rope: `
-		struct RP { rows: u32, headDim: u32, nHeads: u32, pastLen: u32, base: f32 };
+		struct RP { rows: u32, headDim: u32, nHeads: u32, pastLen: u32, base: f32, interleaved: u32 };
 		@group(0) @binding(0) var<uniform> p: RP;
 		@group(0) @binding(1) var<storage, read> x: array<f32>;
 		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
@@ -1370,13 +1810,16 @@ export const SHADERS = {
 			let half = p.headDim / 2u;
 			let pos = f32(p.pastLen + r / p.nHeads);
 			let base = r * p.headDim;
+			let inter = p.interleaved == 1u;
 			for (var i = 0u; i < half; i = i + 1u) {
 				let freq = pos / pow(p.base, (2.0 * f32(i)) / f32(p.headDim));
 				let c = cos(freq); let s = sin(freq);
-				let x0 = x[base + i];
-				let x1 = x[base + i + half];
-				o[base + i]        = x0 * c - x1 * s;
-				o[base + i + half] = x1 * c + x0 * s;
+				let j0 = select(base + i, base + 2u * i, inter);
+				let j1 = select(base + i + half, base + 2u * i + 1u, inter);
+				let x0 = x[j0];
+				let x1 = x[j1];
+				o[j0] = x0 * c - x1 * s;
+				o[j1] = x1 * c + x0 * s;
 			}
 		}`,
 
@@ -1385,7 +1828,7 @@ export const SHADERS = {
 	// tenseur rope_freqs.weight du GGUF), et la brique que YaRN (Ministral) et LongRoPE (Phi)
 	// réutiliseront. ff[i]=1 partout ≡ rope standard (invariant du gate selfValidate).
 	rope_factors: `
-		struct RP { rows: u32, headDim: u32, nHeads: u32, pastLen: u32, base: f32 };
+		struct RP { rows: u32, headDim: u32, nHeads: u32, pastLen: u32, base: f32, interleaved: u32 };
 		@group(0) @binding(0) var<uniform> p: RP;
 		@group(0) @binding(1) var<storage, read> x: array<f32>;
 		@group(0) @binding(2) var<storage, read> ff: array<f32>;
@@ -1397,13 +1840,16 @@ export const SHADERS = {
 			let half = p.headDim / 2u;
 			let pos = f32(p.pastLen + r / p.nHeads);
 			let base = r * p.headDim;
+			let inter = p.interleaved == 1u;
 			for (var i = 0u; i < half; i = i + 1u) {
 				let freq = pos / (pow(p.base, (2.0 * f32(i)) / f32(p.headDim)) * ff[i]);
 				let c = cos(freq); let s = sin(freq);
-				let x0 = x[base + i];
-				let x1 = x[base + i + half];
-				o[base + i]        = x0 * c - x1 * s;
-				o[base + i + half] = x1 * c + x0 * s;
+				let j0 = select(base + i, base + 2u * i, inter);
+				let j1 = select(base + i + half, base + 2u * i + 1u, inter);
+				let x0 = x[j0];
+				let x1 = x[j1];
+				o[j0] = x0 * c - x1 * s;
+				o[j1] = x1 * c + x0 * s;
 			}
 		}`,
 
@@ -1480,7 +1926,7 @@ export const SHADERS = {
 	// (max, then exp-sum while accumulating into o) keep softmax numerically stable
 	// without a runtime-sized local buffer.
 	attention: `
-		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32 };
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
 		@group(0) @binding(0) var<uniform> p: AP;
 		@group(0) @binding(1) var<storage, read> q: array<f32>;
 		@group(0) @binding(2) var<storage, read> k: array<f32>;
@@ -1501,8 +1947,12 @@ export const SHADERS = {
 			let kvh = h / (p.nHeads / p.nKvHeads); // grouped-query: map q-head → kv-head
 			let qBase = (t * p.nHeads + h) * hd;
 			let last = p.pastLen + t;
+			// Sliding window (Gemma 3, Mistral…) : la requête ne voit que les p.window dernières
+			// positions, elle comprise. p.window == 0 → attention causale pleine, inchangée.
+			var jStart = 0u;
+			if (p.window > 0u && last + 1u > p.window) { jStart = last + 1u - p.window; }
 			var m = -3.0e38;
-			for (var j = 0u; j <= last; j = j + 1u) {
+			for (var j = jStart; j <= last; j = j + 1u) {
 				let kB = (j * p.nKvHeads + kvh) * hd;
 				var dot = 0.0;
 				for (var d = 0u; d < hd; d = d + 1u) { dot = dot + q[qBase + d] * k[kB + d]; }
@@ -1510,7 +1960,7 @@ export const SHADERS = {
 			}
 			for (var d = 0u; d < hd; d = d + 1u) { o[qBase + d] = 0.0; }
 			var denom = 0.0;
-			for (var j = 0u; j <= last; j = j + 1u) {
+			for (var j = jStart; j <= last; j = j + 1u) {
 				let kB = (j * p.nKvHeads + kvh) * hd;
 				var dot = 0.0;
 				for (var d = 0u; d < hd; d = d + 1u) { dot = dot + q[qBase + d] * k[kB + d]; }
@@ -1709,7 +2159,7 @@ export const SHADERS = {
 	// of the dot product: score = scale_k · Σ q·kcode. Reads the ÷4-smaller cache in place (no f32
 	// expansion) — that is what lets long contexts fit in VRAM.
 	attention_q8kv: `
-		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32 };
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
 		@group(0) @binding(0) var<uniform> p: AP;
 		@group(0) @binding(1) var<storage, read> q: array<f32>;
 		@group(0) @binding(2) var<storage, read> kc: array<u32>;
@@ -1733,8 +2183,12 @@ export const SHADERS = {
 			let kvDim = p.nKvHeads * hd;
 			let qBase = (t * p.nHeads + h) * hd;
 			let last = p.pastLen + t;
+			// Sliding window (Gemma 3, Mistral…) : la requête ne voit que les p.window dernières
+			// positions, elle comprise. p.window == 0 → attention causale pleine, inchangée.
+			var jStart = 0u;
+			if (p.window > 0u && last + 1u > p.window) { jStart = last + 1u - p.window; }
 			var m = -3.0e38;
-			for (var j = 0u; j <= last; j = j + 1u) {
+			for (var j = jStart; j <= last; j = j + 1u) {
 				let eb = j * kvDim + kvh * hd;
 				var raw = 0.0;
 				for (var d = 0u; d < hd; d = d + 1u) { let e = eb + d; raw = raw + q[qBase + d] * sbyte(kc[e >> 2u], e & 3u); }
@@ -1742,7 +2196,7 @@ export const SHADERS = {
 			}
 			for (var d = 0u; d < hd; d = d + 1u) { o[qBase + d] = 0.0; }
 			var denom = 0.0;
-			for (var j = 0u; j <= last; j = j + 1u) {
+			for (var j = jStart; j <= last; j = j + 1u) {
 				let eb = j * kvDim + kvh * hd;
 				var raw = 0.0;
 				for (var d = 0u; d < hd; d = d + 1u) { let e = eb + d; raw = raw + q[qBase + d] * sbyte(kc[e >> 2u], e & 3u); }
@@ -1766,7 +2220,7 @@ export const SHADERS = {
 	// par le dispatch TS). Aucun retour anticipé : les barrières exigent un flux uniforme — le
 	// dispatch lance exactement nTokens·nHeads workgroups.
 	attention_decode: `
-		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32 };
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
 		@group(0) @binding(0) var<uniform> p: AP;
 		@group(0) @binding(1) var<storage, read> q: array<f32>;
 		@group(0) @binding(2) var<storage, read> k: array<f32>;
@@ -1789,6 +2243,10 @@ export const SHADERS = {
 			let kvh = h / (p.nHeads / p.nKvHeads);
 			let qBase = (t * p.nHeads + h) * hd;
 			let last = p.pastLen + t; // uniforme dans le workgroup (t l'est)
+			// Sliding window (Gemma 3, Mistral…) : la requête ne voit que les p.window dernières
+			// positions, elle comprise. p.window == 0 → attention causale pleine, inchangée.
+			var jStart = 0u;
+			if (p.window > 0u && last + 1u > p.window) { jStart = last + 1u - p.window; }
 			// Accumulation V en DEUX SCALAIRES par lane (d0 = lane, d1 = lane+64 ; headDim ≤ 128
 			// garanti au dispatch) — pas de tableau privé indexé dynamiquement, motif connu pour
 			// spiller ou miscompiler sur les drivers mobiles (Adreno/Mali).
@@ -1801,9 +2259,9 @@ export const SHADERS = {
 			var denom = 0.0;
 			var acc0 = 0.0;
 			var acc1 = 0.0;
-			let nChunks = (last + 64u) / 64u; // ⌈(last+1)/64⌉ — ≥ 1, la tuile 0 contient j=0
+			let nChunks = (last - jStart + 64u) / 64u; // ⌈(last-jStart+1)/64⌉ — ≥ 1, la tuile 0 contient j=jStart
 			for (var c = 0u; c < nChunks; c = c + 1u) {
-				let j = c * 64u + lane;
+				let j = jStart + c * 64u + lane;
 				var s = -3.0e38;
 				if (j <= last) {
 					let kB = (j * p.nKvHeads + kvh) * hd;
@@ -1830,8 +2288,8 @@ export const SHADERS = {
 				let alpha = exp(m - newM); // m initial -3e38 → alpha 0 : écrase l'état vide, jamais NaN
 				denom = denom * alpha + red[0];
 				m = newM;
-				let nValid = min(64u, last + 1u - c * 64u);
-				let vRow0 = (c * 64u * p.nKvHeads + kvh) * hd;
+				let nValid = min(64u, last + 1u - jStart - c * 64u);
+				let vRow0 = ((jStart + c * 64u) * p.nKvHeads + kvh) * hd;
 				let vStride = p.nKvHeads * hd;
 				if (d0 < hd) {
 					var a0 = acc0 * alpha;
@@ -1854,7 +2312,7 @@ export const SHADERS = {
 	// attention_decode, K/V lus depuis le cache int8 + scales par (row, head), déquant fusionnée
 	// (le scale de K factorise hors du produit scalaire ; celui de V s'applique à l'accumulation).
 	attention_decode_q8kv: `
-		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32 };
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
 		@group(0) @binding(0) var<uniform> p: AP;
 		@group(0) @binding(1) var<storage, read> q: array<f32>;
 		@group(0) @binding(2) var<storage, read> kc: array<u32>;
@@ -1881,6 +2339,10 @@ export const SHADERS = {
 			let kvDim = p.nKvHeads * hd;
 			let qBase = (t * p.nHeads + h) * hd;
 			let last = p.pastLen + t;
+			// Sliding window (Gemma 3, Mistral…) : la requête ne voit que les p.window dernières
+			// positions, elle comprise. p.window == 0 → attention causale pleine, inchangée.
+			var jStart = 0u;
+			if (p.window > 0u && last + 1u > p.window) { jStart = last + 1u - p.window; }
 			let d0 = lane;
 			let d1 = lane + 64u;
 			if (d0 < hd) { qs[d0] = q[qBase + d0]; }
@@ -1890,9 +2352,9 @@ export const SHADERS = {
 			var denom = 0.0;
 			var acc0 = 0.0;
 			var acc1 = 0.0;
-			let nChunks = (last + 64u) / 64u;
+			let nChunks = (last - jStart + 64u) / 64u;
 			for (var c = 0u; c < nChunks; c = c + 1u) {
-				let j = c * 64u + lane;
+				let j = jStart + c * 64u + lane;
 				var s = -3.0e38;
 				if (j <= last) {
 					let eb = j * kvDim + kvh * hd;
@@ -1924,8 +2386,8 @@ export const SHADERS = {
 				let alpha = exp(m - newM);
 				denom = denom * alpha + red[0];
 				m = newM;
-				let nValid = min(64u, last + 1u - c * 64u);
-				let vRow0 = c * 64u * kvDim + kvh * hd;
+				let nValid = min(64u, last + 1u - jStart - c * 64u);
+				let vRow0 = (jStart + c * 64u) * kvDim + kvh * hd;
 				if (d0 < hd) {
 					var a0 = acc0 * alpha;
 					for (var i = 0u; i < nValid; i = i + 1u) { let e2 = vRow0 + i * kvDim + d0; a0 = a0 + sc[i] * sbyte(vc[e2 >> 2u], e2 & 3u); }

@@ -2,8 +2,9 @@
 // miroir de Lfm2ChatAdapter. Pour un modèle 100 % récurrent, l'ÉTAT INTERNE (S/tm/cm par couche)
 // joue le rôle du cache KV : même session + pastLen cohérent → on continue tel quel ; pastLen 0
 // ou session neuve → reset ; pastLen divergent (troncature côté chat) → rejeu du préfixe depuis
-// zéro (l'état récurrent ne se tronque pas). Chemin forwardToken JS/GPU-readback — le résident
-// RWKV (miroir de lfm2LogitsGpu) est le P1 moteur de la roadmap.
+// zéro (l'état récurrent ne se tronque pas).
+// Chemin RÉSIDENT (défaut) : l'état vit sur le GPU côté moteur, keyé par (sessionId, pastLen) —
+// une soumission / un readback par tranche (fini le gel du POC ~100 submits/token). Repli JS sinon.
 // Les réglages de précision du chat sont des no-ops : un BRIK rwkv charge TEL QUEL (natif q3/q4/q8).
 
 import type { RwkvModel } from './rwkvModel';
@@ -29,8 +30,26 @@ export class RwkvChatAdapter {
 	reset(): void { this.sessionId = null; this.history = []; this.core.reset(); }
 	unload(): void { this.core.unload(); }
 
+	// Chemin résident : l'état GPU ne sait pas « reculer ». On garde l'historique des tokens nourris ;
+	// pastLen divergent (troncature/édition côté chat) → rejeu du préfixe depuis zéro via prefillGpu
+	// (pastLen 0 = reset moteur). Sans ce garde-fou, l'état contiendrait des tokens rétractés.
+	private async alignResident(pastLen: number, sessionId: string): Promise<void> {
+		if (sessionId !== this.sessionId || pastLen === 0) { this.sessionId = sessionId; this.history = []; }
+		if (pastLen !== this.history.length) {
+			const prefix = this.history.slice(0, pastLen);
+			this.history = [];
+			if (prefix.length) { await this.core.prefillGpu(prefix, 0, sessionId); this.history = prefix; }
+		}
+	}
+
 	// Aligne l'état interne sur (sessionId, pastLen) puis nourrit `tokens`. Retourne les logits finaux.
 	async logitsKV(tokens: number[], pastLen: number, sessionId: string, _inject?: unknown): Promise<Float32Array> {
+		if (this.core.residentAvailable()) {
+			await this.alignResident(pastLen, sessionId);
+			const logits = await this.core.logitsGpu(tokens, pastLen, sessionId);
+			this.history.push(...tokens);
+			return logits;
+		}
 		if (sessionId !== this.sessionId || pastLen === 0) {
 			this.sessionId = sessionId; this.history = []; this.core.reset();
 		}
@@ -55,6 +74,13 @@ export class RwkvChatAdapter {
 	// Top-K trié décroissant après pénalité de répétition (sémantique llama.cpp : logits positifs
 	// divisés, négatifs multipliés) — même contrat que CustomWebModel.topKKV/decodeTopKQ8.
 	async topKKV(tokens: number[], pastLen: number, sessionId: string, recent: number[], penalty: number, _inject?: unknown): Promise<{ ids: Uint32Array; vals: Float32Array }> {
+		// Résident : projection tête + pénalité + top-K sur le GPU, un readback (~512 o).
+		if (this.core.residentAvailable()) {
+			await this.alignResident(pastLen, sessionId);
+			const r = await this.core.topKGpu(tokens, pastLen, sessionId, [...new Set(recent)], penalty, 40);
+			this.history.push(...tokens);
+			return r;
+		}
 		const logits = await this.logitsKV(tokens, pastLen, sessionId);
 		if (penalty && penalty !== 1) {
 			for (const id of new Set(recent)) {

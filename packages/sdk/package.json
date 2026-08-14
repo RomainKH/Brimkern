@@ -1,0 +1,54 @@
+{
+  "name": "brimkern",
+  "version": "0.1.0",
+  "description": "On-device AI for your site: one script tag runs a real language model on your visitor's GPU (WebGPU). No server, no API key, no per-token cost, nothing leaves the browser.",
+  "keywords": [
+    "webgpu",
+    "llm",
+    "on-device",
+    "in-browser",
+    "local-ai",
+    "privacy",
+    "chat-widget",
+    "gguf",
+    "wgsl"
+  ],
+  "license": "MIT",
+  "author": "Romain Khanoyan (https://romainkhanoyan.fr)",
+  "homepage": "https://brimkern.com/local-ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomainKH/Brimkern.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": "https://github.com/RomainKH/Brimkern/issues",
+  "type": "module",
+  "main": "./dist/brimkern.mjs",
+  "module": "./dist/brimkern.mjs",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/brimkern.iife.js",
+  "jsdelivr": "./dist/brimkern.iife.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/brimkern.mjs",
+      "default": "./dist/brimkern.mjs"
+    },
+    "./iife": "./dist/brimkern.iife.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./dist/brimkern.iife.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build-sdk.mjs",
+    "prepublishOnly": "node ../../scripts/build-sdk.mjs && node -e \"const f=require('fs');for(const p of ['dist/brimkern.mjs','dist/brimkern.iife.js','dist/index.d.ts'])if(!f.existsSync(p))throw new Error('build manquant : '+p)\""
+  }
+}

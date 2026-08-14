@@ -27,7 +27,13 @@ export default function VideoTestPage() {
   // `location` n'existe qu'au client → on le lit APRÈS montage (sinon le 1er rendu client diffère du
   // HTML serveur = erreur d'hydratation). `mounted` garantit un 1er rendu identique des deux côtés.
   const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  // Microtask : cf. BackLink — un setState synchrone dans un effet cascade les rendus. Le premier
+  // rendu client reste identique au HTML serveur, ce qui est le but de ce drapeau.
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => { if (active) setMounted(true); });
+    return () => { active = false; };
+  }, []);
   const isGenMode = mounted && new URLSearchParams(location.search).get('gen') === '1';
 
   // Générateur chargé UNE fois (1,5 Go streamés) puis réutilisé pour chaque clip.

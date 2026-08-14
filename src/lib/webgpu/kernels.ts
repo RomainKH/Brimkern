@@ -32,6 +32,17 @@ export interface LayerCfg {
 	// RoPE base (Llama 3.2: 500000, Qwen2: 10000) and RMSNorm epsilon (Qwen2: 1e-6).
 	ropeTheta: number;
 	eps: number;
+	// ── Sliding window attention (Gemma 3, Mistral 7B…) ──
+	// `window` : nombre de positions visibles par une requête, ELLE COMPRISE (0/absent = causal plein).
+	// Résolu PAR COUCHE par les appelants depuis `windowPerLayer` — Gemma 3 alterne 5 couches locales
+	// (fenêtre 512, RoPE θ=10k) pour 1 globale (pleine, θ=1M), d'où aussi `ropeThetaPerLayer`.
+	// V1 : le cache KV reste PLEIN (correct, aucune économie mémoire) ; le ring buffer viendra après.
+	window?: number;
+	windowPerLayer?: number[];
+	ropeThetaPerLayer?: number[];
+	// NoPE (SmolLM3) : couche sans RoPE. `skipRope` est résolu par couche depuis `skipRopePerLayer`.
+	skipRope?: boolean;
+	skipRopePerLayer?: boolean[];
 	// ── Arch-portability knobs. All optional; omitting them reproduces Qwen2/Llama exactly. ──
 	// Attention score scale (q·k multiplier). Default 1/sqrt(headDim); Gemma2 uses
 	// 1/sqrt(query_pre_attn_scalar), which differs from headDim on the 9B/27B variants.
@@ -53,6 +64,10 @@ export interface LayerCfg {
 	// ensuite). [headDim/2] diviseurs ; absent → rope standard inchangé. ──
 	ropeFactors?: Float32Array;
 	_ffGpu?: unknown; // interne : buffer GPU des facteurs, uploadé une fois par forward
+	// Convention d'appariement des dimensions du RoPE : true = paires ADJACENTES (2i, 2i+1), ce que
+	// ggml applique aux archs llama / mistral / smollm3 (LLAMA_ROPE_TYPE_NORM) ; absent/false =
+	// rotate_half (i, i+headDim/2), la convention Hugging Face de Qwen, Gemma, Phi…
+	ropeInterleaved?: boolean;
 }
 export interface LayerWeights {
 	// Norms/biases stay f32 (small, consumed by rmsnorm/addBias). The big projection matrices
@@ -104,6 +119,25 @@ export interface Lfm2LayerGpu {
 }
 export interface Lfm2Cfg { D: number; nHeads: number; nKvHeads: number; headDim: number; ffn: number; eps: number; theta: number; lc: number; vocab: number; }
 
+// RWKV-7 chemin résident : une couche = time-mix (récurrence WKV) + channel-mix. Les grosses
+// projections (R/K/V/O, cmK/cmV) sont des handles recMM ({q3,lo,hi,sc,mn} | {nib,sc,mn} | {codes,sc}) ;
+// les LoRA (w1/w2, a1/a2, g1/g2, v1/v2), normes et lerps sont des buffers f32 GPU. lnWB = [gamma|beta]
+// concaténés (2·D — le kernel rwkv_out_gn fusionne pour tenir dans 8 storage bindings).
+export interface RwkvLayerGpu {
+	attnNormW: GPUAny; attnNormB: GPUAny; attnNorm2W: GPUAny; attnNorm2B: GPUAny;
+	lerpFused: GPUAny; lerpK: GPUAny;
+	w0: GPUAny; w1: GPUAny; w2: GPUAny; rw: number;
+	a0: GPUAny; a1: GPUAny; a2: GPUAny; ra: number;
+	g1: GPUAny; g2: GPUAny; rg: number;
+	v0?: GPUAny; v1?: GPUAny; v2?: GPUAny; rv?: number; // absents couche 0 (elle POSE vFirst)
+	kk: GPUAny; ka: GPUAny; rk: GPUAny; lnWB: GPUAny;
+	R: GPUAny; K: GPUAny; V: GPUAny; O: GPUAny;
+	cmK: GPUAny; cmV: GPUAny; ffn: number;
+}
+export interface RwkvCfg { D: number; H: number; NH: number; vocab: number; }
+// Normes hors couche (LayerNorm avec biais) : embedding (token_embd_norm) et finale (output_norm).
+export interface RwkvNorms { tokW: GPUAny; tokB: GPUAny; outW: GPUAny; outB: GPUAny; }
+
 export class WebGpuEngine {
 	device: GPUAny = null;
 	private modules: Record<string, GPUAny> = {};
@@ -146,6 +180,15 @@ export class WebGpuEngine {
 	// true par défaut ; false → prefill token par token dans le même encodeur (correct, ~10× plus lent).
 	// Forcé par ?lfm2batch=0 — sert à valider l'équivalence batché/séquentiel (greedy → token-exact).
 	lfm2BatchOk = true;
+	// Attention à FENÊTRE GLISSANTE (Gemma 3 : 5 couches locales / 1 globale) : true par défaut ;
+	// false → toutes les couches en causal PLEIN (sortie différente mais cohérente : c'est le A/B
+	// qui prouve que la fenêtre agit). Posé par selfValidate si le kernel fenêtré échoue, ou forcé
+	// par ?swa=0. Les archis sans windowPerLayer ne sont pas concernées.
+	swaOk = true;
+	// Chemin RWKV 100 % RÉSIDENT (glu WGSL, état S/tm/cm GPU, une soumission/un readback — fin du
+	// POC ~100 submits/token) : gate NON bloquant posé par selfValidate (kernels glu vs réfs JS),
+	// ou forcé par ?rwkvresident=0 → repli sur le forwardToken JS+readback (correct, lent).
+	rwkvResidentOk = true;
 	// Chemin VIDÉO (module motion AnimateDiff) : coupé par ?video=0. Pas de kernel WGSL propre —
 	// le module réutilise matmul q8/attention existants ; la validation se fait vs le dump de
 	// l'oracle diffusers (page /video-test). false → le mode vidéo refuse de charger.
@@ -154,6 +197,20 @@ export class WebGpuEngine {
 	// gate NON BLOQUANT posé par validateVideoResident (motif convTiledOk/attnFullWg). false → le module
 	// motion retombe sur le chemin JS+readback (correct, lent). Forcé par ?videoresident=0.
 	videoResidentOk = true;
+	// GEMM f16 TUILÉ en mémoire partagée (matmul_t_f16w_shared) au prefill (m ≥ 16) : gate NON BLOQUANT
+	// posé par selfValidate (motif convTiledOk/attnFullWgOk), ou forcé par ?f16shared=0 → repli sur
+	// matmul_t_f16w (correct partout, mais ~16× plus de trafic poids). Le f16 est le défaut desktop.
+	f16SharedOk = true;
+	// Mêmes GEMM tuilés + bloqués en registres pour les poids QUANTIFIÉS (matmul_t_q8_shared /
+	// matmul_t_q4_shared — le chemin des presets BRIK) : gate NON BLOQUANT posé par selfValidate, ou
+	// forcé par ?qshared=0 → repli sur les kernels à 4 lignes par invocation (corrects, plus lents).
+	qSharedOk = true;
+	// GEMV dédié au DÉCODAGE (m = 1, kernels matmul_t_q4_vec / q8_vec) : gate NON BLOQUANT posé par
+	// selfValidate, ou forcé par ?gemv=0 → retour aux kernels par lignes (corrects, mais qui laissent
+	// 7 threads sur 8 inutilisés à m = 1 : 15 Go/s effectifs mesurés contre ~56 chez WebLLM).
+	gemvOk = true;
+	// ?timing=1 → chronométrage interne du forward (diagnostic ; cf. decodeTopKQ8).
+	static timingOn = (() => { try { return new URLSearchParams(location.search).get('timing') === '1'; } catch { return false; } })();
 
 	async init(): Promise<boolean> {
 		const gpu = (navigator as any).gpu;
@@ -204,9 +261,29 @@ export class WebGpuEngine {
 				this.lfm2BatchOk = false;
 				console.warn('[webgpu] prefill LFM2 batché COUPÉ par ?lfm2batch=0 — token par token');
 			}
+			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('swa') === '0') {
+				this.swaOk = false;
+				console.warn('[webgpu] fenêtre glissante COUPÉE par ?swa=0 — attention causale pleine sur toutes les couches');
+			}
+			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('rwkvresident') === '0') {
+				this.rwkvResidentOk = false;
+				console.warn('[webgpu] RWKV résident COUPÉ par ?rwkvresident=0 — forwardToken JS+readback');
+			}
 			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('video') === '0') {
 				this.videoOk = false;
 				console.warn('[webgpu] chemin vidéo (module motion) COUPÉ par ?video=0');
+			}
+			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('f16shared') === '0') {
+				this.f16SharedOk = false;
+				console.warn('[webgpu] GEMM f16 tuilé COUPÉ par ?f16shared=0 — matmul_t_f16w pour tous les m');
+			}
+			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('gemv') === '0') {
+				this.gemvOk = false;
+				console.warn('[webgpu] GEMV de décodage COUPÉ par ?gemv=0 — kernels par lignes');
+			}
+			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('qshared') === '0') {
+				this.qSharedOk = false;
+				console.warn('[webgpu] GEMM q8/q4 tuilés COUPÉS par ?qshared=0 — kernels 4 lignes/invocation');
 			}
 			if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('videoresident') === '0') {
 				this.videoResidentOk = false;
@@ -414,15 +491,24 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
 		const bufW = this.isF32(w) ? this.buf(w, ST) : w;
 		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
-		return this.run(this.matmulTShader(k, wF16), [dims, this.buf(a, ST), bufW, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1], out, m * n * 4);
+		const plan = this.matmulTPlan(m, k, n, wF16);
+		return this.run(plan.shader, [dims, this.buf(a, ST), bufW, out], plan.grid, out, m * n * 4);
 	}
 
-	// Pick the matmul_t variant. f16-weight kernel when the weight is f16 AND the device supports
-	// it; else the vec4 kernel (both operands contiguous along k, k%4==0 → 128-bit loads); else
-	// the scalar fallback for a k that isn't a multiple of 4.
-	private matmulTShader(k: number, wF16: boolean): string {
-		if (wF16 && this.hasF16) return 'matmul_t_f16w';
-		return k % 4 === 0 ? 'matmul_t_vec4' : 'matmul_t';
+	// Pick the matmul_t variant AND its grid. Poids f16 (chemin BRIK/desktop) : au prefill (m ≥ 16) le
+	// GEMM tuilé en mémoire partagée et bloqué en registres — tuiles de sortie 32 lignes × 64 colonnes,
+	// chaque poids lu une fois pour 32 lignes de tokens ; sinon (décodage m = 1, ou gate/kill-switch) le
+	// kernel f16 vectorisé une-ligne-par-thread. Le tuilé lit les poids par paires (un mot u32 = 2 f16),
+	// d'où k % 4 == 0 (toujours vrai sur ce chemin — BRIK le garantit, comme pour matmul_t_f16w).
+	// Poids f32 : kernel vec4 quand k%4==0 (128-bit loads), repli scalaire sinon.
+	private matmulTPlan(m: number, k: number, n: number, wF16: boolean): { shader: string; grid: [number, number, number] } {
+		if (wF16 && this.hasF16) {
+			if (this.f16SharedOk && m >= 32 && k % 4 === 0) {
+				return { shader: 'matmul_t_f16w_shared', grid: [Math.ceil(n / 64), Math.ceil(m / 32), 1] };
+			}
+			return { shader: 'matmul_t_f16w', grid: [Math.ceil(m / 8), Math.ceil(n / 8), 1] };
+		}
+		return { shader: k % 4 === 0 ? 'matmul_t_vec4' : 'matmul_t', grid: [Math.ceil(m / 8), Math.ceil(n / 8), 1] };
 	}
 
 	async rmsnorm(x: Float32Array, w: Float32Array, rows: number, dim: number, eps = 1e-5, onePlus = false): Promise<Float32Array> {
@@ -553,19 +639,20 @@ export class WebGpuEngine {
 	}
 
 	// RoPE over x viewed as [rows, headDim], rows = seq * nHeads.
-	async rope(x: Float32Array, rows: number, headDim: number, nHeads: number, pastLen = 0, base = 10000): Promise<Float32Array> {
+	async rope(x: Float32Array, rows: number, headDim: number, nHeads: number, pastLen = 0, base = 10000, interleaved = false): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const p = this.device.createBuffer({ size: 32, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([rows, headDim, nHeads, pastLen]));
 		this.device.queue.writeBuffer(p, 16, new Float32Array([base]));
 		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		this.device.queue.writeBuffer(p, 20, new Uint32Array([interleaved ? 1 : 0]));
 		return this.run('rope', [p, this.buf(x, ST), out], [Math.ceil(rows / WG), 1, 1], out, x.byteLength);
 	}
 
 	// RoPE à facteurs avec readback — pour le gate selfValidate ; le chemin résident passe par
 	// recRopeFactors. ff = [headDim/2] diviseurs de fréquence (rope_freqs.weight).
-	async ropeFactors(x: Float32Array, ff: Float32Array, rows: number, headDim: number, nHeads: number, pastLen = 0, base = 10000): Promise<Float32Array> {
+	async ropeFactors(x: Float32Array, ff: Float32Array, rows: number, headDim: number, nHeads: number, pastLen = 0, base = 10000, interleaved = false): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const p = this.device.createBuffer({ size: 32, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
@@ -574,6 +661,7 @@ export class WebGpuEngine {
 		const ffB = this.device.createBuffer({ size: ff.byteLength, usage: ST });
 		this.device.queue.writeBuffer(ffB, 0, ff);
 		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		this.device.queue.writeBuffer(p, 20, new Uint32Array([interleaved ? 1 : 0]));
 		return this.run('rope_factors', [p, this.buf(x, ST), ffB, out], [Math.ceil(rows / WG), 1, 1], out, x.byteLength);
 	}
 
@@ -607,13 +695,11 @@ export class WebGpuEngine {
 
 	// Causal attention with KV cache + GQA. q: [nTokens,nHeads,headDim]; k,v:
 	// [kvLen,nKvHeads,headDim], kvLen = pastLen + nTokens. Returns [nTokens,nHeads,headDim].
-	async attention(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0): Promise<Float32Array> {
+	async attention(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0, window = 0): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const kvLen = pastLen + nTokens;
-		const p = this.device.createBuffer({ size: 32, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
-		this.device.queue.writeBuffer(p, 0, new Uint32Array([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen]));
-		this.device.queue.writeBuffer(p, 24, new Float32Array([scale ?? 1 / Math.sqrt(headDim), softcap]));
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const outBytes = nTokens * nHeads * headDim * 4;
 		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('attention', [p, this.buf(q, ST), this.buf(k, ST), this.buf(v, ST), out], [Math.ceil((nTokens * nHeads) / WG), 1, 1], out, outBytes);
@@ -621,13 +707,11 @@ export class WebGpuEngine {
 
 	// Variante « décodage » (un workgroup de 64 lanes par (token, tête), softmax en ligne) —
 	// readback exposé pour selfValidate ; le chemin résident passe par recAttention.
-	async attentionDecode(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0): Promise<Float32Array> {
+	async attentionDecode(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0, window = 0): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const kvLen = pastLen + nTokens;
-		const p = this.device.createBuffer({ size: 32, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
-		this.device.queue.writeBuffer(p, 0, new Uint32Array([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen]));
-		this.device.queue.writeBuffer(p, 24, new Float32Array([scale ?? 1 / Math.sqrt(headDim), softcap]));
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const outBytes = nTokens * nHeads * headDim * 4;
 		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('attention_decode', [p, this.buf(q, ST), this.buf(k, ST), this.buf(v, ST), out], [nTokens * nHeads, 1, 1], out, outBytes);
@@ -678,26 +762,22 @@ export class WebGpuEngine {
 	}
 
 	// Attention over an int8 KV cache (codes + f32 scales), read back — for tests / gating.
-	async attentionQ8Kv(q: Float32Array, kc: Uint32Array, ks: Float32Array, vc: Uint32Array, vs: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0): Promise<Float32Array> {
+	async attentionQ8Kv(q: Float32Array, kc: Uint32Array, ks: Float32Array, vc: Uint32Array, vs: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0, window = 0): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const kvLen = pastLen + nTokens;
-		const p = this.device.createBuffer({ size: 32, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
-		this.device.queue.writeBuffer(p, 0, new Uint32Array([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen]));
-		this.device.queue.writeBuffer(p, 24, new Float32Array([scale ?? 1 / Math.sqrt(headDim), softcap]));
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const outBytes = nTokens * nHeads * headDim * 4;
 		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('attention_q8kv', [p, this.buf(q, ST), this.bufU32(kc, ST), this.buf(ks, ST), this.bufU32(vc, ST), this.buf(vs, ST), out], [Math.ceil((nTokens * nHeads) / WG), 1, 1], out, outBytes);
 	}
 
 	// Variante « décodage » de attentionQ8Kv (workgroup par tête) — readback pour selfValidate.
-	async attentionQ8KvDecode(q: Float32Array, kc: Uint32Array, ks: Float32Array, vc: Uint32Array, vs: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0): Promise<Float32Array> {
+	async attentionQ8KvDecode(q: Float32Array, kc: Uint32Array, ks: Float32Array, vc: Uint32Array, vs: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0, window = 0): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const kvLen = pastLen + nTokens;
-		const p = this.device.createBuffer({ size: 32, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
-		this.device.queue.writeBuffer(p, 0, new Uint32Array([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen]));
-		this.device.queue.writeBuffer(p, 24, new Float32Array([scale ?? 1 / Math.sqrt(headDim), softcap]));
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const outBytes = nTokens * nHeads * headDim * 4;
 		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('attention_decode_q8kv', [p, this.buf(q, ST), this.bufU32(kc, ST), this.buf(ks, ST), this.bufU32(vc, ST), this.buf(vs, ST), out], [nTokens * nHeads, 1, 1], out, outBytes);
@@ -1071,7 +1151,7 @@ export class WebGpuEngine {
 		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
 		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
 		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
-		return this.run('matmul_t_q4_shared', [dims, this.buf(a, ST), nib, sc, mn, out], [Math.ceil(n / 16), Math.ceil(m / 16), 1], out, m * n * 4);
+		return this.run('matmul_t_q4_shared', [dims, this.buf(a, ST), nib, sc, mn, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1], out, m * n * 4);
 	}
 
 	// C = A · Wᵀ where W is BRIK int3 (q3web). lo/hi/sc/mn are persistent GPU buffers holding the raw
@@ -1165,7 +1245,7 @@ export class WebGpuEngine {
 		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
 		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
 		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
-		return this.run('matmul_t_q8_shared', [dims, this.buf(a, ST), codes, sc, out], [Math.ceil(n / 16), Math.ceil(m / 16), 1], out, m * n * 4);
+		return this.run('matmul_t_q8_shared', [dims, this.buf(a, ST), codes, sc, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1], out, m * n * 4);
 	}
 
 	// A small uniform buffer holding the given u32 values, then optional f32 tail value(s) written
@@ -1194,13 +1274,24 @@ export class WebGpuEngine {
 		return b;
 	}
 
+	// Uniform des 4 kernels d'attention CAUSALE (struct AP) : 6 u32, 2 f32 (scale, softcap), puis
+	// `window` en u32 — 36 o arrondis à 48 par la règle d'alignement WGSL des structs uniformes.
+	private attnUniform(nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale: number, softcap: number, window: number): GPUAny {
+		const b = this.uniformOf(48);
+		this.device.queue.writeBuffer(b, 0, new Uint32Array([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen]));
+		this.device.queue.writeBuffer(b, 24, new Float32Array([scale, softcap]));
+		this.device.queue.writeBuffer(b, 32, new Uint32Array([window]));
+		return b;
+	}
+
 	// Recording variants of each kernel: allocate the output (and any uniform), record the pass
 	// into `enc`, push transient buffers onto `trash` for post-submit cleanup, return the output
 	// buffer. They mirror the public (readback) kernels' parameter packing exactly.
 	private recMatmulT(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: GPUAny, m: number, k: number, n: number, wF16 = false): GPUAny {
 		const dims = this.uniform([m, k, n]);
 		const out = this.storage(m * n * 4);
-		this.recordPass(enc, this.matmulTShader(k, wF16), [dims, a, w, out], [Math.ceil(m / 8), Math.ceil(n / 8), 1]);
+		const plan = this.matmulTPlan(m, k, n, wF16);
+		this.recordPass(enc, plan.shader, [dims, a, w, out], plan.grid);
 		trash.push(dims, out);
 		return out;
 	}
@@ -1458,6 +1549,34 @@ export class WebGpuEngine {
 	releaseGpu(bufs: GPUAny[]): void { this.release(bufs); }
 	// Drain the GPU queue (thermal pacing / backpressure between resident blocks).
 	waitGpu(): Promise<void> { return this.device.queue.onSubmittedWorkDone(); }
+	// Banc d'UN GEMM, KERNEL ISOLÉ : activations déjà résidentes, `iters` passes enchaînées dans UN
+	// SEUL encodeur, une seule attente de file — ni upload ni readback par tir. C'est le régime exact
+	// du prefill résident, et c'est la seule mesure stable : chronométrer matmulT() facturait à chaque
+	// tir un upload de A (plusieurs Mo) et un readback, de quoi INVERSER l'A/B. `w` est soit un buffer
+	// f16 (avec wF16), soit un triple q4 {nib,sc,mn} / une paire q8 {codes,sc} — recMM dispatche comme
+	// en production. `shared` choisit le chemin (tuilé ou repli) sans laisser le gate modifié.
+	// Banc uniquement (hooks dev __gemmBench / __qgemmBench).
+	async benchMatmul(a: Float32Array, w: GPUAny, m: number, k: number, n: number, opts: { iters?: number; shared?: boolean; wF16?: boolean } = {}): Promise<number> {
+		const { iters = 10, shared = true, wF16 = false } = opts;
+		const prevF16 = this.f16SharedOk, prevQ = this.qSharedOk;
+		this.f16SharedOk = shared; this.qSharedOk = shared;
+		const aBuf = this.uploadGpu(a);
+		const trash: GPUAny[] = [];
+		const warm = this.device.createCommandEncoder();
+		this.recMM(warm, trash, aBuf, w, m, k, n, wF16); // compile le pipeline
+		this.device.queue.submit([warm.finish()]);
+		await this.device.queue.onSubmittedWorkDone();
+		const enc = this.device.createCommandEncoder();
+		for (let i = 0; i < iters; i++) this.recMM(enc, trash, aBuf, w, m, k, n, wF16);
+		const t0 = performance.now();
+		this.device.queue.submit([enc.finish()]);
+		await this.device.queue.onSubmittedWorkDone();
+		const ms = (performance.now() - t0) / iters;
+		this.release(trash);
+		aBuf.destroy?.();
+		this.f16SharedOk = prevF16; this.qSharedOk = prevQ;
+		return ms;
+	}
 	// Full teardown: destroys the GPUDevice, which invalidates EVERY buffer/pipeline of this engine
 	// at once (the image pipeline holds ~1 GB of resident weights — dropping JS references alone
 	// leaves that VRAM to the GC's mercy). The engine is unusable afterwards.
@@ -1521,9 +1640,14 @@ export class WebGpuEngine {
 	private recMatmulQ4(enc: GPUAny, trash: GPUAny[], a: GPUAny, q4: GPUAny, m: number, k: number, n: number): GPUAny {
 		const dims = this.uniform([m, k, n]);
 		const out = this.storage(m * n * 4);
-		// Prefill: m ≥ 16 → shared-memory tiled GEMM; 2 ≤ m < 16 → row-coarsened (4 rows); decode (m==1) → 1-row.
-		if (m >= 16) {
-			this.recordPass(enc, 'matmul_t_q4_shared', [dims, a, q4.nib, q4.sc, q4.mn, out], [Math.ceil(n / 16), Math.ceil(m / 16), 1]);
+		// Prefill : m ≥ 32 → GEMM tuilé 32×64 bloqué en registres (chaque poids déquantifié une fois
+		// pour 32 lignes) ; 2 ≤ m < 32 → kernel 4 lignes par invocation ; décodage (m==1) → 1 ligne.
+		if (m === 1 && this.gemvOk) {
+			// Décodage : un workgroup de 64 threads PAR ligne de sortie (cf. matmul_t_q4_vec).
+			const g = this.gemvGrid(n);
+			this.recordPass(enc, 'matmul_t_q4_vec', [this.uniform([m, k, n, g.stride]), a, q4.nib, q4.sc, q4.mn, out], g.grid);
+		} else if (m >= 32 && this.qSharedOk) {
+			this.recordPass(enc, 'matmul_t_q4_shared', [dims, a, q4.nib, q4.sc, q4.mn, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1]);
 		} else if (m >= 2) {
 			this.recordPass(enc, 'matmul_t_q4_tiled', [dims, a, q4.nib, q4.sc, q4.mn, out], [Math.ceil(Math.ceil(m / 4) / 8), Math.ceil(n / 8), 1]);
 		} else {
@@ -1536,10 +1660,13 @@ export class WebGpuEngine {
 	private recMatmulQ8(enc: GPUAny, trash: GPUAny[], a: GPUAny, q8: GPUAny, m: number, k: number, n: number): GPUAny {
 		const dims = this.uniform([m, k, n]);
 		const out = this.storage(m * n * 4);
-		// Prefill: m ≥ 16 → shared-memory tiled GEMM (each weight dequantized once, reused across the
-		// 16-row tile). 2 ≤ m < 16 → row-coarsened kernel (4 rows). Decode (m == 1) → the 1-row kernel.
-		if (m >= 16) {
-			this.recordPass(enc, 'matmul_t_q8_shared', [dims, a, q8.codes, q8.sc, out], [Math.ceil(n / 16), Math.ceil(m / 16), 1]);
+		// Prefill : m ≥ 32 → GEMM tuilé 32×64 bloqué en registres (chaque poids déquantifié une fois
+		// pour 32 lignes) ; 2 ≤ m < 32 → kernel 4 lignes par invocation ; décodage (m==1) → 1 ligne.
+		if (m === 1 && this.gemvOk) {
+			const g = this.gemvGrid(n);
+			this.recordPass(enc, 'matmul_t_q8_vec', [this.uniform([m, k, n, g.stride]), a, q8.codes, q8.sc, out], g.grid);
+		} else if (m >= 32 && this.qSharedOk) {
+			this.recordPass(enc, 'matmul_t_q8_shared', [dims, a, q8.codes, q8.sc, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1]);
 		} else if (m >= 2) {
 			this.recordPass(enc, 'matmul_t_q8_tiled', [dims, a, q8.codes, q8.sc, out], [Math.ceil(Math.ceil(m / 4) / 8), Math.ceil(n / 8), 1]);
 		} else {
@@ -1548,6 +1675,36 @@ export class WebGpuEngine {
 		trash.push(dims, out);
 		return out;
 	}
+	// Grid du GEMV : une ligne de sortie par workgroup, réparti sur DEUX dimensions car `n` atteint
+	// 152 064 sur une tête logits — au-delà de maxComputeWorkgroupsPerDimension (65 535). `stride` est
+	// passé au shader pour reconstruire la colonne (col = wid.y * stride + wid.x).
+	private gemvGrid(n: number): { grid: [number, number, number]; stride: number } {
+		const stride = 32768;
+		return n <= stride
+			? { grid: [n, 1, 1], stride }
+			: { grid: [stride, Math.ceil(n / stride), 1], stride };
+	}
+
+	// GEMV q4/q8 avec readback — pour selfValidate (le chemin chaud passe par recMatmulQ4/Q8).
+	async matmulQ4Vec(a: Float32Array, nib: GPUAny, sc: GPUAny, mn: GPUAny, k: number, n: number): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const g = this.gemvGrid(n);
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([1, k, n, g.stride]));
+		const out = this.device.createBuffer({ size: n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('matmul_t_q4_vec', [dims, this.buf(a, ST), nib, sc, mn, out], g.grid, out, n * 4);
+	}
+	async matmulQ8Vec(a: Float32Array, codes: GPUAny, sc: GPUAny, k: number, n: number): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const g = this.gemvGrid(n);
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([1, k, n, g.stride]));
+		const out = this.device.createBuffer({ size: n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('matmul_t_q8_vec', [dims, this.buf(a, ST), codes, sc, out], g.grid, out, n * 4);
+	}
+
 	// Fused int3 matmul recorded into the encoder (weight is a {lo,hi,sc,mn} q3web quad). One kernel
 	// for all m (row-guarded) — no tiled/shared variant yet; decode is already bandwidth-bound.
 	private recMatmulQ3(enc: GPUAny, trash: GPUAny[], a: GPUAny, q3: GPUAny, m: number, k: number, n: number): GPUAny {
@@ -1573,8 +1730,11 @@ export class WebGpuEngine {
 		trash.push(p, out);
 		return out;
 	}
-	private recRope(enc: GPUAny, trash: GPUAny[], x: GPUAny, rows: number, headDim: number, nHeads: number, pastLen: number, base: number): GPUAny {
+	// `interleaved` : convention d'appariement des dimensions (0 = rotate_half/HF, 1 = adjacentes/ggml
+	// NORM pour les archs llama/mistral/smollm3). Écrit à l'offset 20, juste après le `base` f32.
+	private recRope(enc: GPUAny, trash: GPUAny[], x: GPUAny, rows: number, headDim: number, nHeads: number, pastLen: number, base: number, interleaved = false): GPUAny {
 		const p = this.uniform([rows, headDim, nHeads, pastLen], { offset: 16, value: base });
+		this.device.queue.writeBuffer(p, 20, new Uint32Array([interleaved ? 1 : 0]));
 		const out = this.storage(rows * headDim * 4);
 		this.recordPass(enc, 'rope', [p, x, out], [Math.ceil(rows / WG), 1, 1]);
 		trash.push(p, out);
@@ -1616,15 +1776,16 @@ export class WebGpuEngine {
 		return out;
 	}
 	// RoPE à facteurs de fréquence (buffer GPU ff [headDim/2]) — même packing que recRope.
-	private recRopeFactors(enc: GPUAny, trash: GPUAny[], x: GPUAny, ff: GPUAny, rows: number, headDim: number, nHeads: number, pastLen: number, base: number): GPUAny {
+	private recRopeFactors(enc: GPUAny, trash: GPUAny[], x: GPUAny, ff: GPUAny, rows: number, headDim: number, nHeads: number, pastLen: number, base: number, interleaved = false): GPUAny {
 		const p = this.uniform([rows, headDim, nHeads, pastLen], { offset: 16, value: base });
+		this.device.queue.writeBuffer(p, 20, new Uint32Array([interleaved ? 1 : 0]));
 		const out = this.storage(rows * headDim * 4);
 		this.recordPass(enc, 'rope_factors', [p, x, ff, out], [Math.ceil(rows / WG), 1, 1]);
 		trash.push(p, out);
 		return out;
 	}
-	private recAttention(enc: GPUAny, trash: GPUAny[], q: GPUAny, k: GPUAny, v: GPUAny, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale?: number, softcap = 0): GPUAny {
-		const p = this.uniform([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen], { offset: 24, value: [scale ?? 1 / Math.sqrt(headDim), softcap] });
+	private recAttention(enc: GPUAny, trash: GPUAny[], q: GPUAny, k: GPUAny, v: GPUAny, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale?: number, softcap = 0, window = 0): GPUAny {
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const out = this.storage(nTokens * nHeads * headDim * 4);
 		// Décodage (peu de (token, tête) → l'ancien kernel n'occupait que nTokens·nHeads lanes) :
 		// un workgroup de 64 lanes PAR (token, tête), softmax en ligne — le coût par token restait
@@ -1647,8 +1808,8 @@ export class WebGpuEngine {
 		trash.push(p);
 	}
 	// Attention over the int8 KV cache (codes + scales), fused dequant. Mirrors recAttention's packing.
-	private recAttentionQ8(enc: GPUAny, trash: GPUAny[], q: GPUAny, kc: GPUAny, ks: GPUAny, vc: GPUAny, vs: GPUAny, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale?: number, softcap = 0): GPUAny {
-		const p = this.uniform([nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen], { offset: 24, value: [scale ?? 1 / Math.sqrt(headDim), softcap] });
+	private recAttentionQ8(enc: GPUAny, trash: GPUAny[], q: GPUAny, kc: GPUAny, ks: GPUAny, vc: GPUAny, vs: GPUAny, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale?: number, softcap = 0, window = 0): GPUAny {
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const out = this.storage(nTokens * nHeads * headDim * 4);
 		// Même bascule décodage/prefill (+ repli attnDecodeOk) que recAttention — voir là-bas.
 		if (this.attnDecodeOk && nTokens * nHeads < 256 && headDim <= 128) {
@@ -1710,10 +1871,21 @@ export class WebGpuEngine {
 		// M-RoPE (qwen2vl) si positions 3D ; RoPE à facteurs (llama3) si rope_freqs ; sinon RoPE 1D
 		// standard — le chemin chaud des archs existantes est inchangé.
 		const posGpu = cfg._posGpu, ffGpu = cfg._ffGpu;
+		// NoPE (SmolLM3) : la couche saute le RoPE — q/k passent tels quels (c'est ce qui donne au
+		// modèle son extrapolation en contexte long). Toutes les autres archis : skipRope absent.
+		// `cfg.ropeInterleaved` : convention d'appariement (paires adjacentes de ggml vs rotate_half).
+		// Elle n'était PAS transmise ici — le commutateur `?ropenorm=1`, censé lire les poids llama
+		// tels quels avec le kernel à paires adjacentes, laissait donc le kernel rotate_half tourner
+		// des poids non dé-permutés : un opt-in qui ne commutait rien et produisait silencieusement
+		// des sorties fausses (corrélation 0,83 contre 1,00 en défaut, mesuré). Transmise, la voie
+		// devient réellement équivalente — c'est aussi elle qui rendra les BRIK quantifiés de la
+		// famille llama chargeables (leur layout SoA interdit la réécriture par lignes).
+		const inter = cfg.ropeInterleaved === true;
 		const doRope = (x: GPUAny, rows: number, nH: number): GPUAny =>
-			posGpu ? this.recRopeMrope(enc, trash, x, posGpu, rows, headDim, nH, ropeTheta, cfg.mropeSections!)
-			: ffGpu ? this.recRopeFactors(enc, trash, x, ffGpu, rows, headDim, nH, pastLen, ropeTheta)
-			: this.recRope(enc, trash, x, rows, headDim, nH, pastLen, ropeTheta);
+			cfg.skipRope ? x
+			: posGpu ? this.recRopeMrope(enc, trash, x, posGpu, rows, headDim, nH, ropeTheta, cfg.mropeSections!)
+			: ffGpu ? this.recRopeFactors(enc, trash, x, ffGpu, rows, headDim, nH, pastLen, ropeTheta, inter)
+			: this.recRope(enc, trash, x, rows, headDim, nH, pastLen, ropeTheta, inter);
 		const q = doRope(qP, seq * nHeads, nHeads);
 		const newK = doRope(kP, seq * nKvHeads, nKvHeads);
 		// Append the new tokens' K/V into the persistent cache at row offset pastLen, then attend.
@@ -1722,13 +1894,13 @@ export class WebGpuEngine {
 			// q8 KV: quantize the new rows into the int8 cache (+ per-(row,head) scale), attend in place.
 			this.recQuantizeKv(enc, trash, newK, kBuf, kv.kScale, seq, nKvHeads, headDim, pastLen);
 			this.recQuantizeKv(enc, trash, vP, vBuf, kv.vScale, seq, nKvHeads, headDim, pastLen);
-			attn = this.recAttentionQ8(enc, trash, q, kBuf, kv.kScale, vBuf, kv.vScale, seq, nHeads, nKvHeads, headDim, kvLen, pastLen, cfg.attnScale, softcap);
+			attn = this.recAttentionQ8(enc, trash, q, kBuf, kv.kScale, vBuf, kv.vScale, seq, nHeads, nKvHeads, headDim, kvLen, pastLen, cfg.attnScale, softcap, cfg.window ?? 0);
 		} else {
 			// f32 KV: raw copy (kvDim*4 is 4-aligned), attend f32. Capacity ensured ≥ kvLen by caller.
 			const rowBytes = kvDim * 4;
 			enc.copyBufferToBuffer(newK, 0, kBuf, pastLen * rowBytes, seq * rowBytes);
 			enc.copyBufferToBuffer(vP, 0, vBuf, pastLen * rowBytes, seq * rowBytes);
-			attn = this.recAttention(enc, trash, q, kBuf, vBuf, seq, nHeads, nKvHeads, headDim, kvLen, pastLen, cfg.attnScale, softcap);
+			attn = this.recAttention(enc, trash, q, kBuf, vBuf, seq, nHeads, nKvHeads, headDim, kvLen, pastLen, cfg.attnScale, softcap, cfg.window ?? 0);
 		}
 		let proj = this.recMM(enc, trash, attn, w.wo, seq, qDim, d, f16);
 		// Gemma2 sandwich: RMSNorm the attn sub-block output before the residual add.
@@ -1832,7 +2004,7 @@ export class WebGpuEngine {
 		trash.push(x);
 		for (let i = 0; i < layers.length; i++) {
 			const kv = this.kvGpu.get(i)!;
-			x = this.recordLayerKV(enc, trash, x, { ...cfg, seq }, layers[i], pastLen, kv);
+			x = this.recordLayerKV(enc, trash, x, layerCfg(cfg, seq, i, this.swaOk), layers[i], pastLen, kv);
 		}
 		const normed = this.recRmsnorm(enc, trash, x, finalNorm, seq, d, eps, cfg.rmsGainOnePlus === true);
 		const lastRow = this.storage(d * 4);
@@ -1875,7 +2047,7 @@ export class WebGpuEngine {
 		trash.push(x);
 		for (let i = 0; i < layers.length; i++) {
 			const kv = this.kvGpu.get(i)!;
-			x = this.recordLayerKV(enc, trash, x, { ...cfg, seq }, layers[i], pastLen, kv);
+			x = this.recordLayerKV(enc, trash, x, layerCfg(cfg, seq, i, this.swaOk), layers[i], pastLen, kv);
 		}
 		const normed = this.recRmsnorm(enc, trash, x, finalNorm, seq, d, eps, cfg.rmsGainOnePlus === true);
 		// Last token's hidden row stays on the GPU and feeds the projection directly (no readback).
@@ -1917,6 +2089,11 @@ export class WebGpuEngine {
 		}
 		for (let i = 0; i < layers.length; i++) this.ensureKv(i, kvLen, kvDim, nKvHeads);
 
+		// Chronométrage interne (?timing=1) : le PREMIER appel d'une session coûtait 12,8 s sur un 7B
+		// contre ~96 ms ensuite, poids déjà en VRAM. On sépare l'ENREGISTREMENT des passes (où le
+		// driver compile les pipelines WGSL au premier usage) de l'exécution GPU (submit → readback).
+		const TT = WebGpuEngine.timingOn ? (label: string, t0: number) => console.info(`[timing:gpu] ${label} ${(performance.now() - t0).toFixed(0)} ms`) : null;
+		let tt = performance.now();
 		const trash: GPUAny[] = [];
 		this.preparePositions(cfg, trash); // M-RoPE (qwen2vl) : positions 3D uploadées une fois
 		const enc = this.device.createCommandEncoder();
@@ -1925,7 +2102,7 @@ export class WebGpuEngine {
 		trash.push(x);
 		for (let i = 0; i < layers.length; i++) {
 			const kv = this.kvGpu.get(i)!;
-			x = this.recordLayerKV(enc, trash, x, { ...cfg, seq }, layers[i], pastLen, kv);
+			x = this.recordLayerKV(enc, trash, x, layerCfg(cfg, seq, i, this.swaOk), layers[i], pastLen, kv);
 		}
 		const normed = this.recRmsnorm(enc, trash, x, finalNorm, seq, d, eps, cfg.rmsGainOnePlus === true);
 		const lastRow = this.storage(d * 4);
@@ -1959,8 +2136,10 @@ export class WebGpuEngine {
 		}
 		const read = this.device.createBuffer({ size: K * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
 		enc.copyBufferToBuffer(out, 0, read, 0, K * 2 * 4);
+		TT?.('enregistrement des passes (compilation des pipelines incluse)', tt); tt = performance.now();
 		this.device.queue.submit([enc.finish()]);
 		await read.mapAsync(G.GPUMapMode.READ);
+		TT?.('execution GPU (submit + readback)', tt);
 		const raw = new Uint32Array(read.getMappedRange().slice(0));
 		read.unmap();
 		read.destroy();
@@ -2189,6 +2368,183 @@ export class WebGpuEngine {
 		return { ids: raw.slice(0, K), vals: new Float32Array(raw.buffer, K * 4, K) };
 	}
 
+	// ── RWKV-7 (récurrent pur) 100 % RÉSIDENT ────────────────────────────────────
+	// Même recette que LFM2 : les T tokens d'un appel sont enregistrés dans UN encoder (une soumission,
+	// un readback pour le dernier token). L'état PAR COUCHE (S = NH·H·H de la récurrence WKV,
+	// tm/cm = D des token-shifts) vit sur le GPU, mis à jour in-place — l'ordre des passes garantit
+	// que le token t+1 voit l'état du token t. vFirst (résidu de valeur, posé couche 0, lu ensuite)
+	// est un buffer partagé réécrit à chaque token. Keyé par sessionId comme lfm2. Pas de régime
+	// batché : la récurrence est séquentielle par nature (le chunk-scan parallèle est le chantier
+	// suivant du moteur v2) — l'appelant borne T par tranche pour garder l'encodeur raisonnable.
+	private rwkvStateGpu = new Map<number, { S: GPUAny; tm: GPUAny; cm: GPUAny }>();
+	private rwkvVFirst: GPUAny = null;
+	private rwkvSession = '';
+
+	private resetRwkvState(): void {
+		for (const e of this.rwkvStateGpu.values()) { e.S.destroy?.(); e.tm.destroy?.(); e.cm.destroy?.(); }
+		this.rwkvStateGpu.clear();
+		this.rwkvVFirst?.destroy?.(); this.rwkvVFirst = null;
+		this.rwkvSession = '';
+		for (const list of this.bufferPool.values()) for (const b of list) b.destroy?.();
+		this.bufferPool.clear();
+	}
+	clearRwkvState(): void { this.resetRwkvState(); }
+
+	private ensureRwkvState(layer: number, D: number, NH: number, H: number): { S: GPUAny; tm: GPUAny; cm: GPUAny } {
+		let e = this.rwkvStateGpu.get(layer);
+		if (!e) {
+			const S = this.storage(NH * H * H * 4), tm = this.storage(D * 4), cm = this.storage(D * 4);
+			this.device.queue.writeBuffer(S, 0, new Float32Array(NH * H * H));
+			this.device.queue.writeBuffer(tm, 0, new Float32Array(D));
+			this.device.queue.writeBuffer(cm, 0, new Float32Array(D));
+			e = { S, tm, cm };
+			this.rwkvStateGpu.set(layer, e);
+		}
+		return e;
+	}
+
+	private rwkvSessionReset(sessionId: string, pastLen: number): void {
+		if (sessionId !== this.rwkvSession || pastLen === 0) {
+			if (pastLen > 0) console.error(`[rwkv] session "${sessionId}" inconnue avec pastLen=${pastLen} — état perdu, sortie invalide. Repartir de pastLen 0.`);
+			this.resetRwkvState();
+			this.rwkvSession = sessionId;
+		}
+	}
+
+	// Enregistre le forward d'UN token (x = [D] déjà passé par la norme d'embedding) dans `enc`.
+	// Sémantique = RwkvModel.timeMix/channelMix (elle-même byte-identique à scripts/rwkv-cpuref.cjs).
+	private recRwkvToken(enc: GPUAny, trash: GPUAny[], x: GPUAny, cfg: RwkvCfg, layers: RwkvLayerGpu[], vFirst: GPUAny): GPUAny {
+		const { D, H, NH } = cfg;
+		const EPS_LN = 1e-5, EPS_GN = 64e-5; // GroupNorm têtes : constante GGUF (= 6.4e-4)
+		for (let L = 0; L < layers.length; L++) {
+			const w = layers[L];
+			const st = this.rwkvStateGpu.get(L)!;
+			// ── time-mix ──
+			const h = this.recLayernorm(enc, trash, x, w.attnNormW, w.attnNormB, 1, D, EPS_LN);
+			const six = this.storage(6 * D * 4);
+			{ const p = this.uniform([D]); this.recordPass(enc, 'rwkv_token_shift', [p, h, st.tm, w.lerpFused, six], this.grid1D(6 * D)); trash.push(p, six); }
+			enc.copyBufferToBuffer(h, 0, st.tm, 0, D * 4); // prev ← ln (APRÈS la lecture par le pass)
+			const slice = (k: number): GPUAny => { const b = this.storage(D * 4); enc.copyBufferToBuffer(six, k * D * 4, b, 0, D * 4); trash.push(b); return b; };
+			const xr = slice(0), xw = slice(1), xk = slice(2), xv = slice(3), xa = slice(4), xg = slice(5);
+			const r = this.recMM(enc, trash, xr, w.R, 1, D, D, false);
+			const k = this.recMM(enc, trash, xk, w.K, 1, D, D, false);
+			const v = this.recMM(enc, trash, xv, w.V, 1, D, D, false);
+			// décroissance w = exp(-0.606531·σ(w0 + w2·tanh(w1·xw)))
+			const wt = this.recUnary(enc, trash, 'tanh_act', this.recMM(enc, trash, xw, w.w1, 1, D, w.rw, false), w.rw);
+			const wpre = this.recMM(enc, trash, wt, w.w2, 1, w.rw, D, false);
+			const wd = this.storage(D * 4);
+			{ this.recordPass(enc, 'rwkv_decay', [w.w0, wpre, wd], this.grid1D(D)); trash.push(wd); }
+			// a (taux d'apprentissage en contexte) = σ(a0 + a2·(a1·xa))
+			const apre = this.recMM(enc, trash, this.recMM(enc, trash, xa, w.a1, 1, D, w.ra, false), w.a2, 1, w.ra, D, false);
+			const av = this.storage(D * 4);
+			{ this.recordPass(enc, 'rwkv_bias_sigmoid', [w.a0, apre, av], this.grid1D(D)); trash.push(av); }
+			// gate g = g2·σ(g1·xg)
+			const gt = this.recUnary(enc, trash, 'sigmoid', this.recMM(enc, trash, xg, w.g1, 1, D, w.rg, false), w.rg);
+			const g = this.recMM(enc, trash, gt, w.g2, 1, w.rg, D, false);
+			// résidu de valeur : couche 0 POSE vFirst ; ensuite v ← v + (vFirst−v)·σ(v0 + v2·(v1·xv))
+			if (L === 0) {
+				enc.copyBufferToBuffer(v, 0, vFirst, 0, D * 4);
+			} else {
+				const vpre = this.recMM(enc, trash, this.recMM(enc, trash, xv, w.v1!, 1, D, w.rv!, false), w.v2!, 1, w.rv!, D, false);
+				this.recordPass(enc, 'rwkv_vresid', [v, vFirst, w.v0!, vpre], this.grid1D(D)); // v in-place
+			}
+			// clés WKV : kk L2/tête, kmod, ±
+			const kmod = this.storage(D * 4), negkk = this.storage(D * 4), kka = this.storage(D * 4);
+			{ const p = this.uniform([NH, H]); this.recordPass(enc, 'rwkv_kprep', [p, k, av, w.kk, w.ka, kmod, negkk, kka], this.grid1D(NH)); trash.push(p, kmod, negkk, kka); }
+			// récurrence WKV (état S in-place)
+			const y = this.storage(D * 4);
+			{ const p = this.uniform([NH, H]); this.recordPass(enc, 'rwkv_wkv7', [p, r, wd, kmod, v, negkk, kka, st.S, y], this.grid1D(NH * H)); trash.push(p, y); }
+			// GroupNorm/tête + bonus r·k, puis gate g, puis projection de sortie
+			const gn = this.storage(D * 4);
+			{ const p = this.uniform([NH, H], { offset: 8, value: EPS_GN }); this.recordPass(enc, 'rwkv_out_gn', [p, y, r, kmod, w.rk, v, w.lnWB, gn], this.grid1D(NH)); trash.push(p, gn); }
+			const og = this.recBinary(enc, trash, 'mul', gn, g, D);
+			const tmOut = this.recMM(enc, trash, og, w.O, 1, D, D, false);
+			x = this.recBinary(enc, trash, 'add', x, tmOut, D);
+			// ── channel-mix ──
+			const h2 = this.recLayernorm(enc, trash, x, w.attnNorm2W, w.attnNorm2B, 1, D, EPS_LN);
+			const xk2 = this.storage(D * 4);
+			{ this.recordPass(enc, 'rwkv_lerp', [h2, st.cm, w.lerpK, xk2], this.grid1D(D)); trash.push(xk2); }
+			enc.copyBufferToBuffer(h2, 0, st.cm, 0, D * 4);
+			const kc = this.recUnary(enc, trash, 'sqrelu', this.recMM(enc, trash, xk2, w.cmK, 1, D, w.ffn, false), w.ffn);
+			const cmOut = this.recMM(enc, trash, kc, w.cmV, 1, w.ffn, D, false);
+			x = this.recBinary(enc, trash, 'add', x, cmOut, D);
+		}
+		return x;
+	}
+
+	// Enregistre le stack pour T tokens : embed LN par token, boucle recRwkvToken. Retourne le buffer
+	// [D] du dernier token APRÈS la norme finale (output_norm) — prêt pour la tête.
+	private recordRwkv(enc: GPUAny, trash: GPUAny[], embeds: Float32Array, T: number, cfg: RwkvCfg, layers: RwkvLayerGpu[], norms: RwkvNorms): GPUAny {
+		const { D, H, NH } = cfg;
+		for (let L = 0; L < layers.length; L++) this.ensureRwkvState(L, D, NH, H);
+		if (!this.rwkvVFirst) this.rwkvVFirst = this.storage(D * 4);
+		let last: GPUAny = null;
+		for (let t = 0; t < T; t++) {
+			const e = this.storage(D * 4);
+			this.device.queue.writeBuffer(e, 0, embeds.subarray(t * D, (t + 1) * D));
+			trash.push(e);
+			const x0 = this.recLayernorm(enc, trash, e, norms.tokW, norms.tokB, 1, D, 1e-5);
+			const xN = this.recRwkvToken(enc, trash, x0, cfg, layers, this.rwkvVFirst);
+			if (t === T - 1) last = this.recLayernorm(enc, trash, xN, norms.outW, norms.outB, 1, D, 1e-5);
+		}
+		return last;
+	}
+
+	// Prefill pur : avance l'état de T tokens, une soumission, pas de readback (tranches non finales).
+	async rwkvPrefillGpu(embeds: Float32Array, T: number, cfg: RwkvCfg, layers: RwkvLayerGpu[], norms: RwkvNorms, pastLen: number, sessionId: string): Promise<void> {
+		this.rwkvSessionReset(sessionId, pastLen);
+		const trash: GPUAny[] = [];
+		const enc = this.device.createCommandEncoder();
+		this.recordRwkv(enc, trash, embeds, T, cfg, layers, norms);
+		this.device.queue.submit([enc.finish()]);
+		await this.device.queue.onSubmittedWorkDone();
+		this.release(trash);
+	}
+
+	// Logits complets du dernier token (classify / bench). UN submit, UN readback.
+	async rwkvLogitsGpu(embeds: Float32Array, T: number, cfg: RwkvCfg, layers: RwkvLayerGpu[], head: GPUAny, norms: RwkvNorms, pastLen: number, sessionId: string): Promise<Float32Array> {
+		const G = globalThis as any;
+		this.rwkvSessionReset(sessionId, pastLen);
+		const trash: GPUAny[] = [];
+		const enc = this.device.createCommandEncoder();
+		const last = this.recordRwkv(enc, trash, embeds, T, cfg, layers, norms);
+		const logits = this.recMM(enc, trash, last, head, 1, cfg.D, cfg.vocab, false);
+		const read = this.device.createBuffer({ size: cfg.vocab * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		enc.copyBufferToBuffer(logits, 0, read, 0, cfg.vocab * 4);
+		this.device.queue.submit([enc.finish()]);
+		await read.mapAsync(G.GPUMapMode.READ);
+		const out = new Float32Array(read.getMappedRange().slice(0));
+		read.unmap(); read.destroy(); this.release(trash);
+		return out;
+	}
+
+	// Top-K GPU du dernier token (chat) : tête + pénalité + top_k, UN readback (~512 o). Miroir lfm2TopKGpu.
+	async rwkvTopKGpu(embeds: Float32Array, T: number, cfg: RwkvCfg, layers: RwkvLayerGpu[], head: GPUAny, norms: RwkvNorms, pastLen: number, sessionId: string, recent: number[], penalty: number, K = 64): Promise<{ ids: Uint32Array; vals: Float32Array }> {
+		const G = globalThis as any;
+		this.rwkvSessionReset(sessionId, pastLen);
+		const trash: GPUAny[] = [];
+		const enc = this.device.createCommandEncoder();
+		const last = this.recordRwkv(enc, trash, embeds, T, cfg, layers, norms);
+		const logits = this.recMM(enc, trash, last, head, 1, cfg.D, cfg.vocab, false);
+		if (penalty && penalty !== 1 && recent.length) {
+			const ids = Uint32Array.from(recent);
+			const idsBuf = this.bufU32(ids, G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST);
+			const p = this.uniform([ids.length], { offset: 4, value: penalty });
+			this.recordPass(enc, 'penalize_logits', [p, idsBuf, logits], this.grid1D(ids.length));
+			trash.push(p, idsBuf);
+		}
+		const out = this.storage(K * 2 * 4);
+		trash.push(out);
+		{ const p = this.uniform([cfg.vocab, K]); this.recordPass(enc, 'top_k', [p, logits, out], [1, 1, 1]); trash.push(p); }
+		const read = this.device.createBuffer({ size: K * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		enc.copyBufferToBuffer(out, 0, read, 0, K * 2 * 4);
+		this.device.queue.submit([enc.finish()]);
+		await read.mapAsync(G.GPUMapMode.READ);
+		const raw = new Uint32Array(read.getMappedRange().slice(0));
+		read.unmap(); read.destroy(); this.release(trash);
+		return { ids: raw.slice(0, K), vals: new Float32Array(raw.buffer, K * 4, K) };
+	}
+
 	// GPU greedy logit projection + argmax. Given the last hidden state and the cached projection
 	// tiles ([n_vocab tile] each), it matmuls every tile into one logits buffer and reduces to the
 	// winning token id ON the GPU — so only ONE u32 is read back per token (vs the whole ~152k
@@ -2320,6 +2676,37 @@ export class WebGpuEngine {
 				wf32.destroy?.(); wGpuPacked.destroy?.();
 				if (!tolF16(got2)) return fail('packf16');
 			}
+
+			// GEMM f16 TUILÉ (matmul_t_f16w_shared, prefill m ≥ 16) : mêmes sorties que le kernel f16
+			// une-ligne-par-thread, exigées sur des formes à BORDS PARTIELS dans m, n ET k. La tuile
+			// fait 32 lignes × 64 colonnes, le bloc k vaut 16 (k=48 est un multiple, k=40 non → dernier
+			// bloc k incomplet). L'A/B se fait en basculant f16SharedOk, la référence étant le chemin
+			// actuel. Gate NON BLOQUANT (motif convTiledOk) : un driver qui le rate repasse
+			// f16SharedOk=false — même résultat, juste plus lent. Les deux kernels accumulent en f32
+			// sur les MÊMES poids f16 : seul l'ordre de sommation diffère, d'où la tolérance serrée.
+			if (this.hasF16 && this.f16SharedOk) {
+				const shapes = [
+					{ m: 20, k: 128, n: 18 }, // une seule tuile, largement incomplète dans m ET n
+					{ m: 32, k: 64, n: 64 },  // tuile pleine exacte
+					{ m: 70, k: 40, n: 130 }, // 3×3 tuiles à bords partiels + dernier bloc k incomplet
+					{ m: 33, k: 48, n: 7 },   // n ≪ 64 (7 colonnes) : garde d'écriture par colonne
+				];
+				for (const s of shapes) {
+					const a = rand(s.m * s.k), wt = rand(s.n * s.k);
+					const wBuf = this.uploadGpuF16(wt);
+					const got = await this.matmulT(a, wBuf, s.m, s.k, s.n, true); // → matmul_t_f16w_shared
+					this.f16SharedOk = false;
+					const ref = await this.matmulT(a, wBuf, s.m, s.k, s.n, true); // → matmul_t_f16w
+					this.f16SharedOk = true;
+					wBuf.destroy?.();
+					const same = got.length === ref.length && got.every((v, i) => Math.abs(v - ref[i]) <= 1e-3 * (1 + Math.abs(ref[i])));
+					if (!same) {
+						this.f16SharedOk = false;
+						console.warn(`[selfValidate] matmul_t_f16w_shared KO sur ce GPU (m=${s.m}, k=${s.k}, n=${s.n}) — repli sur matmul_t_f16w (plus lent, même résultat).`);
+						break;
+					}
+				}
+			}
 		}
 
 		// Fused q4web int4 matmul: quantize a random weight to q4, run matmul_t_q4, and check it
@@ -2384,9 +2771,13 @@ export class WebGpuEngine {
 			if (!close(got, ref)) return fail('matmul_q4_tiled');
 		}
 
-		// Shared-memory tiled q4 matmul (matmul_t_q4_shared). m=20, n=18 → partial 16×16 tile edges.
-		{
-			const m = 20, k = 128, n = 18;
+		// GEMM q4 tuilé + bloqué en registres (matmul_t_q4_shared, tuile 32 lignes × 64 colonnes).
+		// Trois formes : tuile largement incomplète (20×18), tuile pleine exacte (32×64), et 3×3 tuiles
+		// à bords partiels des deux côtés (70×130) — c'est là que vivent les gardes d'écriture des
+		// 8 accumulateurs. (k reste multiple de 32 = le groupe de quantification, donc jamais de bloc
+		// k partiel.) Doit égaler a · dequant(W) exactement comme le kernel 1 ligne.
+		for (const s of [{ m: 20, n: 18 }, { m: 32, n: 64 }, { m: 70, n: 130 }]) {
+			const m = s.m, k = 128, n = s.n;
 			const a = rand(m * k), W = rand(n * k);
 			const q = quantizeQ4(W);
 			const nibBuf = this.uploadGpuRaw(q.nibbles);
@@ -2395,9 +2786,9 @@ export class WebGpuEngine {
 			const got = await this.matmulQ4Shared(a, nibBuf, scBuf, mnBuf, m, k, n);
 			const Wd = dequantizeQ4(q);
 			const ref = new Float32Array(m * n);
-			for (let r = 0; r < m; r++) for (let cc = 0; cc < n; cc++) { let s = 0; for (let i = 0; i < k; i++) s += a[r * k + i] * Wd[cc * k + i]; ref[r * n + cc] = s; }
+			for (let r = 0; r < m; r++) for (let cc = 0; cc < n; cc++) { let s2 = 0; for (let i = 0; i < k; i++) s2 += a[r * k + i] * Wd[cc * k + i]; ref[r * n + cc] = s2; }
 			nibBuf.destroy?.(); scBuf.destroy?.(); mnBuf.destroy?.();
-			if (!close(got, ref)) return fail('matmul_q4_shared');
+			if (!close(got, ref)) return fail(`matmul_q4_shared(${m},${n})`);
 		}
 
 		// Fused q8web int8 matmul: quantize a random weight to q8, run matmul_t_q8, and check it
@@ -2441,11 +2832,42 @@ export class WebGpuEngine {
 			if (!close(got, ref)) return fail('matmul_q8_tiled');
 		}
 
-		// Shared-memory tiled q8 matmul (matmul_t_q8_shared). m=20, n=18 → multiple 16×16 tiles with
-		// partial edges in both m and n — exercises the boundary guards + the two workgroup barriers.
-		// (k is always a multiple of 32 = the quant group, hence of 16, so k-tiles never split.)
-		{
-			const m = 20, k = 128, n = 18;
+		// GEMV du DÉCODAGE (matmul_t_q4_vec / matmul_t_q8_vec, m = 1) : mêmes sorties que les kernels
+		// par lignes, exigées sur trois largeurs — n petit (une seule colonne de workgroups), n non
+		// multiple de la taille de workgroup, et un k long (plusieurs tours de la foulée de 64 groupes).
+		// C'est le kernel du chemin CHAUD (un token = tous les poids relus) : une erreur ici passerait
+		// inaperçue en vitesse et corrompt chaque réponse.
+		for (const sh of [{ k: 128, n: 6 }, { k: 128, n: 130 }, { k: 4096, n: 17 }]) {
+			const k = sh.k, n = sh.n;
+			const a = rand(k), W = rand(n * k);
+			const q4 = quantizeQ4(W);
+			const nibBuf = this.uploadGpuRaw(q4.nibbles);
+			const sc4 = this.uploadGpuRaw(new Uint8Array(q4.scales.buffer, q4.scales.byteOffset, q4.scales.byteLength));
+			const mn4 = this.uploadGpuRaw(new Uint8Array(q4.mins.buffer, q4.mins.byteOffset, q4.mins.byteLength));
+			const got4 = await this.matmulQ4Vec(a, nibBuf, sc4, mn4, k, n);
+			const W4 = dequantizeQ4(q4);
+			const ref4 = new Float32Array(n);
+			for (let c = 0; c < n; c++) { let acc = 0; for (let i = 0; i < k; i++) acc += a[i] * W4[c * k + i]; ref4[c] = acc; }
+			nibBuf.destroy?.(); sc4.destroy?.(); mn4.destroy?.();
+			if (!close(got4, ref4)) return fail(`matmul_q4_vec(${k},${n})`);
+
+			const q8 = quantizeQ8(W);
+			const codesBuf = this.uploadGpuRaw(new Uint8Array(q8.codes.buffer, q8.codes.byteOffset, q8.codes.byteLength));
+			const sc8 = this.uploadGpuRaw(new Uint8Array(q8.scales.buffer, q8.scales.byteOffset, q8.scales.byteLength));
+			const got8 = await this.matmulQ8Vec(a, codesBuf, sc8, k, n);
+			const W8 = dequantizeQ8(q8);
+			const ref8 = new Float32Array(n);
+			for (let c = 0; c < n; c++) { let acc = 0; for (let i = 0; i < k; i++) acc += a[i] * W8[c * k + i]; ref8[c] = acc; }
+			codesBuf.destroy?.(); sc8.destroy?.();
+			if (!close(got8, ref8)) return fail(`matmul_q8_vec(${k},${n})`);
+		}
+
+		// GEMM q8 tuilé + bloqué en registres (matmul_t_q8_shared) : mêmes trois formes que le q4 —
+		// tuile 32×64 incomplète, pleine, puis 3×3 tuiles à bords partiels des deux côtés. Exerce les
+		// gardes de bord et les deux barrières. (k multiple de 32 = le groupe de quant → jamais de bloc
+		// k partiel.) Doit égaler a · dequant(W) comme le kernel 1 ligne.
+		for (const sh of [{ m: 20, n: 18 }, { m: 32, n: 64 }, { m: 70, n: 130 }]) {
+			const m = sh.m, k = 128, n = sh.n;
 			const a = rand(m * k), W = rand(n * k);
 			const q = quantizeQ8(W);
 			const codesBuf = this.uploadGpuRaw(new Uint8Array(q.codes.buffer, q.codes.byteOffset, q.codes.byteLength));
@@ -2455,7 +2877,7 @@ export class WebGpuEngine {
 			const ref = new Float32Array(m * n);
 			for (let r = 0; r < m; r++) for (let cc = 0; cc < n; cc++) { let s = 0; for (let i = 0; i < k; i++) s += a[r * k + i] * Wd[cc * k + i]; ref[r * n + cc] = s; }
 			codesBuf.destroy?.(); scBuf.destroy?.();
-			if (!close(got, ref)) return fail('matmul_q8_shared');
+			if (!close(got, ref)) return fail(`matmul_q8_shared(${m},${n})`);
 		}
 
 		// Chunked GGUF→BRIK conversion must byte-match the single-pass path. This guards the chunk
@@ -2534,6 +2956,45 @@ export class WebGpuEngine {
 			if (!closeRel(await this.ropeFactors(xr, ff, rows, headDim, nHeads, pastLen, base), ropeFactorsCpu(xr, ff, rows, headDim, nHeads, pastLen, base))) return fail('rope_factors');
 		}
 
+		// RoPE à paires ADJACENTES (ggml NORM : llama, mistral, smollm3) — la convention qui manquait
+		// et qui obligeait à réécrire les lignes de Q/K au chargement. Trois propriétés :
+		//  (1) sortie = référence CPU interleaved, sur les formes réelles de Llama 3.2 1B (headDim 64,
+		//      base 500000) ET une forme minuscule (headDim 4) où l'appariement se vérifie à la main ;
+		//  (2) à la position 0, RoPE est l'IDENTITÉ dans les DEUX conventions (angles nuls) — invariant
+		//      qui attrape une inversion d'indices sans dépendre d'une référence ;
+		//  (3) une PERMUTATION des composantes relie les deux conventions : tourner en interleaved des
+		//      données permutées donne le même résultat que tourner en rotate_half les données
+		//      d'origine, puis permuter. C'est exactement ce que faisait la dé-permutation des poids,
+		//      donc ce test prouve que le nouveau kernel remplace bien l'ancien contournement.
+		{
+			const nHeads = 2, headDim = 64, rows = 3 * nHeads, pastLen = 7, base = 500000;
+			const xr = rand(rows * headDim);
+			if (!closeRel(await this.rope(xr, rows, headDim, nHeads, pastLen, base, true), ropeInterleavedCpu(xr, rows, headDim, nHeads, pastLen, base))) return fail('rope.interleaved');
+			const small = rand(2 * 4);
+			if (!closeRel(await this.rope(small, 2, 4, 2, 3, 10000, true), ropeInterleavedCpu(small, 2, 4, 2, 3, 10000))) return fail('rope.interleaved.hd4');
+			// (2) position 0 : identité dans les deux conventions.
+			const z = rand(rows * headDim);
+			if (!closeRel(await this.rope(z, rows, headDim, nHeads, 0, base, true), ropeInterleavedCpu(z, rows, headDim, nHeads, 0, base))) return fail('rope.interleaved.pos0');
+			// (3) équivalence par permutation des composantes (i, i+half) ↔ (2i, 2i+1).
+			const half = headDim / 2;
+			const perm = new Float32Array(rows * headDim);
+			for (let r = 0; r < rows; r++) for (let i = 0; i < half; i++) {
+				perm[r * headDim + 2 * i] = xr[r * headDim + i];
+				perm[r * headDim + 2 * i + 1] = xr[r * headDim + i + half];
+			}
+			const gotInter = await this.rope(perm, rows, headDim, nHeads, pastLen, base, true);
+			const gotHalf = await this.rope(xr, rows, headDim, nHeads, pastLen, base, false);
+			const halfPermuted = new Float32Array(rows * headDim);
+			for (let r = 0; r < rows; r++) for (let i = 0; i < half; i++) {
+				halfPermuted[r * headDim + 2 * i] = gotHalf[r * headDim + i];
+				halfPermuted[r * headDim + 2 * i + 1] = gotHalf[r * headDim + i + half];
+			}
+			if (!closeRel(gotInter, halfPermuted)) return fail('rope.interleaved.equivalence');
+			// Et la variante à facteurs partage le même appariement.
+			const ff = Float32Array.from({ length: half }, (_, i) => 1 + (i % 5) * 0.7);
+			if (!closeRel(await this.ropeFactors(xr, ff, rows, headDim, nHeads, pastLen, base, true), ropeInterleavedCpu(xr, rows, headDim, nHeads, pastLen, base, ff))) return fail('rope_factors.interleaved');
+		}
+
 		// M-RoPE (qwen2vl) — gate NON BLOQUANT (le kernel n'est dispatché que pour l'arch qwen2vl :
 		// un échec coupe la vision via mropeOk=false, jamais le chat texte). Deux propriétés :
 		// (1) positions dégénérées t=h=w=pos ⇒ IDENTIQUE au RoPE 1D (l'invariant clé du gating) ;
@@ -2566,6 +3027,24 @@ export class WebGpuEngine {
 				await this.attention(q, k, v, nTokens, nHeads, nKvHeads, headDim, pastLen, sc, cap),
 				attentionCpu(q, k, v, nTokens, nHeads, nKvHeads, headDim, pastLen, sc, cap)
 			)) return fail('attention.softcap');
+			// Sliding window (Gemma 3) : sur une forme plus longue, chaque fenêtre testée contre la
+			// réf CPU — dont window ≥ contexte (doit redonner EXACTEMENT l'attention pleine) et
+			// window = 1 (chaque requête ne voit qu'elle-même). Les deux familles de kernels sont
+			// couvertes : `attention` (prefill, thread par tête) et `attention_decode` (workgroup).
+			{
+				const nT = 3, nH = 2, nKv = 1, hd = 4, past = 9, kvL = past + nT;
+				const qw = rand(nT * nH * hd), kw = rand(kvL * nKv * hd), vw = rand(kvL * nKv * hd);
+				for (const win of [1, 4, 8, 64]) {
+					if (!closeRel(
+						await this.attention(qw, kw, vw, nT, nH, nKv, hd, past, undefined, 0, win),
+						attentionCpu(qw, kw, vw, nT, nH, nKv, hd, past, undefined, 0, win),
+					)) return fail(`attention.window(${win})`);
+					if (!closeRel(
+						await this.attentionDecode(qw, kw, vw, nT, nH, nKv, hd, past, undefined, 0, win),
+						attentionCpu(qw, kw, vw, nT, nH, nKv, hd, past, undefined, 0, win),
+					)) return fail(`attention_decode.window(${win})`);
+				}
+			}
 
 			// q8 KV cache: quantize K/V to int8 (+ per-(row,head) scale), run attention_q8kv, and check
 			// it matches the trusted f32 attention over the SAME codes dequantized — gates quantize_kv
@@ -2915,6 +3394,92 @@ export class WebGpuEngine {
 				console.error('[selfValidate] RWKV-7 token-shift KO sur ce GPU (non bloquant pour le chat texte).');
 			} else {
 				console.log('[selfValidate] RWKV-7 token-shift OK');
+			}
+
+			// Glu RWKV résidente (rwkv_kprep, rwkv_out_gn, rwkv_decay, rwkv_vresid, rwkv_lerp, sqrelu) :
+			// chaque kernel vs sa réf JS (sémantique RwkvModel.timeMix, verrouillée par rwkv-cpuref).
+			// NON bloquant : échec → rwkvResidentOk=false, le chat RWKV retombe sur le POC JS+readback.
+			if (this.rwkvResidentOk) {
+				const G = globalThis as any;
+				const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.COPY_SRC;
+				const NHv = 2, Hv = 8, Dv = NHv * Hv;
+				const uni = (u: number[], f?: { off: number; val: number }) => {
+					const size = Math.max(16, Math.ceil((u.length * 4 + (f ? 4 : 0)) / 16) * 16);
+					const b = this.device.createBuffer({ size, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+					this.device.queue.writeBuffer(b, 0, new Uint32Array(u));
+					if (f) this.device.queue.writeBuffer(b, f.off, new Float32Array([f.val]));
+					return b;
+				};
+				const out = (n: number) => this.device.createBuffer({ size: n * 4, usage: ST });
+				try {
+					// rwkv_kprep
+					const kx = rand(Dv), kkw = rand(Dv), kaw = rand(Dv);
+					const ax = Float32Array.from({ length: Dv }, () => Math.random()); // a ∈ (0,1) comme σ
+					const kmodR = new Float32Array(Dv), negkkR = new Float32Array(Dv), kkaR = new Float32Array(Dv);
+					for (let h = 0; h < NHv; h++) {
+						let n = 0;
+						for (let j = 0; j < Hv; j++) { const t = kx[h * Hv + j] * kkw[h * Hv + j]; n += t * t; }
+						n = Math.sqrt(n) || 1e-12;
+						for (let j = 0; j < Hv; j++) {
+							const i = h * Hv + j, kkn = kx[i] * kkw[i] / n;
+							negkkR[i] = -kkn; kkaR[i] = kkn * ax[i]; kmodR[i] = kx[i] * (1 + (ax[i] - 1) * kaw[i]);
+						}
+					}
+					const km = out(Dv), nk = out(Dv), ka2 = out(Dv);
+					this.dispatch('rwkv_kprep', [uni([NHv, Hv]), this.buf(kx, ST), this.buf(ax, ST), this.buf(kkw, ST), this.buf(kaw, ST), km, nk, ka2], this.grid1D(NHv));
+					const okKprep = rel(await this.readBack(km, Dv * 4), kmodR) && rel(await this.readBack(nk, Dv * 4), negkkR) && rel(await this.readBack(ka2, Dv * 4), kkaR);
+					km.destroy?.(); nk.destroy?.(); ka2.destroy?.();
+					// rwkv_out_gn (lnWB = [gamma|beta] concaténés)
+					const yv = rand(Dv), rv2 = rand(Dv), rkv = rand(Dv), vv2 = rand(Dv), lnwv = rand(Dv), lnbv = rand(Dv);
+					const gnR = new Float32Array(Dv);
+					for (let h = 0; h < NHv; h++) {
+						const hb = h * Hv;
+						let m = 0; for (let j = 0; j < Hv; j++) m += yv[hb + j]; m /= Hv;
+						let va = 0; for (let j = 0; j < Hv; j++) { const dd = yv[hb + j] - m; va += dd * dd; } va /= Hv;
+						const sc = 1 / Math.sqrt(va + 64e-5);
+						let bonus = 0; for (let j = 0; j < Hv; j++) bonus += rv2[hb + j] * kmodR[hb + j] * rkv[hb + j];
+						for (let j = 0; j < Hv; j++) gnR[hb + j] = (yv[hb + j] - m) * sc * lnwv[hb + j] + lnbv[hb + j] + bonus * vv2[hb + j];
+					}
+					const lnWB = new Float32Array(2 * Dv); lnWB.set(lnwv, 0); lnWB.set(lnbv, Dv);
+					const gn = out(Dv);
+					this.dispatch('rwkv_out_gn', [uni([NHv, Hv], { off: 8, val: 64e-5 }), this.buf(yv, ST), this.buf(rv2, ST), this.buf(kmodR, ST), this.buf(rkv, ST), this.buf(vv2, ST), this.buf(lnWB, ST), gn], this.grid1D(NHv));
+					const okGn = rel(await this.readBack(gn, Dv * 4), gnR);
+					gn.destroy?.();
+					// rwkv_decay + rwkv_vresid + rwkv_lerp + sqrelu (élémentaires)
+					const w0v = rand(Dv), wprev = rand(Dv);
+					const decR = Float32Array.from(w0v, (w0i, i) => Math.exp(-0.606531 / (1 + Math.exp(-(w0i + wprev[i])))));
+					const dec = out(Dv);
+					this.dispatch('rwkv_decay', [this.buf(w0v, ST), this.buf(wprev, ST), dec], this.grid1D(Dv));
+					const okDec = rel(await this.readBack(dec, Dv * 4), decR);
+					dec.destroy?.();
+					const vin = rand(Dv), vf = rand(Dv), v0v = rand(Dv), vprev = rand(Dv);
+					const vrR = Float32Array.from(vin, (vi, i) => vi + (vf[i] - vi) * (1 / (1 + Math.exp(-(v0v[i] + vprev[i])))));
+					const vb = this.buf(vin, ST);
+					this.dispatch('rwkv_vresid', [vb, this.buf(vf, ST), this.buf(v0v, ST), this.buf(vprev, ST)], this.grid1D(Dv));
+					const okVr = rel(await this.readBack(vb, Dv * 4), vrR);
+					vb.destroy?.();
+					const lx = rand(Dv), lprev = rand(Dv), llerp = rand(Dv);
+					const lpR = Float32Array.from(lx, (xi, i) => xi + (lprev[i] - xi) * llerp[i]);
+					const lo = out(Dv);
+					this.dispatch('rwkv_lerp', [this.buf(lx, ST), this.buf(lprev, ST), this.buf(llerp, ST), lo], this.grid1D(Dv));
+					const okLerp = rel(await this.readBack(lo, Dv * 4), lpR);
+					lo.destroy?.();
+					const sx = rand(Dv);
+					const sqR = Float32Array.from(sx, (v2) => { const m2 = Math.max(v2, 0); return m2 * m2; });
+					const so = out(Dv);
+					this.dispatch('sqrelu', [this.buf(sx, ST), so], this.grid1D(Dv));
+					const okSq = rel(await this.readBack(so, Dv * 4), sqR);
+					so.destroy?.();
+					if (!okKprep || !okGn || !okDec || !okVr || !okLerp || !okSq) {
+						this.rwkvResidentOk = false;
+						console.error(`[selfValidate] glu RWKV résidente KO sur ce GPU (kprep:${okKprep} gn:${okGn} decay:${okDec} vresid:${okVr} lerp:${okLerp} sqrelu:${okSq}) — repli forwardToken JS+readback (correct, lent).`);
+					} else {
+						console.log('[selfValidate] glu RWKV résidente OK (kprep, out_gn, decay, vresid, lerp, sqrelu)');
+					}
+				} catch (e) {
+					this.rwkvResidentOk = false;
+					console.error('[selfValidate] glu RWKV résidente : erreur d’exécution — repli forwardToken JS+readback.', e);
+				}
 			}
 		}
 
@@ -3424,6 +3989,25 @@ function mropeCpu(x: Float32Array, pos: Uint32Array, rows: number, headDim: numb
 	return o;
 }
 
+// Référence CPU du RoPE à paires ADJACENTES (ggml LLAMA_ROPE_TYPE_NORM) : la fréquence i tourne les
+// composantes 2i et 2i+1 (au lieu de i et i+headDim/2). `ff` optionnel = diviseurs par fréquence.
+function ropeInterleavedCpu(x: Float32Array, rows: number, headDim: number, nHeads: number, pastLen = 0, base = 10000, ff?: Float32Array): Float32Array {
+	const out = new Float32Array(x.length);
+	const half = headDim / 2;
+	for (let r = 0; r < rows; r++) {
+		const pos = pastLen + Math.floor(r / nHeads);
+		const b = r * headDim;
+		for (let i = 0; i < half; i++) {
+			const freq = pos / (base ** ((2 * i) / headDim) * (ff ? ff[i] : 1));
+			const c = Math.cos(freq), s = Math.sin(freq);
+			const x0 = x[b + 2 * i], x1 = x[b + 2 * i + 1];
+			out[b + 2 * i] = x0 * c - x1 * s;
+			out[b + 2 * i + 1] = x1 * c + x0 * s;
+		}
+	}
+	return out;
+}
+
 // Référence CPU du RoPE à facteurs : fréquence i divisée par ff[i].
 function ropeFactorsCpu(x: Float32Array, ff: Float32Array, rows: number, headDim: number, nHeads: number, pastLen = 0, base = 10000): Float32Array {
 	const o = new Float32Array(x.length);
@@ -3463,7 +4047,16 @@ function addBiasCpu(x: Float32Array, bias: Float32Array, cols: number): Float32A
 	return x.map((v, i) => v + bias[i % cols]) as Float32Array;
 }
 
-function attentionCpu(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scaleOverride?: number, softcap = 0): Float32Array {
+// Config d'UNE couche : la fenêtre et la base RoPE peuvent varier par couche (Gemma 3 alterne
+// 5 couches locales fenêtrées θ=10k et 1 globale pleine θ=1M). Absents → comportement historique.
+function layerCfg(cfg: LayerCfg, seq: number, idx: number, swaOk = true): LayerCfg {
+	const window = swaOk ? (cfg.windowPerLayer?.[idx] ?? cfg.window ?? 0) : 0;
+	const ropeTheta = cfg.ropeThetaPerLayer?.[idx] ?? cfg.ropeTheta;
+	const skipRope = cfg.skipRopePerLayer?.[idx] ?? cfg.skipRope ?? false;
+	return { ...cfg, seq, window, ropeTheta, skipRope };
+}
+
+function attentionCpu(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scaleOverride?: number, softcap = 0, window = 0): Float32Array {
 	const o = new Float32Array(nTokens * nHeads * headDim);
 	const scale = scaleOverride ?? 1 / Math.sqrt(headDim);
 	const cap = (s: number) => (softcap > 0 ? softcap * Math.tanh(s / softcap) : s);
@@ -3473,9 +4066,10 @@ function attentionCpu(q: Float32Array, k: Float32Array, v: Float32Array, nTokens
 			const kvh = Math.floor(h / group);
 			const qB = (t * nHeads + h) * headDim;
 			const last = pastLen + t;
+			const jStart = window > 0 ? Math.max(0, last + 1 - window) : 0;
 			const scores: number[] = [];
 			let mx = -Infinity;
-			for (let j = 0; j <= last; j++) {
+			for (let j = jStart; j <= last; j++) {
 				const kB = (j * nKvHeads + kvh) * headDim;
 				let dot = 0;
 				for (let dd = 0; dd < headDim; dd++) dot += q[qB + dd] * k[kB + dd];
@@ -3484,8 +4078,8 @@ function attentionCpu(q: Float32Array, k: Float32Array, v: Float32Array, nTokens
 				if (s > mx) mx = s;
 			}
 			let denom = 0;
-			for (let j = 0; j <= last; j++) { scores[j] = Math.exp(scores[j] - mx); denom += scores[j]; }
-			for (let j = 0; j <= last; j++) {
+			for (let j = jStart; j <= last; j++) { scores[j] = Math.exp(scores[j] - mx); denom += scores[j]; }
+			for (let j = jStart; j <= last; j++) {
 				const w = scores[j] / denom;
 				const vB = (j * nKvHeads + kvh) * headDim;
 				for (let dd = 0; dd < headDim; dd++) o[qB + dd] += w * v[vB + dd];

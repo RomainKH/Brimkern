@@ -28,11 +28,38 @@ Conséquence directe : le **decode** ne se gagne pas avec des kernels plus malin
 ## 3. Gagner sur le PREFILL (compute-bound)
 
 ### 3.1 Tiling à mémoire partagée — LE gros levier · impact ★★★ · effort élevé · risque élevé (WGSL non validable hors navigateur)
-Le register-tiling actuel (4 lignes) réutilise le poids sur 4 tokens. Un **vrai GEMM tilé** va plus loin : chaque workgroup charge un bloc `TM×TK` d'activations **et** un bloc `TN×TK` de poids (déquantifiés) dans `var<workgroup>` (mémoire partagée on-chip), barrière, puis chaque thread accumule un micro-tile `4×4`. Chaque octet lu en mémoire globale est réutilisé `TILE` fois au lieu de quelques fois.
-- Schéma type : tiles `64×64`, workgroup `16×16` (256 threads), chaque thread calcule `4×4` sorties, `TK=16/32`.
-- Pour q4/q8 : déquantifier le tile de poids **dans la mémoire partagée** une seule fois (la partie délicate).
-- **Gain attendu** : prefill 2-4× sur les grosses couches (ffn surtout). C'est la technique des libs GEMM (cuBLAS-like).
-- **Validation** : ajouter un stage `selfValidate` comparant à `matmul_t_q8` sur `m=5,7` (tuiles partielles). Garder l'ancien kernel en repli.
+Le register-tiling (4 lignes) réutilise le poids sur 4 tokens. Un **vrai GEMM tilé** va plus loin : chaque workgroup charge un bloc `TM×TK` d'activations **et** un bloc `TN×TK` de poids (déquantifiés) dans `var<workgroup>` (mémoire partagée on-chip), barrière, puis chaque thread accumule un micro-tile en registres. Chaque octet lu en mémoire globale est réutilisé `TILE` fois au lieu de quelques fois.
+
+**Fait — les trois précisions** (`matmul_t_f16w_shared`, `matmul_t_q8_shared`, `matmul_t_q4_shared`, 2026-08-13) : même schéma partout — tuile de sortie `32 lignes × 64 colonnes` par workgroup de 256 threads, **8 accumulateurs en registres par thread** (2 lignes × 4 colonnes), `TK=16`, mémoire partagée en ordre **k-majeur**. Utilisés au prefill dès `m ≥ 32` ; kill-switch `?f16shared=0` (f16) et `?qshared=0` (q8/q4). Les versions q8/q4 précédentes étaient en `16×16` à **un** accumulateur : le passage aux registres est ce qui fait le gain.
+
+Trois enseignements, tous mesurés en Chrome réel :
+- **Sans blocage en registres, le tiling PERD.** Première version (tuile `16×16`, 1 accumulateur = 2 lectures de mémoire partagée par FMA) : ×0,54 à ×1,05 vs le kernel une-ligne-par-thread, c'est-à-dire plus lente. Avec 8 accumulateurs (6 lectures pour 8 FMA) : **×1,8 à ×2,7**. Le tiling ne sert à rien s'il déplace le goulot vers la mémoire partagée.
+- **L'ordre de rangement compte autant que le tiling** : en colonne-majeur, 16 threads voisins tapent la même banque mémoire ; en k-majeur ils lisent des adresses voisines.
+- **Charger les poids par PAQUETS de 4 valeurs contiguës en k** : c'est exactement un mot `u32` dans les trois formats (2 f16 via `unpack2x16float` — WGSL de base, pas besoin de la feature `shader-f16` ; 4 codes int8 ; 4 nibbles int4) et **une seule** échelle de groupe (les groupes font 32, k en est multiple). Un accès par mot au lieu d'un par valeur, et 4 threads voisins couvrent les 16 k du bloc → lecture globale contiguë. La version qui jetait un demi-mot par lecture gaspillait la moitié de la bande passante.
+
+Mesures (Mac Apple Silicon, Chrome, build prod) — kernel isolé via `engine.benchMatmul` (A résident, 10 passes dans un encodeur, une attente de file ; chronométrer `matmulT()` facturait un upload + un readback par tir, de quoi **inverser** l'A/B). Gain = repli / tuilé, min sur 3 séries :
+
+| forme (k→n) | m | f16 | q8 | q4 |
+|---|---|---|---|---|
+| attn 1024→1024 | 512 | ×2,05 | ×1,94 | ×1,36 |
+| ffn 1024→2816 | 512 | ×2,46 | ×2,09 | ×1,44 |
+| ffn 2816→1024 | 512 | ×2,55 | ×2,13 | ×1,59 |
+| ffn 2816→1024 | 128 | ×2,58 | ×1,69 | ×1,32 |
+| toutes | 32 | ×0,49 à ×1,9 | ×1,22 à ×1,51 | ×1,08 à ×1,18 |
+
+Le repli n'est pas le même partout, d'où les écarts : le f16 partait d'un kernel **une ligne par thread** (donc le plus gros gain), q8/q4 d'un kernel déjà **4 lignes par invocation**. À `m = 32` les temps tombent sous la milliseconde et il y a trop peu de workgroups pour remplir le GPU : le résultat est bruité (jamais un gros perdant, pas un gain fiable non plus) — seuil laissé à 32 pour que les trois précisions se comportent pareil.
+
+Bout en bout (vraie réponse, prompt de ~400 tokens, A/B par kill-switch, décodage inchangé puisque `m = 1` garde le kernel 1 ligne) :
+
+| modèle | poids | prefill repli | prefill tuilé | gain |
+|---|---|---|---|---|
+| Qwen3 0.6B (GGUF) | f16 | 205 t/s | 264-299 t/s | ×1,29-1,46 |
+| Qwen2.5 0.5B (BRIK) | q4 | 440 t/s | 515-521 t/s | ×1,17 |
+| LFM2.5 230M (BRIK, preset par défaut) | q4 | 1077 t/s (358 ms) | 1278-1319 t/s (292-301 ms) | ×1,19-1,22 |
+| Gemma 3 270M (GGUF) | f16 | 301 t/s | 341 t/s | ×1,13 |
+
+Gemma 3 270M gagne le moins : ses matmuls sont trop petits pour dominer le prefill. Le gain bout en bout reste bien en dessous du gain kernel — le reste du prefill (attention, normes, RoPE, lancement des passes) ne bouge pas : c'est **§3.2 subgroups** et **§3.4 fusion** qui prennent la suite.
+- **Validation** : stage `selfValidate` comparant au kernel de repli sur des formes à bords partiels dans `m`, `n` ET `k` + kill-switch URL (`?f16shared=0`), gate non bloquant (un driver qui rate le kernel retombe silencieusement sur le repli).
 
 ### 3.2 Subgroups — impact ★★ · effort moyen · risque moyen
 WebGPU expose `enable subgroups;` (Chrome, feature `"subgroups"`). Utiliser `subgroupAdd()` pour la **réduction du produit scalaire** (au lieu de `acc.x+acc.y+acc.z+acc.w` + sommes manuelles), et des **lectures coopératives** du poids partagées dans le subgroup. Réduit le travail ALU de réduction et améliore la réutilisation.

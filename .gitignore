@@ -53,3 +53,28 @@ next-env.d.ts
 # CDN/HF and referenced by URL. Never committed to git.
 /public/models/*.brik
 /public/models/video-oracle/
+
+# Sortie du Space HF (assemblée par npm run build:hf-space)
+/.hf-space
+
+# ── Notes INTERNES : gardées en local, hors du dépôt public (2026-08-13) ─────────────────────────
+# Le dépôt est public depuis ce matin. Ces fichiers ont été écrits pour NOUS, pas pour un visiteur :
+# la ROADMAP est une mémoire de travail brute (bugs en cours, aveux, arbitrages, chantiers ouverts)
+# et les études datées décrivent des pistes dont certaines sont périmées — lues comme de la
+# documentation produit, elles racontent l'inverse de ce que le produit est devenu.
+# Restent PUBLICS parce qu'ils étayent des affirmations du README : docs/perf-webgpu.md (les mesures
+# et la méthode) et docs/engine-v2-linear-attention.md (l'architecture récurrente). Un chiffre sans
+# sa méthode n'est qu'une affirmation.
+docs/ROADMAP.md
+docs/huggingface-integration.md
+docs/next-models.md
+docs/mcp-feasibility.md
+docs/image-gen-feasibility.md
+docs/image-size-reduction.md
+docs/video-gen-feasibility.md
+docs/vision-feasibility.md
+
+# Sortie de build du paquet npm (regénérée par `npm run build:sdk`, publiée par prepublishOnly).
+# `public/sdk.js` et `public/sdk-<version>.js`, eux, sont VERSIONNÉS : c'est le site qui les sert.
+/packages/sdk/dist
+

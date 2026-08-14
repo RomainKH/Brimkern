@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Le Kern — un LLM de 149 Mo dans votre onglet (WebGPU)</title>
+<style>
+  :root{--paper:#f2efe8;--ink:#1a1a1a;--muted:#8b887f;--line:#e0dccf;--red:#c72c1e;--card:#fff}
+  @media (prefers-color-scheme: dark){:root{--paper:#16150f;--ink:#f1eee6;--muted:#9a978d;--line:#2e2b24;--card:#1e1c16}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:32px 20px 64px}
+  h1{font-family:Fraunces,"Iowan Old Style",Georgia,"Times New Roman",serif;font-weight:800;font-size:clamp(28px,5vw,42px);line-height:1.1;margin:0 0 6px}
+  .rule{height:2px;background:var(--red);width:64px;margin:14px 0 18px}
+  .sub{color:var(--muted);margin:0 0 22px;max-width:56ch}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  button{font:inherit;border:none;border-radius:10px;padding:11px 16px;cursor:pointer;background:var(--red);color:#fff;font-weight:600}
+  button:disabled{opacity:.5;cursor:default}
+  .bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:12px;display:none}
+  .bar>i{display:block;height:100%;width:0;background:var(--red);transition:width .2s}
+  .status{font-size:13px;color:var(--muted);margin-top:8px;min-height:19px}
+  .msgs{display:flex;flex-direction:column;gap:10px;margin:18px 0 0}
+  .m{max-width:86%;padding:9px 13px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word}
+  .m.u{align-self:flex-end;background:var(--red);color:#fff;border-bottom-right-radius:4px}
+  .m.a{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+  .row{display:flex;gap:8px;margin-top:14px}
+  input[type=text]{flex:1;font:inherit;padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
+  input[type=text]:focus{outline:none;border-color:var(--red)}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:22px 0}
+  .fact{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .fact b{display:block;font-family:Fraunces,Georgia,serif;font-size:20px}
+  .fact span{font-size:12.5px;color:var(--muted)}
+  footer{margin-top:34px;font-size:13px;color:var(--muted)}
+  a{color:var(--red)}
+  .warn{background:#fdf0ee;border:1px solid #f3c9c3;color:#8c2318;border-radius:10px;padding:12px 14px;margin-bottom:18px}
+  @media (prefers-color-scheme: dark){.warn{background:#2a1512;border-color:#5b241d;color:#f0b8b0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Un LLM de 149 Mo, dans votre onglet.</h1>
+  <div class="rule"></div>
+  <p class="sub">LFM2.5-230M au format BRIK, exécuté par des kernels WGSL maison sur <b>votre</b> GPU.
+     Aucun serveur d'inférence, aucune clé d'API : le texte ne quitte pas la machine.</p>
+
+  <div id="nogpu" class="warn" style="display:none">
+    Ce navigateur n'expose pas WebGPU. Ouvrez la page dans Chrome ou Edge (113+), ou Safari 18+.
+  </div>
+
+  <div class="facts">
+    <div class="fact"><b>149 Mo</b><span>streamés par plages HTTP, puis hors ligne</span></div>
+    <div class="fact"><b>0 serveur</b><span>tout tourne côté visiteur</span></div>
+    <div class="fact"><b>~40 t/s</b><span>décodage résident sur GPU d'ordinateur portable</span></div>
+  </div>
+
+  <div class="card">
+    <button id="load">Charger le modèle (149 Mo)</button>
+    <div class="bar" id="bar"><i></i></div>
+    <div class="status" id="status"></div>
+    <div class="msgs" id="msgs"></div>
+    <div class="row" id="row" style="display:none">
+      <input type="text" id="q" placeholder="Posez une question…" autocomplete="off" />
+      <button id="send">Envoyer</button>
+    </div>
+  </div>
+
+  <footer>
+    Moteur & format : <a href="https://brimkern.com">Le Kern</a> ·
+    poids <a href="https://huggingface.co/romainkh14/LFM2.5-230M_BRIK">romainkh14/LFM2.5-230M_BRIK</a>
+    (base <a href="https://huggingface.co/LiquidAI/LFM2.5-230M">LiquidAI/LFM2.5-230M</a>, licence LFM 1.0).
+    Ce Space est <b>statique</b> : il ne consomme aucun GPU côté Hugging Face.
+  </footer>
+</div>
+
+<script src="./sdk.js"></script>
+<script>
+  const MODEL = 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik';
+  const $ = (id) => document.getElementById(id);
+  const mb = (n) => Math.round(n / 1048576);
+  let session = null, busy = false;
+
+  if (!('gpu' in navigator)) { $('nogpu').style.display = 'block'; $('load').disabled = true; }
+
+  const bubble = (cls, text) => {
+    const d = document.createElement('div'); d.className = 'm ' + cls; d.textContent = text;
+    $('msgs').appendChild(d); d.scrollIntoView({ block: 'nearest' }); return d;
+  };
+
+  $('load').onclick = async () => {
+    $('load').disabled = true; $('bar').style.display = 'block';
+    const ok = await Brimkern.preload({
+      model: MODEL,
+      onProgress: (phase, p) => {
+        $('status').textContent = p && p.total ? `${phase} ${mb(p.loaded)} / ${mb(p.total)} Mo` : phase;
+        if (p && p.total) $('bar').firstElementChild.style.width = (p.loaded / p.total * 100) + '%';
+      },
+    });
+    if (!ok) { $('status').textContent = 'Échec du chargement — WebGPU indisponible ou mémoire insuffisante.'; $('load').disabled = false; return; }
+    $('bar').style.display = 'none';
+    $('status').textContent = 'Prêt — le modèle est en cache, la prochaine visite sera instantanée (et hors ligne).';
+    $('load').style.display = 'none'; $('row').style.display = 'flex'; $('q').focus();
+    session = Brimkern.createSession({
+      model: MODEL,
+      system: 'Tu es un assistant utile et concis. Réponds dans la langue de la question.',
+    });
+    bubble('a', 'Bonjour ! Je tourne entièrement sur votre GPU. Posez-moi une question.');
+  };
+
+  const send = async () => {
+    const text = $('q').value.trim();
+    if (!text || busy || !session) return;
+    busy = true; $('send').disabled = true; $('q').value = '';
+    bubble('u', text);
+    const out = bubble('a', '…');
+    try {
+      const reply = await session.ask(text, { onToken: (t) => { out.textContent = t || '…'; out.scrollIntoView({ block: 'nearest' }); } });
+      out.textContent = reply || '(réponse vide)';
+    } catch (e) {
+      out.textContent = 'Erreur : ' + (e && e.message ? e.message : e);
+    } finally { busy = false; $('send').disabled = false; $('q').focus(); }
+  };
+  $('send').onclick = send;
+  $('q').onkeydown = (e) => { if (e.key === 'Enter') send(); };
+</script>
+</body>
+</html>

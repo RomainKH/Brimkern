@@ -13,7 +13,14 @@
     "build:lfm2-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-lfm2-brik.cjs",
     "test:rwkv": "tsc src/lib/rwkvTokenizer.ts src/lib/rwkvTokenizer.test.ts --outDir .brik-build/rwkvtest --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node .brik-build/rwkvtest/rwkvTokenizer.test.js",
     "build:image-brik": "tsc src/lib/brik/*.ts src/lib/safetensors.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=12288 scripts/build-image-brik.cjs",
-    "build:sdk": "node scripts/build-sdk.mjs"
+    "build:sdk": "node scripts/build-sdk.mjs",
+    "build:hf-space": "node scripts/build-hf-space.mjs",
+    "test:deeplink": "node scripts/test-deeplink.cjs",
+    "test:bpe": "node scripts/test-bpe-tokenizer.cjs",
+    "test:ggtok": "node scripts/test-gguf-tokenizer.cjs",
+    "test:websearch": "node scripts/test-websearch.cjs",
+    "test:evict": "node scripts/test-evict.cjs",
+    "test:knowledge": "node scripts/test-knowledge.cjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

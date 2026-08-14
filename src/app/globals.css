@@ -6,9 +6,13 @@
    les chaînes techniques (noms de modèles, boutons) restent en Inter. */
 
 :root {
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Fraunces', Georgia, serif;
-  --font-mono: 'Fira Code', monospace;
+  /* Les trois familles sont désormais SERVIES PAR NOUS (next/font, cf. src/app/layout.tsx) : plus
+     aucune requête vers Google. Ces jetons restent les seuls noms employés dans tout le code — les
+     variables `--font-*` viennent du layout, les replis système gardent la page lisible si une
+     police manque. */
+  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-heading: var(--font-fraunces), Georgia, serif;
+  --font-mono: var(--font-fira), 'Fira Code', monospace;
 
   /* Color Palette — papier/encre (thème clair) */
   --bg-main: #f2efe8;
@@ -30,10 +34,18 @@
   --accent: #c72c1e;
   --accent-hover: #a82418;
   --accent-bg-rgba: rgba(199, 44, 30, 0.08);
+  /* Rouge pour le TEXTE, distinct du rouge d'aplat. Sur le papier ils coïncident ; sur l'encre, le
+     rouge d'accent (éclairci pour rester visible en aplat) ne fait que 4,2:1 en petit texte — sous
+     la norme. Un jeton dédié évite de re-corriger au cas par cas à chaque nouvel élément rouge
+     (c'est arrivé deux fois : le sur-titre, puis les numéros du schéma). */
+  --accent-text: #c72c1e;
+  --dot: #d8d3c6;            /* trame de fond de la landing */
 
   --text-primary: #1a1a1a;
   --text-secondary: #52504a;
-  --text-muted: #8b887f;
+  /* 4.5:1 minimum (WCAG AA) sur TOUS les fonds clairs — mesuré : 6.01 sur blanc, 5.23 sur
+     --bg-main, 4.91 sur --bg-sidebar. L'ancien #8b887f tombait à 3.37 (audit axe 2026-08-13). */
+  --text-muted: #666359;
 
   /* Sémantiques « encrées » — assez sombres pour tenir sur le papier (texte 11–13px). */
   --success: #1a7f4e;
@@ -227,6 +239,19 @@ textarea {
   box-shadow: var(--shadow-md);
 }
 
+/* Sur l'encre, --accent est ÉCLAIRCI pour rester lisible en TEXTE rouge sur fond sombre (#d9463a).
+   Pour un aplat qui porte du blanc, c'est l'inverse qu'il faut : blanc sur #d9463a ne fait que
+   4,3:1, sous les 4,5:1 de la norme (relevé axe-core sur le CTA de la landing, mais le défaut
+   touchait tous les boutons primaires en mode sombre). On reprend donc le rouge profond du papier —
+   6,2:1 au repos, 5,5:1 au survol. */
+html.dark .btn-primary {
+  background: #b8291c;
+}
+
+html.dark .btn-primary:hover:not(:disabled) {
+  background: #c72c1e;
+}
+
 .btn-secondary {
   background: var(--bg-elevated);
   color: var(--text-primary);
@@ -267,6 +292,16 @@ textarea {
   letter-spacing: 0.5px;
 }
 
+/* Pastilles teintées (badges de version, tags d'usage) : le texte reprend le ton FONCÉ de l'accent
+   en thème clair — la même couleur que le fond teinté ne passait pas 4.5:1 sur du 13 px (audit axe
+   2026-08-13). En thème sombre l'accent est déjà éclairci pour l'encre, on le garde. */
+.badge-accent {
+  background: var(--accent-bg-rgba);
+  color: var(--accent-hover);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+html.dark .badge-accent { color: var(--accent); }
+
 .status-badge.supported {
   background: color-mix(in srgb, var(--success) 10%, transparent);
   color: var(--success);
@@ -281,10 +316,12 @@ textarea {
 
 .status-badge.gpu {
   background: var(--accent-bg-rgba);
-  color: var(--accent);
+  /* Ton foncé de l'accent en thème clair : --accent sur ce fond teinté ne passait pas 4.5:1. */
+  color: var(--accent-hover);
   border: 1px solid rgba(199, 44, 30, 0.2); /* rouge Kern — dernier reliquat violet purgé */
   white-space: nowrap;
 }
+html.dark .status-badge.gpu { color: var(--accent); }
 
 /* Tabs */
 .tabs-container {
@@ -374,6 +411,14 @@ select:focus-visible {
   outline: none;
   transition: all 0.2s ease;
   cursor: pointer;
+}
+
+/* Le placeholder n'était pas stylé : le gris par défaut de Chrome (#757575) tombe à 3,6:1 sur nos
+   champs en mode sombre (relevé axe-core sur le champ « n'importe quel modèle »). --text-muted est
+   notre gris déjà calibré — 5,6:1 sur l'encre, 6,0:1 sur le papier. */
+.input-control::placeholder {
+  color: var(--text-muted);
+  opacity: 1; /* Firefox applique une opacité par défaut qui reperdrait le contraste */
 }
 
 .input-control:focus {
@@ -840,9 +885,15 @@ a.welcome-card:hover, button.welcome-card:hover {
   animation: spin 1s linear infinite;
 }
 
-/* Code formatting in chat bubble */
-pre {
-  background: var(--bg-code) !important;
+/* Blocs de code des BULLES de chat.
+   Cette règle visait `pre` NU, avec un `!important` — donc elle s'appliquait à tous les <pre> du
+   site et gagnait contre n'importe quelle classe : le bloc de code du panneau encre de la landing
+   restait en fond CLAIR avec du texte clair (illisible), et le snippet de /local-ai voyait son
+   `className="card"` silencieusement annulé. Un `!important` sur un sélecteur d'élément est un
+   piège posé pour les pages suivantes. Portée réduite à sa cible réelle, et `!important` retiré :
+   le markdown du chat n'injecte pas de style en ligne, il n'y en avait pas besoin. */
+.message-bubble pre {
+  background: var(--bg-code);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 14px;
@@ -1049,10 +1100,13 @@ html.dark {
   --border-focus: #4a463d;
   --accent: #d9463a;         /* rouge éclairci pour tenir le contraste sur l'encre */
   --accent-hover: #c72c1e;
+  --accent-text: #e2604f;    /* 5,2:1 sur --bg-main : le rouge des petits textes */
+  --dot: #2b2925;
   --accent-bg-rgba: rgba(217, 70, 58, 0.12);
   --text-primary: #ece9e1;
   --text-secondary: #b5b1a6;
-  --text-muted: #7b776c;
+  /* Idem côté encre : 6.12 sur --bg-main, 4.98 sur --bg-card-hover (l'ancien #7b776c : 4.05). */
+  --text-muted: #9a968b;
   /* Sémantiques éclaircies pour l'encre (les versions claires sont illisibles sur #171614). */
   --success: #4cc38a;
   --warning: #d9a13c;
@@ -1122,3 +1176,875 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   .typing-dot { animation: none; }
   .sidebar { transition: none; }
 }
+
+/* ══ LANDING (/ et /fr) ══════════════════════════════════════════════════════════════════════════
+   Page de spécimen typographique : Fraunces en display, filets d'encre, UN rouge, aucune carte
+   grise. Elle vit hors de `.app-container` (qui est `position: fixed`) : c'est une page qui défile
+   normalement. Tout est exprimé en variables de thème, donc le mode sombre suit sans règle en plus.
+   Les classes sont préfixées `lp-` pour ne jamais entrer en collision avec l'app. */
+.lp {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+/* Le filet rouge d'imprimeur en tête de page — même signature que l'app. Il sert aussi de jauge de
+   lecture : la règle qui le fait progresser au défilement vit plus bas (@supports). */
+.lp::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  z-index: 5;
+}
+
+.lp-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--accent-text);
+  /* Sur écran étroit, `balance` évite les deux mots orphelins en fin de sur-titre. */
+  text-wrap: balance;
+}
+
+/* ── Barre de navigation ───────────────────────────────────────────────────────────────────── */
+.lp-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 0 0;
+}
+
+.lp-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* `:not(.lp-nav-cta)` : sans ça, cette règle (0,1,1) battait `.btn-primary` (0,1,0) et le CTA de la
+   barre se retrouvait en texte blanc sur fond transparent — invisible, et relevé par axe-core. */
+.lp-nav-links a:not(.lp-nav-cta),
+.lp-nav-lang {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13.5px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.lp-nav-links a:not(.lp-nav-cta):hover,
+.lp-nav-lang:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
+.lp-nav-lang {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lp-nav-icon {
+  display: flex;
+  align-items: center;
+}
+
+.lp-nav-cta {
+  color: #fff;
+  font-size: 13px;
+  padding: 8px 14px;
+  margin-left: 6px;
+  text-decoration: none;
+  /* Sans ça, « Open the chat » se casse en trois lignes dès que la barre serre (mesuré à 390 px :
+     un bouton de 67×63 collé au bord). Un bouton qui grandit en hauteur au lieu de rester une
+     pastille, c'est le signal que la barre est trop chargée — pas une mise en page. */
+  white-space: nowrap;
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────────────────────────── */
+.lp-hero {
+  padding: 74px 0 0;
+  max-width: 720px;
+}
+
+.lp-h1 {
+  font-family: var(--font-heading);
+  /* Fraunces est variable (opsz 9..144) : à cette taille on veut le dessin « display ». */
+  font-optical-sizing: auto;
+  font-size: clamp(38px, 6.4vw, 62px);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -0.022em;
+  margin: 14px 0 0;
+  color: var(--text-primary);
+}
+
+.lp-h1-accent {
+  color: var(--accent);
+}
+
+.lp-lede {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 20px 0 0;
+  max-width: 620px;
+}
+
+.lp-cta-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 30px 0 0;
+}
+
+.lp-cta {
+  font-size: 15px;
+  padding: 12px 24px;
+  text-decoration: none;
+}
+
+.lp-cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 14.5px;
+  font-weight: 500;
+  border-bottom: 2px solid var(--text-primary);
+  padding-bottom: 2px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.lp-cta-ghost:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.lp-fineprint {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 16px 0 0;
+}
+
+/* Avertissement « pas de WebGPU ici » : le ton d'un panneau, pas d'une erreur — la page reste
+   parfaitement lisible, c'est seulement l'exécution qui est impossible. */
+.lp-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: 560px;
+  color: var(--warning);
+  line-height: 1.5;
+}
+
+/* ── Le panneau « coller un modèle » ───────────────────────────────────────────────────────── */
+.lp-console-wrap {
+  margin: 54px 0 0;
+}
+
+.lp-console {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-code);
+}
+
+.lp-console-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-sidebar);
+}
+
+/* Les trois pastilles d'une fenêtre de terminal — en encre, pas en feux tricolores : on cite le
+   genre sans copier macOS. */
+.lp-dots {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.lp-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-color);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+.lp-dots i:first-child {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.lp-console-body {
+  margin: 0;
+  padding: 16px 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.85;
+  color: var(--text-secondary);
+  white-space: pre;
+}
+
+.lp-line {
+  display: flex;
+  gap: 8px;
+  white-space: pre;
+}
+
+.lp-prompt {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.lp-cmd {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* La FRAPPE : la largeur passe de 0 à la longueur du texte par pas d'un caractère. Ça n'est
+   possible qu'en chasse fixe — d'où `ch`, qui vaut exactement un caractère ici. 20 = la longueur
+   de « Qwen/Qwen3-0.6B-GGUF » (identique dans les deux langues, c'est un identifiant). */
+.lp-type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  width: 20ch;
+  animation: lp-typing 1.15s steps(20) 0.35s both;
+}
+
+.lp-caret {
+  color: var(--accent-text);
+  animation: lp-blink 1.05s step-end infinite;
+}
+
+@keyframes lp-typing {
+  from { width: 0; }
+  to { width: 20ch; }
+}
+
+@keyframes lp-blink {
+  0%, 45% { opacity: 1; }
+  46%, 100% { opacity: 0; }
+}
+
+/* Chaque étape apparaît à son tour (--d posé au point d'appel) : la séquence se LIT, au lieu de
+   tomber d'un bloc. */
+.lp-step {
+  opacity: 0;
+  animation: lp-step-in 0.4s ease var(--d, 0s) both;
+}
+
+@keyframes lp-step-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.lp-mark-ok { color: var(--success); }
+.lp-mark-run { color: var(--accent-text); }
+
+.lp-key {
+  color: var(--text-primary);
+  min-width: 11ch;
+}
+
+.lp-val { color: var(--text-secondary); }
+
+/* Demande explicite de moins d'animation : on montre l'état final, immédiatement. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-type { animation: none; width: 20ch; }
+  .lp-step { animation: none; opacity: 1; }
+  .lp-caret { animation: none; }
+}
+
+/* ── La preuve : une vraie capture, encadrée ─────────────────────────────────────────────────── */
+.lp-proof {
+  margin: 54px 0 0;
+}
+
+.lp-shot {
+  margin: 0;
+}
+
+/* `next/image` rend un <img> ordinaire (enveloppé de ses attributs) : le sélecteur reste valable. */
+.lp-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-lg);
+}
+
+.lp-shot figcaption {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 10px;
+  text-align: center;
+}
+
+/* ── Panneau encre ───────────────────────────────────────────────────────────────────────────
+   Mêmes valeurs que le thème sombre (déjà validées au contraste), quel que soit le thème actif. */
+.lp-ink {
+  background: #171614;
+  border-radius: 16px;
+  padding: 34px 32px;
+}
+
+.lp-ink .lp-h2 { color: #ece9e1; }
+.lp-ink .lp-strength-desc { color: #b5b1a6; }
+.lp-ink .lp-eyebrow { color: #e2604f; }  /* le panneau encre est sombre quel que soit le thème */
+
+.lp-ink .lp-cta-ghost {
+  color: #ece9e1;
+  border-bottom-color: #ece9e1;
+}
+
+.lp-ink .lp-cta-ghost:hover {
+  color: #e2604f;
+  border-bottom-color: #e2604f;
+}
+
+.lp-ink .lp-code {
+  background: #211f1c;
+  border-color: #33302a;
+  color: #ece9e1;
+}
+
+.lp-console-input {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────────────────────────── */
+.lp-section {
+  margin: 74px 0 0;
+}
+
+.lp-h2 {
+  font-family: var(--font-heading);
+  font-size: clamp(24px, 3.4vw, 32px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 10px 0 12px;
+  color: var(--text-primary);
+  max-width: 620px;
+}
+
+.lp-strengths {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 30px;
+}
+
+.lp-strength {
+  border-top: 2px solid var(--text-primary);
+  padding: 14px 2px 0;
+}
+
+.lp-strength-title {
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  margin: 8px 0 8px;
+}
+
+.lp-strength-desc {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Les chiffres ──────────────────────────────────────────────────────────────────────────── */
+.lp-figures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin: 64px 0 0;
+  padding: 26px 0;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.lp-figure-value {
+  font-family: var(--font-heading);
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.lp-figure-label {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
+/* ── SDK ───────────────────────────────────────────────────────────────────────────────────── */
+.lp-sdk {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 34px;
+  align-items: center;
+}
+
+.lp-code {
+  margin: 0;
+  padding: 16px 16px;
+  border-radius: 12px;
+  overflow-x: auto;
+  background: var(--bg-code);
+  border: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+/* ── Liste éditoriale ──────────────────────────────────────────────────────────────────────── */
+.lp-list {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+  max-width: 720px;
+}
+
+.lp-list li {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  padding: 13px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.lp-list li strong {
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 15.5px;
+  font-weight: 700;
+}
+
+/* ── Pied de page ──────────────────────────────────────────────────────────────────────────── */
+.lp-footer {
+  margin: 74px 0 0;
+  padding: 26px 0 0;
+  border-top: 2px solid var(--text-primary);
+}
+
+.lp-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  justify-content: center;
+}
+
+.lp-footer-links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.lp-footer-links a:hover {
+  color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .lp-strengths,
+  .lp-sdk {
+    grid-template-columns: 1fr;
+  }
+  .lp-figures {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lp-hero {
+    padding-top: 52px;
+  }
+  /* Sur mobile la barre s'allège : le reste vit dans le pied de page et dans /docs (le hub),
+     plutôt qu'un menu burger pour cinq liens. */
+  .lp-nav-wide,
+  .lp-nav-icon {
+    display: none;
+  }
+  .lp-section,
+  .lp-console-wrap,
+  .lp-proof {
+    margin-top: 52px;
+  }
+
+  .lp-ink {
+    padding: 26px 20px;
+  }
+}
+
+/* Sous 560 px, le CTA de la BARRE disparaît : celui du hero est visible sans défiler (mesuré à
+   390 px : il tombe à 577 px d'un écran de 844), donc la barre n'en portait qu'un doublon — et ce
+   doublon était précisément ce qui entassait les boutons. La barre garde la marque, deux liens et
+   la langue ; le chemin vers le produit reste unique et évident, comme sur l'accueil anti-rebond. */
+@media (max-width: 560px) {
+  .lp-nav-cta {
+    display: none;
+  }
+  .lp-nav {
+    padding-top: 18px;
+  }
+  .lp-nav-links a:not(.lp-nav-cta),
+  .lp-nav-lang {
+    padding: 7px 8px;
+  }
+}
+
+/* ══ VIE DE LA LANDING ═══════════════════════════════════════════════════════════════════════════
+   Des effets qui SERVENT la lecture : ils disent ce qui est cliquable et rythment la descente. Tout
+   est annulé sous prefers-reduced-motion — un visiteur qui a demandé moins de mouvement doit voir
+   une page fixe, pas une page fixe-mais-quand-même. */
+
+/* Le CTA se soulève : le rouge seul ne dit pas « bouton », l'ombre si. */
+.lp-cta {
+  transition: transform .18s ease, box-shadow .18s ease, background-color .2s ease;
+}
+
+.lp-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
+}
+
+.lp-cta:active {
+  transform: translateY(0);
+}
+
+/* La flèche du lien fantôme avance — l'affordance « ça mène ailleurs ». */
+.lp-cta-ghost svg {
+  transition: transform .18s ease;
+}
+
+.lp-cta-ghost:hover svg {
+  transform: translateX(3px);
+}
+
+/* Ni les trois forces ni les lignes de modalités n'ont de survol : ce sont des paragraphes, pas des
+   liens. Un retour au survol est une PROMESSE d'interaction — la même règle qui a fait retirer
+   l'effet sur la capture. Les survols ne subsistent que sur ce qui est cliquable : CTA, liens de la
+   barre et du pied de page, cartes de la documentation, marque.
+   (Le fond en pointillé qui suivait la souris et l'inclinaison de la console ont été retirés pour la
+   même famille de raisons : du mouvement qui n'apprend rien au lecteur.) */
+
+/* La capture : l'ombre s'approfondit, l'image reste nette (aucun zoom — on la lit, on ne la survole
+   pas pour le plaisir). */
+/* Pas de survol sur la capture : elle n'est pas cliquable, et un retour au survol le laisse croire
+   (relevé par Romain). Le survol est une PROMESSE d'interaction — on ne la fait que si on la tient. */
+
+/* Apparition au DÉFILEMENT, sans une ligne de JS : `animation-timeline: view()` lie l'animation à
+   l'entrée de l'élément dans la fenêtre. Sous `@supports` parce que Safari et Firefox ne l'ont pas
+   encore — chez eux la page s'affiche simplement, ce qui est le bon repli (jamais de contenu
+   invisible faute d'un observateur). */
+/* Un SEUL niveau d'apparition. Les sections entières s'animaient ici, et leurs enfants plus bas :
+   deux fondus imbriqués donnent un rendu trouble et une opacité qui se multiplie. Restent les blocs
+   qui n'ont pas d'enfants à échelonner (la capture, le panneau encre) ; les rangées, elles,
+   s'animent enfant par enfant. */
+@supports (animation-timeline: view()) {
+  .lp-proof,
+  .lp-ink,
+  .lp-console-wrap,
+  .lp-section > .lp-eyebrow,
+  .lp-section > .lp-h2 {
+    animation: lp-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 22%;
+  }
+}
+
+@keyframes lp-reveal {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-cta,
+  .lp-cta:hover,
+  .lp-cta-ghost:hover svg {
+    transform: none;
+  }
+  .lp-proof,
+  .lp-ink,
+  .lp-console-wrap,
+  .lp-section > .lp-eyebrow,
+  .lp-section > .lp-h2 {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ══ CARTES DE LA DOCUMENTATION ══════════════════════════════════════════════════════════════════
+   Elles empruntaient `.welcome-card`, dessinée pour l'accueil du chat (filet d'encre, fond
+   transparent) — et leurs styles en ligne écrasaient tout sauf le survol, qui ne touchait donc que
+   la couleur du bord SUPÉRIEUR d'une carte à bordure complète : un effet qu'on ne voyait pas.
+   Elles ont maintenant leur propre classe, et un survol qui se voit. */
+.doc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 15px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  text-decoration: none;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.doc-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.doc-card:hover .doc-card-title {
+  color: var(--accent);
+}
+
+.doc-card-title {
+  transition: color .18s ease;
+}
+
+/* La flèche « lien sortant » se décale en diagonale : elle dit où l'on part. */
+.doc-card-out {
+  transition: transform .18s ease, color .18s ease;
+}
+
+.doc-card:hover .doc-card-out {
+  transform: translate(2px, -2px);
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-card:hover,
+  .doc-card:hover .doc-card-out {
+    transform: none;
+  }
+}
+
+/* ══ LE SCHÉMA DU MÉCANISME ══════════════════════════════════════════════════════════════════════
+   Un diagramme fait de DOM plutôt qu'une image : il se traduit, il se lit au lecteur d'écran, il
+   s'empile sur mobile et il ne pèse rien. Les connecteurs sont des bordures, pas des dessins. */
+.lp-flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  counter-reset: flow;
+}
+
+.lp-step-flow {
+  position: relative;
+  padding: 0 18px 0 0;
+  border-top: 2px solid var(--text-primary);
+  padding-top: 14px;
+}
+
+/* La flèche entre deux étapes : un chevron en pseudo-élément sur le filet, donc rien à dessiner. */
+.lp-step-flow + .lp-step-flow::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: -7px;
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  transform: rotate(45deg);
+  background: var(--bg-main);
+}
+
+.lp-flow-num {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--accent-text);
+}
+
+.lp-flow-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 6px 0 6px;
+  line-height: 1.3;
+}
+
+.lp-flow-target {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-text);
+}
+
+.lp-flow-target code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.lp-flow-desc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* La découpe du fichier : des barres, dont celles qui descendent en ce moment sont accentuées. */
+.lp-slices {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 26px 0 0;
+}
+
+.lp-slices-svg {
+  flex: 1;
+  height: 34px;
+  min-width: 0;
+}
+
+.lp-slices-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 860px) {
+  .lp-flow {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .lp-step-flow {
+    padding-right: 0;
+  }
+  /* Empilé, le chevron n'a plus de sens horizontal : il repasse au-dessus de l'étape. */
+  .lp-step-flow + .lp-step-flow::before {
+    left: 0;
+    top: -7px;
+    transform: rotate(135deg);
+  }
+  .lp-slices-label:last-child {
+    display: none; /* la légende de droite déborderait ; celle de gauche suffit à lire le dessin */
+  }
+}
+
+/* ══ LA PAGE RESPIRE ═════════════════════════════════════════════════════════════════════════════
+   Quatre mouvements, chacun avec une raison d'être — et tous coupés sous prefers-reduced-motion. */
+
+/* 1. Le FILET ROUGE devient une jauge de lecture : il se remplit à mesure qu'on descend. C'est la
+      signature « imprimeur » de la marque qui devient utile. `animation-timeline: scroll()` : pas
+      une ligne de JS, pas un écouteur de défilement. */
+@supports (animation-timeline: scroll()) {
+  .lp::before {
+    transform-origin: left center;
+    animation: lp-progress linear;
+    animation-timeline: scroll(root block);
+  }
+}
+
+@keyframes lp-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 2. Apparitions DÉCALÉES : les enfants d'une rangée entrent les uns après les autres (--i porte le
+      rang). Trois blocs qui surgissent ensemble font un clignotement ; échelonnés, ils se lisent. */
+@supports (animation-timeline: view()) {
+  .lp-strength,
+  .lp-figure,
+  .lp-step-flow,
+  .lp-list li {
+    animation: lp-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 18%;
+    animation-delay: calc(var(--i, 0) * 90ms);
+  }
+}
+
+@keyframes lp-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 3. Le HERO se pose au chargement — la seule animation qui ne dépend pas du défilement, parce
+      qu'elle joue sur ce qu'on voit avant d'avoir bougé. Décalage court : au-delà de ~400 ms, on
+      attend la page au lieu de la découvrir. */
+.lp-hero > * {
+  animation: lp-rise .5s ease both;
+}
+
+.lp-hero > *:nth-child(1) { animation-delay: .02s; }
+.lp-hero > *:nth-child(2) { animation-delay: .10s; }
+.lp-hero > *:nth-child(3) { animation-delay: .18s; }
+.lp-hero > *:nth-child(4) { animation-delay: .26s; }
+.lp-hero > *:nth-child(5) { animation-delay: .34s; }
+
+/* La marque tourne d'un cheveu au survol : un clin d'œil, pas un manège. */
+.lp-brand svg {
+  transition: transform .3s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.lp-brand:hover svg {
+  transform: rotate(-6deg) scale(1.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp::before { animation: none; transform: none; }
+  .lp-strength,
+  .lp-figure,
+  .lp-step-flow,
+  .lp-list li,
+  .lp-hero > * { animation: none; opacity: 1; transform: none; }
+  .lp-brand:hover svg { transform: none; }
+}
+

@@ -5,7 +5,7 @@
 // minuscule (768 élts/token) et byte-identique à la réf CPU validée (scripts/rwkv-cpuref.cjs).
 // Sémantique verrouillée là-bas. Le chemin 100 % résident (glu en WGSL) viendra en optimisation.
 
-import type { WebGpuEngine } from './kernels';
+import type { WebGpuEngine, RwkvLayerGpu, RwkvCfg, RwkvNorms } from './kernels';
 import type { BrikManifest } from '../brik/format';
 import { unpackQ3, dequantizeQ3 } from '../brik/q3web';
 import { unpackQ4, dequantizeQ4 } from '../brik/q4web';
@@ -24,7 +24,8 @@ function decodeF32(b: Uint8Array, n: number): Float32Array { const dv = new Data
 function mv(W: Float32Array, x: Float32Array, IN: number, OUT: number): Float32Array { const y = new Float32Array(OUT); for (let o = 0; o < OUT; o++) { let s = 0; const b = o * IN; for (let i = 0; i < IN; i++) s += W[b + i] * x[i]; y[o] = s; } return y; }
 function layernorm(x: Float32Array, w: Float32Array, b: Float32Array, D: number, eps = 1e-5): Float32Array { let m = 0; for (let i = 0; i < D; i++) m += x[i]; m /= D; let v = 0; for (let i = 0; i < D; i++) { const d = x[i] - m; v += d * d; } v /= D; const s = 1 / Math.sqrt(v + eps); const o = new Float32Array(D); for (let i = 0; i < D; i++) o[i] = (x[i] - m) * s * w[i] + b[i]; return o; }
 
-interface Q3W { kind: 'q3'; lo: GPUAny; hi: GPUAny; sc: GPUAny; mn: GPUAny; IN: number; OUT: number; }
+// `q3: true` = drapeau de dispatch recMM (chemin résident) — matmulQ3 (POC) lit lo/hi directement.
+interface Q3W { kind: 'q3'; q3: true; lo: GPUAny; hi: GPUAny; sc: GPUAny; mn: GPUAny; IN: number; OUT: number; }
 interface Q4W { kind: 'q4'; nib: GPUAny; sc: GPUAny; mn: GPUAny; IN: number; OUT: number; }
 interface Q8W { kind: 'q8'; codes: GPUAny; sc: GPUAny; IN: number; OUT: number; }
 
@@ -35,6 +36,11 @@ export class RwkvModel {
 	private embedBytes!: Uint8Array; private embedDtype!: string;
 	private tok!: RwkvTokenizer;
 	private state!: { S: Float32Array[]; tm: Float32Array; cm: Float32Array }[];
+	// Chemin résident : handles de couche (grosses proj = handles recMM, LoRA/normes/lerps = buffers
+	// f32 GPU) + normes hors couche. Miroir du montage Lfm2Model.buildResidentLayers.
+	private rLayers: RwkvLayerGpu[] = [];
+	private rNorms: RwkvNorms | null = null;
+	private normBufs: GPUAny[] = []; // buffers f32 uploadés — libérés à unload
 
 	constructor(private engine: WebGpuEngine, private manifest: BrikManifest, private raw: Raw) {}
 
@@ -51,21 +57,117 @@ export class RwkvModel {
 			const bytes = await this.raw(name);
 			if (name === 'output.weight') { // tête logits → GPU
 				if (t.dtype === 'q4') { const q = unpackQ4(bytes, t.nElems); this.g.set(name, { kind: 'q4', nib: this.engine.uploadGpuRaw(q.nibbles), sc: this.up(q.scales), mn: this.up(q.mins), IN: this.D, OUT: this.vocab }); }
-				else if (t.dtype === 'q3') { const q = unpackQ3(bytes, t.nElems); this.g.set(name, { kind: 'q3', lo: this.up32(q.lo), hi: this.up32(q.hi), sc: this.up(q.scales), mn: this.up(q.mins), IN: this.D, OUT: this.vocab }); }
+				else if (t.dtype === 'q3') { const q = unpackQ3(bytes, t.nElems); this.g.set(name, { kind: 'q3', q3: true, lo: this.up32(q.lo), hi: this.up32(q.hi), sc: this.up(q.scales), mn: this.up(q.mins), IN: this.D, OUT: this.vocab }); }
 				else if (t.dtype === 'q8') { const q = unpackQ8(bytes, t.nElems); this.g.set(name, { kind: 'q8', codes: this.upI8(q.codes), sc: this.up(q.scales), IN: this.D, OUT: this.vocab }); }
 				else this.w.set(name, t.dtype === 'f32' ? decodeF32(bytes, t.nElems) : decodeF16(bytes, t.nElems)); // repli CPU (gemm → mv)
 				continue;
 			}
 			if (this.isBigProj(name) && (t.dtype === 'q3' || t.dtype === 'q4' || t.dtype === 'q8')) {
 				const IN = t.shape[0], OUT = t.nElems / IN; // ne[0]=IN contigu
-				if (t.dtype === 'q3') { const q = unpackQ3(bytes, t.nElems); this.g.set(name, { kind: 'q3', lo: this.up32(q.lo), hi: this.up32(q.hi), sc: this.up(q.scales), mn: this.up(q.mins), IN, OUT }); }
+				if (t.dtype === 'q3') { const q = unpackQ3(bytes, t.nElems); this.g.set(name, { kind: 'q3', q3: true, lo: this.up32(q.lo), hi: this.up32(q.hi), sc: this.up(q.scales), mn: this.up(q.mins), IN, OUT }); }
 				else if (t.dtype === 'q8') { const q = unpackQ8(bytes, t.nElems); this.g.set(name, { kind: 'q8', codes: this.upI8(q.codes), sc: this.up(q.scales), IN, OUT }); }
 				else { const q = unpackQ4(bytes, t.nElems); this.g.set(name, { kind: 'q4', nib: this.engine.uploadGpuRaw(q.nibbles), sc: this.up(q.scales), mn: this.up(q.mins), IN, OUT }); }
 			} else { // petites : f16/f32/q décodées en JS
 				this.w.set(name, t.dtype === 'f32' ? decodeF32(bytes, t.nElems) : t.dtype === 'f16' ? decodeF16(bytes, t.nElems) : t.dtype === 'q3' ? dequantizeQ3(unpackQ3(bytes, t.nElems)) : t.dtype === 'q8' ? dequantizeQ8(unpackQ8(bytes, t.nElems)) : dequantizeQ4(unpackQ4(bytes, t.nElems)));
 			}
 		}
+		this.buildResidentLayers();
 		this.reset();
+	}
+
+	// Handles du chemin résident : grosses projections déjà dans `g` (handles recMM), petites
+	// matrices (LoRA, lerps, normes) uploadées une fois en buffers f32 GPU. Les rangs LoRA se
+	// déduisent des tailles (w1 = D·rw). lnWB = [gamma|beta] concaténés (contrainte 8 bindings du
+	// kernel rwkv_out_gn). Échec silencieux (tenseur manquant) → rLayers vide → repli POC.
+	private buildResidentLayers(): void {
+		try {
+			const upN = (name: string): GPUAny => {
+				const a = this.w.get(name);
+				if (!a) throw new Error(`résident : tenseur manquant ${name}`);
+				const b = this.engine.uploadGpu(a);
+				this.normBufs.push(b);
+				return b;
+			};
+			this.rNorms = {
+				tokW: upN('token_embd_norm.weight'), tokB: upN('token_embd_norm.bias'),
+				outW: upN('output_norm.weight'), outB: upN('output_norm.bias'),
+			};
+			const layers: RwkvLayerGpu[] = [];
+			for (let L = 0; L < this.NL; L++) {
+				const p = `blk.${L}.`;
+				const rank = (name: string, IN: number) => { const a = this.w.get(p + name); if (!a) throw new Error(`résident : ${p}${name} manquant`); return a.length / IN; };
+				const lnw = this.w.get(p + 'time_mix_ln.weight'), lnb = this.w.get(p + 'time_mix_ln.bias');
+				if (!lnw || !lnb) throw new Error(`résident : ${p}time_mix_ln manquant`);
+				const lnWB = new Float32Array(2 * this.D); lnWB.set(lnw, 0); lnWB.set(lnb, this.D);
+				const lnWBBuf = this.engine.uploadGpu(lnWB); this.normBufs.push(lnWBBuf);
+				const big = (n: string) => { const h = this.g.get(p + n); if (!h) throw new Error(`résident : ${p}${n} non quantifiée GPU`); return h; };
+				const rw = rank('time_mix_w1.weight', this.D), ra = rank('time_mix_a1.weight', this.D), rg = rank('time_mix_g1.weight', this.D);
+				const layer: RwkvLayerGpu = {
+					attnNormW: upN(p + 'attn_norm.weight'), attnNormB: upN(p + 'attn_norm.bias'),
+					attnNorm2W: upN(p + 'attn_norm_2.weight'), attnNorm2B: upN(p + 'attn_norm_2.bias'),
+					lerpFused: upN(p + 'time_mix_lerp_fused.weight'), lerpK: upN(p + 'channel_mix_lerp_k.weight'),
+					w0: upN(p + 'time_mix_w0.weight'), w1: upN(p + 'time_mix_w1.weight'), w2: upN(p + 'time_mix_w2.weight'), rw,
+					a0: upN(p + 'time_mix_a0.weight'), a1: upN(p + 'time_mix_a1.weight'), a2: upN(p + 'time_mix_a2.weight'), ra,
+					g1: upN(p + 'time_mix_g1.weight'), g2: upN(p + 'time_mix_g2.weight'), rg,
+					kk: upN(p + 'time_mix_k_k.weight'), ka: upN(p + 'time_mix_k_a.weight'), rk: upN(p + 'time_mix_r_k.weight'),
+					lnWB: lnWBBuf,
+					R: big('time_mix_receptance.weight'), K: big('time_mix_key.weight'), V: big('time_mix_value.weight'), O: big('time_mix_output.weight'),
+					cmK: big('channel_mix_key.weight'), cmV: big('channel_mix_value.weight'),
+					ffn: (this.g.get(p + 'channel_mix_key.weight') as { OUT: number }).OUT,
+				};
+				if (L > 0) {
+					layer.rv = rank('time_mix_v1.weight', this.D);
+					layer.v0 = upN(p + 'time_mix_v0.weight'); layer.v1 = upN(p + 'time_mix_v1.weight'); layer.v2 = upN(p + 'time_mix_v2.weight');
+				}
+				layers.push(layer);
+			}
+			this.rLayers = layers;
+		} catch (e) {
+			console.warn('[rwkv] chemin résident indisponible (montage) — repli forwardToken JS+readback.', e);
+			this.rLayers = []; this.rNorms = null;
+		}
+	}
+
+	// true si le chemin résident est utilisable : gates GPU OK + tête quantifiée GPU + couches montées.
+	residentAvailable(): boolean {
+		const e = this.engine as { rwkvResidentOk?: boolean; rwkvWkv7Ok?: boolean };
+		return e.rwkvResidentOk !== false && e.rwkvWkv7Ok !== false && !!this.g.get('output.weight') && this.rLayers.length === this.NL && !!this.rNorms;
+	}
+
+	private cfg(): RwkvCfg { return { D: this.D, H: this.H, NH: this.NH, vocab: this.vocab }; }
+	private embedsFor(tokenIds: number[]): Float32Array {
+		const D = this.D, e = new Float32Array(tokenIds.length * D);
+		for (let t = 0; t < tokenIds.length; t++) e.set(this.embedRow(tokenIds[t]), t * D);
+		return e;
+	}
+
+	// La récurrence est séquentielle : chaque token coûte ~320 passes enregistrées. Une tranche borne
+	// l'encodeur (record JS + watchdog GPU) — 32 ≈ 10k passes par soumission, mesuré sain.
+	private static readonly PREFILL_CHUNK = 32;
+
+	// Prefill pur (état avancé, pas de tête) — sous-tranché en interne, quelle que soit la longueur.
+	async prefillGpu(tokenIds: number[], pastLen: number, sessionId: string): Promise<void> {
+		for (let done = 0; done < tokenIds.length; done += RwkvModel.PREFILL_CHUNK) {
+			const part = tokenIds.slice(done, done + RwkvModel.PREFILL_CHUNK);
+			await this.engine.rwkvPrefillGpu(this.embedsFor(part), part.length, this.cfg(), this.rLayers, this.rNorms!, pastLen + done, sessionId);
+		}
+	}
+	// Découpe interne : les appels du chat peuvent porter jusqu'à ~128 tokens (prefill tuilé côté
+	// page) — on sous-tranche à PREFILL_CHUNK, la tête ne se paye que sur la dernière tranche.
+	private async feedThen<T>(tokenIds: number[], pastLen: number, sessionId: string, final: (tail: number[], past: number) => Promise<T>): Promise<T> {
+		const head = tokenIds.length > RwkvModel.PREFILL_CHUNK ? tokenIds.slice(0, tokenIds.length - RwkvModel.PREFILL_CHUNK) : [];
+		if (head.length) await this.prefillGpu(head, pastLen, sessionId);
+		return final(tokenIds.slice(head.length), pastLen + head.length);
+	}
+	// Logits complets du dernier token, chemin résident (1 submit / 1 readback par tranche).
+	async logitsGpu(tokenIds: number[], pastLen: number, sessionId: string): Promise<Float32Array> {
+		return this.feedThen(tokenIds, pastLen, sessionId, (tail, past) =>
+			this.engine.rwkvLogitsGpu(this.embedsFor(tail), tail.length, this.cfg(), this.rLayers, this.g.get('output.weight'), this.rNorms!, past, sessionId));
+	}
+	// Top-K GPU du dernier token (chat), 1 readback (~512 o).
+	async topKGpu(tokenIds: number[], pastLen: number, sessionId: string, recent: number[], penalty: number, K = 40): Promise<{ ids: Uint32Array; vals: Float32Array }> {
+		return this.feedThen(tokenIds, pastLen, sessionId, (tail, past) =>
+			this.engine.rwkvTopKGpu(this.embedsFor(tail), tail.length, this.cfg(), this.rLayers, this.g.get('output.weight'), this.rNorms!, past, sessionId, recent, penalty, K));
 	}
 	private up(a: Uint16Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
 	private up32(a: Uint32Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
@@ -76,6 +178,9 @@ export class RwkvModel {
 	// Libère les buffers GPU résidents (changement de modèle dans le chat).
 	unload(): void {
 		for (const w of this.g.values()) for (const k of ['nib', 'sc', 'mn', 'codes', 'lo', 'hi'] as const) (w as any)[k]?.destroy?.();
+		for (const b of this.normBufs) b?.destroy?.();
+		this.normBufs = []; this.rLayers = []; this.rNorms = null;
+		(this.engine as { clearRwkvState?: () => void }).clearRwkvState?.();
 		this.g.clear(); this.w.clear();
 	}
 
@@ -224,6 +329,44 @@ export class RwkvModel {
 			out.push(best);
 			if (onToken) onToken(this.tok.decode(out));
 			logits = await this.forwardToken(best);
+		}
+		return this.tok.decode(out);
+	}
+
+	// Choisit dans un top-K GPU (trié décroissant, pénalité déjà appliquée sur le GPU) : greedy ou
+	// softmax température. Miroir de Lfm2Model.pickFromTopK (sans TOOL_BAN — pas d'outils RWKV).
+	private pickFromTopK(r: { ids: Uint32Array; vals: Float32Array }, opts?: SampleOpts & { sample?: boolean }): number {
+		if (!opts?.sample) return r.ids[0];
+		const { temperature = 0.8, topK = 40 } = opts;
+		let k = Math.min(topK, r.ids.length);
+		while (k > 1 && r.vals[k - 1] === -Infinity) k--;
+		const mx = r.vals[0];
+		let sum = 0;
+		const p = new Array<number>(k);
+		for (let i = 0; i < k; i++) { p[i] = Math.exp((r.vals[i] - mx) / temperature); sum += p[i]; }
+		let rr = Math.random() * sum;
+		for (let i = 0; i < k; i++) { rr -= p[i]; if (rr <= 0) return r.ids[i]; }
+		return r.ids[0];
+	}
+
+	// Comme generate() mais sur le chemin RÉSIDENT : une soumission/un readback par tranche puis par
+	// token, décodage via topKGpu (~512 o/token au lieu du vocab entier). Repli si indisponible.
+	async generateResident(prompt: string, n: number, onToken?: (text: string) => void, stop?: () => boolean, opts?: SampleOpts & { sample?: boolean }): Promise<string> {
+		if (!this.residentAvailable()) return this.generate(prompt, n, onToken, stop, opts);
+		const sid = 'gen';
+		const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1);
+		const ids = this.tok.encode(prompt);
+		let top = await this.topKGpu(ids, 0, sid, [], 1, 48); // feedThen sous-tranche à PREFILL_CHUNK
+		let pos = ids.length;
+		const out: number[] = [];
+		for (let s = 0; s < n; s++) {
+			if (stop?.()) break;
+			const best = this.pickFromTopK(top, opts);
+			if (best === 0) break; // eos
+			out.push(best);
+			if (onToken) onToken(this.tok.decode(out));
+			top = await this.topKGpu([best], pos, sid, penalty !== 1 ? [...new Set(out.slice(-64))] : [], penalty, 48);
+			pos++;
 		}
 		return this.tok.decode(out);
 	}

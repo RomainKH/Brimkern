@@ -15,6 +15,7 @@
 
 import { parseGguf, type Manifest, type TensorInfo } from '../ggufParser';
 import { rangeSource } from '../source';
+import { coalescedSpan } from '../model';
 import { toF32, type TensorData } from '../../safetensors';
 import type { WebGpuEngine } from '../kernels';
 
@@ -116,15 +117,60 @@ export async function loadMmproj(engine: WebGpuEngine, url: string, onProgress?:
 		if (!t) throw new Error(`mmproj : tenseur manquant "${name}". Présents (extrait) : ${Object.keys(T).slice(0, 10).join(', ')}…`);
 		return t;
 	};
-	// Une plage HTTP par tenseur (cache + reprise) → TensorData (f32 direct ou f16 brut pour le GPU).
+	// ── Préchargement par SPANS COALESCÉS, en parallèle ────────────────────────────────────────────
+	// Avant : une plage HTTP par tenseur, chacune attendue avant la suivante (16 `await` par bloc ×
+	// 32 blocs ≈ 512 allers-retours EN SÉRIE) — à 100 ms de latence, une minute de pure attente
+	// réseau, bien davantage sur un CDN chargé : c'est ce qui faisait les ~11 minutes de chargement.
+	// Ici : les tenseurs d'un même bloc sont contigus dans le GGUF → UNE plage par bloc (même
+	// `coalescedSpan` que le chargeur BRIK, avec son garde-fou de non-contiguïté), et 4 plages en vol.
+	// Repli : un span refusé (tenseurs non contigus) retombe sur le chemin par-tenseur, jamais bloquant.
+	// Kill-switch de diagnostic (convention du repo) : ?mmprojspans=0 → chemin par-tenseur d'origine.
+	// Sert à PROUVER l'équivalence (l'empreinte du patch-embedding doit être identique aux deux).
+	const spansOn = (() => { try { return new URLSearchParams(location.search).get('mmprojspans') !== '0'; } catch { return true; } })();
+	const spanCache = new Map<string, Uint8Array>();
+	const prefetchSpans = async (): Promise<void> => {
+		if (!spansOn) { console.warn('[mmproj] spans coalescés COUPÉS par ?mmprojspans=0 — une plage par tenseur (lent)'); return; }
+		const groups = new Map<string, string[]>();
+		for (const name of Object.keys(T)) {
+			const m = name.match(/^v\.blk\.(\d+)\./);
+			groups.set(m ? `blk${m[1]}` : 'misc', [...(groups.get(m ? `blk${m[1]}` : 'misc') ?? []), name]);
+		}
+		const plans: { names: string[]; start: number; end: number }[] = [];
+		for (const names of groups.values()) {
+			const s = coalescedSpan(names.map((n) => ({ offset: T[n].offset, bytes: T[n].bytes })));
+			if (s) plans.push({ names, start: s.start, end: s.end });
+		}
+		let done = 0;
+		let next = 0;
+		const worker = async () => {
+			for (;;) {
+				const i = next++;
+				if (i >= plans.length) return;
+				const p = plans[i];
+				try {
+					const span = await src.bytes(p.start, p.end - p.start);
+					for (const n of p.names) spanCache.set(n, span.subarray(T[n].offset - p.start, T[n].offset - p.start + T[n].bytes));
+				} catch { /* repli par-tenseur dans data() */ }
+				onProgress?.(`mmproj : téléchargement ${++done}/${plans.length}…`);
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(4, plans.length) }, worker));
+	};
+	onProgress?.('mmproj : téléchargement…');
+	await prefetchSpans();
+
 	const data = async (name: string): Promise<TensorData> => {
 		const t = get(name);
-		const bytes = await src.bytes(t.offset, t.bytes);
+		const bytes = spanCache.get(name) ?? (await src.bytes(t.offset, t.bytes));
 		if (t.type === 'F32') return new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + t.bytes));
 		if (t.type === 'F16') return { f16: bytes.slice(), n: t.nElems };
 		throw new Error(`mmproj : dtype ${t.type} non géré pour "${name}" (attendu F16/F32 — utiliser le mmproj f16)`);
 	};
-	const q8 = async (name: string): Promise<GpuT> => { const d = await data(name); const h = engine.quantizeQ8Gpu(d); await engine.waitGpu(); return h; };
+	// Quantification q8 SANS vidange du pipeline : l'ancien `await waitGpu()` par tenseur imposait
+	// 322 synchronisations complètes du GPU (10 matrices × 32 blocs + le merger), chacune sérialisée
+	// avec la requête réseau suivante. Les commandes s'empilent dans la file ; une seule attente
+	// finale (avant de rendre les handles) suffit à garantir que tout est exécuté.
+	const q8 = async (name: string): Promise<GpuT> => engine.quantizeQ8Gpu(await data(name));
 	const f32 = async (name: string): Promise<GpuT> => engine.uploadGpu(await data(name));
 
 	const cfgP = configFromMeta(man);
@@ -180,6 +226,10 @@ export async function loadMmproj(engine: WebGpuEngine, url: string, onProgress?:
 		mm0w: await q8('mm.0.weight'), mm0b: await f32('mm.0.bias'),
 		mm2w: await q8('mm.2.weight'), mm2b: await f32('mm.2.bias'),
 	};
+	// UNE attente finale : toutes les quantifications q8 enfilées ci-dessus doivent être exécutées
+	// avant que l'appelant se serve des handles (remplace les 322 vidanges par-tenseur).
+	await engine.waitGpu();
+	spanCache.clear(); // les octets bruts ont fini leur vie : tout est en VRAM
 	const cfg: VitConfig = {
 		dim, layers, heads: cfgP.heads!, headDim: cfgP.headDim!, hidden,
 		patch: cfgP.patch!, merge: cfgP.merge!, temporal, eps: cfgP.eps!, outDim,

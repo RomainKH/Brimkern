@@ -1,15 +1,19 @@
 // Shared model + tokenizer presets and the UI architecture tag, used by the main app and the
 // standalone /convert page.
 
-export type ArchType = 'qwen' | 'qwen3' | 'llama3' | 'llama2' | 'gemma' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
+export type ArchType = 'qwen' | 'qwen3' | 'llama3' | 'llama2' | 'gemma' | 'gemma3' | 'smollm3' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
 
 // `useCase`: a short capability label shown as a badge so the picker reads like modern model
-// catalogs ("for X"). `tags`: a few quick descriptors. `mobile`: light enough to attempt on a
+// catalogs ("for X"). BILINGUE depuis le 2026-08-13 : ces badges étaient en français dans un
+// catalogue de données, donc l'anglais — la version canonique du site — affichait « L'ultra-léger »
+// et « Rapide & léger » au milieu d'une interface anglaise (relevé sur les captures du README).
+// `tags`: a few quick descriptors. `mobile`: light enough to attempt on a
 // phone's limited GPU/VRAM — the picker hides the rest on mobile by default.
-// `size`: human display string (decimal Go/Mo, matches Finder/HF). `sizeBytes`: the SAME size as a
-// number, used only for the UI (download-time estimate + light/heavy classification on slow links) —
-// approximate is fine, it never gates loading.
-export interface PresetModel { name: string; vendor: string; url: string; size: string; sizeBytes: number; desc: string; tokenizer: string; type: ArchType; useCase: string; tags: string[]; mobile: boolean }
+// `size`: human display string (decimal Go/Mo, matches Finder/HF) — n'est PLUS ce qu'affichent les
+// cartes : elles formatent `sizeBytes` selon la locale (cf. fmtModelSize). `sizeBytes`: the SAME
+// size as a number, also used for the download-time estimate — approximate is fine, it never gates
+// loading.
+export interface PresetModel { name: string; vendor: string; url: string; size: string; sizeBytes: number; desc: string; tokenizer: string; type: ArchType; useCase: { en: string; fr: string }; tags: string[]; mobile: boolean }
 export interface TokenizerPreset { name: string; id: string; type: ArchType }
 
 // Preset models suitable for browser WebGPU running.
@@ -26,7 +30,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Ultra-léger et étonnamment capable : discute correctement (même en français), classe et extrait. Le modèle de la démo /local-ai — idéal mobile ou connexion lente.',
 		tokenizer: 'LiquidAI/LFM2.5-230M',
 		type: 'lfm2',
-		useCase: 'L’ultra-léger',
+		useCase: { en: 'The featherweight', fr: 'L’ultra-léger' },
 		tags: ['mobile', 'français', 'hybride v2'],
 		mobile: true,
 	},
@@ -42,8 +46,26 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Attention linéaire (RWKV-7) : un état fixe d’environ 1 Mo remplace le cache KV, la mémoire ne grandit pas avec la conversation. Réponses simples (0.1B) — le plus petit et le plus libre (Apache) du catalogue.',
 		tokenizer: '', // vocab World embarqué dans le BRIK (pas de tokenizer HF)
 		type: 'rwkv7',
-		useCase: 'Le plus petit',
+		useCase: { en: 'The smallest', fr: 'Le plus petit' },
 		tags: ['mobile', 'récurrent v2', 'apache', 'expérimental'],
+		mobile: true,
+	},
+	{
+		// RWKV-7 « G1a » 0.4B : le même moteur récurrent que le 0.1B ci-dessus, mais à une taille où
+		// les réponses tiennent vraiment (vérifié en anglais ET en français, 33-36 tok/s de décodage).
+		// Il est ici pour une raison précise : c'est la seule alternative APACHE-2.0 crédible au
+		// LFM2.5 230M (licence LFM 1.0) pour le défaut mobile et la démo /local-ai — la décision de
+		// licence ouverte dans la ROADMAP §0 attendait qu'un candidat existe et soit chargeable.
+		name: 'RWKV-7 G1a 0.4B (BRIK int4)',
+		vendor: 'BlinkDL',
+		url: 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
+		size: '304 Mo',
+		sizeBytes: 303_859_168,
+		desc: 'Attention linéaire (RWKV-7) à une taille utile : un état fixe remplace le cache KV, donc la mémoire ne grandit pas avec la conversation. Apache-2.0 — le plus permissif du catalogue, sans restriction d’usage commercial.',
+		tokenizer: '', // vocab World embarqué dans le BRIK (pas de tokenizer HF)
+		type: 'rwkv7',
+		useCase: { en: 'Constant memory', fr: 'Mémoire constante' },
+		tags: ['mobile', 'récurrent v2', 'apache'],
 		mobile: true,
 	},
 	{
@@ -61,7 +83,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'La génération suivante : nettement plus fort que Qwen 2.5 à taille égale, et il peut réfléchir (<think>) avant de répondre. Le meilleur cerveau du catalogue — servi en BRIK streamé (reprise, chargement en secondes une fois en cache).',
 		tokenizer: 'Qwen/Qwen3-0.6B',
 		type: 'qwen3',
-		useCase: 'Le + capable',
+		useCase: { en: 'The most capable', fr: 'Le + capable' },
 		tags: ['raisonnement', 'généraliste', '<think>'],
 		mobile: false,
 	},
@@ -74,7 +96,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Le successeur du 0.5B : aussi léger, sensiblement plus malin, et capable de réfléchir (<think>).',
 		tokenizer: 'Qwen/Qwen3-0.6B',
 		type: 'qwen3',
-		useCase: 'Rapide & léger',
+		useCase: { en: 'Fast & light', fr: 'Rapide & léger' },
 		tags: ['quotidien', 'rapide', '<think>'],
 		mobile: true,
 	},
@@ -87,7 +109,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Raisonne étape par étape (pensée <think>) avant de répondre. Bon pour les énigmes, maths, logique.',
 		tokenizer: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B',
 		type: 'deepseek',
-		useCase: 'Raisonnement',
+		useCase: { en: 'Reasoning', fr: 'Raisonnement' },
 		tags: ['logique', 'maths', '<think>'],
 		mobile: false,
 	},
@@ -100,7 +122,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Ultra-rapide et économe. Parfait pour les échanges courts du quotidien et tester la vitesse.',
 		tokenizer: 'Qwen/Qwen2.5-0.5B-Instruct',
 		type: 'qwen',
-		useCase: 'Rapide & léger',
+		useCase: { en: 'Fast & light', fr: 'Rapide & léger' },
 		tags: ['quotidien', 'le + rapide'],
 		mobile: true,
 	},
@@ -113,7 +135,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Assistant généraliste équilibré. Bon compromis qualité / vitesse pour discuter au quotidien.',
 		tokenizer: 'Qwen/Qwen2.5-1.5B-Instruct',
 		type: 'qwen',
-		useCase: 'Polyvalent',
+		useCase: { en: 'All-rounder', fr: 'Polyvalent' },
 		tags: ['chat', 'généraliste'],
 		mobile: false,
 	},
@@ -126,7 +148,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Spécialisé code : génération, explication, debug, analyse technique.',
 		tokenizer: 'Qwen/Qwen2.5-Coder-1.5B-Instruct',
 		type: 'qwen',
-		useCase: 'Code & dev',
+		useCase: { en: 'Code & dev', fr: 'Code & dev' },
 		tags: ['code', 'debug'],
 		mobile: false,
 	},
@@ -139,7 +161,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Le Llama de Meta, réparé : lignes Q/K dé-permutées au chargement + RoPE à facteurs (contexte long llama3). Léger et multilingue.',
 		tokenizer: 'unsloth/Llama-3.2-1B-Instruct',
 		type: 'llama3',
-		useCase: 'Polyvalent',
+		useCase: { en: 'All-rounder', fr: 'Polyvalent' },
 		tags: ['meta', 'multilingue'],
 		mobile: false,
 	},
@@ -155,7 +177,7 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Le petit Mistral de décembre 2025 : excellent généraliste européen, très bon en français. Tourne sur nos kernels YaRN + RoPE à facteurs.',
 		tokenizer: 'unsloth/Ministral-3-3B-Instruct-2512',
 		type: 'mistral3',
-		useCase: 'Polyvalent',
+		useCase: { en: 'All-rounder', fr: 'Polyvalent' },
 		tags: ['mistral', 'français', 'européen'],
 		mobile: false,
 	},
@@ -168,9 +190,25 @@ export const PRESET_MODELS: PresetModel[] = [
 		desc: 'Modèle Google de qualité, tourne sur nos kernels Gemma 2 (softcap, GELU, doubles normes). Rédaction soignée.',
 		tokenizer: 'Xenova/gemma-tokenizer',
 		type: 'gemma',
-		useCase: 'Rédaction',
+		useCase: { en: 'Writing', fr: 'Rédaction' },
 		tags: ['rédaction', 'qualité'],
 		mobile: false,
+	},
+	{
+		// Gemma 3 270M — le « LLM instantané » : 253 Mo, chargé en quelques secondes. Premier modèle
+		// du catalogue à attention ALTERNÉE (5 couches à fenêtre glissante de 512 pour 1 globale,
+		// bases RoPE différentes) — chantier SWA du 2026-08-12. Licence Gemma (usage commercial OK).
+		name: 'Gemma 3 270M Instruct (Q4_K_M)',
+		vendor: 'Google',
+		url: 'https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf',
+		size: '253 Mo',
+		sizeBytes: 253_100_000,
+		desc: 'Le plus petit Gemma : démarre presque instantanément. Attention à fenêtre glissante (5 couches locales / 1 globale). Idéal découverte et mobile.',
+		tokenizer: 'unsloth/gemma-3-270m-it',
+		type: 'gemma3',
+		useCase: { en: 'Good first try', fr: 'Découverte' },
+		tags: ['instantané', 'léger'],
+		mobile: true,
 	},
 ];
 
