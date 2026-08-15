@@ -936,20 +936,8 @@ export class CustomWebModel {
 		return out;
 	}
 
-	// Full forward over the token sequence (prefill and greedy decode, no KV cache).
-	async generateNext(tokens: number[]): Promise<number> {
-		const m = this.manifest;
-		const { d, nHeads, nKvHeads, headDim, ffn, blockCount, ropeTheta, rmsEps } = m.config;
-		const seq = tokens.length;
-		let x = await this.embed(tokens, d);
-		const cfg: LayerCfg = { seq, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps: rmsEps, ...this.archFlags() };
-		for (let idx = 0; idx < blockCount; idx++) {
-			const w = await this.layerWeights(idx);
-			x = await this.engine.layerForward(x, cfg, w, true);
-		}
-		const finalNorm = await this.dequant('output_norm.weight');
-		x = await this.engine.rmsnorm(x, finalNorm, seq, d, rmsEps);
-		const hiddenLast = x.subarray((seq - 1) * d, seq * d);
-		return this.argmaxLogits(new Float32Array(hiddenLast), d);
-	}
+	// (`generateNext`, le forward complet SANS cache KV, a été supprimé le 2026-08-16 : plus aucun
+	// appelant depuis que le chat, le SDK et les bancs passent tous par les chemins KV
+	// (generateNextKV / topKKV / logitsKV). Le chemin classique par couche reste couvert par
+	// debugHiddenPerLayer, qui est un outil de diagnostic vivant.)
 }

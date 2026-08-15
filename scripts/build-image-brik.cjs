@@ -53,7 +53,8 @@ const MODELS = {
 		url: 'https://huggingface.co/IDKiro/sdxs-512-0.9/resolve/main/unet/diffusion_pytorch_model.safetensors',
 		out: (tier) => `sdxs-unet-${tier}.brik`,
 		name: 'SDXS-512 UNet (distillé, 1 step)',
-		// = SDXS_UNET (sdturbo.ts) : 3 niveaux, 1 resblock/niveau, pas de mid-block, 8 têtes fixes.
+		// SOURCE DE VÉRITÉ de la topologie SDXS (le runtime la lit depuis le manifeste du BRIK) :
+		// 3 niveaux, 1 resblock/niveau, pas de mid-block, 8 têtes FIXES par niveau.
 		unetCfg: { baseC: 320, mult: [1, 2, 4], layersPerBlock: 1, attn: [true, true, true], headDim: 64, fixedHeads: 8, noMid: true },
 	},
 	// ── Chantier VIDÉO (AnimateDiff-Lightning sur base SD 1.5) — docs/video-gen-feasibility.md ──

@@ -10,17 +10,16 @@
 // importer d'ici. Ils portent donc l'URL en dur, et ce commentaire est leur rappel.
 export const SITE_URL = 'https://brimkern.com';
 
-// Ancienne adresse, gardée pour mémoire : une redirection 301 doit rester en place côté hébergeur
-// (des liens externes pointent dessus — dépôts Hugging Face, posts, cartes de modèle déjà publiées).
-export const LEGACY_SITE_URL = 'https://brimkern.romainkhanoyan.fr';
+// Mémo (pas du code) : l'ancienne adresse `brimkern.romainkhanoyan.fr` doit GARDER sa redirection
+// 301 côté hébergeur — des liens externes pointent dessus (dépôts Hugging Face, posts, cartes de
+// modèle déjà publiées). Vérifiée en place le 2026-08-13.
+//
+// Le format du deeplink « ouvrir ce modèle » est `/chat?model=<auteur/dépôt>[&file=<fichier>]`
+// (les liens publiés vers `/?model=…` restent valides : la landing transmet la query à /chat).
+// Il n'a PLUS de constructeur ici : le seul producteur vivant est hf/local-apps-entry.ts —
+// volontairement autonome, cf. ci-dessus — et la doc affiche des exemples littéraux. L'ancien
+// helper `modelDeeplink` et la constante `LEGACY_SITE_URL` ont été retirés le 2026-08-16 (plus
+// aucun appelant depuis la refonte landing du 13/08).
 
 // URL du SDK embarquable, telle qu'on la donne à copier dans la doc et les snippets.
 export const SDK_URL = `${SITE_URL}/sdk.js`;
-
-// Deeplink « ouvrir ce modèle » (la surface consommée par le menu « Use this model » du Hub).
-// Il vise /chat depuis que la racine sert la landing (2026-08-13) : un lien de modèle doit tomber
-// DANS l'application. Les liens déjà publiés vers `/?model=…` restent valides — la landing détecte
-// les paramètres de deeplink et transmet la query à /chat.
-export function modelDeeplink(repoId: string, filepath?: string): string {
-  return `${SITE_URL}/chat?model=${repoId}${filepath ? `&file=${encodeURIComponent(filepath)}` : ''}`;
-}

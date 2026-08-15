@@ -3,21 +3,18 @@
 // It's assembled from two repeated blocks — ResnetBlock2D (here) and the spatial Transformer2D
 // (cross-attention to text, added next) — wired into a down/mid/up topology with skip connections.
 //
-// Like CLIP, the forward is CPU-orchestrated (engine ops return Float32Arrays, readback between
-// steps): correctness first, GPU-resident fusion later. Each block ships a synthetic self-test
-// (random weights vs a CPU reference) so the wiring is proven without the real ~860M-param weights.
-// See docs/image-gen-feasibility.md.
+// Le forward de PRODUCTION est 100 % résident (resBlockResident / spatialTransformerResident,
+// enregistrés dans UN encoder, un readback final). L'ancien chemin per-op — un submit + readback
+// par opération, l'échafaudage « correctness first » des débuts — a été SUPPRIMÉ le 2026-08-16 :
+// plus aucun appelant depuis le passage au résident (dette notée en ROADMAP §6). La référence de
+// vérité reste la voie CPU (resBlockCpu / transformerCpu), consommée par validateUnet.
+// Each block ships a synthetic self-test (random weights vs a CPU reference) so the wiring is
+// proven without the real ~860M-param weights. See docs/image-gen-feasibility.md.
 
 import type { WebGpuEngine } from '../kernels';
 
-// arr viewed as [rows, cols]: arr[r,c] += bias[c], in place.
-function addBias(arr: Float32Array, bias: Float32Array, rows: number, cols: number): Float32Array {
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) arr[r * cols + c] += bias[c];
-  return arr;
-}
-
 // Sinusoidal timestep embedding (diffusers get_timestep_embedding style): timestep → [dim] vector of
-// cos/sin at geometrically-spaced frequencies. Pure CPU (tiny). Fed through timeMLP, then each ResBlock.
+// cos/sin at geometrically-spaced frequencies. Pure CPU (tiny). Fed through the time-MLP (recorded in runUnet), then each ResBlock.
 export function timeEmbedding(timestep: number, dim: number): Float32Array {
   const half = dim >> 1, out = new Float32Array(dim);
   for (let i = 0; i < half; i++) {
@@ -26,14 +23,6 @@ export function timeEmbedding(timestep: number, dim: number): Float32Array {
     out[half + i] = Math.sin(a);
   }
   return out;
-}
-
-// Shared time MLP: linear(inDim→outDim) → silu → linear(outDim→outDim). Produces the [outDim] temb
-// that every ResBlock consumes.
-export async function timeMLP(e: WebGpuEngine, emb: Float32Array, w1: Float32Array, b1: Float32Array, w2: Float32Array, b2: Float32Array, inDim: number, outDim: number): Promise<Float32Array> {
-  let t = addBias(await e.matmulT(emb, w1, 1, inDim, outDim), b1, 1, outDim);
-  t = await e.silu(t);
-  return addBias(await e.matmulT(t, w2, 1, outDim, outDim), b2, 1, outDim);
 }
 
 // Concatenate two feature maps along the channel axis: [Ca,HW] ++ [Cb,HW] → [Ca+Cb, HW]. The UNet's
@@ -58,35 +47,8 @@ export interface ResBlockWeights<T = Float32Array> {
   shortcutw?: T; shortcutb?: T;  // 1×1 conv Cin→Cout (only when Cin≠Cout)
 }
 
-// ResnetBlock2D: x[Cin,H,W] + temb[tembDim] → [Cout,H,W]. The timestep embedding is projected to
-// Cout and added per-channel across all spatial positions (the block's only timestep dependence).
-export async function resBlock(
-  e: WebGpuEngine, w: ResBlockWeights, x: Float32Array, temb: Float32Array,
-  Cin: number, Cout: number, H: number, W: number, groups: number, tembDim: number, eps = 1e-5,
-): Promise<Float32Array> {
-  const HW = H * W;
-  let h = await e.groupNorm(x, w.norm1g, w.norm1b, Cin, HW, groups, eps);
-  h = await e.silu(h);
-  h = await e.conv2d(h, w.conv1w, w.conv1b, Cin, H, W, Cout, 3, 3, 1, 1);
-
-  // temb → silu → linear(Cout), broadcast-added over every spatial position.
-  const ts = await e.silu(temb);
-  const tp = addBias(await e.matmulT(ts, w.tembw, 1, tembDim, Cout), w.tembb, 1, Cout); // [Cout]
-  for (let c = 0; c < Cout; c++) { const b = tp[c]; for (let i = 0; i < HW; i++) h[c * HW + i] += b; }
-
-  h = await e.groupNorm(h, w.norm2g, w.norm2b, Cout, HW, groups, eps);
-  h = await e.silu(h);
-  h = await e.conv2d(h, w.conv2w, w.conv2b, Cout, H, W, Cout, 3, 3, 1, 1);
-
-  const skip = (Cin === Cout)
-    ? x
-    : await e.conv2d(x, w.shortcutw!, w.shortcutb!, Cin, H, W, Cout, 1, 1, 1, 0);
-  return e.add(skip, h);
-}
-
-// GPU-RESIDENT ResBlock: the exact same computation recorded into ONE command encoder (one submit,
-// one readback) instead of ~7 submit+readback round-trips. Same result as resBlock (validated
-// against resBlockCpu). Inputs/weights may be CPU Float32Arrays (uploaded on the fly) or GPU
+// GPU-RESIDENT ResBlock: the whole block recorded into ONE command encoder (one submit, one
+// readback) instead of ~7 submit+readback round-trips. Validated against resBlockCpu. Inputs/weights may be CPU Float32Arrays (uploaded on the fly) or GPU
 // handles (persistent f32 buffers / q8 pairs). With `keep`, the output STAYS on the GPU (no
 // readback) and is returned as a buffer handle the caller owns — the fully-resident forward path.
 export async function resBlockResident(
@@ -184,51 +146,9 @@ export interface TransformerCfg { C: number; H: number; W: number; heads: number
 
 const zeros = (n: number) => new Float32Array(n);
 
-export async function spatialTransformer(e: WebGpuEngine, w: TransformerWeights, x: Float32Array, context: Float32Array, cfg: TransformerCfg): Promise<Float32Array> {
-  const { C, H, W, heads, headDim, ctxDim, seqT, ffInner, groups } = cfg;
-  const inner = heads * headDim, HW = H * W, LN = 1e-5, GN = 1e-6;
-
-  const hn = await e.groupNorm(x, w.normg, w.normb, C, HW, groups, GN); // [C,H,W]
-  // reshape [C,H,W] → [HW, C] (tokens = spatial positions)
-  let hseq: Float32Array = new Float32Array(HW * C);
-  for (let c = 0; c < C; c++) for (let p = 0; p < HW; p++) hseq[p * C + c] = hn[c * HW + p];
-  hseq = addBias(await e.matmulT(hseq, w.projInW, HW, C, inner), w.projInB, HW, inner); // [HW, inner]
-
-  // self-attention (non-causal over the HW spatial tokens)
-  const n1 = await e.layernorm(hseq, w.n1g, w.n1b, HW, inner, LN);
-  const q1 = await e.matmulT(n1, w.q1w, HW, inner, inner);
-  const k1 = await e.matmulT(n1, w.k1w, HW, inner, inner);
-  const v1 = await e.matmulT(n1, w.v1w, HW, inner, inner);
-  const sa = addBias(await e.matmulT(await e.attentionFull(q1, k1, v1, HW, heads, heads, headDim, HW), w.o1w, HW, inner, inner), w.o1b, HW, inner);
-  hseq = await e.add(hseq, sa);
-
-  // cross-attention: queries from the latent, keys/values from the text context
-  const n2 = await e.layernorm(hseq, w.n2g, w.n2b, HW, inner, LN);
-  const q2 = await e.matmulT(n2, w.q2w, HW, inner, inner);
-  const k2 = await e.matmulT(context, w.k2w, seqT, ctxDim, inner);
-  const v2 = await e.matmulT(context, w.v2w, seqT, ctxDim, inner);
-  const ca = addBias(await e.matmulT(await e.attentionFull(q2, k2, v2, HW, heads, heads, headDim, seqT), w.o2w, HW, inner, inner), w.o2b, HW, inner);
-  hseq = await e.add(hseq, ca);
-
-  // GEGLU feed-forward
-  const n3 = await e.layernorm(hseq, w.n3g, w.n3b, HW, inner, LN);
-  const proj = addBias(await e.matmulT(n3, w.ffProjW, HW, inner, ffInner * 2), w.ffProjB, HW, ffInner * 2); // [HW, 2·ffInner]
-  const hid = new Float32Array(HW * ffInner), gate = new Float32Array(HW * ffInner);
-  for (let p = 0; p < HW; p++) for (let i = 0; i < ffInner; i++) { hid[p * ffInner + i] = proj[p * ffInner * 2 + i]; gate[p * ffInner + i] = proj[p * ffInner * 2 + ffInner + i]; }
-  const g = await e.geglu(gate, hid); // gelu(gate)·hid
-  const ff = addBias(await e.matmulT(g, w.ffOutW, HW, ffInner, inner), w.ffOutB, HW, inner);
-  hseq = await e.add(hseq, ff);
-
-  // proj_out + reshape [HW,C] → [C,H,W] + residual
-  hseq = addBias(await e.matmulT(hseq, w.projOutW, HW, inner, C), w.projOutB, HW, C);
-  const hout = new Float32Array(C * HW);
-  for (let c = 0; c < C; c++) for (let p = 0; p < HW; p++) hout[c * HW + p] = hseq[p * C + c];
-  return e.add(x, hout);
-}
-
 // GPU-RESIDENT spatial transformer: the same computation recorded into ONE submit (~20 ops) instead
 // of ~20 submit+readback round-trips. The reshape (transpose) and the GEGLU split run on the GPU
-// (recTranspose / recGegluSplit). Same result as spatialTransformer (validated vs transformerCpu).
+// (recTranspose / recGegluSplit). Validated against transformerCpu.
 // Like resBlockResident: inputs/weights may be CPU arrays or GPU handles, and `keep` returns the
 // output as a GPU buffer (no readback).
 export async function spatialTransformerResident(e: WebGpuEngine, w: TransformerWeights<any>, x: any, context: any, cfg: TransformerCfg, keep = false): Promise<any> {
@@ -654,10 +574,9 @@ export async function validateUnet(engine: WebGpuEngine): Promise<string | null>
   for (const [Cin, Cout] of [[4, 4], [2, 4]] as [number, number][]) {
     const w = mkW(Cin, Cout);
     const x = rand(Cin * H * W), temb = rand(tembDim);
-    const got = await resBlock(engine, w, x, temb, Cin, Cout, H, W, groups, tembDim, eps);
     const ref = resBlockCpu(w, x, temb, Cin, Cout, H, W, groups, tembDim, eps);
-    if (!closeRel(got, ref)) return `resblock(${Cin}→${Cout})`;
-    // GPU-resident ResBlock (1 submit) must match the same CPU reference.
+    // Le chemin résident (1 submit) contre la référence CPU — le seul chemin GPU depuis la
+    // suppression du per-op (2026-08-16).
     const gotR = await resBlockResident(engine, w, x, temb, Cin, Cout, H, W, groups, tembDim, eps);
     if (!closeRel(gotR, ref)) return `resblock_resident(${Cin}→${Cout})`;
   }
@@ -679,25 +598,13 @@ export async function validateUnet(engine: WebGpuEngine): Promise<string | null>
       projOutW: rand(cfg.C * inner), projOutB: rand(cfg.C),
     };
     const x = rand(cfg.C * cfg.H * cfg.W), ctx = rand(cfg.seqT * cfg.ctxDim);
-    const got = await spatialTransformer(engine, tw, x, ctx, cfg);
     const ref = transformerCpu(tw, x, ctx, cfg);
-    if (!closeRel(got, ref)) return 'transformer';
-    // GPU-resident transformer (1 submit) must match the same CPU reference.
     const gotR = await spatialTransformerResident(engine, tw, x, ctx, cfg);
     if (!closeRel(gotR, ref)) return 'transformer_resident';
   }
 
-  // time MLP: linear → silu → linear (the shared timestep projection)
-  {
-    const inD = 6, outD = 8;
-    const emb = timeEmbedding(7, inD);
-    const w1 = rand(outD * inD), b1 = rand(outD), w2 = rand(outD * outD), b2 = rand(outD);
-    const got = await timeMLP(engine, emb, w1, b1, w2, b2, inD, outD);
-    let t = matmulTBiasCpu(emb, w1, b1, 1, inD, outD);
-    t = siluCpu(t);
-    const ref = matmulTBiasCpu(t, w2, b2, 1, outD, outD);
-    if (!closeRel(got, ref)) return 'time_mlp';
-  }
+  // (Le test time-MLP per-op est parti avec le chemin per-op : la projection du timestep est
+  // désormais couverte par le test UNet complet ci-dessous, résident contre unetForwardCpu.)
 
   // Full config-driven UNet: 2 levels (mult [1,2]), 1 ResBlock/block, both levels with cross-attn.
   {

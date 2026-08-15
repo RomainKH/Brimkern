@@ -200,29 +200,13 @@ export async function streamImageBrik(
 	return manifest;
 }
 
-// Un BRIK image est-il INTÉGRALEMENT en cache ? Miroir de brikCacheComplete mais au plan des
-// SHARDS (les plages que streamImageBrik demande) — le plan LLM (blk.N.*) ne matcherait aucune
-// clé. Gate de l'auto-rechargement du générateur d'image à la reprise : sans lui, revenir sur
-// l'app relançait un téléchargement de centaines de Mo, plein écran.
-export async function imageBrikCacheComplete(url: string): Promise<boolean> {
-	try {
-		const cache = await openCache();
-		if (!cache) return false;
-		const head = await fetchRange(url, 0, 12);
-		if (!head.ranged) return false;
-		const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
-		const header = await fetchRange(url, 0, 12 + manifestLen);
-		const { manifest, dataStart } = parseBrikHeader(header.bytes);
-		const bases = computeShardBases(manifest.shards);
-		for (const s of manifest.shards) {
-			const off = dataStart + bases[s.id];
-			if (!(await cache.match(rangeKey(url, off, off + s.byteLength - 1)))) return false;
-		}
-		return true;
-	} catch {
-		return false;
-	}
-}
+// (`imageBrikCacheComplete` — le miroir de brikCacheComplete au plan des SHARDS image — a été
+// supprimé le 2026-08-16. Il gardait l'auto-rechargement du générateur d'image à la reprise, mais
+// cet auto-rechargement lui-même a été retiré le 2026-07-21 : sur mobile, « en cache » ou pas, il
+// déclenchait des téléchargements et bloquait l'utilisateur (retour Romain). Une conversation image
+// se restaure sans son modèle — les images sont persistées dans les messages — et le générateur se
+// relance à la demande. Si l'auto-rechargement revient un jour, la fonction se réécrit depuis
+// brikCacheComplete ci-dessous, en substituant le plan par-shard au plan par-couche.)
 
 // ── GGUF STREAMÉ (mêmes plages que le BRIK) ───────────────────────────────────────────────────
 // Un GGUF distant se chargeait en UN SEUL téléchargement monolithique : tous les octets en RAM,

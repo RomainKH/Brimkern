@@ -25,15 +25,12 @@ export const SD_TURBO_UNET: UnetCfg = {
   headDim: 64, ffMult: 4, ctxDim: 1024, seqT: 77, groups: 32,
   tembIn: 320, tembDim: 1280, H: 64, W: 64,
 };
-// ── SDXS-512-0.9 (UNet distillé 1-step, ~320 M params) — même CLIP 1024, même scheduler (Euler
-// trailing epsilon), VAE = AutoencoderTiny (notre TAESD décode le même espace latent). Topologie
-// réduite : 3 niveaux, 1 resblock/niveau, PAS de mid-block, et 8 têtes fixes par niveau (le
-// `attention_head_dim: [8,8,8]` des configs SD1-style compte des TÊTES → headDim = C/8 par niveau).
-export const SDXS_UNET: UnetCfg = {
-  baseC: 320, mult: [1, 2, 4], layersPerBlock: 1, attn: [true, true, true],
-  headDim: 64, fixedHeads: 8, noMid: true, ffMult: 4, ctxDim: 1024, seqT: 77, groups: 32,
-  tembIn: 320, tembDim: 1280, H: 64, W: 64,
-};
+// SDXS-512-0.9 (UNet distillé 1-step) : sa topologie ne vit PLUS ici. Le runtime la lit dans le
+// manifeste du BRIK (`{ ...SD_TURBO_UNET, ...brikUnetCfg }`, plus bas), et la source de vérité est
+// scripts/build-image-brik.cjs (`sdxs-unet.unetCfg`) — l'ancienne constante SDXS_UNET dupliquait
+// ces nombres sans aucun lecteur, supprimée le 2026-08-16. Le piège qu'elle documentait, à garder :
+// le `attention_head_dim: [8,8,8]` des configs SD1-style compte des TÊTES (→ fixedHeads: 8,
+// headDim = C/têtes par niveau), pas des dimensions de tête.
 // The shipped text_encoder is a CLIPTextModel ALREADY truncated to 23 layers (the "penultimate"
 // trick is baked into the checkpoint), and diffusers reads its last_hidden_state — which APPLIES
 // final_layer_norm. Confirmed against text_encoder/config.json (num_hidden_layers: 23). → finalLN: true.

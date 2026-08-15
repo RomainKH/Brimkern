@@ -36,7 +36,7 @@ const res = await page.evaluate(async () => {
   const info = adapter.info ?? {};
 
   // Lecture pure : 256 threads par workgroup, chacun parcourt le buffer par pas de la grille.
-  const module = device.createShaderModule({
+  const shader = device.createShaderModule({
     code: `
       @group(0) @binding(0) var<storage, read> src: array<vec4<f32>>;
       @group(0) @binding(1) var<storage, read_write> sink: array<f32>;
@@ -60,7 +60,7 @@ const res = await page.evaluate(async () => {
         }
       }`,
   });
-  const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' } });
+  const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module: shader, entryPoint: 'main' } });
 
   const run = async (bytes, wg, iters) => {
     const src = device.createBuffer({ size: bytes, usage: GPUBufferUsage.STORAGE });
