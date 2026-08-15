@@ -188,9 +188,20 @@ export default function VsWebllmClient() {
           {t('You ship a product on a fixed, curated model list and want the most battle-tested runtime → ', 'Vous livrez un produit sur une liste de modèles figée et voulez le runtime le plus éprouvé → ')}
           <strong style={{ color: 'var(--text-primary)' }}>WebLLM</strong>.
         </li>
+        {/* (Ici se trouvait « images, vision ou vidéo » : ces modalités existent mais restent
+            expérimentales — en faire un argument de choix redisait ce qu'on venait justement de
+            retirer du tableau. Remplacé par deux atouts qu'on peut vérifier le jour même.) */}
         <li>
-          {t('You need images, vision or video in the same engine as text → ', 'Vous avez besoin d’images, de vision ou de vidéo dans le même moteur que le texte → ')}
-          <strong style={{ color: 'var(--text-primary)' }}>Brimkern</strong>.
+          {t('Your widget stays open for a long conversation and memory must not creep → ', 'Votre widget reste ouvert sur une longue conversation et la mémoire ne doit pas grimper → ')}
+          <strong style={{ color: 'var(--text-primary)' }}>Brimkern</strong>
+          {t(' — the catalogue includes recurrent models (RWKV-7) whose state is a fixed ~1 MB instead of a KV cache that grows with every token.',
+             ' — le catalogue contient des modèles récurrents (RWKV-7) dont l’état est un bloc fixe d’environ 1 Mo, au lieu d’un cache KV qui grandit à chaque token.')}
+        </li>
+        <li>
+          {t('You need to host the weights yourself, on your own domain → ', 'Vous devez héberger les poids vous-même, sur votre domaine → ')}
+          <strong style={{ color: 'var(--text-primary)' }}>Brimkern</strong>
+          {t(' — convert a GGUF to .brik in the browser, put the file on any static host, and it streams by HTTP range from there.',
+             ' — convertissez un GGUF en .brik dans le navigateur, posez le fichier sur n’importe quel hébergement statique, et il se streame par plages depuis là.')}
         </li>
         <li>
           {t('You need an OpenAI-compatible API surface out of the box → ', 'Vous voulez une API compatible OpenAI clé en main → ')}

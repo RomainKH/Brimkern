@@ -5,7 +5,7 @@
 // accurate Brimkern total, and the browser's (approximate) overall estimate — with a way to clear
 // each. Opened from the sidebar.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Trash2, HardDrive, Database, Package, MessageSquare, Loader2, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
 import { listBrik, deleteBrik, type BrikCacheMeta } from '@/lib/brikCache';
 import { clearAllConversations } from '@/lib/chatStore';
@@ -97,7 +97,23 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
     setEntries({}); setExpanded(null); // detail is stale after a delete
   };
 
-  const run = async (id: string, fn: () => Promise<void>) => { setBusy(id); try { await fn(); } catch { /* ignore */ } await refresh(); onCacheChanged?.(); setBusy(null); };
+  // ⚠️ `navigator.storage.estimate()` ne suit PAS une suppression dans la seconde : nos buckets sont
+  // vidés tout de suite (mesuré : 17 plages → 0 à +2 s) mais l'estimation, elle, retombe avec du
+  // retard — parfois vers 10 s, parfois pas du tout tant que le navigateur garde son propre cache
+  // HTTP pour l'origine. Comme la jauge n'était relue qu'UNE fois, juste après l'action, elle restait
+  // figée sur l'ancienne valeur : « Tout supprimer » laissait une barre pleine (signalé par Romain).
+  // On re-sonde donc, ce qui rattrape le cas « retard pur ». Le cas « le navigateur compte autre
+  // chose », lui, ne peut pas être rattrapé par une sonde — il est EXPLIQUÉ sous la jauge.
+  // Les minuteries sont annulées au démontage du panneau.
+  const estimateTimers = useRef<number[]>([]);
+  useEffect(() => () => { estimateTimers.current.forEach((id) => clearTimeout(id)); }, []);
+  const resettleEstimate = () => {
+    estimateTimers.current.forEach((id) => clearTimeout(id));
+    estimateTimers.current = [2000, 5000, 10000].map((delay) =>
+      window.setTimeout(() => { storageEstimate().then((e) => setEstimate(e)).catch(() => { /* stockage indisponible */ }); }, delay));
+  };
+
+  const run = async (id: string, fn: () => Promise<void>) => { setBusy(id); try { await fn(); } catch { /* ignore */ } await refresh(); resettleEstimate(); onCacheChanged?.(); setBusy(null); };
   const delCache = (name: string) => run(`c:${name}`, () => clearCache(name));
   const delPackage = (key: string) => run(key, () => deleteBrik(key));
   // Les deux actions destructrices passent par un dialogue du produit (cf. ./ConfirmDialog.tsx) au
@@ -182,6 +198,19 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
                     {t('the browser sets this limit (not Brimkern). A model larger than the free space won’t cache.', 'c’est le navigateur qui fixe cette limite (pas Brimkern). Un modèle plus gros que l’espace libre ne pourra pas être mis en cache.')}
                     {near ? ' ' + t('Nearly full — clear a few models below.', 'Presque plein — vide quelques modèles ci-dessous.') : ''}
                   </div>
+                  {/* Le cas qui faisait croire à un échec de « Tout supprimer » : nos buckets sont
+                      VIDES (mesuré : 17 plages → 0 dans la seconde) mais le navigateur continue de
+                      compter des dizaines de mégaoctets pour l'origine — son propre cache HTTP,
+                      qu'aucune API ne nous laisse purger. La barre restait donc remplie, et on en
+                      concluait que rien n'avait été effacé. On le DIT, plutôt que de laisser
+                      l'utilisateur en tirer la mauvaise conclusion. Seuil à 4 Mo : en dessous, la
+                      différence est du bruit et la phrase serait du bavardage. */}
+                  {!loading && brikkernTotal === 0 && usage > 4_000_000 && (
+                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: 4, fontStyle: 'italic' }}>
+                      {t('Brimkern now stores nothing — everything above was deleted. What the browser still counts is its own HTTP cache for this site, which no site can clear itself; it goes away on its own, or via the browser’s “Clear browsing data”.',
+                         'Brimkern ne stocke plus rien — tout ce qui précède a bien été supprimé. Ce que le navigateur compte encore, c’est son propre cache HTTP pour ce site, qu’aucun site ne peut vider lui-même ; il part de lui-même, ou via « Effacer les données de navigation ».')}
+                    </div>
+                  )}
                 </>
               )}
             </>
