@@ -253,6 +253,12 @@ console — they allocate correctly-shaped random weights, so no 4.7 GB download
 | Prefill (512 tokens at once) | **74.4 tok/s** · 971 GFLOP/s | 47.2 tok/s |
 | Decode (one token) | **17.5 tok/s** · 77.3 GB/s | 10.2 tok/s |
 
+Decode is bound by memory bandwidth, so the number that matters is what the machine can actually
+deliver. A pure-read kernel (`scripts/e2e/bandwidth.mjs`) puts this laptop's ceiling at **106.9 GB/s**
+— against which the decode GEMVs sit at **92 % (int8, ~99 GB/s)** and **79 % (int4, ~85 GB/s)**,
+median of five runs. There is no large win left in decode: the remaining headroom is ~8 % and ~20 %
+respectively, and no badly-parallelised kernel is left on that path.
+
 The GEMM holds ~1 TFLOP/s across every shape of the layer, so prefill is compute-bound and already
 saturating the GPU — int8 even edges out int4 there (1003 vs 971 GFLOP/s: unpacking costs more than
 the bandwidth it saves when you're not bandwidth-bound).
