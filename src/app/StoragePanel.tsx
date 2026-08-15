@@ -5,7 +5,7 @@
 // accurate Brimkern total, and the browser's (approximate) overall estimate — with a way to clear
 // each. Opened from the sidebar.
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, Trash2, HardDrive, Database, Package, MessageSquare, Loader2, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
 import { listBrik, deleteBrik, type BrikCacheMeta } from '@/lib/brikCache';
 import { clearAllConversations } from '@/lib/chatStore';
@@ -105,15 +105,20 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
   // On re-sonde donc, ce qui rattrape le cas « retard pur ». Le cas « le navigateur compte autre
   // chose », lui, ne peut pas être rattrapé par une sonde — il est EXPLIQUÉ sous la jauge.
   // Les minuteries sont annulées au démontage du panneau.
-  const estimateTimers = useRef<number[]>([]);
-  useEffect(() => () => { estimateTimers.current.forEach((id) => clearTimeout(id)); }, []);
-  const resettleEstimate = () => {
-    estimateTimers.current.forEach((id) => clearTimeout(id));
-    estimateTimers.current = [2000, 5000, 10000].map((delay) =>
+  // Un COMPTEUR plutôt qu'un ref de minuteries : les actions sont déclenchées depuis le rendu (les
+  // boutons de suppression sont fabriqués par une fonction, `clearBtn`), et toucher un ref depuis
+  // cette chaîne est refusé par react-hooks/refs — à raison, le linter ne peut pas prouver que le
+  // callback ne s'exécutera pas pendant le rendu. Ici l'effet possède ses minuteries et les annule
+  // lui-même, au démontage comme à l'action suivante.
+  const [settleTick, setSettleTick] = useState(0);
+  useEffect(() => {
+    if (settleTick === 0) return;
+    const ids = [2000, 5000, 10000].map((delay) =>
       window.setTimeout(() => { storageEstimate().then((e) => setEstimate(e)).catch(() => { /* stockage indisponible */ }); }, delay));
-  };
+    return () => ids.forEach((id) => clearTimeout(id));
+  }, [settleTick]);
 
-  const run = async (id: string, fn: () => Promise<void>) => { setBusy(id); try { await fn(); } catch { /* ignore */ } await refresh(); resettleEstimate(); onCacheChanged?.(); setBusy(null); };
+  const run = async (id: string, fn: () => Promise<void>) => { setBusy(id); try { await fn(); } catch { /* ignore */ } await refresh(); setSettleTick((n) => n + 1); onCacheChanged?.(); setBusy(null); };
   const delCache = (name: string) => run(`c:${name}`, () => clearCache(name));
   const delPackage = (key: string) => run(key, () => deleteBrik(key));
   // Les deux actions destructrices passent par un dialogue du produit (cf. ./ConfirmDialog.tsx) au
