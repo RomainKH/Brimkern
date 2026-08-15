@@ -1462,6 +1462,88 @@ export const SHADERS = {
 	// drivers choke right at the boundary), then a final K-step selection. Output: [K ids (u32) |
 	// K values (f32 bits)] sorted descending. Heuristic completeness: exact unless >8 of the true
 	// top-K share the same id mod 128 — astronomically unlikely with strided assignment.
+	// SÉLECTION FINALE PARALLÈLE — le kernel du chemin chaud depuis le 2026-08-15.
+	//
+	// `top_k` ci-dessous parallélise bien son BALAYAGE (128 threads sur le vocabulaire), mais sa
+	// seconde phase — extraire les K meilleurs des 1 024 candidats — est faite PAR LE THREAD 0 SEUL :
+	// K × 1024 = 65 536 itérations séquentielles. Relevé au profileur : 866 µs par token, quatorze
+	// fois le coût d'un GEMV, pour choisir 64 candidats. C'est le même défaut que le GEMV (13/08) et
+	// la RMSNorm (14/08), au troisième endroit : un kernel dont la parallélisation s'arrête là où le
+	// décodage a le plus besoin d'elle.
+	//
+	// Ici : MÊME ALGORITHME, à la lettre — K passes, chaque passe prend le maximum courant, l'écrit,
+	// puis le retire des candidats. Seule la recherche du maximum devient une réduction en arbre sur
+	// les 128 threads. La sortie est donc identique BIT À BIT, ordre compris, à une condition qui est
+	// la subtilité de ce kernel : le DÉPARTAGE DES EX ÆQUO. Le code séquentiel balaie c croissant avec
+	// `>` strict, donc à valeur égale il garde le PLUS PETIT indice. La réduction reproduit cette
+	// règle explicitement (`redV[t+s] > redV[t] || (égal && redI[t+s] < redI[t])`) — sans ça, deux
+	// logits identiques suffiraient à permuter la sortie, et donc à changer la réponse à graine égale.
+	//
+	// ⚠️ CE QUE ÇA RAPPORTE, MESURÉ : **rien de visible**. A/B bout en bout, 4 bras alternés :
+	// ×1,01 sur Qwen3 0.6B (51,3-51,6 → 52,0 tok/s) et ×1,02 sur LFM2.5 230M (155,7 → 158,1), quand
+	// les tirs eux-mêmes s'étalent de 118 à 169 tok/s. Le gain est SOUS LE BRUIT.
+	// Pourquoi le profileur annonçait 10,1 % : il ISOLE la passe qu'il mesure, donc le GPU ne peut
+	// plus la recouvrir avec les suivantes — c'est écrit dans gpuProfile.ts, et c'est exactement le
+	// piège contre lequel ce fichier prévient. `top_k` s'exécute UNE fois par token quand le GEMV
+	// s'exécute des dizaines de fois : sa part « quand on ne peut pas recouvrir » n'est pas sa part.
+	// Le kernel reste néanmoins le défaut : il ne coûte RIEN de plus (mêmes passes, mieux réparties),
+	// et supprimer un point de sérialisation de 65 536 itérations garde son intérêt sur un GPU
+	// mobile, moins capable de recouvrir. `?topkpar=0` rétablit l'ancien à l'identique.
+	top_k_par: `
+		struct P { n: u32, k: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> logits: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> outv: array<u32>;
+		var<workgroup> candV: array<f32, 1024>;
+		var<workgroup> candI: array<u32, 1024>;
+		var<workgroup> redV: array<f32, 128>;
+		var<workgroup> redI: array<u32, 128>;
+		@compute @workgroup_size(128)
+		fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
+			let t = lid.x;
+			// ── Phase 1 : identique à top_k — chaque thread garde ses 8 meilleurs sur sa tranche. ──
+			var vs: array<f32, 8>;
+			var ix: array<u32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { vs[j] = -3.4e38; ix[j] = 0u; }
+			var minPos = 0u;
+			for (var i = t; i < p.n; i = i + 128u) {
+				let v = logits[i];
+				if (v > vs[minPos]) {
+					vs[minPos] = v; ix[minPos] = i;
+					minPos = 0u;
+					for (var j = 1u; j < 8u; j = j + 1u) { if (vs[j] < vs[minPos]) { minPos = j; } }
+				}
+			}
+			for (var j = 0u; j < 8u; j = j + 1u) { candV[t * 8u + j] = vs[j]; candI[t * 8u + j] = ix[j]; }
+			workgroupBarrier();
+			// ── Phase 2 : K passes, le maximum trouvé PAR RÉDUCTION au lieu d'un balayage solitaire. ──
+			for (var r = 0u; r < p.k; r = r + 1u) {
+				var bv = -3.4e38;
+				var bi = 0u;
+				// Chaque thread balaie 8 candidats (foulée 128), indices CROISSANTS : à valeur égale
+				// il garde le plus petit, comme le fait le balayage séquentiel.
+				for (var c = t; c < 1024u; c = c + 128u) {
+					if (candV[c] > bv) { bv = candV[c]; bi = c; }
+				}
+				redV[t] = bv; redI[t] = bi;
+				workgroupBarrier();
+				for (var s = 64u; s > 0u; s = s >> 1u) {
+					if (t < s) {
+						let o = t + s;
+						if (redV[o] > redV[t] || (redV[o] == redV[t] && redI[o] < redI[t])) { redV[t] = redV[o]; redI[t] = redI[o]; }
+					}
+					workgroupBarrier();
+				}
+				if (t == 0u) {
+					let best = redI[0];
+					outv[r] = candI[best];
+					outv[p.k + r] = bitcast<u32>(redV[0]);
+					candV[best] = -3.4e38;   // retiré des candidats pour la passe suivante
+				}
+				workgroupBarrier();          // l'écriture ci-dessus doit être vue par tous avant la suite
+			}
+		}`,
+
 	top_k: `
 		struct P { n: u32, k: u32 };
 		@group(0) @binding(0) var<uniform> p: P;

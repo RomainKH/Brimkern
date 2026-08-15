@@ -21,7 +21,8 @@
     "test:websearch": "node scripts/test-websearch.cjs",
     "test:evict": "node scripts/test-evict.cjs",
     "test:knowledge": "node scripts/test-knowledge.cjs",
-    "test:ranges": "node scripts/test-ranges.cjs"
+    "test:ranges": "node scripts/test-ranges.cjs",
+    "test:sdkfresh": "node scripts/test-sdk-fresh.cjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -38,6 +39,7 @@
     "esbuild": "^0.28.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "playwright-core": "^1.62.1",
     "typescript": "^5"
   }
 }

@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+// Le SDK BUILDÉ suit-il les kernels du source ?
+//
+// `public/sdk.js` est un artefact VERSIONNÉ : il ne se régénère pas tout seul quand on touche au
+// moteur. Le 2026-08-15, la RMSNorm parallèle a été livrée sans que ce fichier soit reconstruit —
+// les sites tiers qui embarquent le SDK auraient gardé l'ancien kernel, sans que rien ne le signale
+// (ni tsc, ni lint, ni le build Next : le fichier est valide, juste périmé). C'est une classe de
+// panne SILENCIEUSE, donc elle mérite un test.
+//
+// Règle : tout kernel WGSL déclaré dans src/lib/webgpu/shaders.ts doit se retrouver dans le bundle.
+// Le test échoue en nommant les manquants et en rappelant la commande — `npm run build:sdk`.
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.join(__dirname, '..');
+const src = fs.readFileSync(path.join(ROOT, 'src', 'lib', 'webgpu', 'shaders.ts'), 'utf8');
+
+// Les kernels sont les clés de l'objet SHADERS : `  nom: ` suivi d'un backtick (source WGSL).
+const names = [...src.matchAll(/^\t([a-z0-9_]+):\s*`/gim)].map((m) => m[1]);
+if (names.length < 20) {
+  console.error(`✗ seulement ${names.length} kernels détectés dans shaders.ts — le motif de lecture a dû changer, ce test ne prouverait plus rien.`);
+  process.exit(1);
+}
+
+const bundles = ['public/sdk.js', 'public/sdk-0.1.0.js'];
+let ko = 0;
+for (const rel of bundles) {
+  const p = path.join(ROOT, rel);
+  if (!fs.existsSync(p)) { console.log(`  ⚠ ${rel} absent — ignoré`); continue; }
+  const js = fs.readFileSync(p, 'utf8');
+  // Un kernel présent dans le bundle y apparaît comme clé (`nom:`) ou dans une chaîne.
+  const missing = names.filter((n) => !js.includes(n));
+  if (missing.length) {
+    ko++;
+    console.log(`  FAIL ${rel} — ${missing.length} kernel(s) absent(s) du bundle : ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? '…' : ''}`);
+  } else {
+    console.log(`  ok   ${rel} — les ${names.length} kernels du source y sont`);
+  }
+}
+
+if (ko) {
+  console.log('\n✗ Le SDK buildé est PÉRIMÉ par rapport au moteur. Lancez : npm run build:sdk');
+  process.exit(1);
+}
+console.log(`\n${bundles.length}/${bundles.length} bundles à jour`);

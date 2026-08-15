@@ -215,6 +215,10 @@ export class WebGpuEngine {
 	// forcé par ?rmsvec=0 → retour au kernel une-ligne-par-thread (correct, mais qui laisse 63 threads
 	// sur 64 inutilisés en décodage — 51,9 % du temps GPU relevé au profileur pour une normalisation).
 	rmsVecOk = true;
+	// Sélection top-K à réduction PARALLÈLE (kernel top_k_par) : gate NON BLOQUANT posé par
+	// selfValidate, ou forcé par ?topkpar=0 → retour au kernel dont la phase finale tient sur un seul
+	// thread (correct, mais 866 µs par token relevés au profileur — 14 fois un GEMV).
+	topKParOk = true;
 	// ?timing=1 → chronométrage interne du forward (diagnostic ; cf. decodeTopKQ8).
 	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
 	// ?gpuprofile=1 → budget GPU PAR PASSE via timestamp-query (cf. ./gpuProfile.ts pour le pourquoi :
@@ -274,6 +278,10 @@ export class WebGpuEngine {
 			if (urlFlag('rmsvec') === '0') {
 				this.rmsVecOk = false;
 				console.warn('[webgpu] RMSNorm parallèle COUPÉE par ?rmsvec=0 — kernel une-ligne-par-thread');
+			}
+			if (urlFlag('topkpar') === '0') {
+				this.topKParOk = false;
+				console.warn('[webgpu] top-K parallèle COUPÉE par ?topkpar=0 — sélection finale sur un seul thread');
 			}
 			if (urlFlag('rwkv') === '0') {
 				this.rwkvWkv7Ok = false;
@@ -553,6 +561,28 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 12, new Uint32Array([onePlus ? 1 : 0]));
 		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('rmsnorm', [p, this.buf(x, ST), this.buf(w, ST), out], [Math.ceil(rows / WG), 1, 1], out, x.byteLength);
+	}
+
+	// Top-K avec readback, sur le kernel DEMANDÉ — pour selfValidate, qui compare les deux variantes
+	// sur les mêmes logits. Rend le tampon brut [K ids u32 | K valeurs f32-bits], tel que le
+	// sampling le consomme, pour que la comparaison porte sur les OCTETS et pas sur une relecture
+	// interprétée (une permutation d'ex æquo doit sauter aux yeux).
+	async topKReadback(logits: Float32Array, k: number, shader: 'top_k' | 'top_k_par'): Promise<Uint32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const p = this.device.createBuffer({ size: 8, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(p, 0, new Uint32Array([logits.length, k]));
+		const out = this.device.createBuffer({ size: k * 2 * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		const read = this.device.createBuffer({ size: k * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		const enc = this.device.createCommandEncoder();
+		const lbuf = this.buf(logits, ST);
+		this.recordPass(enc, shader, [p, lbuf, out], [1, 1, 1]);
+		enc.copyBufferToBuffer(out, 0, read, 0, k * 2 * 4);
+		this.device.queue.submit([enc.finish()]);
+		await read.mapAsync(G.GPUMapMode.READ);
+		const raw = new Uint32Array(read.getMappedRange().slice(0));
+		read.unmap(); read.destroy(); out.destroy?.(); p.destroy?.(); lbuf.destroy?.();
+		return raw;
 	}
 
 	// RMSNorm parallèle par ligne avec readback — pour selfValidate (le chemin chaud passe par
@@ -2188,7 +2218,7 @@ export class WebGpuEngine {
 		trash.push(out);
 		{
 			const p = this.uniform([vocab, K]);
-			this.recordPass(enc, 'top_k', [p, logits, out], [1, 1, 1]);
+			this.recordPass(enc, this.topKParOk ? 'top_k_par' : 'top_k', [p, logits, out], [1, 1, 1]);
 			trash.push(p);
 		}
 		const read = this.device.createBuffer({ size: K * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
@@ -2415,7 +2445,7 @@ export class WebGpuEngine {
 		}
 		const out = this.storage(K * 2 * 4);
 		trash.push(out);
-		{ const p = this.uniform([cfg.vocab, K]); this.recordPass(enc, 'top_k', [p, logits, out], [1, 1, 1]); trash.push(p); }
+		{ const p = this.uniform([cfg.vocab, K]); this.recordPass(enc, this.topKParOk ? 'top_k_par' : 'top_k', [p, logits, out], [1, 1, 1]); trash.push(p); }
 		const read = this.device.createBuffer({ size: K * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
 		enc.copyBufferToBuffer(out, 0, read, 0, K * 2 * 4);
 		this.device.queue.submit([enc.finish()]);
@@ -2592,7 +2622,7 @@ export class WebGpuEngine {
 		}
 		const out = this.storage(K * 2 * 4);
 		trash.push(out);
-		{ const p = this.uniform([cfg.vocab, K]); this.recordPass(enc, 'top_k', [p, logits, out], [1, 1, 1]); trash.push(p); }
+		{ const p = this.uniform([cfg.vocab, K]); this.recordPass(enc, this.topKParOk ? 'top_k_par' : 'top_k', [p, logits, out], [1, 1, 1]); trash.push(p); }
 		const read = this.device.createBuffer({ size: K * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
 		enc.copyBufferToBuffer(out, 0, read, 0, K * 2 * 4);
 		this.device.queue.submit([enc.finish()]);
@@ -3207,6 +3237,43 @@ export class WebGpuEngine {
 			}
 		}
 
+		// Top-K à réduction PARALLÈLE (top_k_par) : gate NON BLOQUANT. Ce kernel choisit le token —
+		// une sortie qui diffère d'une seule permutation change la réponse à graine égale, donc on
+		// compare les OCTETS rendus avec ceux du kernel de référence, pas une valeur approchée.
+		// Les formes visent ce qui peut casser : le vocabulaire réel d'un modèle, un `n` non multiple
+		// des 128 threads, un `n` plus petit que les 1024 candidats (la plupart des emplacements
+		// restent à -inf), et surtout des logits AVEC EX ÆQUO — c'est le seul cas où la règle de
+		// départage compte, et celui qu'une réduction naïve casserait sans qu'aucun banc ne le voie.
+		{
+			const failSoft = (stage: string): void => {
+				this.topKParOk = false;
+				console.error('[selfValidate] top-K parallèle HS sur ce GPU (étape :', stage, ') → repli sélection sur un thread (correcte, plus lente)');
+			};
+			const cases: { n: number; k: number; ties: boolean; label: string }[] = [
+				{ n: 151936, k: 64, ties: false, label: 'vocab Qwen (151936)' },
+				{ n: 65536, k: 64, ties: false, label: 'vocab World (65536)' },
+				{ n: 1000, k: 64, ties: false, label: 'n non multiple de 128' },
+				{ n: 300, k: 64, ties: false, label: 'n < 1024 candidats' },
+				{ n: 4096, k: 8, ties: false, label: 'petit K' },
+				{ n: 8192, k: 64, ties: true, label: 'EX ÆQUO (départage)' },
+			];
+			for (const c of cases) {
+				if (!this.topKParOk) break;
+				// `ties` : beaucoup de valeurs répétées → le départage par indice devient observable.
+				const lg = c.ties
+					? Float32Array.from({ length: c.n }, (_, i) => Math.round(Math.random() * 6) + (i % 7 === 0 ? 3 : 0))
+					: rand(c.n);
+				const a = await this.topKReadback(lg, c.k, 'top_k');
+				const b = await this.topKReadback(lg, c.k, 'top_k_par');
+				const same = a.length === b.length && a.every((v, i) => v === b[i]);
+				if (!same) {
+					const i = a.findIndex((v, j) => v !== b[j]);
+					failSoft(`top_k_par(${c.label}) — premier écart au rang ${i} : ${a[i]} vs ${b[i]}`);
+					break;
+				}
+			}
+		}
+
 		// Full transformer-layer forward (prefill) in a Qwen2-shaped config: GQA (4 q / 2 kv
 		// heads), q/k/v biases, RoPE base 10000, eps 1e-6 — the gate for a real swarm contribution.
 		{
@@ -3414,7 +3481,7 @@ export class WebGpuEngine {
 			this.recordPass(enc, 'penalize_logits', [p2, idsBuf, lbuf], this.grid1D(recent.length));
 			const out = this.storage(K * 2 * 4);
 			const p3 = this.uniform([vocab, K]);
-			this.recordPass(enc, 'top_k', [p3, lbuf, out], [1, 1, 1]);
+			this.recordPass(enc, this.topKParOk ? 'top_k_par' : 'top_k', [p3, lbuf, out], [1, 1, 1]);
 			trash.push(p1, idsBuf, p2, p3, out);
 			const read = this.device.createBuffer({ size: K * 2 * 4, usage: G2.GPUBufferUsage.COPY_DST | G2.GPUBufferUsage.MAP_READ });
 			enc.copyBufferToBuffer(out, 0, read, 0, K * 2 * 4);

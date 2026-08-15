@@ -286,6 +286,25 @@ npm run build && npm run start   # production
 Requirements: a **WebGPU-capable browser** (Chrome/Edge 121+, or Safari 18+). A discrete GPU helps
 for the larger models; the light presets run on integrated GPUs and phones.
 
+The logic that can be tested without a GPU is, and each suite is a plain Node script — no framework,
+no watcher, nothing to learn:
+
+```bash
+npm run test:brik       # .brik container: codec (q3/q4/q8), manifest round-trip, zip, loader
+npm run test:bpe        # our BPE tokenizer vs transformers.js, token-exact
+npm run test:ggtok      # tokenizer rebuilt FROM a GGUF vs the reference repo
+npm run test:deeplink   # what a pasted model string resolves to (42 cases)
+npm run test:evict      # which cached models the 30-day policy would remove
+npm run test:ranges     # which cached HTTP ranges are redundant and safe to drop
+npm run test:websearch  # when a message should (not) trigger a web lookup
+npm run test:knowledge  # the SDK's lightweight RAG chunker
+npm run test:sdkfresh   # is the built SDK still in sync with the engine's kernels?
+```
+
+Anything GPU-shaped is validated differently: every kernel checks itself against a CPU reference at
+load (see “The engine” above), and behaviour is measured in a real Chrome against a production
+build — never the dev server.
+
 ```
 src/
   app/                 Next.js App Router — landing (/), chat (/chat), docs, SDK page, converter

@@ -78,3 +78,6 @@ docs/vision-feasibility.md
 # `public/sdk.js` et `public/sdk-<version>.js`, eux, sont VERSIONNÉS : c'est le site qui les sert.
 /packages/sdk/dist
 
+
+# Profils Chrome des bancs e2e (créés au vol par Playwright — jamais versionnés)
+scripts/e2e/chrome-profile*/
