@@ -34,6 +34,8 @@ const RELEASES: Release[] = [
             fr: 'Chaque couche normalise ses valeurs deux fois par token, et cette étape était écrite une ligne par thread — correct pour lire votre question (des centaines de lignes d’un coup), gâché pour écrire la réponse (une seule ligne, donc 63 threads sur 64 inutilisés). Réécrite pour répartir la ligne sur tout le groupe : le décodage passe de 36,0 à 49,5 tok/s (×1,38) sur un Qwen3 0.6B, la lecture du prompt est inchangée.' },
           { en: 'The measurement that found it: a per-pass GPU profiler (?gpuprofile=1) added the same day, which showed normalization eating 51.9 % of decode time — twice the cost of the matrix multiplies it feeds.',
             fr: 'La mesure qui l’a trouvé : un profileur GPU par passe (?gpuprofile=1) ajouté le même jour, qui montrait la normalisation à 51,9 % du temps de décodage — deux fois le coût des multiplications matricielles qu’elle alimente.' },
+          { en: 'On a 7B the same fix is worth ×1.27 (8.1 → 10.2 tok/s): the bigger the model, the more the matrix multiplies dominate, so normalization weighs less. That 7B is now in the catalogue — it is the model our published figures are measured on, and you can run it yourself.',
+            fr: 'Sur un 7B le même correctif vaut ×1,27 (8,1 → 10,2 tok/s) : plus le modèle est gros, plus les multiplications matricielles dominent, donc moins la normalisation pèse. Ce 7B est désormais dans le catalogue — c’est le modèle sur lequel nos chiffres publiés sont mesurés, vous pouvez le lancer vous-même.' },
         ],
       },
       {

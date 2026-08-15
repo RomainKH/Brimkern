@@ -207,6 +207,7 @@ Three fixes from 2026-08-13, each found by measuring rather than guessing:
 | Decode reused a kernel shaped for *many* token rows: an 8×8 workgroup with a `ceil(m/8)` grid, so at `m = 1` **seven of eight threads exited immediately**. The tell: q8 ran no slower than q4 while reading 70 % more bytes — a kernel not saturating memory. | 3.4 tok/s · 15 GB/s | **14.4 tok/s · 63.8 GB/s** (7B q4 ceiling) |
 | `queue.writeBuffer` is deferred: the driver materialises the weights on the first shader that reads them, so the *first message* paid for the whole model. A throwaway forward pass in `warmup()` moves that cost off the user's first prompt. | 10.9 s | **1.1 s** (first reply, 7B) |
 | Prefill GEMMs streamed weights from global memory per row. Register-blocked tiles (f16/q8/q4) cut the traffic. | — | **×2–2.7** kernel-level |
+| RMSNorm ran **one row per thread** (2026-08-14). Fine for prefill — hundreds of rows — but decode has *one* row, so 63 of 64 threads exited and the 64th walked the model dimension alone, twice. The same shape of bug as the GEMV above, in a different pass; a per-pass GPU profiler surfaced it at 51.9 % of decode time. | 36.0 tok/s | **49.5 tok/s** (×1.38, Qwen3 0.6B end-to-end) |
 
 ---
 
@@ -228,8 +229,8 @@ The difference is not speed, it's **what you're allowed to load**:
 | **Maturity** | Younger | **Ahead** |
 
 On the same 7B (DeepSeek-R1-Distill-Qwen-7B, int4), same laptop, both engines: **prefill 47.2 vs
-18.7 tok/s** (ahead), **decode 9.6 vs 14.0 tok/s** (behind). Not a rout in either direction — and the
-decode gap was 4× wider before the GEMV fix above.
+18.7 tok/s** (ahead), **decode 10.2 vs 14.0 tok/s** (behind). Not a rout in either direction — and the
+decode gap was 4x wider before the GEMV fix above, and narrowed again on 2026-08-15 (8.1 to 10.2 tok/s) when RMSNorm stopped running on a single thread.
 
 Neither gap is where we first looked. Two hypotheses died on measurement: the chat loop
 (detokenization, repetition penalty, React) costs 4–11 %, and recording the GPU passes in JS costs
@@ -250,7 +251,7 @@ console — they allocate correctly-shaped random weights, so no 4.7 GB download
 | 7B int4, matmul ceiling | ours | end-to-end |
 | --- | --- | --- |
 | Prefill (512 tokens at once) | **74.4 tok/s** · 971 GFLOP/s | 47.2 tok/s |
-| Decode (one token) | **17.5 tok/s** · 77.3 GB/s | 9.6 tok/s |
+| Decode (one token) | **17.5 tok/s** · 77.3 GB/s | 10.2 tok/s |
 
 The GEMM holds ~1 TFLOP/s across every shape of the layer, so prefill is compute-bound and already
 saturating the GPU — int8 even edges out int4 there (1003 vs 971 GFLOP/s: unpacking costs more than

@@ -32,9 +32,9 @@ export default function VsWebllmClient() {
     },
     {
       metric: t('Decode (writing the answer)', 'Décodage (écriture de la réponse)'),
-      us: '9,6 tok/s', them: '14,0 tok/s', win: 'them',
-      note: t('WebLLM is ahead here, and we say so. Both figures are from 2026-08-13 — before we made RMSNorm parallel per row (2026-08-14), which is worth ×1.38 on decode measured end to end on a 0.6B. The 7B has not been re-measured since, so the number above stands until it is.',
-              'WebLLM est devant ici, et nous l’écrivons. Les deux chiffres datent du 13/08/2026 — avant la RMSNorm parallèle par ligne (14/08), qui vaut ×1,38 sur le décodage, mesuré bout en bout sur un 0.6B. Le 7B n’a pas été re-mesuré depuis : le chiffre ci-dessus tient tant qu’il ne l’est pas.'),
+      us: '10,2 tok/s', them: '14,0 tok/s', win: 'them',
+      note: t('WebLLM is ahead here, and we say so. Ours was re-measured on 2026-08-15 after making RMSNorm parallel per row: 8.1 → 10.2 tok/s on this exact model (two passes: 9.7 and 10.7). The gap narrowed — 1.37× instead of 1.46× — but it is still a gap, and closing it is the current work.',
+              'WebLLM est devant ici, et nous l’écrivons. Le nôtre a été re-mesuré le 15/08/2026 après le passage de la RMSNorm en parallèle par ligne : 8,1 → 10,2 tok/s sur ce modèle exact (deux passages : 9,7 et 10,7). L’écart s’est réduit — 1,37× au lieu de 1,46× — mais c’est toujours un écart, et le combler est le chantier en cours.'),
     },
     {
       metric: t('Model preparation', 'Préparation du modèle'),
@@ -100,8 +100,8 @@ export default function VsWebllmClient() {
             'Les deux exécutent un grand modèle de langage côté client sur WebGPU, sans serveur ni clé d’API. Ils diffèrent sur un point décisif : ce qu’il faut faire subir à un modèle avant qu’il tourne.')}
         </p>
         <p style={{ color: 'var(--text-muted)', fontSize: 13.5, lineHeight: 1.55, margin: '0 0 22px', maxWidth: 680 }}>
-          {t('Numbers below were measured on 2026-08-13 and 2026-08-14, same laptop GPU, same model (DeepSeek-R1-Distill-Qwen-7B, int4), same prompt. Nothing here is an estimate.',
-            'Les chiffres ci-dessous ont été mesurés les 13 et 14 août 2026, même GPU de portable, même modèle (DeepSeek-R1-Distill-Qwen-7B, int4), même prompt. Rien ici n’est estimé.')}
+          {t('Numbers below were measured between 2026-08-13 and 2026-08-15, same laptop GPU, same model (DeepSeek-R1-Distill-Qwen-7B, int4), same prompt. Nothing here is an estimate — and that model is in the catalogue, so you can run it yourself.',
+            'Les chiffres ci-dessous ont été mesurés entre le 13 et le 15 août 2026, même GPU de portable, même modèle (DeepSeek-R1-Distill-Qwen-7B, int4), même prompt. Rien ici n’est estimé — et ce modèle est dans le catalogue, vous pouvez donc le lancer vous-même.')}
         </p>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Link href={`${href('/chat')}?start=1`} className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>

@@ -114,11 +114,34 @@ export const PRESET_MODELS: PresetModel[] = [
 		mobile: false,
 	},
 	{
+		// LE modèle sur lequel reposent nos chiffres publics (prefill 47,2 tok/s contre 18,7 à WebLLM,
+		// rechargement de 4,7 Go en 15,8 s, plafonds de kernels du README). Il n'était PAS dans le
+		// catalogue : on chiffrait donc un modèle que le visiteur ne pouvait ni charger ni vérifier —
+		// relevé par Romain le 2026-08-15. Un chiffre invérifiable là où on le lit vaut un chiffre
+		// estimé. Il est ici, avec sa vraie taille ; l'avertissement de quota du navigateur de
+		// modèles fait le reste (4,68 Go, il ne tiendra pas partout, et c'est dit avant le clic).
+		name: 'DeepSeek-R1 Distill Qwen 7B (Q4_K_M)',
+		vendor: 'DeepSeek',
+		url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf',
+		size: '4,68 Go',
+		sizeBytes: 4_683_073_504,
+		desc: 'Le plus gros du catalogue, et celui qui porte nos mesures publiées. Raisonne (<think>) avant de répondre, avec la profondeur d’un 7B. Streamé par plages : le premier chargement est long, les suivants viennent du cache en secondes. Demande une machine à l’aise — vérifiez l’avertissement d’espace avant de le lancer.',
+		tokenizer: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B',
+		type: 'deepseek',
+		useCase: { en: 'Reasoning (large)', fr: 'Raisonnement (gros)' },
+		tags: ['logique', 'gros', '<think>'],
+		mobile: false,
+	},
+	{
 		name: 'Qwen 2.5 0.5B Instruct (Q8_0)',
 		vendor: 'Alibaba',
 		url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf',
-		size: '597 Mo',
-		sizeBytes: 597_000_000,
+		// Tailles RELEVÉES sur les fichiers (HEAD content-length, 2026-08-15) : les trois presets
+		// Qwen 2.5 annonçaient 7 à 12 % de MOINS que la réalité. Ce n'est pas cosmétique — sizeBytes
+		// pilote l'avertissement « ce modèle ne tiendra pas » (comparé à l'espace libre) et le temps de
+		// téléchargement estimé : sous-évaluer, c'est promettre plus léger que ce qu'on livre.
+		size: '676 Mo',
+		sizeBytes: 675_710_816,
 		desc: 'Ultra-rapide et économe. Parfait pour les échanges courts du quotidien et tester la vitesse.',
 		tokenizer: 'Qwen/Qwen2.5-0.5B-Instruct',
 		type: 'qwen',
@@ -130,8 +153,8 @@ export const PRESET_MODELS: PresetModel[] = [
 		name: 'Qwen 2.5 1.5B Instruct (Q4_K_M)',
 		vendor: 'Alibaba',
 		url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
-		size: '1,04 Go',
-		sizeBytes: 1_040_000_000,
+		size: '1,12 Go',
+		sizeBytes: 1_117_320_736,
 		desc: 'Assistant généraliste équilibré. Bon compromis qualité / vitesse pour discuter au quotidien.',
 		tokenizer: 'Qwen/Qwen2.5-1.5B-Instruct',
 		type: 'qwen',
@@ -143,8 +166,8 @@ export const PRESET_MODELS: PresetModel[] = [
 		name: 'Qwen 2.5 Coder 1.5B Instruct (Q4_K_M)',
 		vendor: 'Alibaba',
 		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
-		size: '1,02 Go',
-		sizeBytes: 1_020_000_000,
+		size: '1,12 Go',
+		sizeBytes: 1_117_320_768,
 		desc: 'Spécialisé code : génération, explication, debug, analyse technique.',
 		tokenizer: 'Qwen/Qwen2.5-Coder-1.5B-Instruct',
 		type: 'qwen',
@@ -179,6 +202,24 @@ export const PRESET_MODELS: PresetModel[] = [
 		type: 'mistral3',
 		useCase: { en: 'All-rounder', fr: 'Polyvalent' },
 		tags: ['mistral', 'français', 'européen'],
+		mobile: false,
+	},
+	{
+		// Le moteur portait SmolLM3 depuis le 2026-08-12 (NoPE : 1 couche sur 4 sans RoPE, lue depuis
+		// `no_rope_layers`) mais SANS preset : il n'avait jamais été validé de bout en bout, et le
+		// catalogue n'expose pas un modèle sur la foi du code. Ce l'est depuis le 2026-08-14 —
+		// chargé, interrogé, réponse juste, à la fois avec le RoPE à paires adjacentes devenu le
+		// défaut et avec l'ancien chemin (?ropenorm=0). D'où son entrée ici.
+		name: 'SmolLM3 3B (Q4_K_M)',
+		vendor: 'Hugging Face',
+		url: 'https://huggingface.co/bartowski/HuggingFaceTB_SmolLM3-3B-GGUF/resolve/main/HuggingFaceTB_SmolLM3-3B-Q4_K_M.gguf',
+		size: '1,92 Go',
+		sizeBytes: 1_915_305_792,
+		desc: 'Le 3B de Hugging Face, entraîné en ouvert de bout en bout (données et recette publiées). Une couche sur quatre se passe de RoPE (NoPE), ce qui l’aide sur les contextes longs. Multilingue, à l’aise en français.',
+		tokenizer: 'HuggingFaceTB/SmolLM3-3B',
+		type: 'smollm3',
+		useCase: { en: 'All-rounder', fr: 'Polyvalent' },
+		tags: ['ouvert', 'multilingue', 'contexte long'],
 		mobile: false,
 	},
 	{
@@ -222,4 +263,7 @@ export const TOKENIZER_PRESETS: TokenizerPreset[] = [
 	// via import URL — vocab 32k, tokenizer à choisir manuellement.)
 	{ name: 'Llama 3 / 3.2', id: 'unsloth/Llama-3.2-1B-Instruct', type: 'llama3' },
 	{ name: 'Ministral 3 (Tekken)', id: 'unsloth/Ministral-3-3B-Instruct-2512', type: 'mistral3' },
+	// SmolLM3 : le GGUF porte son propre tokenizer (lu par ggufTokenizer depuis le 2026-08-13), donc
+	// cette entrée ne sert que de REPLI réseau et au choix manuel après un import d'URL.
+	{ name: 'SmolLM3', id: 'HuggingFaceTB/SmolLM3-3B', type: 'smollm3' },
 ];
