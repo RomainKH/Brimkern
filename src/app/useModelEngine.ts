@@ -24,6 +24,7 @@ import { PRESET_MODELS, type ArchType } from '@/lib/presets';
 import { MOBILE_BRIK_URL, pickAutoPrecision, ggufArchFamilyFor } from '@/lib/modelCatalog';
 import { useT } from '@/lib/i18n';
 import { metric, metricOnce } from '@/lib/metrics';
+import { sampleRate, type RateWindow, type TransferRate } from '@/lib/transferRate';
 import type { Message } from './types';
 
 export interface ModelEngineDeps {
@@ -55,7 +56,18 @@ export function useModelEngine(deps: ModelEngineDeps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [webGpuSupported, setWebGpuSupported] = useState<boolean | null>(null);
   const [loadingStep, setLoadingStep] = useState<string>('');
-  const [loadingProgress, setLoadingProgress] = useState<{ loaded: number; total: number; percentage: number } | null>(null);
+  // Progression du chargement. Le débit et le temps restant sont calculés PAR LE SETTER, à partir
+  // des octets qu'on lui passe : il y a treize sites d'écriture (préchargement, streaming BRIK,
+  // conversion, upload GPU…) et un seul setter, donc c'est là que la mesure a sa place. Les treize
+  // appels restent inchangés, et la vitesse voyage dans le même état que les octets — un seul rendu.
+  const [loadingProgress, setLoadingProgressRaw] = useState<
+    { loaded: number; total: number; percentage: number; rate: TransferRate | null } | null
+  >(null);
+  const loadRateWin = useRef<RateWindow>([]);
+  const setLoadingProgress = (p: { loaded: number; total: number; percentage: number } | null) => {
+    if (!p) { loadRateWin.current.length = 0; setLoadingProgressRaw(null); return; }
+    setLoadingProgressRaw({ ...p, rate: sampleRate(loadRateWin.current, p.loaded, p.total) });
+  };
   const [activeEngine, setActiveEngine] = useState<WebGpuEngine | null>(null);
   // CustomWebModel (transformers, moteur v1) OU Lfm2ChatAdapter (arch lfm2, moteur v2) — même
   // surface d'API côté chat (topKKV/logitsKV/reset/unload + getters de précision).

@@ -27,6 +27,7 @@ import SkillsPanel from './SkillsPanel';
 import { listCustomSkills, BUILTIN_SKILLS, type Skill } from '@/lib/skillStore';
 import { useT, useLocale, useHref } from '@/lib/i18n';
 import { metric, metricOnce } from '@/lib/metrics';
+import { sampleRate, type RateWindow, type TransferRate } from '@/lib/transferRate';
 import { parseDeeplink, parseModelInput, resolveHfModel } from '@/lib/deeplink';
 import HfModelInput from './HfModelInput';
 import { markModelUsed, evictStaleModels } from '@/lib/modelUsage';
@@ -105,6 +106,16 @@ const HOME_HF_EXAMPLES = [
   { label: 'LFM2.5 230M (.brik)', value: 'romainkh14/LFM2.5-230M_BRIK' },
 ];
 
+// Débit + temps restant d'un transfert — « 120 Mo / 359 Mo » ou « 63 % » sans vitesse ni ETA est
+// anxiogène sur un fichier de centaines de Mo, et illisible sur plusieurs Go : un 7B q4 met des
+// minutes, et rien à l'écran ne dit lesquelles. Fenêtre glissante de 8 s, parce que le débit
+// instantané d'un CDN fluctue trop pour une ETA qui ne saute pas. La fenêtre est remise à zéro
+// quand la progression RECULE : c'est le signe d'une nouvelle phase (ou d'un autre transfert qui
+// réutilise le même affichage), et garder les échantillons d'avant donnerait un débit négatif.
+// Rendu `null` tant que deux échantillons ne couvrent pas 0,5 s — mieux vaut pas d'estimation
+// qu'une estimation absurde sur le premier paquet.
+// Partagé par les DEUX surfaces qui affichent une progression : l'écran de chargement et la ligne
+// de préchargement d'arrière-plan.
 // A fenced code block with its own "copy code" button (copies just this block, not the whole
 // message). Local copied-state so each block's button is independent.
 
@@ -247,9 +258,15 @@ function App() {
   // + nouveau tour), O(nouveau) au lieu de O(historique entier) (~50-200 ms/message sur mobile).
   // `tok` = identité du tokenizer (changement de modèle → cache invalide). Voir handleSendMessage.
   const tokCacheRef = useRef<{ tok: unknown; prompt: string; tokens: number[] } | null>(null);
-  // Préchargement du modèle mobile en arrière-plan (voir l'effet dédié) : % en cours pour les
-  // tuiles, « déjà téléchargé » pour l'étiquette, contrôleur pour l'annulation.
-  const [prefetchPct, setPrefetchPct] = useState<number | null>(null);
+  // Préchargement du modèle mobile en arrière-plan (voir l'effet dédié) : avancement en cours pour
+  // les tuiles, « déjà téléchargé » pour l'étiquette, contrôleur pour l'annulation.
+  // On garde les OCTETS et non le pourcentage seul : c'est ce qui permet d'en tirer un débit et un
+  // temps restant (useTransferRate). Un « 63 % » qui n'avance pas ne dit pas s'il reste dix
+  // secondes ou dix minutes.
+  const [prefetchBytes, setPrefetchBytes] = useState<{ loaded: number; total: number; rate: TransferRate | null } | null>(null);
+  const prefetchRateWin = useRef<RateWindow>([]);
+  const prefetchPct = prefetchBytes ? Math.min(99, Math.round((prefetchBytes.loaded / prefetchBytes.total) * 100)) : null;
+  const prefetchRate = prefetchBytes?.rate ?? null;
   const [prefetchDone, setPrefetchDone] = useState(false);
   const prefetchCtl = useRef<AbortController | null>(null);
   const uiRestored = useRef(false);
@@ -1217,7 +1234,11 @@ function App() {
         const { prefetchBrik } = await import('@/lib/webgpu/source');
         const res = await prefetchBrik(
           MOBILE_BRIK_URL,
-          (p) => setPrefetchPct(Math.min(99, Math.round((p.doneBytes / p.totalBytes) * 100))),
+          (p) => setPrefetchBytes({
+            loaded: p.doneBytes,
+            total: p.totalBytes,
+            rate: sampleRate(prefetchRateWin.current, p.doneBytes, p.totalBytes),
+          }),
           ctl.signal,
         );
         if (res === 'done') setPrefetchDone(true);
@@ -1225,7 +1246,8 @@ function App() {
       } catch (e) {
         if (!ctl.signal.aborted) console.warn('[prefetch] préchargement interrompu — reprendra à la prochaine visite (les plages déjà en cache sont conservées)', e);
       } finally {
-        setPrefetchPct(null);
+        prefetchRateWin.current.length = 0;
+        setPrefetchBytes(null);
       }
     }, firstVisit ? 500 : 2500);
     return () => { clearTimeout(timer); ctl.abort(); };
@@ -1380,14 +1402,23 @@ function App() {
   const cancelPrefetch = () => {
     sessionStorage.setItem('brimkern-prefetch', 'off');
     prefetchCtl.current?.abort();
-    setPrefetchPct(null);
+    prefetchRateWin.current.length = 0;
+    setPrefetchBytes(null);
   };
 
   // Ligne de statut du préchargement, affichée dans les deux tuiles mobiles (sidebar + accueil).
   const prefetchStatus = (center: boolean) =>
     prefetchPct !== null ? (
-      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, justifyContent: center ? 'center' : 'flex-start', marginTop: center ? 8 : 0 }}>
-        <span>⬇ {t('Downloading the model in the background…', 'Téléchargement du modèle en arrière-plan…')} {prefetchPct}%</span>
+      // minHeight = deux lignes : avec l'ETA le libellé passe sur deux lignes dans une tuile de
+      // 390 px, sans elle sur une seule — et comme l'ETA n'apparaît qu'au bout de ~1 s (deux
+      // échantillons), le bloc sautait au démarrage et repoussait les boutons d'en dessous. Même
+      // correctif que la barre de chargement : réserver la place plutôt que raccourcir le texte,
+      // « en arrière-plan » étant précisément ce qui explique un téléchargement qu'on n'a pas demandé.
+      <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, justifyContent: center ? 'center' : 'flex-start', marginTop: center ? 8 : 0, minHeight: '26px' }}>
+        {/* ETA seule, sans le débit : la ligne vit dans une tuile à 10,5 px, et entre « 12,4 Mo/s »
+            et « ~2 min restantes » c'est la seconde qui répond à la question qu'on se pose. L'écran
+            de chargement, lui, a la place d'afficher les deux. */}
+        <span>⬇ {t('Downloading the model in the background…', 'Téléchargement du modèle en arrière-plan…')} {prefetchPct}%{prefetchRate ? ` · ${formatEta(prefetchRate.etaS)}` : ''}</span>
         <button
           onClick={cancelPrefetch}
           style={{ background: 'none', border: 'none', padding: 0, color: 'var(--text-muted)', textDecoration: 'underline', cursor: 'pointer', fontSize: '10.5px' }}
@@ -1537,28 +1568,7 @@ function App() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   };
 
-  // Débit + ETA de la barre de chargement — « 120 Mo / 359 Mo » sans vitesse ni temps restant est
-  // anxiogène sur un fichier de centaines de Mo. Fenêtre glissante de 8 s (le débit instantané HF
-  // fluctue trop pour une ETA lisible) ; reset quand la progression recule (nouvelle phase).
-  const rateSamples = useRef<{ t: number; loaded: number }[]>([]);
-  const [loadRate, setLoadRate] = useState<{ bps: number; etaS: number } | null>(null);
-  useEffect(() => {
-    if (!loadingProgress || !loadingProgress.total) { rateSamples.current = []; setLoadRate(null); return; }
-    const now = performance.now();
-    const s = rateSamples.current;
-    if (s.length && loadingProgress.loaded < s[s.length - 1].loaded) s.length = 0;
-    s.push({ t: now, loaded: loadingProgress.loaded });
-    while (s.length > 2 && now - s[0].t > 8000) s.shift();
-    if (s.length >= 2) {
-      const dt = (now - s[0].t) / 1000, db = loadingProgress.loaded - s[0].loaded;
-      if (dt > 0.5 && db > 0) {
-        const bps = db / dt;
-        setLoadRate({ bps, etaS: (loadingProgress.total - loadingProgress.loaded) / bps });
-        return;
-      }
-    }
-    setLoadRate(null);
-  }, [loadingProgress]);
+  const loadRate = loadingProgress?.rate ?? null;
   // « téléchargé / total » : l'unité n'est écrite qu'UNE fois quand elle est commune (le cas normal,
   // « 383,2 / 609,8 Mo »), sinon les deux (« 512 Ko / 1,2 Go » reste juste au début d'un gros
   // téléchargement). Un chiffre après la virgule suffit et la largeur ne bouge plus.
