@@ -431,7 +431,8 @@ function App() {
       const ok = await e.selfValidate();
       const gates = {
         hasF16: e.hasF16, f16SharedOk: e.f16SharedOk, attnDecodeOk: e.attnDecodeOk,
-        attnFullWgOk: e.attnFullWgOk, swaOk: e.swaOk, convTiledOk: e.convTiledOk,
+        attnPrefillOk: e.attnPrefillOk, attnFullWgOk: e.attnFullWgOk, swaOk: e.swaOk,
+        convTiledOk: e.convTiledOk,
       };
       const stage = e.validationFailure;
       e.destroy();

@@ -30,7 +30,25 @@ const FLAG = arg('flag', '');
 const MODEL = arg('model', 'Qwen/Qwen3-0.6B-GGUF');
 const SHOTS = Number(arg('shots', 3));
 if (!FLAG) { console.error('manque --flag=<nom du kill-switch> (ex. --flag=rmsvec)'); process.exit(2); }
-const QUESTION = 'Explain in three sentences why WebGPU matters for the web.';
+// --long=1 : prompt d'environ 500 tokens au lieu d'une phrase. INDISPENSABLE pour juger un
+// kill-switch qui touche le PREFILL — l'attention y croît en O(n²) quand le reste croît en O(n),
+// donc sur une question courte la ligne « PREFILL » ci-dessous bouge à peine, quel que soit le
+// kernel. Un banc court aurait classé « sans gain » un kernel qui divise le prefill par dix.
+const LONG = arg('long', '') === '1';
+const PAVE = (
+  'Here is a long technical brief that must be read in full before answering. '
+  + 'WebGPU exposes compute shaders to the browser, which makes it possible to run neural network '
+  + 'inference locally without any server round trip. The engine loads quantized weights, uploads '
+  + 'them once to GPU memory, and keeps them resident across generations so that only the KV cache '
+  + 'grows over time. Attention dominates the prefill phase on small models because every query '
+  + 'token must be scored against every preceding key, which is quadratic in the prompt length, '
+  + 'while the matrix multiplications stay linear. Memory bandwidth, not arithmetic, is the binding '
+  + 'constraint on most consumer hardware, so the winning optimizations are the ones that read less '
+  + 'rather than the ones that compute less. '
+).repeat(3);
+const QUESTION = LONG
+  ? PAVE + '\n\nGiven all of the above, answer in two short sentences: why does prompt length matter?'
+  : 'Explain in three sentences why WebGPU matters for the web.';
 
 const ctx = await chromium.launchPersistentContext(
   new URL('./chrome-profile', import.meta.url).pathname,

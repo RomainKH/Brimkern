@@ -161,6 +161,10 @@ export class WebGpuEngine {
 	// selfValidate si un driver rate le gate à forme réelle (les miscompiles mobiles existent —
 	// cf. top_k), ou forcé par ?attndecode=0 pour diagnostiquer sur appareil. Jamais bloquant.
 	attnDecodeOk = true;
+	// Santé du kernel attention_prefill (workgroup par tuile de 4 requêtes) : false → repli sur le
+	// kernel `attention` thread-par-tête, correct partout. Même contrat non bloquant que
+	// attnDecodeOk : posé par selfValidate sur formes réelles, ou forcé par ?attnprefill=0.
+	attnPrefillOk = true;
 	// Santé du kernel attention_full « workgroup par tête » (UNet/ViT, non causal) : false → repli
 	// sur le kernel thread-par-tête historique. Posé par validateDiffusion (gate non bloquant, motif
 	// convTiledOk), ou forcé par ?attnfullwg=0. Jamais bloquant.
@@ -274,6 +278,10 @@ export class WebGpuEngine {
 			if (urlFlag('attnfullwg') === '0') {
 				this.attnFullWgOk = false;
 				console.warn('[webgpu] attention_full workgroup COUPÉE par ?attnfullwg=0 — kernel classique');
+			}
+			if (urlFlag('attnprefill') === '0') {
+				this.attnPrefillOk = false;
+				console.warn('[webgpu] attention prefill tuilée COUPÉE par ?attnprefill=0 — kernel classique');
 			}
 			if (urlFlag('rmsvec') === '0') {
 				this.rmsVecOk = false;
@@ -793,6 +801,19 @@ export class WebGpuEngine {
 		return this.run('attention_decode', [p, this.buf(q, ST), this.buf(k, ST), this.buf(v, ST), out], [nTokens * nHeads, 1, 1], out, outBytes);
 	}
 
+	// Variante « prefill » (un workgroup de 64 lanes par tuile de 4 requêtes, softmax en ligne, K/V
+	// amortis sur les 4) — readback exposé pour selfValidate ; le chemin résident passe par
+	// recAttention. Le dispatch est en ⌈nTokens/4⌉ tuiles : la dernière est partielle.
+	async attentionPrefill(q: Float32Array, k: Float32Array, v: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0, window = 0): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const kvLen = pastLen + nTokens;
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
+		const outBytes = nTokens * nHeads * headDim * 4;
+		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('attention_prefill', [p, this.buf(q, ST), this.buf(k, ST), this.buf(v, ST), out], [Math.ceil(nTokens / 4) * nHeads, 1, 1], out, outBytes);
+	}
+
 	// Non-causal full attention (UNet self/cross-attention). q:[nTokens,nHeads,headDim], k/v:[kvLen,
 	// nKvHeads,headDim]; kvLen is independent of nTokens (cross-attn: kvLen = text length). Every query
 	// attends to all kvLen keys. Default scale 1/√headDim.
@@ -857,6 +878,18 @@ export class WebGpuEngine {
 		const outBytes = nTokens * nHeads * headDim * 4;
 		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('attention_decode_q8kv', [p, this.buf(q, ST), this.bufU32(kc, ST), this.buf(ks, ST), this.bufU32(vc, ST), this.buf(vs, ST), out], [nTokens * nHeads, 1, 1], out, outBytes);
+	}
+
+	// Variante « prefill » de attentionQ8Kv (workgroup par tuile de 4 requêtes) — readback pour
+	// selfValidate ; le chemin résident passe par recAttentionQ8.
+	async attentionQ8KvPrefill(q: Float32Array, kc: Uint32Array, ks: Float32Array, vc: Uint32Array, vs: Float32Array, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, pastLen = 0, scale?: number, softcap = 0, window = 0): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const kvLen = pastLen + nTokens;
+		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
+		const outBytes = nTokens * nHeads * headDim * 4;
+		const out = this.device.createBuffer({ size: outBytes, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('attention_prefill_q8kv', [p, this.buf(q, ST), this.bufU32(kc, ST), this.buf(ks, ST), this.bufU32(vc, ST), this.buf(vs, ST), out], [Math.ceil(nTokens / 4) * nHeads, 1, 1], out, outBytes);
 	}
 
 	// o[r, c] = x[r, c] + bias[c]. Used for Qwen2's q/k/v projection biases.
@@ -1874,13 +1907,18 @@ export class WebGpuEngine {
 	private recAttention(enc: GPUAny, trash: GPUAny[], q: GPUAny, k: GPUAny, v: GPUAny, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale?: number, softcap = 0, window = 0): GPUAny {
 		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const out = this.storage(nTokens * nHeads * headDim * 4);
-		// Décodage (peu de (token, tête) → l'ancien kernel n'occupait que nTokens·nHeads lanes) :
-		// un workgroup de 64 lanes PAR (token, tête), softmax en ligne — le coût par token restait
-		// linéaire en contexte mais tournait sur ~1 % du GPU (1 t/s mobile à contexte long). Le
-		// prefill (beaucoup de tokens) garde le kernel thread-par-tête, déjà bien parallèle.
-		// attnDecodeOk : repli automatique si le gate à forme réelle a échoué sur ce GPU (?attndecode=0 force).
+		// Trois kernels, une seule math. Décodage (peu de (token, tête) → l'ancien kernel n'occupait
+		// que nTokens·nHeads lanes) : un workgroup PAR (token, tête), softmax en ligne — le coût par
+		// token restait linéaire en contexte mais tournait sur ~1 % du GPU (1 t/s mobile à contexte
+		// long). Prefill : un workgroup par TUILE DE 4 REQUÊTES, qui amortit le balayage de K/V sur
+		// les 4 — là l'occupation n'a jamais manqué, c'est la réutilisation (attention mesurée à
+		// 60,5 % du prefill le 16/08). Repli commun sur le kernel thread-par-tête, correct partout.
+		// attnDecodeOk / attnPrefillOk : repli automatique si le gate à forme réelle a échoué sur ce
+		// GPU (?attndecode=0 et ?attnprefill=0 forcent, pour départager en A/B).
 		if (this.attnDecodeOk && nTokens * nHeads < 256 && headDim <= 128) {
 			this.recordPass(enc, 'attention_decode', [p, q, k, v, out], [nTokens * nHeads, 1, 1]);
+		} else if (this.attnPrefillOk && headDim <= 128) {
+			this.recordPass(enc, 'attention_prefill', [p, q, k, v, out], [Math.ceil(nTokens / 4) * nHeads, 1, 1]);
 		} else {
 			this.recordPass(enc, 'attention', [p, q, k, v, out], [Math.ceil((nTokens * nHeads) / WG), 1, 1]);
 		}
@@ -1898,9 +1936,13 @@ export class WebGpuEngine {
 	private recAttentionQ8(enc: GPUAny, trash: GPUAny[], q: GPUAny, kc: GPUAny, ks: GPUAny, vc: GPUAny, vs: GPUAny, nTokens: number, nHeads: number, nKvHeads: number, headDim: number, kvLen: number, pastLen: number, scale?: number, softcap = 0, window = 0): GPUAny {
 		const p = this.attnUniform(nTokens, nHeads, nKvHeads, headDim, kvLen, pastLen, scale ?? 1 / Math.sqrt(headDim), softcap, window);
 		const out = this.storage(nTokens * nHeads * headDim * 4);
-		// Même bascule décodage/prefill (+ repli attnDecodeOk) que recAttention — voir là-bas.
+		// Même bascule décodage/prefill (+ replis attnDecodeOk / attnPrefillOk) que recAttention —
+		// voir là-bas. Le tuilage compte encore plus ici : le cache int8 est le chemin des contextes
+		// LONGS, où le balayage de K/V est justement le poste dominant.
 		if (this.attnDecodeOk && nTokens * nHeads < 256 && headDim <= 128) {
 			this.recordPass(enc, 'attention_decode_q8kv', [p, q, kc, ks, vc, vs, out], [nTokens * nHeads, 1, 1]);
+		} else if (this.attnPrefillOk && headDim <= 128) {
+			this.recordPass(enc, 'attention_prefill_q8kv', [p, q, kc, ks, vc, vs, out], [Math.ceil(nTokens / 4) * nHeads, 1, 1]);
 		} else {
 			this.recordPass(enc, 'attention_q8kv', [p, q, kc, ks, vc, vs, out], [Math.ceil((nTokens * nHeads) / WG), 1, 1]);
 		}
@@ -3203,6 +3245,76 @@ export class WebGpuEngine {
 				const q = rand(nT * nH * hd), k = rand((past + nT) * nKv * hd), v = rand((past + nT) * nKv * hd);
 				if (!closeRel(await this.attentionDecode(q, k, v, nT, nH, nKv, hd, past),
 					attentionCpu(q, k, v, nT, nH, nKv, hd, past))) failSoft('decode.hd128');
+			}
+		}
+
+		// Attention « prefill » (workgroup par tuile de 4 requêtes, K/V amortis sur la tuile) — l'autre
+		// chemin chaud : la première réponse de chaque conversation. Gate NON BLOQUANT (motif
+		// attnDecodeOk) : un driver qui le rate repasse sur `attention`, plus lent, correct partout.
+		// Le risque propre à ce kernel est le TUILAGE, pas la math : une tuile mêle 4 requêtes qui
+		// n'ont ni la même borne causale ni la même fenêtre, et la dernière tuile est partielle. Les
+		// cas ci-dessous visent exactement ça — nTokens non multiple de 4 (37, 13, 9, 6, 5), tuile à
+		// une seule rangée vivante (nT=1, le cas où attnDecodeOk=false renvoie le décodage ici),
+		// multiple exact (nT=4), préfixe KV réutilisé (pastLen non multiple de 64), fenêtre glissante
+		// à cheval sur une tuile, softcap Gemma2 et headDim 128.
+		{
+			const failSoft = (stage: string): void => {
+				this.attnPrefillOk = false;
+				console.error('[selfValidate] attention prefill tuilée HS sur ce GPU (étape :', stage, ') → repli kernel classique (plus lent en prefill, correct)');
+			};
+			const cases = [
+				{ nT: 37, nH: 14, nKv: 2, hd: 64, past: 0, sc: undefined as number | undefined, cap: 0, win: 0 },
+				{ nT: 13, nH: 14, nKv: 2, hd: 64, past: 173, sc: undefined as number | undefined, cap: 0, win: 0 },
+				{ nT: 1, nH: 14, nKv: 2, hd: 64, past: 300, sc: undefined as number | undefined, cap: 0, win: 0 },
+				{ nT: 4, nH: 4, nKv: 2, hd: 32, past: 7, sc: undefined as number | undefined, cap: 0, win: 0 },
+				{ nT: 5, nH: 4, nKv: 2, hd: 32, past: 0, sc: undefined as number | undefined, cap: 0, win: 0 },
+				{ nT: 9, nH: 2, nKv: 1, hd: 128, past: 70, sc: undefined as number | undefined, cap: 0, win: 0 },
+				{ nT: 6, nH: 4, nKv: 2, hd: 8, past: 17, sc: 0.3 as number | undefined, cap: 5.0, win: 0 },
+			];
+			for (const c of cases) {
+				const kvLen = c.past + c.nT;
+				const q = rand(c.nT * c.nH * c.hd);
+				const k = rand(kvLen * c.nKv * c.hd);
+				const v = rand(kvLen * c.nKv * c.hd);
+				if (!closeRel(
+					await this.attentionPrefill(q, k, v, c.nT, c.nH, c.nKv, c.hd, c.past, c.sc, c.cap, c.win),
+					attentionCpu(q, k, v, c.nT, c.nH, c.nKv, c.hd, c.past, c.sc, c.cap, c.win),
+				)) { failSoft(`prefill(nT=${c.nT},hd=${c.hd},past=${c.past}${c.cap > 0 ? ',softcap' : ''})`); break; }
+			}
+			// Fenêtre glissante : le cas où les 4 rangées d'une tuile divergent le plus — chacune a son
+			// jStart. window ≥ contexte doit redonner l'attention pleine, window = 1 chaque requête
+			// seule avec elle-même. nT=10 → deux tuiles pleines + une partielle.
+			if (this.attnPrefillOk) {
+				const nT = 10, nH = 2, nKv = 1, hd = 4, past = 9, kvL = past + nT;
+				const qw = rand(nT * nH * hd), kw = rand(kvL * nKv * hd), vw = rand(kvL * nKv * hd);
+				for (const win of [1, 4, 8, 64]) {
+					if (!closeRel(
+						await this.attentionPrefill(qw, kw, vw, nT, nH, nKv, hd, past, undefined, 0, win),
+						attentionCpu(qw, kw, vw, nT, nH, nKv, hd, past, undefined, 0, win),
+					)) { failSoft(`prefill.window(${win})`); break; }
+				}
+			}
+			// Variante int8 (contextes longs) : comparée au kernel q8 thread-par-tête sur LES MÊMES
+			// codes — pas au CPU f32. C'est la seule comparaison qui isole le tuilage : opposer un
+			// kernel q8 à une référence f32 mesurerait surtout l'erreur de quantification, déjà
+			// bornée au gate `attention.q8kv` plus haut. Même découpe de cas (tuile partielle,
+			// préfixe réutilisé, fenêtre à cheval).
+			const casQ8 = [
+				{ nT: 37, nH: 14, nKv: 2, hd: 64, past: 0, win: 0 },
+				{ nT: 13, nH: 14, nKv: 2, hd: 64, past: 173, win: 0 },
+				{ nT: 10, nH: 2, nKv: 1, hd: 8, past: 9, win: 4 },
+			];
+			for (const c of casQ8) {
+				if (!this.attnPrefillOk) break;
+				const kvLen = c.past + c.nT;
+				const q = rand(c.nT * c.nH * c.hd);
+				const k = rand(kvLen * c.nKv * c.hd);
+				const v = rand(kvLen * c.nKv * c.hd);
+				const kq = await this.quantizeKvReadback(k, kvLen, c.nKv, c.hd);
+				const vq = await this.quantizeKvReadback(v, kvLen, c.nKv, c.hd);
+				const got = await this.attentionQ8KvPrefill(q, kq.codes, kq.scales, vq.codes, vq.scales, c.nT, c.nH, c.nKv, c.hd, c.past, undefined, 0, c.win);
+				const ref = await this.attentionQ8Kv(q, kq.codes, kq.scales, vq.codes, vq.scales, c.nT, c.nH, c.nKv, c.hd, c.past, undefined, 0, c.win);
+				if (!closeRel(got, ref, 5e-3)) { failSoft(`prefill.q8kv(nT=${c.nT},win=${c.win})`); break; }
 			}
 		}
 

@@ -2101,6 +2101,201 @@ export const SHADERS = {
 			for (var d = 0u; d < hd; d = d + 1u) { o[qBase + d] = o[qBase + d] * inv; }
 		}`,
 
+	// Attention « prefill » : un workgroup de 64 lanes par (TUILE DE 4 REQUÊTES, tête). Le kernel
+	// `attention` ci-dessus est bien parallèle en prefill (des milliers de threads) — ce n'est PAS
+	// l'occupation qui manquait, c'est la RÉUTILISATION. Mesuré le 16/08 sur un vrai prefill de 467
+	// tokens : l'attention pèse 60,5 % de la passe (8 994 µs/tir), devant les matmuls (28,1 %) — la
+	// croyance « matmuls ≈ 63 % » venait d'enveloppes relevées sur un 7B ; sur les petits modèles
+	// c'est l'inverse. En cause, le trafic mémoire : chaque thread relit TOUTE sa tranche de K deux
+	// fois (passe max, puis passe exp) et V une fois, POUR SA SEULE REQUÊTE. Sur les formes Qwen
+	// 0.5B (14 têtes, headDim 64, 467 tokens) ça fait ~1,5 Go relus pour une seule passe d'attention,
+	// soit ~14 ms au plafond mesuré de 106,9 GB/s — l'ordre de grandeur des 9 ms observées.
+	//
+	// Deux leviers, tous deux de pure réutilisation, aucun changement de math :
+	//   1. Softmax EN LIGNE (recette de attention_decode : max/somme courants ré-échelonnés par
+	//      tuile) → une seule passe sur K au lieu de deux.
+	//   2. TUILAGE DES REQUÊTES : les 4 requêtes de la tuile partagent le même balayage de K/V.
+	//      k[kB+d] et v[…+d] sont lus UNE fois par lane et versés dans les 4 rangées. C'est le
+	//      levier propre au prefill — en décodage il n'y a qu'une requête, donc rien à amortir, et
+	//      c'est pour ça que attention_decode ne le fait pas.
+	// Trafic attendu : (1 passe K + 1 passe V) ÷ 4 contre (2 passes K + 1 passe V) → ~6× moins.
+	//
+	// Contraintes héritées des kernels frères, pas négociables : headDim ≤ 128 (pas fixe de 128 dans
+	// `qs` ; garanti au dispatch TS), accumulateurs V en SCALAIRES NOMMÉS et non en tableau privé
+	// indexé dynamiquement (motif qui spille ou miscompile sur Adreno/Mali), et aucun retour anticipé
+	// — les barrières exigent un flux uniforme, le dispatch lance exactement ⌈nTokens/4⌉·nHeads
+	// workgroups. Les rangées qui dépassent nTokens (dernière tuile) participent au flux mais
+	// n'écrivent rien : leur masque les rend invisibles partout.
+	attention_prefill: `
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
+		@group(0) @binding(0) var<uniform> p: AP;
+		@group(0) @binding(1) var<storage, read> q: array<f32>;
+		@group(0) @binding(2) var<storage, read> k: array<f32>;
+		@group(0) @binding(3) var<storage, read> v: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		var<workgroup> qs: array<f32, 512>;  // 4 requêtes × pas fixe 128 (headDim ≤ 128)
+		var<workgroup> sc: array<f32, 256>;  // poids exp de la tuile : 4 rangées × 64 positions
+		var<workgroup> red: array<f32, 256>; // scratch de réduction — les 4 rangées réduites ENSEMBLE
+		fn score(dot: f32) -> f32 {
+			let s = dot * p.scale;
+			return select(s, p.softcap * tanh(s / p.softcap), p.softcap > 0.0);
+		}
+		// La position j est-elle visible par la rangée r de la tuile démarrant à t0 ? Les 4 requêtes
+		// d'une tuile n'ont NI la même borne causale NI la même fenêtre glissante — d'où un masque
+		// par rangée et non par tuile. (j + window < last + 1 : forme sans soustraction, u32 oblige.)
+		fn visible(r: u32, t0: u32, j: u32) -> bool {
+			let t = t0 + r;
+			if (t >= p.nTokens) { return false; }
+			let last = p.pastLen + t;
+			if (j > last) { return false; }
+			if (p.window > 0u && last + 1u > p.window && j + p.window < last + 1u) { return false; }
+			return true;
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let lane = lid.x;
+			// tête en dimension RAPIDE : les workgroups voisins partagent la tuile de requêtes et,
+			// en GQA, la même tête KV (ratio 7 sur Qwen 0.5B) — K/V restent chauds en L2.
+			let tile = wid.x / p.nHeads;
+			let h = wid.x % p.nHeads;
+			let t0 = tile * 4u;
+			let hd = p.headDim;
+			let kvh = h / (p.nHeads / p.nKvHeads); // grouped-query: map q-head → kv-head
+			let d0 = lane;
+			let d1 = lane + 64u;
+			// Les 4 requêtes en mémoire partagée : lues une fois, relues à CHAQUE position K balayée.
+			for (var r = 0u; r < 4u; r = r + 1u) {
+				var g0 = 0.0;
+				var g1 = 0.0;
+				if (t0 + r < p.nTokens) {
+					let qBase = ((t0 + r) * p.nHeads + h) * hd;
+					if (d0 < hd) { g0 = q[qBase + d0]; }
+					if (d1 < hd) { g1 = q[qBase + d1]; }
+				}
+				if (d0 < hd) { qs[r * 128u + d0] = g0; }
+				if (d1 < hd) { qs[r * 128u + d1] = g1; }
+			}
+			workgroupBarrier();
+			// Bornes du balayage de la TUILE : la dernière rangée valide fixe la fin, la rangée 0 —
+			// dont la fenêtre glissante démarre au plus tôt — fixe le début.
+			let lastMax = p.pastLen + min(t0 + 3u, p.nTokens - 1u);
+			let last0 = p.pastLen + t0;
+			var jStart = 0u;
+			if (p.window > 0u && last0 + 1u > p.window) { jStart = last0 + 1u - p.window; }
+			var m0 = -3.0e38; var m1 = -3.0e38; var m2 = -3.0e38; var m3 = -3.0e38;
+			var n0 = 0.0; var n1 = 0.0; var n2 = 0.0; var n3 = 0.0;
+			var a00 = 0.0; var a01 = 0.0; var a02 = 0.0; var a03 = 0.0;
+			var a10 = 0.0; var a11 = 0.0; var a12 = 0.0; var a13 = 0.0;
+			let vStride = p.nKvHeads * hd;
+			let nChunks = (lastMax - jStart + 64u) / 64u; // ⌈(lastMax-jStart+1)/64⌉ — ≥ 1
+			for (var c = 0u; c < nChunks; c = c + 1u) {
+				let j = jStart + c * 64u + lane;
+				// UNE position K par lane, QUATRE produits scalaires : k[kB+d] traverse la mémoire
+				// une seule fois et sert aux 4 rangées. Le gain du kernel est dans ces 4 lignes.
+				var p0 = 0.0; var p1 = 0.0; var p2 = 0.0; var p3 = 0.0;
+				if (j <= lastMax) {
+					let kB = (j * p.nKvHeads + kvh) * hd;
+					for (var d = 0u; d < hd; d = d + 1u) {
+						let kd = k[kB + d];
+						p0 = p0 + qs[d] * kd;
+						p1 = p1 + qs[128u + d] * kd;
+						p2 = p2 + qs[256u + d] * kd;
+						p3 = p3 + qs[384u + d] * kd;
+					}
+				}
+				let w0 = visible(0u, t0, j); let w1 = visible(1u, t0, j);
+				let w2 = visible(2u, t0, j); let w3 = visible(3u, t0, j);
+				var s0 = -3.0e38; if (w0) { s0 = score(p0); }
+				var s1 = -3.0e38; if (w1) { s1 = score(p1); }
+				var s2 = -3.0e38; if (w2) { s2 = score(p2); }
+				var s3 = -3.0e38; if (w3) { s3 = score(p3); }
+				// Les 4 rangées réduites dans le MÊME arbre : 6 barrières pour 4 softmax, pas 24.
+				red[lane] = s0; red[64u + lane] = s1; red[128u + lane] = s2; red[192u + lane] = s3;
+				workgroupBarrier();
+				for (var off = 32u; off > 0u; off = off >> 1u) {
+					if (lane < off) {
+						red[lane] = max(red[lane], red[lane + off]);
+						red[64u + lane] = max(red[64u + lane], red[64u + lane + off]);
+						red[128u + lane] = max(red[128u + lane], red[128u + lane + off]);
+						red[192u + lane] = max(red[192u + lane], red[192u + lane + off]);
+					}
+					workgroupBarrier();
+				}
+				let x0 = max(m0, red[0]); let x1 = max(m1, red[64u]);
+				let x2 = max(m2, red[128u]); let x3 = max(m3, red[192u]);
+				workgroupBarrier(); // red[*] lu par toutes les lanes avant réécriture
+				// Le masque force e = 0 : sans lui, une rangée dont TOUTE la tuile est masquée ferait
+				// exp(-3e38 − (−3e38)) = exp(0) = 1, un poids fantôme injecté dans la somme.
+				var e0 = 0.0; if (w0) { e0 = exp(s0 - x0); }
+				var e1 = 0.0; if (w1) { e1 = exp(s1 - x1); }
+				var e2 = 0.0; if (w2) { e2 = exp(s2 - x2); }
+				var e3 = 0.0; if (w3) { e3 = exp(s3 - x3); }
+				sc[lane] = e0; sc[64u + lane] = e1; sc[128u + lane] = e2; sc[192u + lane] = e3;
+				red[lane] = e0; red[64u + lane] = e1; red[128u + lane] = e2; red[192u + lane] = e3;
+				workgroupBarrier();
+				for (var off = 32u; off > 0u; off = off >> 1u) {
+					if (lane < off) {
+						red[lane] = red[lane] + red[lane + off];
+						red[64u + lane] = red[64u + lane] + red[64u + lane + off];
+						red[128u + lane] = red[128u + lane] + red[128u + lane + off];
+						red[192u + lane] = red[192u + lane] + red[192u + lane + off];
+					}
+					workgroupBarrier();
+				}
+				// alpha : m initial -3e38 → exp(0)=1 sur un accumulateur nul, ou exp(-inf)=0 dès que
+				// le max devient fini — écrase l'état vide sans jamais produire de NaN.
+				let b0 = exp(m0 - x0); let b1 = exp(m1 - x1);
+				let b2 = exp(m2 - x2); let b3 = exp(m3 - x3);
+				n0 = n0 * b0 + red[0]; n1 = n1 * b1 + red[64u];
+				n2 = n2 * b2 + red[128u]; n3 = n3 * b3 + red[192u];
+				m0 = x0; m1 = x1; m2 = x2; m3 = x3;
+				// Accumulation V, répartie par dimension : v[…+d] lu UNE fois par lane et versé dans
+				// les 4 rangées. nValid borne la tuile sur lastMax ; le masque PAR RANGÉE est déjà
+				// dans sc (poids nul), donc rien à re-tester ici.
+				let nValid = min(64u, lastMax + 1u - jStart - c * 64u);
+				let vRow0 = ((jStart + c * 64u) * p.nKvHeads + kvh) * hd;
+				if (d0 < hd) {
+					var y0 = a00 * b0; var y1 = a01 * b1; var y2 = a02 * b2; var y3 = a03 * b3;
+					for (var i = 0u; i < nValid; i = i + 1u) {
+						let vv = v[vRow0 + i * vStride + d0];
+						y0 = y0 + sc[i] * vv;
+						y1 = y1 + sc[64u + i] * vv;
+						y2 = y2 + sc[128u + i] * vv;
+						y3 = y3 + sc[192u + i] * vv;
+					}
+					a00 = y0; a01 = y1; a02 = y2; a03 = y3;
+				}
+				if (d1 < hd) {
+					var y0 = a10 * b0; var y1 = a11 * b1; var y2 = a12 * b2; var y3 = a13 * b3;
+					for (var i = 0u; i < nValid; i = i + 1u) {
+						let vv = v[vRow0 + i * vStride + d1];
+						y0 = y0 + sc[i] * vv;
+						y1 = y1 + sc[64u + i] * vv;
+						y2 = y2 + sc[128u + i] * vv;
+						y3 = y3 + sc[192u + i] * vv;
+					}
+					a10 = y0; a11 = y1; a12 = y2; a13 = y3;
+				}
+				workgroupBarrier(); // sc/red réutilisés à la tuile suivante
+			}
+			// Une rangée écrite par requête RÉELLE : la dernière tuile en compte moins de 4, et une
+			// rangée hors nTokens a n = 0 (donc a/n = NaN) — elle ne doit jamais atteindre o.
+			let oB = (t0 * p.nHeads + h) * hd;
+			let oStride = p.nHeads * hd;
+			if (d0 < hd) {
+				if (t0 < p.nTokens) { o[oB + d0] = a00 / n0; }
+				if (t0 + 1u < p.nTokens) { o[oB + oStride + d0] = a01 / n1; }
+				if (t0 + 2u < p.nTokens) { o[oB + 2u * oStride + d0] = a02 / n2; }
+				if (t0 + 3u < p.nTokens) { o[oB + 3u * oStride + d0] = a03 / n3; }
+			}
+			if (d1 < hd) {
+				if (t0 < p.nTokens) { o[oB + d1] = a10 / n0; }
+				if (t0 + 1u < p.nTokens) { o[oB + oStride + d1] = a11 / n1; }
+				if (t0 + 2u < p.nTokens) { o[oB + 2u * oStride + d1] = a12 / n2; }
+				if (t0 + 3u < p.nTokens) { o[oB + 3u * oStride + d1] = a13 / n3; }
+			}
+		}`,
+
 	// NON-causal full attention: every query attends to ALL kvLen keys (no t-based mask), and kvLen is
 	// independent of nTokens. Covers the UNet's spatial self-attention (kvLen == nTokens) AND its cross-
 	// attention to the text embeddings (kvLen == text length). Same q/k/v layout + score() as the causal
@@ -2531,6 +2726,183 @@ export const SHADERS = {
 			let inv = 1.0 / denom;
 			if (d0 < hd) { o[qBase + d0] = acc0 * inv; }
 			if (d1 < hd) { o[qBase + d1] = acc1 * inv; }
+		}`,
+
+	// Variante prefill de attention_q8kv : le TUILAGE DES REQUÊTES de attention_prefill (4 requêtes
+	// par workgroup, un seul balayage de K/V pour les quatre) appliqué au cache int8. C'est le chemin
+	// des CONTEXTES LONGS — et le trafic mémoire y est le seul sujet, donc c'est là que l'amortissement
+	// compte le plus, même si chaque octet lu vaut ¼ d'un f32.
+	//
+	// Déquantification fusionnée, exactement comme attention_decode_q8kv : le scale de K est constant
+	// sur headDim, il factorise donc HORS du produit scalaire (score = ks · Σ q·kcode) ; celui de V
+	// s'applique au poids. D'où les deux tampons — `red` porte le poids NU (le dénominateur le veut
+	// ainsi) et `sc` le poids DÉJÀ multiplié par le scale de V. Le scale de V dépend de la position j,
+	// pas de la rangée : les 4 rangées d'une tuile partagent donc le même facteur à chaque position,
+	// ce qui laisse le tuilage intact.
+	attention_prefill_q8kv: `
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
+		@group(0) @binding(0) var<uniform> p: AP;
+		@group(0) @binding(1) var<storage, read> q: array<f32>;
+		@group(0) @binding(2) var<storage, read> kc: array<u32>;
+		@group(0) @binding(3) var<storage, read> ks: array<f32>;
+		@group(0) @binding(4) var<storage, read> vc: array<u32>;
+		@group(0) @binding(5) var<storage, read> vs: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> o: array<f32>;
+		var<workgroup> qs: array<f32, 512>;  // 4 requêtes × pas fixe 128 (headDim ≤ 128)
+		var<workgroup> sc: array<f32, 256>;  // poids × scale de V : 4 rangées × 64 positions
+		var<workgroup> red: array<f32, 256>; // scratch de réduction — poids NU pour le dénominateur
+		fn sbyte(word: u32, b: u32) -> f32 { return f32(i32(word << ((3u - b) * 8u)) >> 24u); }
+		fn score(dot: f32) -> f32 {
+			let s = dot * p.scale;
+			return select(s, p.softcap * tanh(s / p.softcap), p.softcap > 0.0);
+		}
+		// Identique à attention_prefill : causalité + fenêtre glissante, PAR RANGÉE de la tuile.
+		fn visible(r: u32, t0: u32, j: u32) -> bool {
+			let t = t0 + r;
+			if (t >= p.nTokens) { return false; }
+			let last = p.pastLen + t;
+			if (j > last) { return false; }
+			if (p.window > 0u && last + 1u > p.window && j + p.window < last + 1u) { return false; }
+			return true;
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let lane = lid.x;
+			let tile = wid.x / p.nHeads;
+			let h = wid.x % p.nHeads;
+			let t0 = tile * 4u;
+			let hd = p.headDim;
+			let kvh = h / (p.nHeads / p.nKvHeads);
+			let kvDim = p.nKvHeads * hd;
+			let d0 = lane;
+			let d1 = lane + 64u;
+			for (var r = 0u; r < 4u; r = r + 1u) {
+				var g0 = 0.0;
+				var g1 = 0.0;
+				if (t0 + r < p.nTokens) {
+					let qBase = ((t0 + r) * p.nHeads + h) * hd;
+					if (d0 < hd) { g0 = q[qBase + d0]; }
+					if (d1 < hd) { g1 = q[qBase + d1]; }
+				}
+				if (d0 < hd) { qs[r * 128u + d0] = g0; }
+				if (d1 < hd) { qs[r * 128u + d1] = g1; }
+			}
+			workgroupBarrier();
+			let lastMax = p.pastLen + min(t0 + 3u, p.nTokens - 1u);
+			let last0 = p.pastLen + t0;
+			var jStart = 0u;
+			if (p.window > 0u && last0 + 1u > p.window) { jStart = last0 + 1u - p.window; }
+			var m0 = -3.0e38; var m1 = -3.0e38; var m2 = -3.0e38; var m3 = -3.0e38;
+			var n0 = 0.0; var n1 = 0.0; var n2 = 0.0; var n3 = 0.0;
+			var a00 = 0.0; var a01 = 0.0; var a02 = 0.0; var a03 = 0.0;
+			var a10 = 0.0; var a11 = 0.0; var a12 = 0.0; var a13 = 0.0;
+			let nChunks = (lastMax - jStart + 64u) / 64u;
+			for (var c = 0u; c < nChunks; c = c + 1u) {
+				let j = jStart + c * 64u + lane;
+				// Un octet de K déquantifié UNE fois, versé dans les 4 produits scalaires.
+				var p0 = 0.0; var p1 = 0.0; var p2 = 0.0; var p3 = 0.0;
+				if (j <= lastMax) {
+					let eb = j * kvDim + kvh * hd;
+					for (var d = 0u; d < hd; d = d + 1u) {
+						let e = eb + d;
+						let kd = sbyte(kc[e >> 2u], e & 3u);
+						p0 = p0 + qs[d] * kd;
+						p1 = p1 + qs[128u + d] * kd;
+						p2 = p2 + qs[256u + d] * kd;
+						p3 = p3 + qs[384u + d] * kd;
+					}
+					// Le scale de K factorise hors du produit scalaire : une multiplication, pas hd.
+					let kscale = ks[j * p.nKvHeads + kvh];
+					p0 = p0 * kscale; p1 = p1 * kscale; p2 = p2 * kscale; p3 = p3 * kscale;
+				}
+				let w0 = visible(0u, t0, j); let w1 = visible(1u, t0, j);
+				let w2 = visible(2u, t0, j); let w3 = visible(3u, t0, j);
+				var s0 = -3.0e38; if (w0) { s0 = score(p0); }
+				var s1 = -3.0e38; if (w1) { s1 = score(p1); }
+				var s2 = -3.0e38; if (w2) { s2 = score(p2); }
+				var s3 = -3.0e38; if (w3) { s3 = score(p3); }
+				red[lane] = s0; red[64u + lane] = s1; red[128u + lane] = s2; red[192u + lane] = s3;
+				workgroupBarrier();
+				for (var off = 32u; off > 0u; off = off >> 1u) {
+					if (lane < off) {
+						red[lane] = max(red[lane], red[lane + off]);
+						red[64u + lane] = max(red[64u + lane], red[64u + lane + off]);
+						red[128u + lane] = max(red[128u + lane], red[128u + lane + off]);
+						red[192u + lane] = max(red[192u + lane], red[192u + lane + off]);
+					}
+					workgroupBarrier();
+				}
+				let x0 = max(m0, red[0]); let x1 = max(m1, red[64u]);
+				let x2 = max(m2, red[128u]); let x3 = max(m3, red[192u]);
+				workgroupBarrier(); // red[*] lu par toutes les lanes avant réécriture
+				var e0 = 0.0; if (w0) { e0 = exp(s0 - x0); }
+				var e1 = 0.0; if (w1) { e1 = exp(s1 - x1); }
+				var e2 = 0.0; if (w2) { e2 = exp(s2 - x2); }
+				var e3 = 0.0; if (w3) { e3 = exp(s3 - x3); }
+				red[lane] = e0; red[64u + lane] = e1; red[128u + lane] = e2; red[192u + lane] = e3;
+				// Le scale de V fusionné DANS le poids : gardé par un if et NON par un select, qui
+				// évaluerait ses deux branches — or j dépasse kvLen sur la dernière tuile (leçon conv2d).
+				var vsc = 0.0;
+				if (j <= lastMax) { vsc = vs[j * p.nKvHeads + kvh]; }
+				sc[lane] = e0 * vsc; sc[64u + lane] = e1 * vsc;
+				sc[128u + lane] = e2 * vsc; sc[192u + lane] = e3 * vsc;
+				workgroupBarrier();
+				for (var off = 32u; off > 0u; off = off >> 1u) {
+					if (lane < off) {
+						red[lane] = red[lane] + red[lane + off];
+						red[64u + lane] = red[64u + lane] + red[64u + lane + off];
+						red[128u + lane] = red[128u + lane] + red[128u + lane + off];
+						red[192u + lane] = red[192u + lane] + red[192u + lane + off];
+					}
+					workgroupBarrier();
+				}
+				let b0 = exp(m0 - x0); let b1 = exp(m1 - x1);
+				let b2 = exp(m2 - x2); let b3 = exp(m3 - x3);
+				n0 = n0 * b0 + red[0]; n1 = n1 * b1 + red[64u];
+				n2 = n2 * b2 + red[128u]; n3 = n3 * b3 + red[192u];
+				m0 = x0; m1 = x1; m2 = x2; m3 = x3;
+				let nValid = min(64u, lastMax + 1u - jStart - c * 64u);
+				let vRow0 = (jStart + c * 64u) * kvDim + kvh * hd;
+				if (d0 < hd) {
+					var y0 = a00 * b0; var y1 = a01 * b1; var y2 = a02 * b2; var y3 = a03 * b3;
+					for (var i = 0u; i < nValid; i = i + 1u) {
+						let e4 = vRow0 + i * kvDim + d0;
+						let vv = sbyte(vc[e4 >> 2u], e4 & 3u);
+						y0 = y0 + sc[i] * vv;
+						y1 = y1 + sc[64u + i] * vv;
+						y2 = y2 + sc[128u + i] * vv;
+						y3 = y3 + sc[192u + i] * vv;
+					}
+					a00 = y0; a01 = y1; a02 = y2; a03 = y3;
+				}
+				if (d1 < hd) {
+					var y0 = a10 * b0; var y1 = a11 * b1; var y2 = a12 * b2; var y3 = a13 * b3;
+					for (var i = 0u; i < nValid; i = i + 1u) {
+						let e4 = vRow0 + i * kvDim + d1;
+						let vv = sbyte(vc[e4 >> 2u], e4 & 3u);
+						y0 = y0 + sc[i] * vv;
+						y1 = y1 + sc[64u + i] * vv;
+						y2 = y2 + sc[128u + i] * vv;
+						y3 = y3 + sc[192u + i] * vv;
+					}
+					a10 = y0; a11 = y1; a12 = y2; a13 = y3;
+				}
+				workgroupBarrier(); // sc/red réutilisés à la tuile suivante
+			}
+			let oB = (t0 * p.nHeads + h) * hd;
+			let oStride = p.nHeads * hd;
+			if (d0 < hd) {
+				if (t0 < p.nTokens) { o[oB + d0] = a00 / n0; }
+				if (t0 + 1u < p.nTokens) { o[oB + oStride + d0] = a01 / n1; }
+				if (t0 + 2u < p.nTokens) { o[oB + 2u * oStride + d0] = a02 / n2; }
+				if (t0 + 3u < p.nTokens) { o[oB + 3u * oStride + d0] = a03 / n3; }
+			}
+			if (d1 < hd) {
+				if (t0 < p.nTokens) { o[oB + d1] = a10 / n0; }
+				if (t0 + 1u < p.nTokens) { o[oB + oStride + d1] = a11 / n1; }
+				if (t0 + 2u < p.nTokens) { o[oB + 2u * oStride + d1] = a12 / n2; }
+				if (t0 + 3u < p.nTokens) { o[oB + 3u * oStride + d1] = a13 / n3; }
+			}
 		}`,
 
 	// Q4_K dequantization (GGML "k-quant"): super-blocks of 256 weights. Each block is

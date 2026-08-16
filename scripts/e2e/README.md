@@ -52,6 +52,37 @@ d'une passe l'isole, donc les passes **courtes et nombreuses** y sont surestimé
 choisir quoi regarder, trompeur pour annoncer un pourcentage — `top_k` y pesait 10,1 % et n'a rien
 rapporté une fois corrigé. Le juge reste `bench-decode.mjs`.
 
+### `profile-prefill.mjs` — où part le temps GPU du PREFILL
+
+Même instrument que `profile-decode.mjs`, braqué sur l'autre phase : la « lecture du prompt », celle
+qui fait attendre avant le premier mot. Deux précautions le distinguent, parce qu'un chat passe
+l'essentiel de son temps à décoder et qu'un rapport brut noie le prefill dedans : compteurs remis à
+zéro après un échange de chauffe, et lecture **par nom de kernel** (`attention_prefill` /
+`matmul_t_q8_shared` = prefill ; `attention_decode` / `matmul_t_q8_vec` = décodage).
+
+```bash
+node scripts/e2e/profile-prefill.mjs Qwen/Qwen3-0.6B-GGUF                  # le défaut
+node scripts/e2e/profile-prefill.mjs Qwen/Qwen3-0.6B-GGUF '&attnprefill=0' # le bras témoin
+```
+
+Il affiche la **longueur de prompt réellement vue par le moteur** à chaque tour. Ce n'est pas
+décoratif : c'est la preuve qu'on mesure bien un prefill long. Un prompt court ne dit rien de cette
+phase — l'attention y croît en O(n²) quand le reste croît en O(n).
+
+### `validate-kernels.mjs` — la boucle courte quand on écrit un kernel
+
+Fait tourner `window.__selfValidate()` : exactement la validation que subit tout chargement de
+modèle (chaque kernel contre sa référence CPU), mais **sans télécharger de modèle** — quelques
+secondes.
+
+```bash
+node scripts/e2e/validate-kernels.mjs
+```
+
+Il rend aussi l'état des **gates non bloquants**. C'est le piège à surveiller : un kernel faux ne
+fait pas échouer le chargement, il **disparaît** au profit d'un repli plus lent. Un gate à `false`
+est donc un échec, même quand la ligne de sortie dit « OK » — le script sort en code 1 dans ce cas.
+
 ### `rope-family.mjs` — non-régression des familles à RoPE « NORM »
 
 Charge Llama 3.2, Ministral 3 et SmolLM3, pose une question factuelle, et vérifie la réponse. Un
@@ -74,3 +105,15 @@ node scripts/e2e/rope-family.mjs '&ropenorm=0'  # l'ancien chemin, pour l'A/B
   génération s'enlise sans erreur.
 - **Ne jamais faire dépendre le verdict d'un compteur de messages** sans vérifier qu'il a bougé : une
   conversation restaurée fausse le compte, et le tir passe pour « abandonné ».
+- **« Une génération est finie » ne se lit pas sur le dernier message.** Le tour précédent porte déjà
+  son « Total : » en pied : guetter ce motif seul rend la main **immédiatement après l'envoi**. Le
+  banc file alors avant même le prefill et sort un rapport sans la moindre passe de prefill — qu'on
+  lit comme « ce kernel n'est jamais dispatché ». Compter les messages AVANT l'envoi, attendre le
+  (n+1)-ième. (Coût de la leçon : 2026-08-16, un faux diagnostic sur `attention_prefill`.)
+- **Adapter le prompt à la phase qu'on mesure.** `--long=1` sur `bench-decode.mjs` substitue un pavé
+  de ~500 tokens : sur une question courte, la ligne « PREFILL » ne bouge pas quel que soit le
+  kernel, et un banc court aurait classé « sans gain » un kernel qui divise le prefill par dix.
+- **Les verrous `Singleton*` du profil Chrome survivent à un banc interrompu.** Ils pointent alors un
+  PID mort, et le lancement suivant s'ouvre sur un profil qui n'est pas celui qu'on croit — donc sans
+  le cache du modèle (~1 Go). Le banc meurt sur un `waitForFunction: Timeout` qui accuse le moteur
+  alors que le coupable est un fichier de verrou. `chrome.mjs` les nettoie à l'import.
