@@ -113,6 +113,11 @@ node scripts/e2e/rope-family.mjs '&ropenorm=0'  # l'ancien chemin, pour l'A/B
 - **Adapter le prompt à la phase qu'on mesure.** `--long=1` sur `bench-decode.mjs` substitue un pavé
   de ~500 tokens : sur une question courte, la ligne « PREFILL » ne bouge pas quel que soit le
   kernel, et un banc court aurait classé « sans gain » un kernel qui divise le prefill par dix.
+- **Un modèle « thinking » fait expirer les tirs, pas échouer le moteur.** DeepSeek-R1 et Qwen3
+  dépensent un budget `<think>` (défaut `medium` = 700 tokens) qui s'AJOUTE à `maxTokens` : sur un 7B
+  à ~10 t/s, le tir frôle les 300 s d'attente du banc, et rend « tir abandonné (aucune réponse) » —
+  un échec de patience que rien ne distingue d'une panne. `--think=off` sur `bench-decode.mjs`
+  préremplit un `<think></think>` vide ; le prefill, lui, est inchangé. (2026-08-16, sur le 7B.)
 - **Les verrous `Singleton*` du profil Chrome survivent à un banc interrompu.** Ils pointent alors un
   PID mort, et le lancement suivant s'ouvre sur un profil qui n'est pas celui qu'on croit — donc sans
   le cache du modèle (~1 Go). Le banc meurt sur un `waitForFunction: Timeout` qui accuse le moteur

@@ -14,6 +14,7 @@
 //   --flag=<nom>     le kill-switch à comparer (rmsvec, topkpar, gemv, qshared…) — REQUIS
 //   --model=<id>     id de dépôt HF, ou une query complète « model=…&file=… » pour imposer un fichier
 //   --shots=<n>      générations par bras (défaut 3 ; monter à 4-6 si la variance domine)
+//   --think=<niv>    off|low|medium|high sur un modèle « thinking » (défaut : ne touche à rien)
 //
 // ⚠️ Lire la variance AVANT de conclure : sur un petit modèle les tirs s'étalent facilement de ±15 %,
 // et un écart de 2 % entre les bras ne veut alors rien dire. Le banc affiche tous les tirs pour ça.
@@ -29,6 +30,7 @@ const arg = (n, d) => (process.argv.find((a) => a.startsWith(`--${n}=`)) ?? `=${
 const FLAG = arg('flag', '');
 const MODEL = arg('model', 'Qwen/Qwen3-0.6B-GGUF');
 const SHOTS = Number(arg('shots', 3));
+const THINK = arg('think', '');
 if (!FLAG) { console.error('manque --flag=<nom du kill-switch> (ex. --flag=rmsvec)'); process.exit(2); }
 // --long=1 : prompt d'environ 500 tokens au lieu d'une phrase. INDISPENSABLE pour juger un
 // kill-switch qui touche le PREFILL — l'attention y croît en O(n²) quand le reste croît en O(n),
@@ -68,6 +70,27 @@ async function arm(label, extraQuery) {
   const q = MODEL.includes('=') ? MODEL : `model=${encodeURIComponent(MODEL)}`;
   await page.goto(`http://localhost:3618/chat?${q}${extraQuery}&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => { const ta = document.querySelector('textarea'); return ta && !ta.disabled; }, null, { timeout: 900_000, polling: 1000 });
+  // Modèles « thinking » (arch deepseek / qwen3) : le budget <think> par défaut (medium = 700
+  // tokens) s'AJOUTE à maxTokens. Sur un 7B à ~10 t/s le tir frôle puis dépasse les 300 s d'attente
+  // ci-dessous, et le banc rend « tir abandonné (aucune réponse) » — un échec de PATIENCE que rien
+  // ne distingue d'un moteur en panne. `--think=off` préremplit un <think></think> vide : le modèle
+  // répond directement, le tir retombe à quelques secondes, et le PREFILL — la seule chose que ce
+  // banc juge quand on compare un kernel de prefill — est rigoureusement inchangé.
+  // À refaire à CHAQUE bras : chaque bras recharge la page, et le réglage repart à `medium`.
+  if (THINK) {
+    // Le sélecteur n'est monté que pour ces archs ET une fois le modèle prêt — d'où le placement
+    // après l'attente ci-dessus. On le reconnaît à ses options plutôt qu'à une classe : c'est le
+    // seul <select> de la page qui propose à la fois « off » et « medium ».
+    const sel = page.locator('select').filter({ has: page.locator('option[value="off"]') })
+                    .filter({ has: page.locator('option[value="medium"]') });
+    if (await sel.count() === 0) { say(`   ✗ sélecteur de réflexion absent — modèle non « thinking » ? bras ${label} abandonné`); return null; }
+    await sel.selectOption(THINK);
+    // Vérifier la RELECTURE, jamais le clic : un commutateur qui ne commute rien ferait mesurer
+    // l'inverse de ce qu'on croit mesurer, sans rien dire.
+    const got = await sel.inputValue();
+    if (got !== THINK) { say(`   ✗ réflexion « ${THINK} » non appliquée (lue : ${got}) — bras ${label} abandonné`); return null; }
+    say(`   réflexion : ${got}`);
+  }
   const rates = [];
   for (let i = 0; i < SHOTS; i++) {
     const before = await page.evaluate(() => document.querySelectorAll('.message.assistant').length);
@@ -117,6 +140,12 @@ const off1 = await arm(`AVANT (?${FLAG}=0)`, `&${FLAG}=0`);
 const on1 = await arm('APRÈS (défaut)', '');
 const off2 = await arm('AVANT (2e passage)', `&${FLAG}=0`);
 const on2 = await arm('APRÈS (2e passage)', '');
+
+// Un bras rendu `null` (réglage de réflexion impossible) ou sans une seule médiane rendrait ici un
+// TypeError nu, à trente lignes de la vraie cause. On le dit, et on sort.
+const bras = { 'AVANT 1': off1, 'APRÈS 1': on1, 'AVANT 2': off2, 'APRÈS 2': on2 };
+const morts = Object.entries(bras).filter(([, b]) => !b || b.decodeMed === undefined).map(([n]) => n);
+if (morts.length) { say(`\n✗ bras sans mesure : ${morts.join(', ')} — pas de verdict`); await ctx.close(); process.exit(1); }
 
 const offMed = (off1.decodeMed + off2.decodeMed) / 2;
 const onMed = (on1.decodeMed + on2.decodeMed) / 2;
