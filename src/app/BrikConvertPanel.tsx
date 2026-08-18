@@ -88,7 +88,7 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 			setProg(null);
 			engine = new WebGpuEngine();
 			const ok = await engine.init();
-			if (!ok) throw new Error(t('WebGPU unavailable — enable hardware acceleration or use Chrome.', "WebGPU indisponible — activez l'accélération matérielle ou utilisez Chrome."));
+			if (!ok) throw new Error(t('WebGPU unavailable: enable hardware acceleration or use Chrome.', "WebGPU indisponible : activez l'accélération matérielle ou utilisez Chrome."));
 
 			const gguf = await parseGguf(blob);
 			const tok = tokenizerPresets.find((t) => t.id === tokenizerId) ?? tokenizerPresets[0];
@@ -247,15 +247,15 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 			<div className="input-group">
 				<span className="input-label">{t('Conversion profile:', 'Profil de conversion :')}</span>
 				<select className="input-control" aria-label={t('Conversion profile', 'Profil de conversion')} value={weightDType} onChange={(e) => setWeightDType(e.target.value as WeightDType)} disabled={blocked}>
-					<option value="f16">{t('Quality — f16 (heavier)', 'Qualité — f16 (plus lourd)')}</option>
-					<option value="q8">{t('Balanced ★ — int8 (recommended)', 'Équilibré ★ — int8 (recommandé)')}</option>
-					<option value="mixed">{t('Mixed — int4 + int8 attention (small models)', 'Mixte — int4 + attention int8 (petits modèles)')}</option>
-					<option value="q4">{t('Light — int4 (big models)', 'Léger — int4 (gros modèles)')}</option>
+					<option value="f16">{t('Quality: f16 (heavier)', 'Qualité : f16 (plus lourd)')}</option>
+					<option value="q8">{t('Balanced ★: int8 (recommended)', 'Équilibré ★ : int8 (recommandé)')}</option>
+					<option value="mixed">{t('Mixed: int4 + int8 attention (small models)', 'Mixte : int4 + attention int8 (petits modèles)')}</option>
+					<option value="q4">{t('Light: int4 (big models)', 'Léger : int4 (gros modèles)')}</option>
 				</select>
 				<span style={{ ...labelStyle, marginTop: 2 }}>
 					{weightDType === 'f16' && t('Maximum quality: f16 weights, read natively in VRAM. Heaviest file.', 'Qualité maximale : poids en f16, lecture native en VRAM. Fichier le plus lourd.')}
 					{weightDType === 'q8' && t('Recommended: near-identical quality to f16 at ~half the size (int8 dequantized on the fly).', 'Recommandé : qualité quasi-identique au f16 pour ~la moitié de la taille (int8 déquant à la volée).')}
-					{weightDType === 'mixed' && t('Nearly as small as int4, but the attention stays int8 — avoids the incoherence full int4 causes on small models.', "Presque aussi compact que l'int4, mais l'attention reste en int8 — évite l'incohérence que l'int4 intégral cause aux petits modèles.")}
+					{weightDType === 'mixed' && t('Nearly as small as int4, but the attention stays int8: avoids the incoherence full int4 causes on small models.', "Presque aussi compact que l'int4, mais l'attention reste en int8 : évite l'incohérence que l'int4 intégral cause aux petits modèles.")}
 					{weightDType === 'q4' && t('The most compact (~¼ the size) → fits bigger models. Slight quality loss.', 'Le plus compact (~¼ de la taille) → permet de plus gros modèles. Légère perte de qualité.')}
 				</span>
 			</div>
@@ -264,7 +264,7 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 			<div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', background: 'rgba(245,158,11,0.08)', border: '1px solid var(--warning)', borderRadius: '8px', padding: '8px 10px' }}>
 				<AlertTriangle size={13} style={{ color: 'var(--warning)', flexShrink: 0, marginTop: '1px' }} />
 				<span style={{ fontSize: '10.5px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-					{t('Conversion keeps the whole model in f16 in memory — the tab may freeze for a while. Reserved for small/medium models.', "La conversion garde tout le modèle en f16 en mémoire — l'onglet peut se figer un moment. Réservé aux petits/moyens modèles.")}
+					{t('Conversion keeps the whole model in f16 in memory: the tab may freeze for a while. Reserved for small/medium models.', "La conversion garde tout le modèle en f16 en mémoire : l'onglet peut se figer un moment. Réservé aux petits/moyens modèles.")}
 				</span>
 			</div>
 
@@ -292,7 +292,7 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 			{phase === 'done' && result && (
 				<div className="card" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
 					<div style={{ fontSize: '11.5px', color: 'var(--text-primary)', fontWeight: 600 }}>
-						{t('✦ BRIK ready —', '✦ BRIK prêt —')} {result.shards.length} shard(s), {formatBytes(totalShardBytes(result))}
+						{t('✦ BRIK ready, ', '✦ BRIK prêt, ')} {result.shards.length} shard(s), {formatBytes(totalShardBytes(result))}
 					</div>
 					<div style={{ display: 'flex', gap: '6px' }}>
 						{onLoadBrik && (

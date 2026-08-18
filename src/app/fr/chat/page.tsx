@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { SITE_URL } from '@/lib/site';
 
 export const metadata: Metadata = {
-  title: 'Chat — Brimkern',
+  title: 'Chat | Brimkern',
   description: 'Chargez un modèle GGUF et discutez avec lui sur votre propre GPU, entièrement dans votre navigateur.',
   alternates: {
     canonical: `${SITE_URL}/fr/chat`,

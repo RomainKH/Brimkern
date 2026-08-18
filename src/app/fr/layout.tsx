@@ -9,7 +9,7 @@ import { SITE_URL } from '@/lib/site';
 // Ce LocaleProvider est imbriqué dans celui du layout racine (anglais) : le contexte le plus PROCHE
 // gagne, donc /fr/* est français sans toucher au reste de l'arborescence.
 export const metadata: Metadata = {
-  title: 'Brimkern — Moteur LLM WebGPU 100 % local dans le navigateur',
+  title: 'Brimkern : Moteur LLM WebGPU 100 % local dans le navigateur',
   description:
     "Exécutez n'importe quel GGUF mono-fichier de Hugging Face directement dans votre navigateur : accélération WebGPU, kernels WGSL maison, sans serveur, sans clé d'API, hors-ligne après le premier chargement.",
   alternates: {
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     languages: { en: SITE_URL, fr: `${SITE_URL}/fr`, 'x-default': SITE_URL },
   },
   openGraph: {
-    title: 'Brimkern — Moteur LLM WebGPU 100 % local',
+    title: 'Brimkern: Moteur LLM WebGPU 100 % local',
     description: "Exécutez des modèles GGUF sur VOTRE GPU, dans un onglet. Aucun serveur, aucun envoi de fichier, aucune clé d'API.",
     url: `${SITE_URL}/fr`,
     siteName: 'Brimkern',

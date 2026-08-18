@@ -81,7 +81,7 @@ export default function ConvertClient() {
 				{t('BRIK conversion', 'Conversion BRIK')}
 			</h1>
 			<p style={{ color: 'var(--text-secondary)', fontSize: 15, margin: '0 0 32px' }}>
-				{t('Repacks a GGUF as ', 'Repacke un GGUF en ')}<strong>BRIK</strong>{t(' — our web format (single file, aligned tensors, int8/int4 quants dequantized on the GPU). Lighter to download, faster to run, and above all', ' — notre format web (fichier unique, tenseurs alignés, quants int8/int4 déquantifiés dans le GPU). Plus léger à télécharger, plus rapide à exécuter, et surtout')}
+				{t('Repacks a GGUF as ', 'Repacke un GGUF en ')}<strong>BRIK</strong>{t(': our web format (single file, aligned tensors, int8/int4 quants dequantized on the GPU). Lighter to download, faster to run, and above all', ' : notre format web (fichier unique, tenseurs alignés, quants int8/int4 déquantifiés dans le GPU). Plus léger à télécharger, plus rapide à exécuter, et surtout')}
 				<strong>{t(' instant loading', ' chargement instantané')}</strong>{t(': already quantized on disk, a BRIK goes straight to VRAM, skipping the conversion a GGUF redoes on every open.', " : déjà quantifié sur le disque, le BRIK monte direct en VRAM, sans la conversion qu'un GGUF refait à chaque ouverture.")}
 			</p>
 

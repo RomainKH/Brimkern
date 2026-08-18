@@ -30,8 +30,8 @@ export default function LocalAiClient() {
       Icon: ShieldCheck,
       title: t('Private by design', 'Privé par construction'),
       body: t(
-        'The data never leaves the browser. Nothing transits through us — a decisive argument for privacy-sensitive sites (health, legal, HR).',
-        "Les données ne quittent jamais le navigateur. Rien ne transite par nous — un argument décisif pour les sites sensibles (santé, juridique, RH).",
+        'The data never leaves the browser. Nothing transits through us: a decisive argument for privacy-sensitive sites (health, legal, HR).',
+        "Les données ne quittent jamais le navigateur. Rien ne transite par nous : un argument décisif pour les sites sensibles (santé, juridique, RH).",
       ),
     },
     {
@@ -46,8 +46,8 @@ export default function LocalAiClient() {
       Icon: MessageSquareText,
       title: t('Shaped by a prompt', 'Façonnée par un prompt'),
       body: t(
-        'You define what the AI does with a predefined instruction — its role, its logic, its guardrails. No fine-tuning, no data scientist required.',
-        "Vous définissez ce que fait l'IA avec une consigne prédéfinie — son rôle, sa logique, ses garde-fous. Pas de fine-tuning, pas de data scientist requis.",
+        'You define what the AI does with a predefined instruction: its role, its logic, its guardrails. No fine-tuning, no data scientist required.',
+        "Vous définissez ce que fait l'IA avec une consigne prédéfinie : son rôle, sa logique, ses garde-fous. Pas de fine-tuning, pas de data scientist requis.",
       ),
     },
   ];
@@ -57,8 +57,8 @@ export default function LocalAiClient() {
       'Posez une balise <script> et écrivez la consigne qui façonne l’assistant.'),
     t('On first use, a lightweight model streams from a CDN and caches on the device (then it’s instant, even offline).',
       'À la première utilisation, un modèle léger streame depuis un CDN et se met en cache sur l’appareil (ensuite c’est instantané, même hors ligne).'),
-    t('Every prompt runs on the visitor’s GPU through our WebGPU kernels — nothing is sent anywhere.',
-      'Chaque requête tourne sur le GPU du visiteur via nos kernels WebGPU — rien n’est envoyé où que ce soit.'),
+    t('Every prompt runs on the visitor’s GPU through our WebGPU kernels: nothing is sent anywhere.',
+      'Chaque requête tourne sur le GPU du visiteur via nos kernels WebGPU : rien n’est envoyé où que ce soit.'),
   ];
 
   const useCases = [
@@ -89,8 +89,8 @@ export default function LocalAiClient() {
           {t('For websites', 'Pour les sites web')}
         </span>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 42, fontWeight: 800, lineHeight: 1.1, margin: '10px 0 14px', color: 'var(--text-primary)' }}>
-          {t('The power of AI — on your visitors’ machine, at no extra cost.',
-            "La force d'une IA — sur la machine de vos visiteurs, sans coût supplémentaire.")}
+          {t('The power of AI: on your visitors’ machine, at no extra cost.',
+            "La force d'une IA : sur la machine de vos visiteurs, sans coût supplémentaire.")}
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 17, lineHeight: 1.55, margin: '0 0 22px', maxWidth: 680 }}>
           {t('Embed an assistant that runs entirely in the browser, on the visitor’s own GPU. No server, no per-token bill, no data leaving the device. You shape what it does with a single prompt.',
@@ -147,8 +147,8 @@ export default function LocalAiClient() {
         {t('What it’s great at', 'Ce qu’elle fait très bien')}
       </h2>
       <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 18px' }}>
-        {t('A light on-device model shines on scoped tasks — the ones a good prompt fully defines:',
-          "Un modèle léger on-device brille sur les tâches cadrées — celles qu'un bon prompt définit entièrement :")}
+        {t('A light on-device model shines on scoped tasks. The ones a good prompt fully defines:',
+          "Un modèle léger on-device brille sur les tâches cadrées. Celles qu'un bon prompt définit entièrement :")}
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {useCases.map((u) => (
@@ -158,11 +158,11 @@ export default function LocalAiClient() {
 
       {/* Embarquer — le SDK v0 est livré : snippet réel + lien démo */}
       <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)' }}>
-        {t('Embed it on your site — SDK v0', 'Embarquez-la sur votre site — SDK v0')}
+        {t('Embed it on your site: SDK v0', 'Embarquez-la sur votre site : SDK v0')}
       </h2>
       <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: '0 0 14px', maxWidth: 680 }}>
-        {t('The SDK is live. One script tag mounts the assistant; a prompt shapes it. The model only downloads when a visitor opens the widget — your page score is untouched.',
-          'Le SDK est disponible. Une balise script monte l’assistant ; un prompt le façonne. Le modèle ne se télécharge que quand un visiteur ouvre le widget — le score de votre page reste intact.')}
+        {t('The SDK is live. One script tag mounts the assistant; a prompt shapes it. The model only downloads when a visitor opens the widget: your page score is untouched.',
+          'Le SDK est disponible. Une balise script monte l’assistant ; un prompt le façonne. Le modèle ne se télécharge que quand un visiteur ouvre le widget : le score de votre page reste intact.')}
       </p>
       {/* tabIndex/role : une zone qui DÉFILE doit être atteignable au clavier (axe
           scrollable-region-focusable) — sinon le snippet est illisible sans souris sur mobile. */}
@@ -179,8 +179,8 @@ export default function LocalAiClient() {
           {t('See a live integration', 'Voir une intégration live')} <ArrowRight size={15} />
         </a>
         <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
-          {t('v0 — chat widget, LFM2 .brik model URL, colors & wording, few-shot examples, and knowledge documents (answers from YOUR content, selected locally, nothing sent anywhere). Tools are next. On the default 230M model, keep notes short and factual: it quotes them well, but it can mix up two numbers sitting in the same paragraph.',
-            'v0 — widget de chat, URL de modèle LFM2 .brik, couleurs & libellés, exemples few-shot, et documents de connaissance (il répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). Les outils arrivent ensuite. Sur le modèle 230M par défaut, gardez des notes courtes et factuelles : il les cite bien, mais il peut confondre deux nombres présents dans le même paragraphe.')}
+          {t('v0: chat widget, LFM2 .brik model URL, colors & wording, few-shot examples, and knowledge documents (answers from YOUR content, selected locally, nothing sent anywhere). Tools are next. On the default 230M model, keep notes short and factual: it quotes them well, but it can mix up two numbers sitting in the same paragraph.',
+            'v0 : widget de chat, URL de modèle LFM2 .brik, couleurs & libellés, exemples few-shot, et documents de connaissance (il répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). Les outils arrivent ensuite. Sur le modèle 230M par défaut, gardez des notes courtes et factuelles : il les cite bien, mais il peut confondre deux nombres présents dans le même paragraphe.')}
         </span>
       </p>
 
@@ -192,8 +192,8 @@ export default function LocalAiClient() {
             {t('Our own engine, not a black box', 'Notre propre moteur, pas une boîte noire')}
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: 0 }}>
-            {t('Hand-written WebGPU kernels run the model; weights ship in our compact BRIK format, quantized down to int3 and streamed in seconds, then cached. A model is picked to fit — the loader even reads the visitor’s GPU and connection to recommend the right one.',
-              "Des kernels WebGPU maison exécutent le modèle ; les poids sont livrés dans notre format compact BRIK, quantifiés jusqu'en int3 et streamés en secondes, puis mis en cache. Le modèle est choisi pour tenir — le chargeur lit même le GPU et la connexion du visiteur pour recommander le bon.")}
+            {t('Hand-written WebGPU kernels run the model; weights ship in our compact BRIK format, quantized down to int3 and streamed in seconds, then cached. A model is picked to fit: the loader even reads the visitor’s GPU and connection to recommend the right one.',
+              "Des kernels WebGPU maison exécutent le modèle ; les poids sont livrés dans notre format compact BRIK, quantifiés jusqu'en int3 et streamés en secondes, puis mis en cache. Le modèle est choisi pour tenir : le chargeur lit même le GPU et la connexion du visiteur pour recommander le bon.")}
           </p>
         </div>
       </div>
@@ -201,13 +201,13 @@ export default function LocalAiClient() {
       {/* Note honnête */}
       <p style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontSize: 12.5, marginTop: 26, lineHeight: 1.5 }}>
         <WifiOff size={14} style={{ flexShrink: 0 }} />
-        {t('Runs in modern browsers with WebGPU (Chrome, Edge, Safari, Firefox). Best for well-scoped tasks — not open-ended reasoning. First load downloads the model once; every visit after is instant and offline-capable.',
-          "Fonctionne dans les navigateurs modernes avec WebGPU (Chrome, Edge, Safari, Firefox). Idéal pour des tâches bien cadrées — pas du raisonnement ouvert. Le premier chargement télécharge le modèle une fois ; ensuite chaque visite est instantanée et disponible hors ligne.")}
+        {t('Runs in modern browsers with WebGPU (Chrome, Edge, Safari, Firefox). Best for well-scoped tasks: not open-ended reasoning. First load downloads the model once; every visit after is instant and offline-capable.',
+          "Fonctionne dans les navigateurs modernes avec WebGPU (Chrome, Edge, Safari, Firefox). Idéal pour des tâches bien cadrées : pas du raisonnement ouvert. Le premier chargement télécharge le modèle une fois ; ensuite chaque visite est instantanée et disponible hors ligne.")}
       </p>
 
       <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 28 }}>
-        {t('Brimkern — local WebGPU inference. The embeddable SDK (v0) is live and free — the engine is open source (MIT).',
-          "Brimkern — inférence WebGPU locale. Le SDK embarquable (v0) est disponible et gratuit — le moteur est open source (MIT).")}
+        {t('Brimkern: local WebGPU inference. The embeddable SDK (v0) is live and free: the engine is open source (MIT).',
+          "Brimkern : inférence WebGPU locale. Le SDK embarquable (v0) est disponible et gratuit : le moteur est open source (MIT).")}
       </p>
       <ByLine />
     </main>

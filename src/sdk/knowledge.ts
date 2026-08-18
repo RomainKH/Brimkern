@@ -152,12 +152,12 @@ export function buildKnowledgeBlock(chunks: Chunk[]): string {
 		// (« You have 30 days to return… »). À cette taille, l'appariement se fait sur la surface :
 		// deux débuts identiques suffisent à faire suivre le mauvais exemple. Mesuré, puis corrigé en
 		// changeant l'attaque de la phrase.
-		return '\n\nNo reference note matches this question. Say that you do not have this information — do not guess.';
+		return '\n\nNo reference note matches this question. Say that you do not have this information: do not guess.';
 	}
 	const notes = chunks
 		.map((c, i) => `[${i + 1}]${c.title ? ` ${c.title}` : ''}\n${c.text}`)
 		.join('\n\n');
-	return `\n\nAnswer using ONLY the reference notes below. If the answer is not in them, say you do not have that information — never fill the gap with what you assume.\n\n--- NOTES ---\n${notes}\n--- END OF NOTES ---`;
+	return `\n\nAnswer using ONLY the reference notes below. If the answer is not in them, say you do not have that information: never fill the gap with what you assume.\n\n--- NOTES ---\n${notes}\n--- END OF NOTES ---`;
 }
 
 /** Normalise ce que l'intégrateur passe : une chaîne, un objet, ou un mélange des deux. */

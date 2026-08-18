@@ -145,7 +145,7 @@ export default function LocalAiDemo() {
         if (uc.mustAppearInInput) {
           const mail = ans.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0];
           if (mail && input.toLowerCase().includes(mail.toLowerCase())) setOutput(mail);
-          else setOutput(uc.notFound || '—');
+          else setOutput(uc.notFound || ', ');
         } else setOutput(ans);
       }
       setPhase('ready');
@@ -164,10 +164,10 @@ export default function LocalAiDemo() {
   return (
     <div id="demo" style={{ marginTop: 48, scrollMarginTop: 20 }}>
       <div style={{ borderTop: '2px solid var(--accent)', paddingTop: 20 }}>
-        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>{t('Live demo — runs on your GPU', 'Démo live — tourne sur ton GPU')}</span>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '8px 0 6px' }}>{t('Try it — classify, extract & chat, on your GPU', 'Essaie — classer, extraire & discuter, sur ton GPU')}</h2>
+        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>{t('Live demo: runs on your GPU', 'Démo live : tourne sur ton GPU')}</span>
+        <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '8px 0 6px' }}>{t('Try it: classify, extract & chat, on your GPU', 'Essaie : classer, extraire & discuter, sur ton GPU')}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 16px' }}>
-          {t('An ultra-light model (LFM2.5 230M) classifies, extracts and chats — in French too — shaped by a prompt, running entirely in your browser (no server). First run downloads it once (~149 MB), then it’s cached & offline.', 'Un modèle ultra-léger (LFM2.5 230M) classe, extrait et discute — même en français — façonné par un prompt, tournant entièrement dans ton navigateur (sans serveur). La 1ʳᵉ fois il se télécharge (~149 Mo), ensuite c’est en cache & hors ligne.')}
+          {t('An ultra-light model (LFM2.5 230M) classifies, extracts and chats: in French too. Shaped by a prompt, running entirely in your browser (no server). First run downloads it once (~149 MB), then it’s cached & offline.', 'Un modèle ultra-léger (LFM2.5 230M) classe, extrait et discute : même en français. Façonné par un prompt, tournant entièrement dans ton navigateur (sans serveur). La 1ʳᵉ fois il se télécharge (~149 Mo), ensuite c’est en cache & hors ligne.')}
         </p>
       </div>
 

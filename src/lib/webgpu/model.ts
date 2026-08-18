@@ -162,11 +162,11 @@ export class CustomWebModel {
 		const t = this.manifest.tensors[name];
 		// Q3W inclus : ses plans de bits (q3web) ne sont pas non plus dé-permutables par lignes — sans
 		// cette garde, un BRIK q3 de llama passait et sortait des poids CORROMPUS sans erreur.
-		if (t.type === 'Q8W' || t.type === 'Q4W' || t.type === 'Q3W') throw new Error('BRIK d’un modèle llama non supporté (lignes Q/K permutées) — charger le GGUF directement.');
+		if (t.type === 'Q8W' || t.type === 'Q4W' || t.type === 'Q3W') throw new Error('BRIK d’un modèle llama non supporté (lignes Q/K permutées) : charger le GGUF directement.');
 		const heads = isQ ? nHeads : nKvHeads;
 		const nRows = heads * headDim;
 		const rowBytes = t.bytes / nRows;
-		if (!Number.isInteger(rowBytes)) throw new Error(`${name} : lignes non uniformes (${t.bytes} o / ${nRows} lignes) — dé-permutation impossible.`);
+		if (!Number.isInteger(rowBytes)) throw new Error(`${name} : lignes non uniformes (${t.bytes} o / ${nRows} lignes). Dé-permutation impossible.`);
 		const half = headDim / 2;
 		const out = new Uint8Array(raw.byteLength);
 		for (let h = 0; h < heads; h++) {
@@ -467,7 +467,7 @@ export class CustomWebModel {
 			await this.topKKV([0], 0, 'brimkern-warmup', [], 1);
 			this.reset();
 		} catch (e) {
-			console.warn('[warmup] passe à blanc impossible — le premier message paiera le transfert :', e);
+			console.warn('[warmup] passe à blanc impossible. Le premier message paiera le transfert :', e);
 		}
 		onProgress?.(total, total);
 	}
@@ -740,13 +740,13 @@ export class CustomWebModel {
 	private async getRopeFactors(): Promise<Float32Array | null> {
 		if (this.ropeFactorsCache !== undefined) return this.ropeFactorsCache;
 		if (!CustomWebModel.ropeFactorsOn) {
-			console.warn('[model] facteurs RoPE COUPÉS par ?ropefactors=0 — RoPE standard');
+			console.warn('[model] facteurs RoPE COUPÉS par ?ropefactors=0 : RoPE standard');
 			this.ropeFactorsCache = null;
 			return null;
 		}
 		if (this.manifest.tensors['rope_freqs.weight']) {
 			this.ropeFactorsCache = await this.dequant('rope_freqs.weight');
-			console.log('[model] rope_freqs.weight présent — RoPE à facteurs (scaling llama3) actif');
+			console.log('[model] rope_freqs.weight présent : RoPE à facteurs (scaling llama3) actif');
 		} else if (this.manifest.config.yarn) {
 			// YaRN statique (Ministral 3) : mêmes formules que ggml (rope_yarn_ramp + corr_dim).
 			// theta_i = extrap_i · [freq_scale·(1−ramp) + ramp] → notre kernel divise par ff[i].
@@ -772,7 +772,7 @@ export class CustomWebModel {
 	private applyMrope(cfg: LayerCfg, pastLen: number, len: number): void {
 		const sections = this.manifest.config.mropeSections;
 		if (!sections) return;
-		if (!this.engine.mropeOk) throw new Error('M-RoPE indisponible sur ce GPU (selfValidate) — vision désactivée.');
+		if (!this.engine.mropeOk) throw new Error('M-RoPE indisponible sur ce GPU (selfValidate) : vision désactivée.');
 		cfg.mropeSections = sections;
 		cfg.positions = this.mropePositions(pastLen, len);
 	}

@@ -72,7 +72,7 @@ export async function resolveHfModel(id: string, file?: string): Promise<Deeplin
 	}
 	const path = pickModelFile((entries ?? []).filter((e) => e.type !== 'directory').map((e) => e.path));
 	if (!path) {
-		throw new Error(`Aucun fichier chargeable dans « ${id} » : Le Kern lit les .brik et les .gguf (mono-fichier). Ce dépôt n’en contient pas — cherchez une version GGUF de ce modèle.`);
+		throw new Error(`Aucun fichier chargeable dans « ${id} » : Le Kern lit les .brik et les .gguf (mono-fichier). Ce dépôt n’en contient pas : cherchez une version GGUF de ce modèle.`);
 	}
 	return { url: hfResolveUrl(id, path), kind: path.toLowerCase().endsWith('.brik') ? 'brik' : 'gguf', path };
 }

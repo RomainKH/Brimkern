@@ -3,7 +3,7 @@ import ConvertClient from '../../convert/ConvertClient';
 import { SITE_URL } from '@/lib/site';
 
 export const metadata: Metadata = {
-  title: 'Convertir un GGUF en .brik — Brimkern',
+  title: 'Convertir un GGUF en .brik | Brimkern',
   description: "Convertissez un modèle GGUF en .brik dans votre navigateur : quantification int4/int8, découpage streamable, tokenizer embarqué.",
   alternates: {
     canonical: `${SITE_URL}/fr/convert`,

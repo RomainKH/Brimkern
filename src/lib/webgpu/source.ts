@@ -67,7 +67,7 @@ let cachePutWarned = false;
 function warnCachePutOnce(e: unknown) {
 	if (cachePutWarned) return;
 	cachePutWarned = true;
-	console.warn('[cache] écriture refusée (quota plein ? navigation privée ?) — les téléchargements de modèles ne seront PAS réutilisables à la prochaine visite. Libérez de l\'espace via le panneau Stockage.', e);
+	console.warn('[cache] écriture refusée (quota plein ? navigation privée ?) : les téléchargements de modèles ne seront PAS réutilisables à la prochaine visite. Libérez de l\'espace via le panneau Stockage.', e);
 }
 
 // Téléchargement complet mis en cache tel quel (bucket plein-fichier) — pour les serveurs SANS
@@ -131,7 +131,7 @@ function loadableFrom(manifest: ReturnType<typeof parseBrikHeader>['manifest'], 
 	// Garde-fou : un BRIK image (UNet/CLIP, clés safetensors) collé dans le champ « BRIK par URL »
 	// du chat produirait un manifeste LLM absurde (arch d=0) — refus clair plutôt que du chaos.
 	if (manifest.model?.uiArch === 'image') {
-		throw new Error('Ce fichier est un BRIK image (UNet/CLIP) — il se charge via la tuile de génération d\'image, pas comme un LLM.');
+		throw new Error('Ce fichier est un BRIK image (UNet/CLIP) : il se charge via la tuile de génération d\'image, pas comme un LLM.');
 	}
 	return {
 		source,
@@ -161,7 +161,10 @@ function loadableFrom(manifest: ReturnType<typeof parseBrikHeader>['manifest'], 
 export async function streamImageBrik(
 	url: string,
 	onTensor: (name: string, entry: BrikTensorEntry, bytes: Uint8Array) => void,
-	onShard?: (done: number, total: number) => Promise<void> | void,
+	// `bytes` : octets du BRIK réellement descendus / total annoncé par le manifeste. C'est ce qui
+	// permet à l'appelant d'afficher une barre ET un temps restant sur un pipeline image/vidéo,
+	// comme le chemin LLM le fait depuis toujours (retour Romain du 2026-08-18).
+	onShard?: (done: number, total: number, bytes?: { loaded: number; total: number }) => Promise<void> | void,
 ): Promise<BrikManifest> {
 	const head = await fetchRange(url, 0, 12);
 	let manifest: BrikManifest, dataStart: number, full: Uint8Array | null = null;
@@ -186,6 +189,8 @@ export async function streamImageBrik(
 		g.push([name, t]);
 	}
 	const shards = [...manifest.shards].sort((a, b) => a.id - b.id);
+	const totalBytes = shards.reduce((a, s) => a + s.byteLength, 0);
+	let loadedBytes = 0;
 	let done = 0;
 	for (const shard of shards) {
 		const off = dataStart + bases[shard.id];
@@ -195,7 +200,8 @@ export async function streamImageBrik(
 		for (const [name, t] of byShard.get(shard.id) ?? []) {
 			onTensor(name, t, bytes.subarray(t.offset, t.offset + t.byteLength));
 		}
-		await onShard?.(++done, shards.length);
+		loadedBytes += shard.byteLength;
+		await onShard?.(++done, shards.length, { loaded: loadedBytes, total: totalBytes });
 	}
 	return manifest;
 }

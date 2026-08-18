@@ -199,9 +199,9 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
                     <div style={{ height: '100%', width: `${pct.toFixed(1)}%`, background: near ? 'var(--warning, #f59e0b)' : 'var(--accent)', borderRadius: 999 }} />
                   </div>
                   <div style={{ fontSize: 10.5, color: near ? 'var(--warning, #f59e0b)' : 'var(--text-muted)', lineHeight: 1.4, marginBottom: 4 }}>
-                    {t('Browser quota for this site: ', 'Quota du navigateur pour ce site : ')}<strong>{fmt(usage)} / {fmt(quota)}</strong>{' — '}
+                    {t('Browser quota for this site: ', 'Quota du navigateur pour ce site : ')}<strong>{fmt(usage)} / {fmt(quota)}</strong>{': '}
                     {t('the browser sets this limit (not Brimkern). A model larger than the free space won’t cache.', 'c’est le navigateur qui fixe cette limite (pas Brimkern). Un modèle plus gros que l’espace libre ne pourra pas être mis en cache.')}
-                    {near ? ' ' + t('Nearly full — clear a few models below.', 'Presque plein — vide quelques modèles ci-dessous.') : ''}
+                    {near ? ' ' + t('Nearly full: clear a few models below.', 'Presque plein : vide quelques modèles ci-dessous.') : ''}
                   </div>
                   {/* Le cas qui faisait croire à un échec de « Tout supprimer » : nos buckets sont
                       VIDES (mesuré : 17 plages → 0 dans la seconde) mais le navigateur continue de
@@ -212,8 +212,8 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
                       différence est du bruit et la phrase serait du bavardage. */}
                   {!loading && brikkernTotal === 0 && usage > 4_000_000 && (
                     <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.4, marginBottom: 4, fontStyle: 'italic' }}>
-                      {t('Brimkern now stores nothing — everything above was deleted. What the browser still counts is its own HTTP cache for this site, which no site can clear itself; it goes away on its own, or via the browser’s “Clear browsing data”.',
-                         'Brimkern ne stocke plus rien — tout ce qui précède a bien été supprimé. Ce que le navigateur compte encore, c’est son propre cache HTTP pour ce site, qu’aucun site ne peut vider lui-même ; il part de lui-même, ou via « Effacer les données de navigation ».')}
+                      {t('Brimkern now stores nothing: everything above was deleted. What the browser still counts is its own HTTP cache for this site, which no site can clear itself; it goes away on its own, or via the browser’s “Clear browsing data”.',
+                         'Brimkern ne stocke plus rien : tout ce qui précède a bien été supprimé. Ce que le navigateur compte encore, c’est son propre cache HTTP pour ce site, qu’aucun site ne peut vider lui-même ; il part de lui-même, ou via « Effacer les données de navigation ».')}
                     </div>
                   )}
                 </>
@@ -234,7 +234,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{persisted ? t('Storage kept on this device', 'Stockage gardé sur cet appareil') : t('Storage not guaranteed', 'Stockage non garanti')}</div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>{persisted
                 ? t('Downloaded models are protected from automatic eviction.', 'Les modèles téléchargés sont protégés de l’éviction automatique.')
-                : t('The browser may evict cached models under disk pressure (they’d re-download). The browser decides this on its own, based on how much you use the site — bookmarking it or installing the app makes it likely.', 'Le navigateur peut évincer les modèles en cache sous pression disque (re-téléchargement). Il en décide seul, selon votre usage du site — le mettre en favori ou installer l’app rend la conservation probable.')}</div>
+                : t('The browser may evict cached models under disk pressure (they’d re-download). The browser decides this on its own, based on how much you use the site: bookmarking it or installing the app makes it likely.', 'Le navigateur peut évincer les modèles en cache sous pression disque (re-téléchargement). Il en décide seul, selon votre usage du site : le mettre en favori ou installer l’app rend la conservation probable.')}</div>
             </div>
           </div>
         )}
@@ -249,8 +249,8 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
               {t('Auto-clean unused models', 'Nettoyage auto des modèles inutilisés')}
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-              {t('Weights only — conversations and locally converted .brik are never touched.',
-                 'Les poids seulement — conversations et .brik convertis en local ne sont jamais touchés.')}
+              {t('Weights only: conversations and locally converted .brik are never touched.',
+                 'Les poids seulement : conversations et .brik convertis en local ne sont jamais touchés.')}
             </div>
           </div>
           <select
@@ -394,7 +394,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
         )}
 
         <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 16, lineHeight: 1.4 }}>
-          {t('Everything is stored ', 'Tout est stocké ')}<strong>{t('locally', 'localement')}</strong>{t(' in your browser. Clearing a cache deletes nothing online — a model just re-downloads on its next load.', ' dans ton navigateur. Vider un cache n’efface rien en ligne — un modèle se re-télécharge au prochain chargement.')}
+          {t('Everything is stored ', 'Tout est stocké ')}<strong>{t('locally', 'localement')}</strong>{t(' in your browser. Clearing a cache deletes nothing online: a model just re-downloads on its next load.', ' dans ton navigateur. Vider un cache n’efface rien en ligne : un modèle se re-télécharge au prochain chargement.')}
         </div>
       </div>
 
@@ -402,7 +402,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
           Le texte de « Tout supprimer » tenait en UNE phrase parce que `confirm()` n'accepte que ça :
           la liste de ce qui part, l'irréversibilité et la nuance sur le modèle en mémoire y étaient
           empilées. Ici chacune a sa place, et on peut afficher en plus le POIDS RÉEL de ce qu'on
-          s'apprête à effacer — on l'a déjà sous la main, et c'est l'information qui fait décider. */}
+          s'apprête à effacer : on l'a déjà sous la main, et c'est l'information qui fait décider. */}
       {confirming === 'history' && (
         <ConfirmDialog
           title={t('Delete the conversation history?', 'Supprimer l’historique des conversations ?')}
@@ -428,19 +428,19 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
           onConfirm={() => { setConfirming(null); void doClearAll(); }}
         >
           <p style={{ margin: 0 }}>
-            {t('About to be deleted — ', 'Va être supprimé — ')}<strong>{fmt(brikkernTotal)}</strong>{t(' in total:', ' au total :')}
+            {t('About to be deleted: ', 'Va être supprimé : ')}<strong>{fmt(brikkernTotal)}</strong>{t(' in total:', ' au total :')}
           </p>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, listStyle: 'disc' }}>
-            <li>{t('model caches (streamed, GGUF, tokenizers) — ', 'caches modèles (streamés, GGUF, tokenizers) — ')}<strong>{fmt(cachesBytes)}</strong></li>
-            <li>{t('converted .brik packages — ', 'paquets .brik convertis — ')}<strong>{fmt(packagesBytes)}</strong></li>
-            <li>{history.count} {t('conversation(s) — ', 'conversation(s) — ')}<strong>{fmt(history.bytes)}</strong></li>
+            <li>{t('model caches (streamed, GGUF, tokenizers): ', 'caches modèles (streamés, GGUF, tokenizers) : ')}<strong>{fmt(cachesBytes)}</strong></li>
+            <li>{t('converted .brik packages: ', 'paquets .brik convertis: ')}<strong>{fmt(packagesBytes)}</strong></li>
+            <li>{history.count} {t('conversation(s): ', 'conversation(s): ')}<strong>{fmt(history.bytes)}</strong></li>
           </ul>
           <p style={{ margin: '10px 0 0', color: 'var(--accent)', fontWeight: 600 }}>
             {t('Irreversible.', 'Irréversible.')}
           </p>
           <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
-            {t('The model currently loaded stays in memory until you reload the page — so the answer in progress keeps working.',
-               'Le modèle actuellement chargé reste en mémoire jusqu’au rechargement de la page — la réponse en cours continue donc de fonctionner.')}
+            {t('The model currently loaded stays in memory until you reload the page, so the answer in progress keeps working.',
+               'Le modèle actuellement chargé reste en mémoire jusqu’au rechargement de la page : la réponse en cours continue donc de fonctionner.')}
           </p>
         </ConfirmDialog>
       )}

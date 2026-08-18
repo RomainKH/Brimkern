@@ -56,7 +56,7 @@ export interface VitWeights<T = Float32Array> {
 export async function inspectMmproj(url: string): Promise<{ arch: string; nTensors: number; totalMB: number; cfg: Partial<VitConfig> }> {
 	const man = await parseHeader(url);
 	const rows = Object.entries(man.tensors).map(([name, t]) => ({ name, type: t.type, shape: t.shape.join('×'), MB: +(t.bytes / 1e6).toFixed(2) }));
-	console.log(`[mmproj] ${url} — arch=${man.arch}, ${rows.length} tenseurs`);
+	console.log(`[mmproj] ${url}: arch=${man.arch}, ${rows.length} tenseurs`);
 	if (console.table) console.table(rows); else console.log(rows);
 	const meta = Object.fromEntries(Object.entries(man.metadata).filter(([k]) => !/tokenizer|general\.name/.test(k)));
 	console.log('[mmproj] métadonnées :', meta);
@@ -129,7 +129,7 @@ export async function loadMmproj(engine: WebGpuEngine, url: string, onProgress?:
 	const spansOn = (() => { try { return new URLSearchParams(location.search).get('mmprojspans') !== '0'; } catch { return true; } })();
 	const spanCache = new Map<string, Uint8Array>();
 	const prefetchSpans = async (): Promise<void> => {
-		if (!spansOn) { console.warn('[mmproj] spans coalescés COUPÉS par ?mmprojspans=0 — une plage par tenseur (lent)'); return; }
+		if (!spansOn) { console.warn('[mmproj] spans coalescés COUPÉS par ?mmprojspans=0 : une plage par tenseur (lent)'); return; }
 		const groups = new Map<string, string[]>();
 		for (const name of Object.keys(T)) {
 			const m = name.match(/^v\.blk\.(\d+)\./);
@@ -164,7 +164,7 @@ export async function loadMmproj(engine: WebGpuEngine, url: string, onProgress?:
 		const bytes = spanCache.get(name) ?? (await src.bytes(t.offset, t.bytes));
 		if (t.type === 'F32') return new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + t.bytes));
 		if (t.type === 'F16') return { f16: bytes.slice(), n: t.nElems };
-		throw new Error(`mmproj : dtype ${t.type} non géré pour "${name}" (attendu F16/F32 — utiliser le mmproj f16)`);
+		throw new Error(`mmproj : dtype ${t.type} non géré pour "${name}" (attendu F16/F32. Utiliser le mmproj f16)`);
 	};
 	// Quantification q8 SANS vidange du pipeline : l'ancien `await waitGpu()` par tenseur imposait
 	// 322 synchronisations complètes du GPU (10 matrices × 32 blocs + le merger), chacune sérialisée

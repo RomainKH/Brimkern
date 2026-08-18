@@ -18,6 +18,7 @@ import { ClipTextEncoder, validateClip, type ClipWeights, type ClipConfig, type 
 import { unetForward, unetBlockCount, validateUnet, type UnetWeights, type UnetCfg, type UnetPace, type ResBlockWeights, type TransformerWeights, type UnetLevel } from './unet';
 import { makeEulerScheduler, randnSeeded } from './scheduler';
 import type { ImageGenerator, ImageResult } from './imageGen';
+import { EN_ONLY, type OnProgress, type Tr } from '../progress';
 
 // ── SD-Turbo (SD2.1 architecture) config ──
 export const SD_TURBO_UNET: UnetCfg = {
@@ -226,13 +227,14 @@ export async function clipWeightsToGpu(e: WebGpuEngine, w: ClipWeights<TensorDat
   return { tokenEmb: w.tokenEmb, posEmb: w.posEmb, layers, lnfg: e.uploadGpu(w.lnfg), lnfb: e.uploadGpu(w.lnfb) };
 }
 
-export async function unetWeightsToGpu(e: WebGpuEngine, w: UnetWeights<TensorData>, onProgress?: (s: string) => void): Promise<UnetWeights<GpuT>> {
+export async function unetWeightsToGpu(e: WebGpuEngine, w: UnetWeights<TensorData>, onProgress?: OnProgress, tr: Tr = EN_ONLY): Promise<UnetWeights<GpuT>> {
+  const q8 = (i: number, n: number) => `${tr('Quantizing the UNet to int8', 'Quantification int8 du UNet')} ${i}/${n}…`;
   const down: UnetLevel<GpuT>[] = [], up: UnetLevel<GpuT>[] = [];
-  for (let i = 0; i < w.down.length; i++) { onProgress?.(`Quantification int8 du UNet ${i + 1}/${w.down.length * 2 + 1}…`); down.push(await levelToGpu(e, w.down[i])); }
-  onProgress?.(`Quantification int8 du UNet ${w.down.length + 1}/${w.down.length * 2 + 1}…`);
+  for (let i = 0; i < w.down.length; i++) { onProgress?.(q8(i + 1, w.down.length * 2 + 1)); down.push(await levelToGpu(e, w.down[i])); }
+  onProgress?.(q8(w.down.length + 1, w.down.length * 2 + 1));
   const midRes1 = w.midRes1 && resnetToGpu(e, w.midRes1), midAttn = w.midAttn && transformerToGpu(e, w.midAttn), midRes2 = w.midRes2 && resnetToGpu(e, w.midRes2);
   await e.waitGpu();
-  for (let i = 0; i < w.up.length; i++) { onProgress?.(`Quantification int8 du UNet ${w.down.length + 2 + i}/${w.down.length * 2 + 1}…`); up.push(await levelToGpu(e, w.up[i])); }
+  for (let i = 0; i < w.up.length; i++) { onProgress?.(q8(w.down.length + 2 + i, w.down.length * 2 + 1)); up.push(await levelToGpu(e, w.up[i])); }
   const out: UnetWeights<GpuT> = {
     tw1: e.quantizeQ8Gpu(w.tw1), tb1: e.uploadGpu(w.tb1), tw2: e.quantizeQ8Gpu(w.tw2), tb2: e.uploadGpu(w.tb2),
     convInW: e.uploadGpu(w.convInW), convInB: e.uploadGpu(w.convInB),   // f32 (tiny, quant-sensitive)
@@ -296,7 +298,7 @@ async function urlToCHW(url: string): Promise<{ data: Float32Array; H: number; W
 // EST la version GPU — aucune passe *ToGpu, aucune quantification au chargement (tout l'intérêt
 // du pré-quantifié : téléchargement ÷2 et démarrage plus rapide). Une plage HTTP par shard,
 // cache + reprise hérités de fetchRange ; waitGpu par shard draine le staging transitoire.
-export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: (s: string) => void, label = 'poids'): Promise<{ map: Map<string, SafeTensor>; unetCfg?: Record<string, unknown> }> {
+export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: OnProgress, label = 'weights', tr: Tr = EN_ONLY): Promise<{ map: Map<string, SafeTensor>; unetCfg?: Record<string, unknown> }> {
   const u8 = (a: Int8Array | Uint16Array | Uint8Array) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
   const cpuNames = new Set(['text_model.embeddings.token_embedding.weight', 'text_model.embeddings.position_embedding.weight']);
   const map = new Map<string, SafeTensor>();
@@ -318,24 +320,24 @@ export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: 
       data = e.uploadGpu(new Float32Array(bytes.buffer, bytes.byteOffset, t.nElems));
     }
     map.set(name, { name, shape: t.shape, data: data as TensorData });
-  }, async (done, total) => {
-    onProgress?.(`${label} (BRIK) — ${done}/${total}…`);
+  }, async (done, total, bytes) => {
+    onProgress?.(`${tr('Streaming', 'Streaming')} ${label} (BRIK) ${done}/${total}…`, bytes);
     await e.waitGpu(); // draine le staging f32 par shard (leçon : ~3 Go accumulés tuaient le device)
   });
   return { map, unetCfg: manifest.image?.unetCfg };
 }
 
-interface SdTurboParts { engine: WebGpuEngine; clip: ClipTextEncoder; unetW: UnetWeights<any>; unetCfg: UnetCfg; taesd: TaesdDecoder; steps: number; size: number; pace: UnetPace; tokenize: (p: string) => Promise<number[]>; getEncoder: () => Promise<TaesdEncoder>; }
+interface SdTurboParts { engine: WebGpuEngine; clip: ClipTextEncoder; unetW: UnetWeights<any>; unetCfg: UnetCfg; taesd: TaesdDecoder; steps: number; size: number; pace: UnetPace; tokenize: (p: string) => Promise<number[]>; getEncoder: () => Promise<TaesdEncoder>; tr: Tr; }
 
 function makeGenerator(parts: SdTurboParts): ImageGenerator {
-  const { engine, clip, unetW, unetCfg, taesd, steps, size, pace, tokenize, getEncoder } = parts;
+  const { engine, clip, unetW, unetCfg, taesd, steps, size, pace, tokenize, getEncoder, tr } = parts;
   const blocksTotal = unetBlockCount(unetCfg);
 
   // Prompt → contexte CLIP [77, 1024] (partagé txt2img / img2img).
   const encodePrompt = async (prompt: string, onProgress?: (s: string) => void): Promise<Float32Array> => {
-    onProgress?.('Tokenisation…');
+    onProgress?.(tr('Tokenizing…', 'Tokenisation…'));
     const ids = await tokenize(prompt);
-    onProgress?.('Encodage du prompt (CLIP)…');
+    onProgress?.(tr('Encoding the prompt (CLIP)…', 'Encodage du prompt (CLIP)…'));
     const ctx = await clip.encode(ids);
     console.log('[sdturbo] CLIP ctx', stats(ctx));
     return ctx;
@@ -347,19 +349,19 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
     const nSteps = sched.timesteps.length - start;
     for (let i = start; i < sched.timesteps.length; i++) {
       const n = i - start + 1;
-      onProgress?.(`Débruitage ${n}/${nSteps}…`);
+      onProgress?.(`${tr('Denoising', 'Débruitage')} ${n}/${nSteps}…`);
       const scaled = sched.scaleModelInput(latent, i);
       const stepPace: UnetPace = {
         ...pace,
         duty: duty ?? pace.duty,
-        onBlock: (b) => onProgress?.(`Débruitage ${n}/${nSteps} — bloc ${b}/${blocksTotal}…`),
+        onBlock: (b) => onProgress?.(`${tr('Denoising', 'Débruitage')} ${n}/${nSteps}, ${tr('block', 'bloc')} ${b}/${blocksTotal}…`),
       };
       const eps = await unetForward(engine, unetW, scaled, sched.timesteps[i], ctx, { ...unetCfg, H, W }, stepPace);
       console.log(`[sdturbo] step ${i} t=${sched.timesteps[i]} σ=${sched.sigmas[i].toFixed(2)} eps`, stats(eps));
       latent = sched.step(eps, latent, i);
     }
     console.log('[sdturbo] latent final', stats(latent));
-    onProgress?.('Décodage (VAE)…');
+    onProgress?.(tr('Decoding (VAE)…', 'Décodage (VAE)…'));
     // TAESD takes the raw model latent (its Clamp handles the range) — NO 0.18215 division (that
     // over-scales and saturates the clamp). VAE_SCALE kept for reference if we wire the full VAE.
     void VAE_SCALE;
@@ -378,6 +380,7 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
     // Le nom suit la topologie réellement chargée (le BRIK SDXS est auto-descripteur : noMid).
     name: unetCfg.noMid ? 'SDXS-512 (rapide)' : 'Stable Diffusion Turbo',
     placeholder: false,
+    engine,
     dispose: () => engine.destroy(), // frees the whole pipeline's VRAM (weights + pools) in one shot
     generate: async (prompt, onProgress, seed, latentSize, duty) => {
       const usedSeed = seedOf(prompt, seed);
@@ -394,12 +397,12 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
     generateImg2Img: async (prompt, initUrl, strength, onProgress, seed, duty) => {
       const usedSeed = seedOf(prompt, seed);
       const s = Math.min(Math.max(strength, 0.05), 1);
-      onProgress?.('Lecture de l’image source…');
+      onProgress?.(tr('Reading the source image…', 'Lecture de l’image source…'));
       const src = await urlToCHW(initUrl);
       if (src.H % 8 || src.W % 8) throw new Error(`taille source ${src.W}×${src.H} non multiple de 8`);
       const H = src.H / 8, W = src.W / 8;
       const ctx = await encodePrompt(prompt, onProgress);
-      onProgress?.('Encodage de l’image (VAE)…');
+      onProgress?.(tr('Encoding the image (VAE)…', 'Encodage de l’image (VAE)…'));
       const enc = await getEncoder();
       const latent = await enc.encode(src.data, src.H, src.W, duty ?? pace.duty);
       console.log('[sdturbo] latent img2img', stats(latent));
@@ -427,10 +430,11 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
 // blocks then sleep proportionally to the busy time (`duty` = target GPU duty cycle). Internal
 // default 0.6: generation ~1.7× slower than full throttle, average GPU power ~-40% — deliberately
 // NOT exposed in the UI (one less knob); dev override via `?duty=` in the URL.
-export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: string; taesdEncoder?: string }, opts: { steps?: number; size?: number; finalLN?: boolean; pace?: UnetPace; onLost?: () => void } = {}, onProgress?: (s: string) => void): Promise<ImageGenerator> {
+export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: string; taesdEncoder?: string }, opts: { steps?: number; size?: number; finalLN?: boolean; pace?: UnetPace; onLost?: () => void; t?: Tr } = {}, onProgress?: OnProgress): Promise<ImageGenerator> {
   const clipCfg: ClipConfig = { ...SD_TURBO_CLIP, finalLN: opts.finalLN ?? SD_TURBO_CLIP.finalLN };
   const pace: UnetPace = { waitEvery: opts.pace?.waitEvery ?? 1, pauseMs: opts.pace?.pauseMs ?? 0, duty: opts.pace?.duty ?? 0.6 };
-  onProgress?.('Initialisation WebGPU…');
+  const tr: Tr = opts.t ?? EN_ONLY;
+  onProgress?.(tr('Starting WebGPU…', 'Initialisation WebGPU…'));
   const engine = new WebGpuEngine();
   if (!(await engine.init())) throw new Error('WebGPU indisponible.');
   // Perte du device en pleine génération (512² mobile : pic VRAM → l'OS reprend le GPU) : sans ce
@@ -449,7 +453,7 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
     const cache = await caches.open('brimkern-model-cache').catch(() => null);
     if (cache) {
       const hit = await cache.match(u);
-      if (hit) { onProgress?.(`${label} depuis le cache…`); return hit.arrayBuffer(); }
+      if (hit) { onProgress?.(`${label} ${tr('from cache…', 'depuis le cache…')}`); return hit.arrayBuffer(); }
     }
     const r = await fetch(u);
     if (!r.ok) throw new Error(`HTTP ${r.status} (${label})`);
@@ -462,7 +466,8 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value); loaded += value.byteLength;
-      onProgress?.(`Téléchargement ${label} ${Math.round(loaded / 1e6)}${total ? '/' + Math.round(total / 1e6) : ''} Mo…`);
+      // Les octets voyagent à côté du libellé : l'app en fait une barre et un temps restant.
+      onProgress?.(`${tr('Downloading', 'Téléchargement')} ${label}…`, total ? { loaded, total } : undefined);
     }
     const blob = new Blob(chunks as BlobPart[]);
     if (cache) { try { await cache.put(u, new Response(blob, { headers: { 'Content-Length': String(blob.size) } })); } catch (e) { console.warn(`[sdturbo] cache ${label} échoué (quota ?)`, e); } }
@@ -505,7 +510,7 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
   if (isBrik(urls.clip)) {
     clipW = loadClipWeights(clipST, clipCfg) as unknown as ClipWeights<GpuT>;
   } else {
-    onProgress?.('Quantification int8 de CLIP (GPU)…');
+    onProgress?.(tr('Quantizing CLIP to int8 (GPU)…', 'Quantification int8 de CLIP (GPU)…'));
     clipW = await clipWeightsToGpu(engine, loadClipWeights(clipST, clipCfg));
   }
   clipST.clear();
@@ -514,7 +519,7 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
   if (isBrik(urls.unet)) {
     unetW = loadUnetWeights(unetST, unetCfg) as unknown as UnetWeights<GpuT>;
   } else {
-    onProgress?.('Quantification int8 du UNet (GPU)…');
+    onProgress?.(tr('Quantizing the UNet to int8 (GPU)…', 'Quantification int8 du UNet (GPU)…'));
     unetW = await unetWeightsToGpu(engine, loadUnetWeights(unetST, unetCfg), onProgress);
   }
   unetST.clear();
@@ -542,5 +547,5 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
     console.log('[sdturbo] tokens', ids.slice(0, ids.indexOf(0) === -1 ? 12 : ids.indexOf(0) + 2).join(','), `(len utile=${ids.indexOf(0) === -1 ? 77 : ids.indexOf(0)})`);
     return ids;
   };
-  return makeGenerator({ engine, clip, unetW, unetCfg, taesd, steps: opts.steps ?? 1, size: opts.size ?? 64, pace, tokenize, getEncoder });
+  return makeGenerator({ engine, clip, unetW, unetCfg, taesd, steps: opts.steps ?? 1, size: opts.size ?? 64, pace, tokenize, getEncoder, tr });
 }

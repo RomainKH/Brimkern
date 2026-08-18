@@ -353,7 +353,7 @@ function App() {
   // all loader paths). Returned with the SAME names the component used, so call sites are unchanged.
   const {
     modelState, setModelState, errorMsg, setErrorMsg, webGpuSupported,
-    loadingStep, setLoadingStep, loadingProgress,
+    loadingStep, setLoadingStep, loadingProgress, setLoadingProgress,
     activeEngine, activeModel, activeTokenizer,
     loadedModelName, loadedModelUrl,
     modelMetadata, weightPrec, setWeightPrec, kvQuantOn, setKvQuantOn, modelIsBrik, autoPrec, setAutoPrec,
@@ -630,7 +630,7 @@ function App() {
       const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
       const e = new WebGpuEngine();
       if (!(await e.init())) return { error: 'WebGPU indisponible' };
-      if (dtype === 'f16' && !e.hasF16) return { error: 'shader-f16 absent sur ce GPU — chemin f16 inutilisé' };
+      if (dtype === 'f16' && !e.hasF16) return { error: 'shader-f16 absent sur ce GPU : chemin f16 inutilisé' };
       const shapes = [
         { label: 'attn qkv/o 1024→1024', k: 1024, n: 1024 },
         { label: 'ffn gate/up 1024→2816', k: 1024, n: 2816 },
@@ -714,12 +714,15 @@ function App() {
   // __gpuProfile(true) remet les compteurs à zéro après lecture, pour mesurer une phase à la fois.
   useEffect(() => {
     (window as any).__gpuProfile = async (reset = false) => {
-      const eng = activeEngine;
-      if (!eng) return { error: 'aucun modèle chargé — le profileur lit le moteur vivant' };
+      // Chaque modalité a SON engine : le LLM, mais aussi les pipelines image, vidéo et vision.
+      // Ne lire qu'`activeEngine` rendait « aucun modèle chargé » en mode image alors que le GPU
+      // travaillait — c'est ce qui a fait échouer le premier profilage d'une génération (18/08).
+      const eng = activeEngine ?? imageGen?.engine ?? videoGen?.engine ?? visionSession?.engine ?? null;
+      if (!eng) return { error: 'aucun modèle chargé : le profileur lit le moteur vivant' };
       if (!eng.profiler) {
         const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
         return { error: WebGpuEngine.profileOn
-          ? 'timestamp-query absente de cet adapter — rien n’a pu être mesuré'
+          ? 'timestamp-query absente de cet adapter : rien n’a pu être mesuré'
           : 'profilage éteint : rechargez la page avec ?gpuprofile=1' };
       }
       const { formatProfile } = await import('@/lib/webgpu/gpuProfile');
@@ -728,7 +731,7 @@ function App() {
       if (reset) eng.profiler.reset();
       return r;
     };
-  }, [activeEngine]);
+  }, [activeEngine, imageGen, videoGen, visionSession]);
   // Le hook de banc de tokenisation doit voir le modèle COURANT : dans l'effet de montage il
   // capturerait le tokenizer de la première render (null). Effet dédié, re-posé à chaque
   // changement de modèle/tokenizer.
@@ -1073,7 +1076,7 @@ function App() {
         verdict: corr > 0.99 ? 'CONFORME' : 'DIVERGENCE',
         firstBadLayer, perLayer, hiddenResidentCorr, incrementalCorr,
       };
-      console.log(`[ref] ${man.arch} ${toks.length} token(s), mode ${mode}, rope ${out.ropeConvention} : corrélation ${out.correlation} — ${out.verdict}`);
+      console.log(`[ref] ${man.arch} ${toks.length} token(s), mode ${mode}, rope ${out.ropeConvention} : corrélation ${out.correlation}. ${out.verdict}`);
       return out;
     };
   }, [activeTokenizer, activeModel, modelArchType, selectedTokenizerId]);
@@ -1163,9 +1166,9 @@ function App() {
           ctl.signal,
         );
         if (res === 'done') setPrefetchDone(true);
-        else if (res === 'unstorable') console.info('[prefetch] stockage indisponible (pas de Range côté serveur, Cache API absente ou quota refusé) — préchargement abandonné');
+        else if (res === 'unstorable') console.info('[prefetch] stockage indisponible (pas de Range côté serveur, Cache API absente ou quota refusé) : préchargement abandonné');
       } catch (e) {
-        if (!ctl.signal.aborted) console.warn('[prefetch] préchargement interrompu — reprendra à la prochaine visite (les plages déjà en cache sont conservées)', e);
+        if (!ctl.signal.aborted) console.warn('[prefetch] préchargement interrompu : reprendra à la prochaine visite (les plages déjà en cache sont conservées)', e);
       } finally {
         prefetchRateWin.current.length = 0;
         setPrefetchBytes(null);
@@ -1211,7 +1214,7 @@ function App() {
       setLoadingStep(t(`Resolving ${target.id} on Hugging Face…`, `Résolution de ${target.id} sur Hugging Face…`));
       const r = await resolveHfModel(target.id, target.file);
       url = r.url; kind = r.kind;
-      setLoadingStep(t(`Found ${r.path} — loading…`, `Trouvé ${r.path} — chargement…`));
+      setLoadingStep(t(`Found ${r.path}: loading…`, `Trouvé ${r.path} : chargement…`));
     }
     metric('deeplink_load', { kind, origin });
     if (kind === 'brik') await handleStreamBrik(url, origin);
@@ -1309,7 +1312,7 @@ function App() {
       pruneRedundantRanges()
         .then((r) => {
           if (!r.removed) return;
-          console.info(`[cache] ${r.removed} plage(s) redondante(s) supprimée(s) — ${(r.freed / 1048576).toFixed(1)} Mo libérés`);
+          console.info(`[cache] ${r.removed} plage(s) redondante(s) supprimée(s) : ${(r.freed / 1048576).toFixed(1)} Mo libérés`);
           handleCacheChanged();
         })
         .catch(() => { /* stockage indisponible — sans effet */ });
@@ -1349,7 +1352,7 @@ function App() {
       </div>
     ) : prefetchDone && !loadedModelName ? (
       <div style={{ fontSize: '10.5px', color: 'var(--success)', textAlign: center ? 'center' : 'left', marginTop: center ? 8 : 0 }}>
-        ✓ {t('Model already downloaded — loads instantly', 'Modèle déjà téléchargé — chargement instantané')}
+        ✓ {t('Model already downloaded: loads instantly', 'Modèle déjà téléchargé : chargement instantané')}
       </div>
     ) : null;
 
@@ -1582,40 +1585,52 @@ function App() {
         setImageGen(null);
         setModelState('error');
         setErrorMsg(t(
-          'The GPU disconnected during image generation — the system reclaimed graphics memory (image generation is heavy on phones). Reload the page or the model to try again; prefer 256px on mobile.',
-          "Le GPU s'est déconnecté pendant la génération d'image — le système a repris la mémoire graphique (la génération est lourde sur téléphone). Rechargez la page ou le modèle pour réessayer ; préférez 256px sur mobile.",
+          'The GPU disconnected during image generation: the system reclaimed graphics memory (image generation is heavy on phones). Reload the page or the model to try again; prefer 256px on mobile.',
+          "Le GPU s'est déconnecté pendant la génération d'image : le système a repris la mémoire graphique (la génération est lourde sur téléphone). Rechargez la page ou le modèle pour réessayer ; préférez 256px sur mobile.",
         ));
       };
       let gen;
       if (q.get('imgbrik') === '0') {
-        gen = await loadSdTurbo(stUrls, { steps, size, finalLN, pace, onLost }, (s) => setLoadingStep(s));
+        gen = await loadSdTurbo(stUrls, { steps, size, finalLN, pace, onLost, t }, onLoadProgress);
       } else {
         try {
-          gen = await loadSdTurbo(brikUrls, { steps, size, finalLN, pace, onLost }, (s) => setLoadingStep(s));
+          gen = await loadSdTurbo(brikUrls, { steps, size, finalLN, pace, onLost, t }, onLoadProgress);
         } catch (be) {
           // BRIK pas encore hébergé / réseau : repli transparent sur les safetensors historiques.
           console.warn('[image] BRIK indisponible → repli safetensors fp16', be);
-          gen = await loadSdTurbo(stUrls, { steps, size, finalLN, pace, onLost }, (s) => setLoadingStep(s));
+          setLoadingProgress(null); // le repli repart de zéro : la fenêtre de débit doit se vider
+          gen = await loadSdTurbo(stUrls, { steps, size, finalLN, pace, onLost, t }, onLoadProgress);
         }
       }
+      setLoadingProgress(null);
       setImageGen(gen);
       setCurrentConvId(null);
       setMessages([{
         id: 'welcome', role: 'assistant',
         content: t(
-          `Image mode — **${gen.name}**. Describe an image and I'll generate it.\n\n` +
+          `Image mode: **${gen.name}**. Describe an image and I'll generate it.\n\n` +
             `Set the **quality** above the input box (256px recommended · 512px native, slower).`,
-          `Mode image — **${gen.name}**. Décris une image, je la génère.\n\n` +
+          `Mode image : **${gen.name}**. Décris une image, je la génère.\n\n` +
             `La **qualité** se règle au-dessus de la zone de saisie (256px conseillé · 512px natif, plus lent).`,
         ),
       }]);
       setModelState('ready');
     } catch (e: any) {
       console.error('[image] chargement SD-Turbo échoué', e);
+      setLoadingProgress(null);
       setImageGen(null);
       setModelState('idle');
       setMessages([{ id: 'welcome', role: 'assistant', content: t(`Failed to load SD-Turbo: ${e?.message || e}`, `Échec du chargement de SD-Turbo : ${e?.message || e}`), isError: true }]);
     }
+  };
+
+  // Rapporteur de progression des pipelines lourds : le libellé va dans l'écran de chargement, et
+  // les octets — quand l'étape en a — alimentent la MÊME barre + le même temps restant que le
+  // chemin LLM (useTransferRate via setLoadingProgress). Sans lui, une image ou une vidéo se
+  // chargeait derrière une simple ligne de texte, sans rien dire du temps restant.
+  const onLoadProgress = (s: string, bytes?: { loaded: number; total: number }) => {
+    setLoadingStep(s);
+    if (bytes?.total) setLoadingProgress({ loaded: bytes.loaded, total: bytes.total, percentage: Math.round((100 * bytes.loaded) / bytes.total) });
   };
 
   // ── Mode VIDÉO (AnimateDiff-Lightning, desktop) ────────────────────────────────────────────────
@@ -1637,7 +1652,9 @@ function App() {
       const pace = { duty: dutyRaw !== null ? Math.min(1, Math.max(0.1, parseFloat(dutyRaw) || 0.6)) : gpuDuty };
       // lfm = enrichissement de prompt (chargé PARESSEUSEMENT sur le même engine, au 1er clip) :
       // un prompt d'une ligne donne des clips statiques, le LFM le développe en direction visuelle.
-      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, lfm: MOBILE_BRIK_URL }, (s) => setLoadingStep(s), pace);
+      // Le libellé ET les octets : le pipeline pèse ~1,5 Go, une ligne de texte sans barre ni
+      // temps restant laisse l'utilisateur devant un écran qui semble figé (retour Romain).
+      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, lfm: MOBILE_BRIK_URL }, onLoadProgress, pace, t);
       // Une génération dure des MINUTES : c'est le mode le plus exposé à une reprise de VRAM par
       // l'OS. Même filet que la vision — erreur récupérable plutôt qu'une attente infinie.
       gen.engine.onLost = (info) => {
@@ -1650,20 +1667,22 @@ function App() {
           'Le GPU s’est déconnecté pendant la génération vidéo (elle demande ~1,5 Go de VRAM pendant plusieurs minutes). Recharge le modèle pour réessayer.',
         ));
       };
+      setLoadingProgress(null);
       setVideoGen(gen);
       setCurrentConvId(null);
       setMessages([{
         id: 'welcome', role: 'assistant',
         content: t(
-          'Video mode — **AnimateDiff** (beta). Describe a scene and I’ll generate a short looping clip (16 frames, 256px).\n\n' +
-            '⏱️ Expect **several minutes of GPU work** per clip — progress is shown step by step.',
-          'Mode vidéo — **AnimateDiff** (bêta). Décris une scène, je génère un court clip en boucle (16 frames, 256px).\n\n' +
-            '⏱️ Compte **plusieurs minutes de calcul GPU** par clip — la progression s’affiche étape par étape.',
+          'Video mode: **AnimateDiff** (beta). Describe a scene and I’ll generate a short looping clip (16 frames, 256px).\n\n' +
+            '⏱️ Expect **several minutes of GPU work** per clip: progress is shown step by step.',
+          'Mode vidéo : **AnimateDiff** (bêta). Décris une scène, je génère un court clip en boucle (16 frames, 256px).\n\n' +
+            '⏱️ Compte **plusieurs minutes de calcul GPU** par clip : la progression s’affiche étape par étape.',
         ),
       }]);
       setModelState('ready');
     } catch (e: unknown) {
       console.error('[video] chargement AnimateDiff échoué', e);
+      setLoadingProgress(null);
       setVideoGen(null);
       setModelState('idle');
       setMessages([{ id: 'welcome', role: 'assistant', content: t(`Failed to load the video pipeline: ${(e as Error)?.message || e}`, `Échec du chargement du pipeline vidéo : ${(e as Error)?.message || e}`), isError: true }]);
@@ -1683,7 +1702,7 @@ function App() {
     setLoadingStep(t('Loading Qwen2-VL (vision)…', 'Chargement de Qwen2-VL (vision)…'));
     try {
       const { loadVisionSession } = await import('@/lib/webgpu/vision/qwen2vl');
-      const s = await loadVisionSession({}, (p) => setLoadingStep(p));
+      const s = await loadVisionSession({ t }, onLoadProgress);
       s.engine.onLost = (info) => {
         if (info?.reason === 'destroyed') return;
         console.warn('[vision] device GPU perdu');
@@ -1698,8 +1717,8 @@ function App() {
       setMessages([{
         id: 'welcome', role: 'assistant',
         content: t(
-          'Vision mode — **Qwen2-VL 2B**. Attach an image (📎 button) and ask a question about it — everything runs locally on your GPU.',
-          'Mode vision — **Qwen2-VL 2B**. Joins une image (bouton 📎) et pose une question dessus — tout tourne localement sur ton GPU.',
+          'Vision mode: **Qwen2-VL 2B**. Attach an image (📎 button) and ask a question about it: everything runs locally on your GPU.',
+          'Mode vision : **Qwen2-VL 2B**. Joins une image (bouton 📎) et pose une question dessus : tout tourne localement sur ton GPU.',
         ),
       }]);
       setModelState('ready');
@@ -1880,7 +1899,7 @@ function App() {
       const first = res.frames[0];
       setMessages(prev => prev.map(m => m.id === aId ? {
         ...m,
-        content: url ? '' : t('WebM not supported by this browser — clip lost after generation.', 'WebM non supporté par ce navigateur — clip perdu après génération.'),
+        content: url ? '' : t('WebM not supported by this browser: clip lost after generation.', 'WebM non supporté par ce navigateur : clip perdu après génération.'),
         video: { url: url ?? undefined, w: first.width, h: first.height, poster: frameToPoster(first), prompt, seed: res.seed, frames: res.frames.length, ms: res.ms },
       } : m));
     } catch (e: unknown) {
@@ -1992,7 +2011,7 @@ function App() {
       if (localToolsOn) {
         const calcs = detectCalcs(text);
         if (calcs.length) {
-          modelText += `\n\n[Calculatrice — résultats exacts, utilise-les tels quels : ${calcs.map((c) => `${c.expr} = ${formatCalc(c.value)}`).join(' ; ')}]`;
+          modelText += `\n\n[Calculatrice. Résultats exacts, utilise-les tels quels : ${calcs.map((c) => `${c.expr} = ${formatCalc(c.value)}`).join(' ; ')}]`;
           webNote += t(' · 🧮 calc', ' · 🧮 calcul');
         }
       }
@@ -2105,7 +2124,7 @@ function App() {
         if (showPrefillProgress) {
           const doneToks = Math.min(c + chunk.length, newPromptTokens.length);
           setMessages(prev => prev.map(m => m.id === assistantMsgId
-            ? { ...m, content: t(`⏳ Reading the context — ${doneToks}/${newPromptTokens.length} tokens…`, `⏳ Lecture du contexte — ${doneToks}/${newPromptTokens.length} tokens…`) }
+            ? { ...m, content: t(`⏳ Reading the context: ${doneToks}/${newPromptTokens.length} tokens…`, `⏳ Lecture du contexte : ${doneToks}/${newPromptTokens.length} tokens…`) }
             : m));
         }
         if (gpuTopkOn) {
@@ -2125,8 +2144,8 @@ function App() {
       // actionable message instead of the cryptic "token_ids must be a non-empty array" from decode().
       if (!Number.isInteger(currentToken) || currentToken < 0) {
         throw new Error(t(
-          'The model produced invalid output (NaN logits). At f16 some models (e.g. Gemma, precision-sensitive) overflow — try the f32 (Quality) precision, or int8.',
-          'Le modèle a produit une sortie invalide (logits NaN). En f16, certains modèles (ex. Gemma, sensible à la précision) débordent — essayez la précision f32 (Qualité), ou int8.',
+          'The model produced invalid output (NaN logits). At f16 some models (e.g. Gemma, precision-sensitive) overflow: try the f32 (Quality) precision, or int8.',
+          'Le modèle a produit une sortie invalide (logits NaN). En f16, certains modèles (ex. Gemma, sensible à la précision) débordent : essayez la précision f32 (Qualité), ou int8.',
         ));
       }
 
@@ -2297,7 +2316,7 @@ function App() {
             for (const l of lines) counts.set(l, (counts.get(l) ?? 0) + 1);
             const worst = Math.max(...counts.values());
             if (worst >= 3) {
-              console.warn(`[chat] boucle détectée (une ligne répétée ${worst}×) — génération coupée`);
+              console.warn(`[chat] boucle détectée (une ligne répétée ${worst}×) : génération coupée`);
               loopCut = true;
               break;
             }
@@ -2428,7 +2447,7 @@ function App() {
           (q8 !== null ? `- **BRIK8** (int8) weights: \`${q8.toFixed(1)} tok/s\` (~f16 quality, ½ the VRAM of f16)\n` : '') +
           (q4 !== null ? `- **BRIK4** (int4) weights: \`${q4.toFixed(1)} tok/s\` (¼ VRAM)\n` : '') +
           (q3 !== null ? `- **BRIK3** (int3) weights: \`${q3.toFixed(1)} tok/s\` (~20% less than int4)\n` : '') +
-          (skippedHeavy.length ? `\n*${skippedHeavy.join(' / ')} skipped — too large in VRAM for this model (would risk a GPU device loss).*` : '') +
+          (skippedHeavy.length ? `\n*${skippedHeavy.join(' / ')} skipped: too large in VRAM for this model (would risk a GPU device loss).*` : '') +
           `\n*All precisions share the same GPU-resident path; BRIK8/BRIK4/BRIK3 keep the quantized weights in VRAM (dequantized on the fly), which lets bigger models fit. embed + logits projection stay in f32.*`,
           `**⚡ Benchmark décodage** (${N} tokens, modèle **${loadedModelName}**)\n\n` +
           (f32 !== null ? `- Poids **f32** : \`${f32.toFixed(1)} tok/s\` (réf. VRAM 1×)\n` : '') +
@@ -2436,7 +2455,7 @@ function App() {
           (q8 !== null ? `- Poids **BRIK8** (int8) : \`${q8.toFixed(1)} tok/s\` (qualité ~f16, ½ VRAM de f16)\n` : '') +
           (q4 !== null ? `- Poids **BRIK4** (int4) : \`${q4.toFixed(1)} tok/s\` (¼ VRAM)\n` : '') +
           (q3 !== null ? `- Poids **BRIK3** (int3) : \`${q3.toFixed(1)} tok/s\` (~20% de moins que l'int4)\n` : '') +
-          (skippedHeavy.length ? `\n*${skippedHeavy.join(' / ')} non mesuré(s) — trop lourd(s) en VRAM pour ce modèle (risque de perte du device GPU).*` : '') +
+          (skippedHeavy.length ? `\n*${skippedHeavy.join(' / ')} non mesuré(s) : trop lourd(s) en VRAM pour ce modèle (risque de perte du device GPU).*` : '') +
           `\n*Toutes les précisions partagent le même chemin GPU-resident ; BRIK8/BRIK4/BRIK3 gardent les poids quantifiés en VRAM (déquant à la volée), ce qui permet de charger des modèles plus gros. embed + projection logits restent en f32.*`,
         )
       }]);
@@ -2676,8 +2695,8 @@ function App() {
                   <span>
                     {t('No model can run without WebGPU. Most common cause: ', 'Aucun modèle ne peut tourner sans WebGPU. Cause la plus fréquente : ')}
                     <strong>{t('hardware acceleration is disabled', "l'accélération matérielle est désactivée")}</strong>
-                    {t('. Enable it (Chrome: Settings → System → “Use graphics acceleration when available”), restart the browser, then reload. Also requires a recent Chrome/Edge and HTTPS — see chrome://gpu if it persists.',
-                      ' . Activez-la (Chrome : Paramètres → Système → « Utiliser l\'accélération graphique si disponible »), redémarrez le navigateur puis rechargez. Exige aussi un Chrome/Edge récent et HTTPS — voir chrome://gpu si ça persiste.')}
+                    {t('. Enable it (Chrome: Settings → System → “Use graphics acceleration when available”), restart the browser, then reload. Also requires a recent Chrome/Edge and HTTPS. See chrome://gpu if it persists.',
+                      ' . Activez-la (Chrome : Paramètres → Système → « Utiliser l\'accélération graphique si disponible »), redémarrez le navigateur puis rechargez. Exige aussi un Chrome/Edge récent et HTTPS. Voir chrome://gpu si ça persiste.')}
                   </span>
                 </div>
               )}
@@ -3025,7 +3044,7 @@ function App() {
         <div className="messages-container" ref={messagesScrollRef} onScroll={onMessagesScroll}>
           {modelState === 'idle' && messages.length === 0 && (
             <div className="welcome-screen">
-              {/* La marque kern-B en tête d'accueil — page de spécimen, pas d'icône « IA » générique. */}
+              {/* La marque kern-B en tête d'accueil : page de spécimen, pas d'icône « IA » générique. */}
               <svg width="64" height="64" viewBox="0 0 100 100" aria-hidden className="welcome-mark">
                 <defs><clipPath id="welcome-kern" clipPathUnits="userSpaceOnUse"><path clipRule="evenodd" d="M0 0H100V100H0Z M62 -10 L34 112 L46 112 L74 -10 Z" /></clipPath></defs>
                 <text x="50" y="86" textAnchor="middle" fontFamily="var(--font-heading), Georgia, serif" fontSize="100" fontWeight="900" fill="currentColor" clipPath="url(#welcome-kern)">B</text>
@@ -3038,8 +3057,8 @@ function App() {
                    Ici : la proposition, le chemin (Chrome/Edge), un lien à emporter. */
                 <>
                   <p className="welcome-subtitle">
-                    {t("This browser has no WebGPU, so no model can run here. Everything Brimkern does — chat, image generation, vision — runs 100% locally in a compatible browser, with no server.",
-                       "Ce navigateur ne prend pas en charge WebGPU : aucun modèle ne peut tourner ici. Tout ce que fait Brimkern — chat, génération d'images, vision — s'exécute pourtant 100 % en local dans un navigateur compatible, sans aucun serveur.")}
+                    {t("This browser has no WebGPU, so no model can run here. Everything Brimkern does: chat, image generation, vision. Runs 100% locally in a compatible browser, with no server.",
+                       "Ce navigateur ne prend pas en charge WebGPU : aucun modèle ne peut tourner ici. Tout ce que fait Brimkern : chat, génération d'images, vision. S'exécute pourtant 100 % en local dans un navigateur compatible, sans aucun serveur.")}
                   </p>
                   <div className="welcome-steps">
                     <div className="welcome-step">
@@ -3084,7 +3103,7 @@ function App() {
                           style={{ fontSize: '13px', padding: '8px 16px' }}
                           onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
                         >
-                          <Sparkles size={14} /> {t('LFM2.5 230M (149 MB) — recommended', 'LFM2.5 230M (149 Mo) — recommandé')}
+                          <Sparkles size={14} /> {t('LFM2.5 230M (149 MB): recommended', 'LFM2.5 230M (149 Mo) : recommandé')}
                         </button>
                         <button
                           className="btn btn-secondary"
@@ -3103,7 +3122,7 @@ function App() {
                         style={{ fontSize: '14px', padding: '10px 22px' }}
                         onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
                       >
-                        <Sparkles size={15} /> {t('Try it now — LFM2.5 (149 MB)', 'Essayer maintenant — LFM2.5 (149 Mo)')}
+                        <Sparkles size={15} /> {t('Try it now: LFM2.5 (149 MB)', 'Essayer maintenant: LFM2.5 (149 Mo)')}
                       </button>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '380px' }}>
                         {t('Downloaded once, kept on this device: next visits start in seconds. 100% local.',
@@ -3120,7 +3139,7 @@ function App() {
                       <div className="welcome-step-num">{t('step 1', 'étape 1')}</div>
                       <div className="welcome-step-title">{t('Pick a model', 'Choisissez un modèle')}</div>
                       <div className="welcome-step-desc">
-                        {t('One click is enough — the weights stream in. Or drag and drop your own GGUF (Qwen, Gemma, Llama…).', 'Un clic suffit — les poids arrivent en streaming. Ou glissez-déposez votre propre GGUF (Qwen, Gemma, Llama…).')}
+                        {t('One click is enough: the weights stream in. Or drag and drop your own GGUF (Qwen, Gemma, Llama…).', 'Un clic suffit : les poids arrivent en streaming. Ou glissez-déposez votre propre GGUF (Qwen, Gemma, Llama…).')}
                       </div>
                     </div>
 

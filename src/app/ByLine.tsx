@@ -16,7 +16,7 @@ export default function ByLine({ compact = false }: { compact?: boolean }) {
   const t = useT();
   return (
     <p style={{ color: 'var(--text-muted)', fontSize: compact ? 11 : 12, margin: compact ? '18px 0 0' : '28px 0 0', textAlign: 'center' }}>
-      {t('Brimkern — open WebGPU engine, built by ', 'Brimkern — moteur WebGPU open, conçu par ')}
+      {t('Brimkern: open WebGPU engine, built by ', 'Brimkern : moteur WebGPU open, conçu par ')}
       <a
         href="https://romainkhanoyan.fr"
         rel="me author"

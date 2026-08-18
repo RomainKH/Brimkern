@@ -1,7 +1,7 @@
 # brimkern
 
 **On-device AI for your site.** One script tag runs a real language model on your visitor's GPU
-(WebGPU). No server, no API key, no per-token cost — and nothing ever leaves the browser.
+(WebGPU). No server, no API key, no per-token cost, and nothing ever leaves the browser.
 
 ```html
 <script src="https://brimkern.com/sdk.js"></script>
@@ -14,7 +14,7 @@
 ```
 
 The model (149 MB) downloads **only when a visitor actually opens the widget**, then stays cached on
-their device — so your page speed is untouched, and the second visit starts in seconds, offline
+their device, so your page speed is untouched, and the second visit starts in seconds, offline
 included.
 
 ## Install
@@ -39,7 +39,7 @@ Prefer the script tag? Pin a version so your widget never changes under your fee
 
 ## Answer from *your* content
 
-Give it your text. It is chunked and ranked **in the browser** — only the passages matching the
+Give it your text. It is chunked and ranked **in the browser**: only the passages matching the
 question reach the model, and nothing is sent anywhere.
 
 ```js
@@ -52,13 +52,13 @@ Brimkern.embed({
 });
 ```
 
-**Write short, factual notes.** The default model is a 230M — small enough to download on a visitor's
+**Write short, factual notes.** The default model is a 230M: small enough to download on a visitor's
 connection, and it quotes your notes well. But it is small: two different numbers inside the same
 paragraph can get mixed up. One fact per paragraph is the rule that makes this work.
 
 ## Shape the tone
 
-On a model this size, *describing* a style in the system prompt does not work — it paraphrases the
+On a model this size, *describing* a style in the system prompt does not work: it paraphrases the
 instruction. **Showing** does. Two or three examples are enough:
 
 ```js
@@ -88,18 +88,18 @@ status();            // 'unavailable' | 'idle' | 'loading' | 'ready' | 'error'
 
 | | |
 | --- | --- |
-| `model` | An LFM2 `.brik` URL, or omit for the default (149 MB). **v0 runs LFM2 `.brik` models only** — a clear error tells you when a file is not one. The full engine (any single-file GGUF from Hugging Face) lives in the app at [brimkern.com/chat](https://brimkern.com/chat). |
+| `model` | An LFM2 `.brik` URL, or omit for the default (149 MB). **v0 runs LFM2 `.brik` models only**: a clear error tells you when a file is not one. The full engine (any single-file GGUF from Hugging Face) lives in the app at [brimkern.com/chat](https://brimkern.com/chat). |
 | `system` | What the assistant is and does. |
 | `knowledge` | A string, `{ title, text }`, or an array of either. |
 | `knowledgeBudget` | Characters of notes injected per question (default 1200). |
-| `examples` | Few-shot turns — the effective way to fix tone at this size. |
+| `examples` | Few-shot turns: the effective way to fix tone at this size. |
 | `title`, `greeting`, `accent` | Widget wording and colour. |
 | `maxTokens`, `temperature` | Generation limits. |
 
 ## Requirements
 
 A WebGPU browser: Chrome/Edge 121+, or Safari 18+. Without it, `status()` returns `'unavailable'`
-and the widget stays out of the way — nothing breaks.
+and the widget stays out of the way: nothing breaks.
 
 ## What it is under the hood
 
@@ -107,7 +107,7 @@ The forward pass is hand-written WGSL compute shaders; the weights stream in as 
 `.brik` container with its tokenizer embedded. No `onnxruntime`, no remote inference. The engine is
 MIT and lives at [github.com/RomainKH/Brimkern](https://github.com/RomainKH/Brimkern).
 
-Model weights carry their own licenses — the default model is under the LFM 1.0 license.
+Model weights carry their own licenses: the default model is under the LFM 1.0 license.
 
 ## License
 

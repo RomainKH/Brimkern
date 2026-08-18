@@ -227,7 +227,7 @@ export function ModelBrowserModal({
                       en ligne/hors ligne s'affiche. */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
                     <span
-                      title={net.saveData ? t('Data Saver is on — light models suggested.', 'Économiseur de données actif — modèles légers suggérés.') : net.hasInfo ? t('Connection quality detected from the browser.', 'Qualité de connexion détectée par le navigateur.') : t('Connection speed unavailable in this browser.', 'Vitesse de connexion indisponible dans ce navigateur.')}
+                      title={net.saveData ? t('Data Saver is on: light models suggested.', 'Économiseur de données actif : modèles légers suggérés.') : net.hasInfo ? t('Connection quality detected from the browser.', 'Qualité de connexion détectée par le navigateur.') : t('Connection speed unavailable in this browser.', 'Vitesse de connexion indisponible dans ce navigateur.')}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '10.5px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', color: tm.color, background: `color-mix(in srgb, ${tm.color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${tm.color} 35%, transparent)` }}
                     >
                       <tm.Icon size={12} /> {tm.label}
@@ -236,7 +236,7 @@ export function ModelBrowserModal({
                     </span>
                     {gpu.probed && gpu.supported && (
                       <span
-                        title={t('Model accessibility below is estimated from your GPU (WebGPU has no VRAM API — approximate).', 'L’accessibilité des modèles ci-dessous est estimée depuis ton GPU (WebGPU n’expose pas la VRAM — approximatif).') + (gpu.adapterInfo ? `\n${gpu.adapterInfo}` : '')}
+                        title={t('Model accessibility below is estimated from your GPU (WebGPU has no VRAM API: approximate).', 'L’accessibilité des modèles ci-dessous est estimée depuis ton GPU (WebGPU n’expose pas la VRAM : approximatif).') + (gpu.adapterInfo ? `\n${gpu.adapterInfo}` : '')}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '10.5px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', color: gpu.tier === 'high' ? 'var(--success)' : 'var(--text-secondary)', background: gpu.tier === 'high' ? 'color-mix(in srgb, var(--success) 12%, transparent)' : 'var(--bg-card-hover, rgba(127,127,127,0.12))', border: `1px solid ${gpu.tier === 'high' ? 'color-mix(in srgb, var(--success) 35%, transparent)' : 'var(--border-color)'}` }}
                       >
                         <Cpu size={12} /> {gpu.tier === 'high' ? t('Capable GPU', 'GPU costaud') : t('Modest GPU', 'GPU modeste')}
@@ -302,7 +302,7 @@ export function ModelBrowserModal({
                         </strong>{' '}
                         {net.tier === 'offline'
                           ? t('Only already-downloaded models (marked “Downloaded”) will load without network.', 'Seuls les modèles déjà téléchargés (badge « Téléchargé ») se chargeront sans réseau.')
-                          : t('The smallest models download faster — check the size on each card.', 'Les plus petits modèles se téléchargent plus vite — regardez la taille sur chaque carte.')}
+                          : t('The smallest models download faster: check the size on each card.', 'Les plus petits modèles se téléchargent plus vite : regardez la taille sur chaque carte.')}
                       </span>
                     </div>
                   )}
@@ -335,8 +335,8 @@ export function ModelBrowserModal({
                           // à chaque visite (et peut échouer en route). Dit avant, pas après.
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
                             <AlertCircle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
-                            <span>{t(`Larger than the ${fmtBytes(freeBytes || 0, 0)} your browser allows here — it won't stay cached.`,
-                                     `Plus gros que les ${fmtBytes(freeBytes || 0, 0)} que le navigateur accorde ici — il ne restera pas en cache.`)}</span>
+                            <span>{t(`Larger than the ${fmtBytes(freeBytes || 0, 0)} your browser allows here: it won't stay cached.`,
+                                     `Plus gros que les ${fmtBytes(freeBytes || 0, 0)} que le navigateur accorde ici : il ne restera pas en cache.`)}</span>
                           </div>
                         )}
                         {/* Nom sur sa propre ligne (pleine largeur, plus tronqué par la pastille) ;
@@ -363,10 +363,10 @@ export function ModelBrowserModal({
                             <span title={t('Already downloaded locally → loads without network.', 'Déjà téléchargé localement → chargement sans réseau.')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--success)', color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><HardDriveDownload size={10} /> {t('Downloaded', 'Téléchargé')}</span>
                           )}
                           {eta && (
-                            <span title={t('Estimated download time on your connection (one time — then it’s cached).', 'Temps de téléchargement estimé sur ta connexion (une seule fois — ensuite c’est en cache).')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Timer size={10} /> ~{eta}</span>
+                            <span title={t('Estimated download time on your connection (one time: then it’s cached).', 'Temps de téléchargement estimé sur ta connexion (une seule fois : ensuite c’est en cache).')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Timer size={10} /> ~{eta}</span>
                           )}
                           {gv && (
-                            <span title={t('Estimated fit on your GPU (approximate — WebGPU exposes no VRAM).', 'Adéquation estimée à ton GPU (approximatif — WebGPU n’expose pas la VRAM).')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: `color-mix(in srgb, ${gpuMeta[gv].color} 14%, transparent)`, color: gpuMeta[gv].color, border: `1px solid color-mix(in srgb, ${gpuMeta[gv].color} 45%, transparent)`, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Gauge size={10} /> {gpuMeta[gv].label}</span>
+                            <span title={t('Estimated fit on your GPU (approximate: WebGPU exposes no VRAM).', 'Adéquation estimée à ton GPU (approximatif : WebGPU n’expose pas la VRAM).')} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: `color-mix(in srgb, ${gpuMeta[gv].color} 14%, transparent)`, color: gpuMeta[gv].color, border: `1px solid color-mix(in srgb, ${gpuMeta[gv].color} 45%, transparent)`, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Gauge size={10} /> {gpuMeta[gv].label}</span>
                           )}
                           <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: MODALITY_PILL.text.bg, color: MODALITY_PILL.text.fg, border: `1px solid ${MODALITY_PILL.text.fg}33`, fontWeight: 700 }}>{t(MODALITY_PILL.text.label.en, MODALITY_PILL.text.label.fr)}</span>
                         </div>
@@ -564,7 +564,7 @@ export function ModelBrowserModal({
                     </div>
                     {t('Our own WGSL kernels run ', 'Nos kernels WGSL maison exécutent ')}<strong>Qwen (2/2.5)</strong>, <strong>Gemma 2</strong> {t('and', 'et')} <strong>DeepSeek-R1 (distill Qwen)</strong>. {t('Any other GGUF imported via the ', "Tout autre GGUF importé via l'onglet ")}<strong>{t('Import', 'Importer')}</strong>{t(' tab runs too, as long as its architecture is supported.', ' tourne aussi, tant que son architecture est gérée.')}
                     <div style={{ marginTop: '6px' }}>
-                      <strong style={{ color: 'var(--text-primary)' }}>{t('Convert to BRIK?', 'Convertir en BRIK ?')}</strong> {t('Mostly worth it from ', 'Intéressant surtout dès ')}<strong>~1.5B</strong>{t(' (“BRIK recommended” badge): the weights are kept ', ' (badge « BRIK conseillé ») : les poids sont gardés en ')}<strong>{t('int4/int8 resident', 'int4/int8 résident')}</strong>{t(' (÷2–4 VRAM → the model fits and loads faster) and the converted file is cached for instant reopenings. For a 0.5B the gain is marginal — the raw GGUF is enough.', ' (÷2–4 la VRAM → le modèle tient et charge plus vite) et le fichier converti est mis en cache pour des réouvertures instantanées. Pour un 0.5B, le gain est marginal — le GGUF brut suffit.')}
+                      <strong style={{ color: 'var(--text-primary)' }}>{t('Convert to BRIK?', 'Convertir en BRIK ?')}</strong> {t('Mostly worth it from ', 'Intéressant surtout dès ')}<strong>~1.5B</strong>{t(' (“BRIK recommended” badge): the weights are kept ', ' (badge « BRIK conseillé ») : les poids sont gardés en ')}<strong>{t('int4/int8 resident', 'int4/int8 résident')}</strong>{t(' (÷2–4 VRAM → the model fits and loads faster) and the converted file is cached for instant reopenings. For a 0.5B the gain is marginal: the raw GGUF is enough.', ' (÷2–4 la VRAM → le modèle tient et charge plus vite) et le fichier converti est mis en cache pour des réouvertures instantanées. Pour un 0.5B, le gain est marginal : le GGUF brut suffit.')}
                     </div>
                   </div>
                 </div>
@@ -600,7 +600,7 @@ export function ModelBrowserModal({
                       </div>
                     )}
                     <div className="input-group">
-                      <span className="input-label">Tokenizer / architecture <span style={{ color: 'var(--text-muted)' }}>{t('(GGUF — a .brik embeds its own)', '(GGUF — un .brik embarque le sien)')}</span>{t(':', ' :')}</span>
+                      <span className="input-label">Tokenizer / architecture <span style={{ color: 'var(--text-muted)' }}>{t('(GGUF: a .brik embeds its own)', '(GGUF : un .brik embarque le sien)')}</span>{t(':', ' :')}</span>
                       <select className="input-control" value={selectedTokenizerId} onChange={(e) => setSelectedTokenizerId(e.target.value)} disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}>
                         {TOKENIZER_PRESETS.map((tk, idx) => (<option key={idx} value={tk.id}>{tk.name}</option>))}
                       </select>
@@ -617,8 +617,8 @@ export function ModelBrowserModal({
                       garde que ce que le champ ne sait pas faire : un FICHIER local. */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                     <p style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--text-secondary)', margin: 0 }}>
-                      {t('A model by URL (Hugging Face repo, .gguf or .brik link)? Use the field at the top of the Models tab — it reads the tokenizer from the file.',
-                         "Un modèle par URL (dépôt Hugging Face, lien .gguf ou .brik) ? Utilisez le champ en haut de l'onglet Modèles — il lit le tokenizer dans le fichier.")}
+                      {t('A model by URL (Hugging Face repo, .gguf or .brik link)? Use the field at the top of the Models tab: it reads the tokenizer from the file.',
+                         "Un modèle par URL (dépôt Hugging Face, lien .gguf ou .brik) ? Utilisez le champ en haut de l'onglet Modèles : il lit le tokenizer dans le fichier.")}
                     </p>
                     <Link href={href('/convert')} className="btn btn-secondary btn-block" style={{ fontSize: '12px', textDecoration: 'none' }}>
                       <Package size={14} /> {t('Convert a GGUF → BRIK (dedicated page)', 'Convertir un GGUF → BRIK (page dédiée)')}

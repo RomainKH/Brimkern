@@ -123,7 +123,7 @@ export class RwkvModel {
 			}
 			this.rLayers = layers;
 		} catch (e) {
-			console.warn('[rwkv] chemin résident indisponible (montage) — repli forwardToken JS+readback.', e);
+			console.warn('[rwkv] chemin résident indisponible (montage) : repli forwardToken JS+readback.', e);
 			this.rLayers = []; this.rNorms = null;
 		}
 	}

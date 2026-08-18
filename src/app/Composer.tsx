@@ -111,17 +111,17 @@ export function Composer({
                 value={imageSize}
                 onChange={(e) => setImageSize(Number(e.target.value))}
                 disabled={modelState === 'generating' || benchRunning}
-                title={t('Generation resolution — bigger = more faithful but slower and more GPU-hungry', 'Résolution de génération — plus grand = plus fidèle mais plus lent et plus gourmand en GPU')}
+                title={t('Generation resolution: bigger = more faithful but slower and more GPU-hungry', 'Résolution de génération : plus grand = plus fidèle mais plus lent et plus gourmand en GPU')}
                 style={{
                   fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
                   background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
                 }}
               >
-                <option value={16}>{t('128px — fast', '128px — rapide')}</option>
-                <option value={32}>{t('256px — recommended', '256px — recommandé')}</option>
+                <option value={16}>{t('128px (fast)', '128px (rapide)')}</option>
+                <option value={32}>{t('256px (recommended)', '256px (recommandé)')}</option>
                 {/* 512² sur téléphone = pic VRAM (activations + TAESD) qui fait reprendre le GPU
                     par l'OS en pleine génération (blocage silencieux constaté) → desktop only. */}
-                {!isMobile && <option value={64}>{t('512px — native, slower', '512px — natif, plus lent')}</option>}
+                {!isMobile && <option value={64}>{t('512px (native, slower)', '512px (natif, plus lent)')}</option>}
               </select>
             </div>
           )}
@@ -142,7 +142,7 @@ export function Composer({
                   background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
                 }}
               >
-                <option value="off">{t('off — direct answer', 'off — réponse directe')}</option>
+                <option value="off">{t('off: direct answer', 'off : réponse directe')}</option>
                 <option value="low">low — ~{THINK_BUDGETS.low} tok</option>
                 <option value="medium">medium — ~{THINK_BUDGETS.medium} tok</option>
                 <option value="high">high — ~{THINK_BUDGETS.high} tok</option>
@@ -267,7 +267,7 @@ export function Composer({
             {!isMobile && (
               <span style={{ fontSize: '11px', color: 'var(--text-muted)', flex: 1, textAlign: 'center' }}>
                 {webSearchOn
-                  ? t('🌐 Web access on: your questions (or pasted links) are sent to an external service — configurable in ⚙️ Settings.', '🌐 Accès web actif : vos questions (ou liens collés) partent vers un service externe — réglable dans ⚙️ Réglages.')
+                  ? t('🌐 Web access on: your questions (or pasted links) are sent to an external service. Configurable in ⚙️ Settings.', '🌐 Accès web actif : vos questions (ou liens collés) partent vers un service externe. Réglable dans ⚙️ Réglages.')
                   : t('Brimkern runs in isolation and never sends your data anywhere.', "Brimkern s'exécute de manière isolée sans transférer vos données à l'extérieur.")}
               </span>
             )}

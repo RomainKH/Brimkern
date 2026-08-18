@@ -73,7 +73,7 @@ export default function VideoTestPage() {
       const url = await framesToWebm(res.frames); // 12 fps, boucle ×2 (pacing borné — cf. framesToWebm)
       if (url) setVideoUrl(url);
       (window as unknown as { __videoGen?: { n: number; ms: number; webm: boolean } }).__videoGen = { n: res.frames.length, ms: res.ms, webm: !!url };
-      setStatus(`OK — ${res.frames.length} frames en ${(res.ms / 1000).toFixed(1)} s${url ? '' : ' (WebM non supporté — frames seules)'}`);
+      setStatus(`OK : ${res.frames.length} frames en ${(res.ms / 1000).toFixed(1)} s${url ? '' : ' (WebM non supporté. Frames seules)'}`);
     } catch (e) {
       setStatus('ERREUR: ' + ((e as Error)?.message || String(e)));
     } finally { setBusy(false); }
@@ -87,7 +87,7 @@ export default function VideoTestPage() {
         // Mode GÉNÉRATION (?gen=1) : formulaire prompt + nombre de frames ; ?auto=1 lance direct
         // (harnais Playwright). Sinon : selfValidate du module motion seul (dump oracle).
         if (isGenMode) {
-          setStatus('Prêt — choisis un prompt et un nombre de frames, puis Générer. (~15 s de calcul par frame, 1,5 Go au premier chargement)');
+          setStatus('Prêt : choisis un prompt et un nombre de frames, puis Générer. (~15 s de calcul par frame, 1,5 Go au premier chargement)');
           if (new URLSearchParams(location.search).get('auto') === '1') void runGen(prompt, nFrames);
           return;
         }
@@ -110,7 +110,7 @@ export default function VideoTestPage() {
             tensors.push({ name: name.slice(PREFIX.length), dtype: t.dtype, shape: t.shape, f32: decodeTensor(bytes, t.nElems, t.dtype) });
           }
         }
-        setStatus(`module chargé (${tensors.length} tenseurs) — dump oracle…`);
+        setStatus(`module chargé (${tensors.length} tenseurs) : dump oracle…`);
         const [inB, outB] = await Promise.all([
           fetch('/models/video-oracle/io_in.bin').then((r) => r.arrayBuffer()),
           fetch('/models/video-oracle/io_out.bin').then((r) => r.arrayBuffer()),
@@ -143,7 +143,7 @@ export default function VideoTestPage() {
         const res = { cosine: m1.cosine, relMAE: m1.relMAE, ms: Math.round(ms), residentCosine: m2.cosine, residentRelMAE: m2.relMAE, residentMs: Math.round(msR), videoResidentOk: engine.videoResidentOk };
         (window as unknown as { __videoTest?: typeof res }).__videoTest = res;
         const ok = m1.cosine >= 0.999 && m1.relMAE <= 0.04 && m2.cosine >= 0.999 && m2.relMAE <= 0.04;
-        setStatus(`${ok ? 'OK' : 'ÉCART'} — JS cosine=${m1.cosine.toFixed(6)} (${res.ms}ms) · résident cosine=${m2.cosine.toFixed(6)} relMAE=${(m2.relMAE * 100).toFixed(2)}% (${res.residentMs}ms, ok=${engine.videoResidentOk})`);
+        setStatus(`${ok ? 'OK' : 'ÉCART'}. JS cosine=${m1.cosine.toFixed(6)} (${res.ms}ms) · résident cosine=${m2.cosine.toFixed(6)} relMAE=${(m2.relMAE * 100).toFixed(2)}% (${res.residentMs}ms, ok=${engine.videoResidentOk})`);
       } catch (e) {
         setStatus('ERREUR: ' + ((e as Error)?.message || String(e)));
       }

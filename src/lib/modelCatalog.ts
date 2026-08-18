@@ -51,7 +51,7 @@ export type Modality = 'text' | 'text2img' | 'vision';
 export const COMING_SOON: { vendor: string; name: string; params: string; modality: Modality; desc: string; tags: string[] }[] = [
   { vendor: 'Microsoft', name: 'Phi-3.5-mini', params: '~3.8B', modality: 'text', desc: 'Compact et excellent en raisonnement. Adaptation en cours (QKV/FFN fusionnés).', tags: ['raisonnement', 'compact'] },
   { vendor: 'Mistral AI', name: 'Mistral 7B Instruct', params: '~7B', modality: 'text', desc: 'Le best-seller open-weight, base d’une grande partie de l’écosystème.', tags: ['polyvalent', 'sliding-window'] },
-  { vendor: 'Stability AI', name: 'Stable Diffusion Turbo', params: 'SD', modality: 'text2img', desc: 'Génération d’images depuis du texte — poids BRIK pré-quantifiés streamés (~1,3 Go au lieu de 2,4). Sur mobile, la tuile charge SDXS-512 distillé (~720 Mo, 1 step).', tags: ['diffusion', 'BRIK q8'] },
+  { vendor: 'Stability AI', name: 'Stable Diffusion Turbo', params: 'SD', modality: 'text2img', desc: 'Génération d’images depuis du texte : poids BRIK pré-quantifiés streamés (~1,3 Go au lieu de 2,4). Sur mobile, la tuile charge SDXS-512 distillé (~720 Mo, 1 step).', tags: ['diffusion', 'BRIK q8'] },
   { vendor: 'Alibaba', name: 'Qwen2-VL 2B', params: '~2B', modality: 'vision', desc: 'Décrit / interroge une image (image + texte → texte). Encodeur visuel à porter.', tags: ['multimodal', 'OCR'] },
 ];
 export const MODALITY_PILL: Record<Modality, { label: { en: string; fr: string }; bg: string; fg: string }> = {

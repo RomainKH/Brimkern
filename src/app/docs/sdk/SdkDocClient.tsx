@@ -45,19 +45,19 @@ export default function SdkDocClient() {
         {t('SDK & npm package', 'SDK & paquet npm')}
       </h1>
       <P>
-        {t('The complete API of the brimkern package: a chat widget in one call, or headless sessions and one-shot generation for your own UI. Everything runs on the visitor’s GPU — no server, no API key, nothing leaves the browser. For the guided tour and live demo, see ',
-           "L'API complète du paquet brimkern : un widget de chat en un appel, ou des sessions sans interface et de la génération one-shot pour votre propre UI. Tout tourne sur le GPU du visiteur — aucun serveur, aucune clé d'API, rien ne quitte le navigateur. Pour la visite guidée et la démo live, voir ")}
+        {t('The complete API of the brimkern package: a chat widget in one call, or headless sessions and one-shot generation for your own UI. Everything runs on the visitor’s GPU: no server, no API key, nothing leaves the browser. For the guided tour and live demo, see ',
+           "L'API complète du paquet brimkern : un widget de chat en un appel, ou des sessions sans interface et de la génération one-shot pour votre propre UI. Tout tourne sur le GPU du visiteur : aucun serveur, aucune clé d'API, rien ne quitte le navigateur. Pour la visite guidée et la démo live, voir ")}
         <Link href={href('/local-ai')} style={{ color: 'var(--accent-text)' }}>{t('the SDK page', 'la page SDK')}</Link>.
       </P>
 
       <Section id="install" title={t('Install', 'Installation')}>
-        <P>{t('From npm — TypeScript types included:', 'Depuis npm — types TypeScript inclus :')}</P>
+        <P>{t('From npm. TypeScript types included:', 'Depuis npm. Types TypeScript inclus :')}</P>
         <Code>{`npm i brimkern
 
 import { embed, createSession, generate, preload, status } from 'brimkern';`}</Code>
         <P>
-          {t('Or as a script tag, with no build step — the IIFE exposes the same API on a global:',
-             'Ou en balise script, sans étape de build — l’IIFE expose la même API sur une globale :')}
+          {t('Or as a script tag, with no build step. The IIFE exposes the same API on a global:',
+             'Ou en balise script, sans étape de build. L’IIFE expose la même API sur une globale :')}
         </P>
         <Code>{`<script src="${SDK_URL}"></script>
 <script>
@@ -71,21 +71,21 @@ import { embed, createSession, generate, preload, status } from 'brimkern';`}</C
              "Monte le widget de chat dans la page (il attend le document si l'appel arrive tôt). Le modèle ne se télécharge que lorsqu'un visiteur ouvre réellement le widget : votre vitesse de page reste intacte.")}
         </P>
         <Param name="system" type="string">
-          {t('The assistant’s instructions — who it is, what it may say.', "Les instructions de l'assistant — qui il est, ce qu'il peut dire.")}
+          {t('The assistant’s instructions: who it is, what it may say.', "Les instructions de l'assistant : qui il est, ce qu'il peut dire.")}
         </Param>
         <Param name="title" type="string">{t('Widget header text.', 'Titre affiché en tête du widget.')}</Param>
         <Param name="greeting" type="string">{t('First message shown before the visitor types.', 'Premier message affiché avant que le visiteur n’écrive.')}</Param>
         <Param name="accent" type="string">{t('Accent color (any CSS color).', "Couleur d'accent (toute couleur CSS).")}</Param>
         <Param name="model" type="string">
-          {t('Model override — a Hugging Face repo or a direct .gguf/.brik URL. Defaults to the built-in small model (149 MB).',
-             'Modèle à la place du défaut — un dépôt Hugging Face ou une URL directe .gguf/.brik. Défaut : le petit modèle intégré (149 Mo).')}
+          {t('Model override: a Hugging Face repo or a direct .gguf/.brik URL. Defaults to the built-in small model (149 MB).',
+             'Modèle à la place du défaut : un dépôt Hugging Face ou une URL directe .gguf/.brik. Défaut : le petit modèle intégré (149 Mo).')}
         </Param>
         <Param name="maxTokens" type="number">{t('Reply budget, in tokens.', 'Budget de réponse, en tokens.')}</Param>
         <Param name="examples" type="{ user, assistant }[]">
           {t('Few-shot examples prepended to the conversation.', 'Exemples few-shot ajoutés en tête de conversation.')}
         </Param>
         <Param name="knowledge / knowledgeBudget" type="see below">
-          {t('Your content, ranked locally — see the dedicated section.', 'Vos contenus, triés en local — voir la section dédiée.')}
+          {t('Your content, ranked locally: see the dedicated section.', 'Vos contenus, triés en local : voir la section dédiée.')}
         </Param>
         <Param name="worker / workerUrl" type="boolean / string">
           {t('Run inference in a Web Worker (keeps your page’s main thread free). workerUrl serves the worker from your own origin if needed.',
@@ -124,8 +124,8 @@ session.destroy()`}</Code>
 
       <Section id="knowledge" title={t('Knowledge documents', 'Documents de connaissance')}>
         <P>
-          {t('Give the assistant your content — pages, FAQs, product sheets. Documents are chunked into passages in the browser, and only the 1–3 passages closest to the visitor’s question are given to the model. The ranking is local (lexical): nothing is sent anywhere.',
-             "Donnez vos contenus à l'assistant — pages, FAQ, fiches produit. Les documents sont découpés en passages dans le navigateur, et seuls les 1 à 3 passages les plus proches de la question du visiteur sont donnés au modèle. Le tri est local (lexical) : rien n'est envoyé où que ce soit.")}
+          {t('Give the assistant your content: pages, FAQs, product sheets. Documents are chunked into passages in the browser, and only the 1–3 passages closest to the visitor’s question are given to the model. The ranking is local (lexical): nothing is sent anywhere.',
+             "Donnez vos contenus à l'assistant : pages, FAQ, fiches produit. Les documents sont découpés en passages dans le navigateur, et seuls les 1 à 3 passages les plus proches de la question du visiteur sont donnés au modèle. Le tri est local (lexical) : rien n'est envoyé où que ce soit.")}
         </P>
         <Code>{`knowledge: [
   "Plain strings work.",
@@ -136,8 +136,8 @@ knowledgeBudget: 800  // ${t('max tokens of passages per question', 'tokens de p
 
       <Section id="preload" title="preload() & status()">
         <P>
-          {t('preload() downloads the engine and the model ahead of the first question — call it on a hover, or on the pricing page before support opens. onProgress receives the phase and, during download, the bytes: enough for a real progress bar.',
-             "preload() télécharge le moteur et le modèle avant la première question — appelez-le sur un survol, ou sur la page tarifs avant l'ouverture du support. onProgress reçoit la phase et, pendant le téléchargement, les octets : de quoi afficher une vraie barre de progression.")}
+          {t('preload() downloads the engine and the model ahead of the first question: call it on a hover, or on the pricing page before support opens. onProgress receives the phase and, during download, the bytes: enough for a real progress bar.',
+             "preload() télécharge le moteur et le modèle avant la première question : appelez-le sur un survol, ou sur la page tarifs avant l'ouverture du support. onProgress reçoit la phase et, pendant le téléchargement, les octets : de quoi afficher une vraie barre de progression.")}
         </P>
         <Code>{`await preload({
   onProgress: (status, p) => {
@@ -147,8 +147,8 @@ knowledgeBudget: 800  // ${t('max tokens of passages per question', 'tokens de p
 
 status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'loading' | 'ready' | 'error'`}</Code>
         <P>
-          {t('status() answers synchronously — use it to decide whether to show the widget at all on browsers without WebGPU.',
-             "status() répond de façon synchrone — utile pour décider d'afficher ou non le widget sur les navigateurs sans WebGPU.")}
+          {t('status() answers synchronously: use it to decide whether to show the widget at all on browsers without WebGPU.',
+             "status() répond de façon synchrone : utile pour décider d'afficher ou non le widget sur les navigateurs sans WebGPU.")}
         </P>
       </Section>
 

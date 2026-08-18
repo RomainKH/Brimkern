@@ -24,6 +24,10 @@ export interface ImageGenerator {
   // strength ∈ (0,1] : 0.3 = retouche légère, 0.55 = affinage, 1 = ignore la source. La taille de
   // sortie suit la source (pas le sélecteur de qualité). Optionnel : absent sur un vieux générateur.
   generateImg2Img?: (prompt: string, initUrl: string, strength: number, onProgress?: (step: string) => void, seed?: number, duty?: number) => Promise<ImageResult>;
+  // L'engine du pipeline, exposé pour le PROFILEUR (?gpuprofile=1) : sans lui, __gpuProfile ne
+  // lisait que l'engine du LLM et rendait « aucun modèle chargé » en mode image, alors que le GPU
+  // travaillait. Même exposition qu'en vidéo et en vision.
+  engine?: import('../kernels').WebGpuEngine;
   // Free the pipeline's GPU resources (device destroy — ~1 GB of resident weights). MUST be called
   // when leaving image mode (unload, or loading an LLM over it); the generator is dead afterwards.
   dispose?: () => void;

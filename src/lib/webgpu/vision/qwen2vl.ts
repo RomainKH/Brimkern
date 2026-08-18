@@ -11,6 +11,7 @@ import { CustomWebModel } from '../model';
 import { fetchFullCached } from '../source';
 import { loadMmproj } from './mmproj';
 import { VitEncoder, imageToPatches } from './vit';
+import { EN_ONLY, type OnProgress, type Tr } from '../progress';
 
 // Tokens spéciaux Qwen2-VL (ids du tokenizer officiel) — exportés pour l'orchestration du chat.
 export const IM_END = 151645, ENDOFTEXT = 151643;
@@ -52,26 +53,27 @@ export interface VisionSession {
 }
 
 // Charge LLM + mmproj sur UN engine partagé (~1,1 Go q8 LLM + ~0,7 Go q8 ViT en VRAM).
-export async function loadVisionSession(opts: { llm?: string; mmproj?: string } = {}, onProgress?: (s: string) => void): Promise<VisionSession> {
+export async function loadVisionSession(opts: { llm?: string; mmproj?: string; t?: Tr } = {}, onProgress?: OnProgress): Promise<VisionSession> {
+	const tr: Tr = opts.t ?? EN_ONLY;
 	const engine = new WebGpuEngine();
 	if (!(await engine.init())) throw new Error('WebGPU indisponible.');
-	onProgress?.('Auto-validation des kernels…');
+	onProgress?.(tr('Self-checking the kernels…', 'Auto-validation des kernels…'));
 	if (!(await engine.selfValidate())) throw new Error(`selfValidate KO : ${engine.validationFailure}`);
-	if (!engine.mropeOk) throw new Error('M-RoPE indisponible sur ce GPU — vision désactivée.');
+	if (!engine.mropeOk) throw new Error('M-RoPE indisponible sur ce GPU : vision désactivée.');
 
-	onProgress?.('Téléchargement du LLM (Q8_0, ~1 Go)…');
+	onProgress?.(tr('Downloading the LLM (Q8_0, ~1 GB)…', 'Téléchargement du LLM (Q8_0, ~1 Go)…'));
 	const llmBytes = await fetchFullCached(opts.llm ?? DEFAULT_LLM);
 	const blob = new Blob([llmBytes.slice() as unknown as BlobPart]);
 	const manifest = await parseGguf(blob);
 	if (!manifest.config.mropeSections) throw new Error(`arch "${manifest.arch}" : pas un LLM Qwen2-VL (sections M-RoPE absentes)`);
 	const model = new CustomWebModel(engine, blob, manifest);
 
-	onProgress?.('Téléchargement du mmproj (ViT, ~1,3 Go)…');
+	onProgress?.(tr('Downloading the vision projector (ViT, ~1.3 GB)…', 'Téléchargement du mmproj (ViT, ~1,3 Go)…'));
 	const { cfg: vitCfg, w } = await loadMmproj(engine, opts.mmproj ?? DEFAULT_MMPROJ, onProgress);
 	if (vitCfg.outDim !== manifest.config.d) throw new Error(`merger → ${vitCfg.outDim} ≠ d LLM ${manifest.config.d}`);
 	const vit = new VitEncoder(engine, w, vitCfg);
 
-	onProgress?.('Tokenizer…');
+	onProgress?.(tr('Tokenizer…', 'Tokenizer…'));
 	const { AutoTokenizer } = await import('@huggingface/transformers');
 	const tokenizer = await AutoTokenizer.from_pretrained('Qwen/Qwen2-VL-2B-Instruct');
 
@@ -90,12 +92,12 @@ export async function encodeText(s: VisionSession, t: string): Promise<number[]>
 // fusionnée pour les segments M-RoPE. L'appelant place le bloc dans la séquence et pousse
 // { at: offsetAbsolu + localAt, gh, gw } dans model.visionSegments.
 export interface ImageBlock { ids: number[]; localAt: number; gh: number; gw: number; rows: Float32Array }
-export async function encodeImageBlock(s: VisionSession, imageUrl: string, onProgress?: (p: string) => void): Promise<ImageBlock> {
-	onProgress?.('Pré-traitement de l’image…');
+export async function encodeImageBlock(s: VisionSession, imageUrl: string, onProgress?: OnProgress, tr: Tr = EN_ONLY): Promise<ImageBlock> {
+	onProgress?.(tr('Preparing the image…', 'Pré-traitement de l’image…'));
 	const img = await imageUrlToCHW(imageUrl);
 	const { patches, pos, gridH, gridW } = imageToPatches(img.data, img.H, img.W, s.vitCfg);
 	const nPatch = gridH * gridW;
-	onProgress?.(`Encodage de l’image (${nPatch} patches → ${nPatch / 4} tokens)…`);
+	onProgress?.(`${tr('Encoding the image', 'Encodage de l’image')} (${nPatch} patches, ${nPatch / 4} tokens)…`);
 	const rows = await s.vit.encode(patches, pos, nPatch);
 	const merge = s.vitCfg.merge;
 	const gh = gridH / merge, gw = gridW / merge;

@@ -3,7 +3,7 @@ import { ImageResponse } from 'next/og';
 // La carte de partage des routes /fr. Elle existe parce que la carte racine est passée en anglais
 // (version canonique du site) : sans elle, un partage de /fr serait annoncé en anglais.
 // Même composition que la racine, même promesse — celle de la landing française, mot pour mot.
-export const alt = 'Brimkern — exécutez n’importe quel GGUF de Hugging Face dans votre navigateur, sur votre GPU';
+export const alt = 'Brimkern : exécutez n’importe quel GGUF de Hugging Face dans votre navigateur, sur votre GPU';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 

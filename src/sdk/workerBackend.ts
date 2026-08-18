@@ -53,7 +53,7 @@ export class WorkerBackend implements EngineBackend {
 	constructor() {
 		if (typeof Worker === 'undefined') throw new Error('Worker indisponible');
 		const src = workerScriptUrl();
-		if (!src) throw new Error('URL du script introuvable (import ESM ?) — passez workerUrl');
+		if (!src) throw new Error('URL du script introuvable (import ESM ?) : passez workerUrl');
 		// `importScripts` évalue notre propre bundle DANS le worker ; index.ts y détecte le contexte
 		// worker et installe l'hôte de messages. Deux lignes, aucune duplication de code.
 		//

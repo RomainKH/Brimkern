@@ -33,7 +33,7 @@ function warnIfSilent(): void {
   if (h === 'localhost' || h.startsWith('127.')) return; // en local, le silence est voulu
   warned = true;
   console.warn(
-    '[metrics] NEXT_PUBLIC_GOATCOUNTER absent — AUCUN événement de funnel n\'est émis. ' +
+    '[metrics] NEXT_PUBLIC_GOATCOUNTER absent : AUCUN événement de funnel n\'est émis. ' +
     'Pour activer : créer un site sur goatcounter.com, poser la variable dans Vercel → Settings → ' +
     'Environment Variables, puis redéployer (la variable est lue AU BUILD).',
   );

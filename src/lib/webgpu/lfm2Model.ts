@@ -52,7 +52,7 @@ export class Lfm2Model {
 	}
 
 	async load(tokenizer: Lfm2Tokenizer): Promise<void> {
-		if (!(this.engine as any).lfm2ShortConvOk) throw new Error('kernel shortconv LFM2 invalidé sur ce GPU (selfValidate) — archi lfm2 refusée.');
+		if (!(this.engine as any).lfm2ShortConvOk) throw new Error('kernel shortconv LFM2 invalidé sur ce GPU (selfValidate) : archi lfm2 refusée.');
 		const a = this.manifest.arch;
 		this.D = a.d; this.NH = a.nHeads; this.NKV = a.nKvHeads; this.HD = a.headDim; this.NL = a.blockCount; this.vocab = a.vocab;
 		this.EPS = a.rmsEps; this.THETA = a.ropeTheta;

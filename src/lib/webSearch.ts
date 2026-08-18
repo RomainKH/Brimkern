@@ -96,7 +96,7 @@ async function wikiSearch(lang: string, query: string, max: number): Promise<Web
 export async function searchWeb(query: string, locale: 'fr' | 'en' = 'fr', max = 3): Promise<WebResult[]> {
   const decision = shouldSearchWeb(query);
   if (!decision.search) {
-    console.info(`[web] pas de recherche (${decision.reason}) — « ${query.slice(0, 40)} » ne demande pas de connaissance externe`);
+    console.info(`[web] pas de recherche (${decision.reason}) : « ${query.slice(0, 40)} » ne demande pas de connaissance externe`);
     return [];
   }
   try {

@@ -4,7 +4,7 @@ import { SITE_URL } from '@/lib/site';
 
 // Coquille Server Component (métadonnées côté serveur) ; le rendu bilingue vit dans DocsClient.
 export const metadata: Metadata = {
-  title: 'Documentation — Brimkern',
+  title: 'Documentation | Brimkern',
   description:
     'How to run any Hugging Face GGUF in your browser: instant test links, the .brik streaming format and its in-browser converter, the embeddable SDK, storage and offline behaviour, diagnostics.',
   alternates: {

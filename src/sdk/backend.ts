@@ -82,7 +82,7 @@ export async function pickBackend(prefer: boolean | undefined): Promise<EngineBa
 		await b.ready();
 		return b;
 	} catch (e) {
-		console.warn('[brimkern] Web Worker indisponible — inférence sur le thread principal', e);
+		console.warn('[brimkern] Web Worker indisponible : inférence sur le thread principal', e);
 		return new LocalBackend();
 	}
 }

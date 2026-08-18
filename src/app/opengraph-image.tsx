@@ -8,7 +8,7 @@ import { ImageResponse } from 'next/og';
 // française vit désormais dans src/app/fr/opengraph-image.tsx, servie pour les routes /fr.
 // La promesse reprend MOT POUR MOT celle de la landing : l'aperçu et la page doivent dire la même
 // chose, sinon le clic est déçu à l'arrivée.
-export const alt = 'Brimkern — run any Hugging Face GGUF in your browser, on your own GPU';
+export const alt = 'Brimkern: run any Hugging Face GGUF in your browser, on your own GPU';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 

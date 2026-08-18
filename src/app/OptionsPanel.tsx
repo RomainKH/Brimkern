@@ -11,9 +11,9 @@ import { useT } from '@/lib/i18n';
 export interface GpuRegime { value: number; label: string; desc: string }
 // Built through t() so labels/descriptions follow the active locale.
 export const GPU_REGIMES = (t: (en: string, fr: string) => string): GpuRegime[] => [
-  { value: 0.4, label: t('🌿 Eco', '🌿 Éco'), desc: t('GPU ~40% — cool and quiet machine, image generation ~2.5× slower.', 'GPU ~40 % — machine froide et silencieuse, génération d’images ~2,5× plus lente.') },
-  { value: 0.6, label: t('⚖️ Balanced', '⚖️ Équilibré'), desc: t('GPU ~60% — the recommended trade-off: moderate heat, ~1.7× slower than Max.', 'GPU ~60 % — le compromis conseillé : chauffe modérée, ~1,7× plus lent que Max.') },
-  { value: 1, label: '🔥 Max', desc: t('Full throttle — the fastest, but the GPU runs non-stop (heat).', 'Plein régime — le plus rapide, mais le GPU tourne en continu (chauffe).') },
+  { value: 0.4, label: t('🌿 Eco', '🌿 Éco'), desc: t('GPU ~40%: cool and quiet machine, image generation ~2.5× slower.', 'GPU ~40 % : machine froide et silencieuse, génération d’images ~2,5× plus lente.') },
+  { value: 0.6, label: t('⚖️ Balanced', '⚖️ Équilibré'), desc: t('GPU ~60%. The recommended trade-off: moderate heat, ~1.7× slower than Max.', 'GPU ~60 %. Le compromis conseillé : chauffe modérée, ~1,7× plus lent que Max.') },
+  { value: 1, label: '🔥 Max', desc: t('Full throttle: the fastest, but the GPU runs non-stop (heat).', 'Plein régime : le plus rapide, mais le GPU tourne en continu (chauffe).') },
 ];
 
 interface Props {
@@ -104,30 +104,30 @@ export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, webSearchOn
           <Check
             checked={localToolsOn}
             onChange={setLocalToolsOn}
-            title={t('🧮 Local tools — calculator & date', '🧮 Outils locaux — calculatrice & date')}
+            title={t('🧮 Local tools: calculator & date', '🧮 Outils locaux: calculatrice & date')}
             desc={<>{t('Math in your messages is evaluated ', 'Les calculs de vos messages sont évalués ')}<strong>{t('exactly', 'exactement')}</strong>{t(" (small models get arithmetic wrong) and the model knows today's date. ", ' (les petits modèles se trompent en arithmétique) et le modèle connaît la date du jour. ')}<strong>{t('100% local, no network.', '100 % local, aucun réseau.')}</strong></>}
           />
           <Check
             checked={webSearchOn}
             onChange={setWebSearchOn}
             title={t('🌐 Web search (Wikipedia)', '🌐 Recherche web (Wikipédia)')}
-            desc={<>{t('The model draws on Wikipedia excerpts and cites its sources. ', 'Le modèle s’appuie sur des extraits Wikipédia et cite ses sources. ')}<strong>{t('Only your question is sent', 'Seule votre question est envoyée')}</strong>{t(' to Wikipedia — never the conversation or your documents. Flagged under each affected reply, and a little slower (longer context).', ' à Wikipédia — jamais la conversation ni vos documents. Signalé sous chaque réponse concernée, et un peu plus lent (contexte plus long).')}</>}
+            desc={<>{t('The model draws on Wikipedia excerpts and cites its sources. ', 'Le modèle s’appuie sur des extraits Wikipédia et cite ses sources. ')}<strong>{t('Only your question is sent', 'Seule votre question est envoyée')}</strong>{t(' to Wikipedia: never the conversation or your documents. Flagged under each affected reply, and a little slower (longer context).', ' à Wikipédia : jamais la conversation ni vos documents. Signalé sous chaque réponse concernée, et un peu plus lent (contexte plus long).')}</>}
           />
           <Check
             checked={showReasoning}
             onChange={setShowReasoning}
             title={t('🧠 Show the reasoning', '🧠 Afficher le raisonnement')}
-            desc={<>{t('Reasoning models (DeepSeek-R1, Qwen3) think before answering. That reasoning is ', 'Les modèles de raisonnement (DeepSeek-R1, Qwen3) réfléchissent avant de répondre. Ce raisonnement est ')}<strong>{t('hidden by default', 'masqué par défaut')}</strong>{t(' — the answer is what you asked for. Enable this to read it.', ' — c’est la réponse qui vous intéresse. Activez ceci pour le lire.')}</>}
+            desc={<>{t('Reasoning models (DeepSeek-R1, Qwen3) think before answering. That reasoning is ', 'Les modèles de raisonnement (DeepSeek-R1, Qwen3) réfléchissent avant de répondre. Ce raisonnement est ')}<strong>{t('hidden by default', 'masqué par défaut')}</strong>{t(': the answer is what you asked for. Enable this to read it.', ' : c’est la réponse qui vous intéresse. Activez ceci pour le lire.')}</>}
           />
           <Check
             checked={urlReadOn}
             onChange={setUrlReadOn}
             title={t('🔗 Read pasted links', '🔗 Lecture des liens collés')}
-            desc={<>{t('Paste a URL into the chat and the model reads the page. ', 'Collez une URL dans le chat et le modèle lit la page. ')}<strong>{t('The link is sent to the r.jina.ai reader', 'Le lien est envoyé au lecteur r.jina.ai')}</strong>{t(" (third-party sites can't be fetched directly from a browser) — never the conversation.", ' (les sites tiers sont inaccessibles en direct depuis un navigateur) — jamais la conversation.')}</>}
+            desc={<>{t('Paste a URL into the chat and the model reads the page. ', 'Collez une URL dans le chat et le modèle lit la page. ')}<strong>{t('The link is sent to the r.jina.ai reader', 'Le lien est envoyé au lecteur r.jina.ai')}</strong>{t(" (third-party sites can't be fetched directly from a browser): never the conversation.", ' (les sites tiers sont inaccessibles en direct depuis un navigateur) : jamais la conversation.')}</>}
           />
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0 }}>
-          {t('With no network option enabled, Brimkern stays ', 'Sans option réseau active, Brimkern reste ')}<strong>{t('100% local', '100 % local')}</strong>{t(': nothing leaves your machine. Coming soon: connecting to a personal MCP server — off by default and clearly flagged, like everything else.', ' : rien ne quitte votre machine. À venir : connexion à un serveur MCP personnel — désactivé par défaut et signalé clairement, comme le reste.')}
+          {t('With no network option enabled, Brimkern stays ', 'Sans option réseau active, Brimkern reste ')}<strong>{t('100% local', '100 % local')}</strong>{t(': nothing leaves your machine. Coming soon: connecting to a personal MCP server. Off by default and clearly flagged, like everything else.', ' : rien ne quitte votre machine. À venir : connexion à un serveur MCP personnel. Désactivé par défaut et signalé clairement, comme le reste.')}
         </p>
       </div>
     </div>

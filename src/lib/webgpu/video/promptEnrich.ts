@@ -4,6 +4,7 @@
 // Lazy : rien n'est chargé tant que l'enrichissement n'est pas demandé.
 
 import type { WebGpuEngine } from '../kernels';
+import { EN_ONLY, type OnProgress, type Tr } from '../progress';
 import { Lfm2Model } from '../lfm2Model';
 import { loadBrikStream } from '../source';
 
@@ -23,8 +24,8 @@ const MOTION_FALLBACK = 'dynamic motion, moving camera, flowing movement, cinema
 export interface PromptEnricher { enrich(userPrompt: string): Promise<string>; }
 
 // Construit un Lfm2Model prêt à générer depuis un .brik (même recette que useModelEngine/lfm2-test).
-export async function loadPromptEnricher(engine: WebGpuEngine, url: string, onProgress?: (s: string) => void): Promise<PromptEnricher> {
-  onProgress?.('Chargement de LFM (enrichissement)…');
+export async function loadPromptEnricher(engine: WebGpuEngine, url: string, onProgress?: OnProgress, tr: Tr = EN_ONLY): Promise<PromptEnricher> {
+  onProgress?.(tr('Loading the prompt writer (LFM)…', 'Chargement de LFM (enrichissement)…'));
   const loadable = await loadBrikStream(url);
   const m = loadable.manifest as any;
   if (m.config?.arch !== 'lfm2' && m.arch !== 'lfm2') { /* le manifeste aplati porte l'arch dans config */ }
@@ -58,6 +59,6 @@ export async function loadPromptEnricher(engine: WebGpuEngine, url: string, onPr
     const enriched = clean.length >= u.length + 8 && clean.toLowerCase() !== u.toLowerCase();
     return enriched ? clean : `${u.replace(/[.,\s]+$/, '')}, ${MOTION_FALLBACK}`;
   };
-  onProgress?.('LFM prêt (enrichissement).');
+  onProgress?.(tr('Prompt writer ready.', 'LFM prêt (enrichissement).'));
   return { enrich };
 }

@@ -101,7 +101,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
       }
       const gpu = (navigator as any).gpu;
       if (!gpu) {
-        console.warn('[webgpu] navigator.gpu absent — contexte non sécurisé (page en http ?) ou navigateur sans WebGPU');
+        console.warn('[webgpu] navigator.gpu absent : contexte non sécurisé (page en http ?) ou navigateur sans WebGPU');
         metricOnce('webgpu_unsupported', { reason: 'no-api' });
         setWebGpuSupported(false);
         return;
@@ -111,7 +111,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
           const adapter = await gpu.requestAdapter();
           if (cancelled) return;
           if (adapter) { setWebGpuSupported(true); return; }
-          console.warn(`[webgpu] requestAdapter() → null (essai ${i + 1}/3) — accélération matérielle coupée ? Vérifier chrome://gpu ; un redémarrage du navigateur suffit souvent après un crash GPU`);
+          console.warn(`[webgpu] requestAdapter() → null (essai ${i + 1}/3) : accélération matérielle coupée ? Vérifier chrome://gpu ; un redémarrage du navigateur suffit souvent après un crash GPU`);
         } catch (e) {
           console.error('Erreur détection WebGPU:', e);
         }
@@ -201,7 +201,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
       // blob depuis `chunks` ne sauve rien (le registre blob est lui aussi à sec). Rien à corriger
       // ici : c'est une limite du format mono-fichier, et l'argument du BRIK (plages indépendantes,
       // reprise, hors-ligne réel). Message explicite pour que l'utilisateur comprenne.
-      console.warn('Échec de la mise en cache (quota dépassé ? navigation privée ?) — le modèle ne sera pas réutilisable hors ligne, et un quota saturé peut faire échouer ce chargement (préférez un BRIK) :', e);
+      console.warn('Échec de la mise en cache (quota dépassé ? navigation privée ?). Le modèle ne sera pas réutilisable hors ligne, et un quota saturé peut faire échouer ce chargement (préférez un BRIK) :', e);
     }
 
     return blob;
@@ -250,8 +250,8 @@ export function useModelEngine(deps: ModelEngineDeps) {
         setModelMetadata(null);
         setModelState('error');
         setErrorMsg(t(
-          "The GPU disconnected (device lost): the system reclaimed graphics memory — common on mobile with a long conversation, a backgrounded tab, or thermal pressure. The model was unloaded; your conversation is safe. Reload the model to continue.",
-          "Le GPU s'est déconnecté (device lost) : le système a repris la mémoire graphique — fréquent sur mobile avec une longue conversation, un onglet passé en arrière-plan, ou la chauffe. Le modèle a été déchargé ; votre conversation est intacte. Rechargez le modèle pour continuer.",
+          "The GPU disconnected (device lost): the system reclaimed graphics memory. Common on mobile with a long conversation, a backgrounded tab, or thermal pressure. The model was unloaded; your conversation is safe. Reload the model to continue.",
+          "Le GPU s'est déconnecté (device lost) : le système a repris la mémoire graphique. Fréquent sur mobile avec une longue conversation, un onglet passé en arrière-plan, ou la chauffe. Le modèle a été déchargé ; votre conversation est intacte. Rechargez le modèle pour continuer.",
         ));
       };
 
@@ -390,7 +390,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
             // `BpeTokenizer.decode` saute déjà les spéciaux — le seul mode que le chat utilise.
             shim.decode = (ids: ArrayLike<number | bigint>) => bt.decode(Array.from(ids, Number));
             tokenizer = shim;
-            console.log(`[gguf-tok] tokenizer lu dans le fichier : ${gg.nVocab} tokens, pré-tokeniseur « ${gg.pre} », BOS ${gg.bosId}, EOS ${gg.eosId} — aucun téléchargement`);
+            console.log(`[gguf-tok] tokenizer lu dans le fichier : ${gg.nVocab} tokens, pré-tokeniseur « ${gg.pre} », BOS ${gg.bosId}, EOS ${gg.eosId}. Aucun téléchargement`);
           }
         } catch (e) {
           console.warn('[gguf-tok] lecture impossible, repli sur le tokenizer Hugging Face :', e);
@@ -442,7 +442,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
       // c'est ici que le commutateur doit vivre — le poser dans applyAutoPrec ne servait à rien,
       // cette fonction n'étant appelée que par le bouton « Auto » de l'UI.
       const kvCut = (() => { try { return new URLSearchParams(location.search).get('kvq') === '0'; } catch { return false; } })();
-      if (kvCut) console.warn('[brimkern] cache KV int8 COUPÉ par ?kvq=0 — cache KV en f32');
+      if (kvCut) console.warn('[brimkern] cache KV int8 COUPÉ par ?kvq=0 : cache KV en f32');
       if (autoPrec) {
         const totalParams = Object.values(manifest.tensors as Record<string, { nElems?: number }>).reduce((a, t) => a + (t.nElems || 0), 0);
         const native = model.nativePrecision;
@@ -505,7 +505,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
         } catch (e) {
           // Échec de préchauffe (VRAM insuffisante) : on NE bloque pas le chargement — le chemin
           // paresseux reste valable et le premier message retentera, couche par couche.
-          console.warn('[warmup] préchauffe interrompue — retour au chargement paresseux :', e);
+          console.warn('[warmup] préchauffe interrompue. Retour au chargement paresseux :', e);
         }
         setLoadingProgress(null);
       }
@@ -524,7 +524,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
                    `- Blocks (layers): \`${manifest.config.blockCount}\`\n` +
                    `- Embd dimension: \`${manifest.config.d}\` (Heads: \`${manifest.config.nHeads}\`)\n` +
                    `- Tokenizer: \`${tokenizerId}\` (\`${archType}\`)\n\n` +
-                   `You can send it your questions — every matrix computation will run locally in this browser.`,
+                   `You can send it your questions: every matrix computation will run locally in this browser.`,
                    `Bonjour ! Le modèle **${modelName}** a été chargé avec succès (source **${sourceLabel}**) grâce à nos kernels WebGPU custom.\n\n` +
                    `**Caractéristiques du modèle :**\n` +
                    `- Architecture : \`${manifest.arch}\`\n` +
@@ -636,7 +636,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
         const isNetwork = !navigator.onLine || e instanceof TypeError || /failed to fetch|load failed|network/i.test(msg);
         if (!isNetwork || ++pauses > 60) throw e;
         if (isMobile) setIsSidebarOpen(false);
-        setLoadingStep(t('Download paused (network interrupted) — resumes automatically once the connection returns…', 'Chargement en pause (réseau interrompu) — reprise automatique dès le retour de la connexion…'));
+        setLoadingStep(t('Download paused (network interrupted): resumes automatically once the connection returns…', 'Chargement en pause (réseau interrompu) : reprise automatique dès le retour de la connexion…'));
         await waitForResume();
         setLoadingStep(t('Resuming the download…', 'Reprise du téléchargement…'));
       }
@@ -668,7 +668,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
         return;
       } catch (e: any) {
         console.warn('Auto-conversion BRIK échouée, chargement GGUF brut :', e);
-        setLoadingStep(t('Conversion failed — loading the raw GGUF…', 'Conversion échouée — chargement du GGUF brut…'));
+        setLoadingStep(t('Conversion failed: loading the raw GGUF…', 'Conversion échouée : chargement du GGUF brut…'));
       }
     }
     await activateModel(manifest, fileBlob, modelName, tokId, archT, 'GGUF');
@@ -728,9 +728,9 @@ export function useModelEngine(deps: ModelEngineDeps) {
       // chemin ; idem si l'hôte ignore Range (loadGgufStream rend null).
       // Kill-switch de banc : ?ggufstream=0 force l'ancien chemin monolithique (A/B du streaming).
       const streamCut = typeof location !== 'undefined' && new URLSearchParams(location.search).get('ggufstream') === '0';
-      if (streamCut) console.warn('[gguf] streaming par plages COUPÉ par ?ggufstream=0 — téléchargement complet');
+      if (streamCut) console.warn('[gguf] streaming par plages COUPÉ par ?ggufstream=0 : téléchargement complet');
       const stream = (autoConvert || streamCut) ? null : await loadGgufStream(url).catch((e: unknown) => {
-        console.warn('[gguf] en-tête par plages indisponible — repli sur le téléchargement complet :', e);
+        console.warn('[gguf] en-tête par plages indisponible. Repli sur le téléchargement complet :', e);
         return null;
       });
       if (stream) {
@@ -863,7 +863,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
   return {
     // state
     modelState, setModelState, errorMsg, setErrorMsg, webGpuSupported,
-    loadingStep, setLoadingStep, loadingProgress,
+    loadingStep, setLoadingStep, loadingProgress, setLoadingProgress,
     activeEngine, activeModel, activeTokenizer,
     loadedModelName, loadedModelUrl,
     modelMetadata, weightPrec, setWeightPrec, kvQuantOn, setKvQuantOn, modelIsBrik, autoPrec, setAutoPrec,

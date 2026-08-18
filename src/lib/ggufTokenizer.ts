@@ -94,7 +94,7 @@ export function tokenizerFromGguf(man: MetaHolder): GgufTokenizerInfo | null {
 	try {
 		return { tokenizer: new BpeTokenizer(json), nVocab: tokens.length, pre, bosId, eosId, controlIds };
 	} catch (e) {
-		console.warn('[gguf-tok] vocabulaire non consommable par BpeTokenizer — repli sur le tokenizer HF :', e);
+		console.warn('[gguf-tok] vocabulaire non consommable par BpeTokenizer. Repli sur le tokenizer HF :', e);
 		return null;
 	}
 }

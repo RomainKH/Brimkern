@@ -125,14 +125,14 @@ export default function DocsClient() {
           href="/video-test?gen=1"
           icon={<Film size={17} />}
           title={t('Video lab (beta)', 'Labo vidéo (bêta)')}
-          desc={t('Generate a short clip. ~1.5 GB and several minutes of GPU — desktop only.', '~1,5 Go et plusieurs minutes de GPU pour un court clip — bureau uniquement.')}
+          desc={t('Generate a short clip. ~1.5 GB and several minutes of GPU: desktop only.', '~1,5 Go et plusieurs minutes de GPU pour un court clip : bureau uniquement.')}
         />
       </div>
 
       <Section id="start" title={t('Getting started', 'Démarrer')}>
         <P>
-          {t('Open the app and click the single button on the home screen. The model streams in once (149 MB for the default), is cached on your device, and every later visit starts in seconds — offline included. Nothing is ever uploaded: the weights come down to your machine and the computation happens on your GPU.',
-             "Ouvrez l'application et cliquez sur l'unique bouton de l'accueil. Le modèle arrive en streaming une fois (149 Mo pour celui par défaut), est mis en cache sur votre appareil, et chaque visite suivante démarre en quelques secondes — hors-ligne compris. Rien n'est jamais envoyé : les poids descendent chez vous et le calcul se fait sur votre GPU.")}
+          {t('Open the app and click the single button on the home screen. The model streams in once (149 MB for the default), is cached on your device, and every later visit starts in seconds: offline included. Nothing is ever uploaded: the weights come down to your machine and the computation happens on your GPU.',
+             "Ouvrez l'application et cliquez sur l'unique bouton de l'accueil. Le modèle arrive en streaming une fois (149 Mo pour celui par défaut), est mis en cache sur votre appareil, et chaque visite suivante démarre en quelques secondes : hors-ligne compris. Rien n'est jamais envoyé : les poids descendent chez vous et le calcul se fait sur votre GPU.")}
         </P>
         <P>
           <strong>{t('Requirements: ', 'Prérequis : ')}</strong>
@@ -149,8 +149,8 @@ export default function DocsClient() {
 
       <Section id="storage" title={t('Storage & offline', 'Stockage & hors-ligne')}>
         <P>
-          {t('Model weights live in the browser cache, per site. The browser decides how much space it grants — often tens of gigabytes on a normal profile, but only ~1.5 GB in a private window, where a large model will not stay cached. The model browser warns you before a download that cannot fit.',
-             "Les poids vivent dans le cache du navigateur, par site. C'est le navigateur qui décide de l'espace accordé — souvent des dizaines de gigaoctets sur un profil normal, mais ~1,5 Go seulement en navigation privée, où un gros modèle ne pourra pas rester en cache. Le navigateur de modèles vous avertit avant un téléchargement qui ne tiendra pas.")}
+          {t('Model weights live in the browser cache, per site. The browser decides how much space it grants: often tens of gigabytes on a normal profile, but only ~1.5 GB in a private window, where a large model will not stay cached. The model browser warns you before a download that cannot fit.',
+             "Les poids vivent dans le cache du navigateur, par site. C'est le navigateur qui décide de l'espace accordé : souvent des dizaines de gigaoctets sur un profil normal, mais ~1,5 Go seulement en navigation privée, où un gros modèle ne pourra pas rester en cache. Le navigateur de modèles vous avertit avant un téléchargement qui ne tiendra pas.")}
         </P>
         <P>
           {t('Models you have not used for 30 days are cleaned up automatically (adjustable, or off, in the Storage panel). Conversations and locally converted .brik files are never touched.',

@@ -8,7 +8,7 @@ import { SITE_URL } from '@/lib/site';
 // Les liens déjà publiés vers `/?model=…` continuent de marcher : la landing détecte les paramètres
 // de deeplink et redirige vers /chat en conservant la query (voir LandingClient).
 export const metadata: Metadata = {
-  title: 'Chat — Brimkern',
+  title: 'Chat | Brimkern',
   description: 'Load a GGUF model and chat with it on your own GPU, entirely in your browser.',
   alternates: {
     canonical: `${SITE_URL}/chat`,

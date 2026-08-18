@@ -13,14 +13,12 @@
 
 import Link from 'next/link';
 import { ArrowRight, Check, Minus } from 'lucide-react';
-import { useLocale, useT, useHref } from '@/lib/i18n';
-import ByLine from '../ByLine';
-import BackLink from '../BackLink';
+import { useT, useHref } from '@/lib/i18n';
+import DocsShell from '../docs/DocsShell';
 
 export default function VsWebllmClient() {
   const t = useT();
   const href = useHref();
-  const { locale, setLocale } = useLocale();
 
   // Les mesures. `us` / `them` : ce qui a été relevé ; `note` : ce qui rend le chiffre lisible.
   const rows: { metric: string; us: string; them: string; win: 'us' | 'them' | 'tie'; note: string }[] = [
@@ -33,12 +31,12 @@ export default function VsWebllmClient() {
     {
       metric: t('Decode (writing the answer)', 'Décodage (écriture de la réponse)'),
       us: '10,2 tok/s', them: '14,0 tok/s', win: 'them',
-      note: t('WebLLM is ahead here, and we say so. Ours was re-measured on 2026-08-15 after making RMSNorm parallel per row: 8.1 → 10.2 tok/s on this exact model (two passes: 9.7 and 10.7). The gap narrowed — 1.37× instead of 1.46× — but it is still a gap, and closing it is the current work.',
-              'WebLLM est devant ici, et nous l’écrivons. Le nôtre a été re-mesuré le 15/08/2026 après le passage de la RMSNorm en parallèle par ligne : 8,1 → 10,2 tok/s sur ce modèle exact (deux passages : 9,7 et 10,7). L’écart s’est réduit — 1,37× au lieu de 1,46× — mais c’est toujours un écart, et le combler est le chantier en cours.'),
+      note: t('WebLLM is ahead here, and we say so. Ours was re-measured on 2026-08-15 after making RMSNorm parallel per row: 8.1 → 10.2 tok/s on this exact model (two passes: 9.7 and 10.7). The gap narrowed: 1.37× instead of 1.46×, but it is still a gap, and closing it is the current work.',
+              'WebLLM est devant ici, et nous l’écrivons. Le nôtre a été re-mesuré le 15/08/2026 après le passage de la RMSNorm en parallèle par ligne : 8,1 → 10,2 tok/s sur ce modèle exact (deux passages : 9,7 et 10,7). L’écart s’est réduit : 1,37× au lieu de 1,46×, mais c’est toujours un écart, et le combler est le chantier en cours.'),
     },
     {
       metric: t('Model preparation', 'Préparation du modèle'),
-      us: t('none — paste author/model', 'aucune — collez auteur/modèle'),
+      us: t('none: paste author/model', 'aucune : collez auteur/modèle'),
       them: t('compile with MLC/TVM', 'compilation MLC/TVM'),
       win: 'us',
       note: t('This is the structural difference. We read single-file GGUF straight from Hugging Face; WebLLM needs weights pre-compiled into its own artifact first.',
@@ -46,7 +44,7 @@ export default function VsWebllmClient() {
     },
     {
       metric: t('Reload from cache (4.7 GB)', 'Rechargement depuis le cache (4,7 Go)'),
-      us: '15,8 s', them: '—', win: 'us',
+      us: '15,8 s', them: t('no equivalent', 'sans équivalent'), win: 'us',
       note: t('Our .brik container stores one layer per contiguous HTTP range, so a reload is resumable and works offline.',
               'Notre conteneur .brik range une couche par plage HTTP contiguë : le rechargement reprend après coupure et fonctionne hors-ligne.'),
     },
@@ -66,8 +64,8 @@ export default function VsWebllmClient() {
       us: t('CPU reference + fallback', 'référence CPU + repli'),
       them: t('trusted as compiled', 'compilés, donc supposés justes'),
       win: 'us',
-      note: t('Every hand-written kernel validates itself against a CPU reference when the engine starts, and falls back to a simpler path if a GPU miscompiles it — a real failure mode on the variety of GPUs the web runs on. Each one also has a URL kill-switch to isolate it.',
-              'Chaque kernel écrit à la main se valide contre une référence CPU au démarrage du moteur, et retombe sur un chemin plus simple si un GPU le compile mal — une panne réelle sur la variété de GPU qu’on trouve sur le web. Chacun a aussi un commutateur d’URL pour l’isoler.'),
+      note: t('Every hand-written kernel validates itself against a CPU reference when the engine starts, and falls back to a simpler path if a GPU miscompiles it: a real failure mode on the variety of GPUs the web runs on. Each one also has a URL kill-switch to isolate it.',
+              'Chaque kernel écrit à la main se valide contre une référence CPU au démarrage du moteur, et retombe sur un chemin plus simple si un GPU le compile mal : une panne réelle sur la variété de GPU qu’on trouve sur le web. Chacun a aussi un commutateur d’URL pour l’isoler.'),
     },
   ];
 
@@ -75,19 +73,15 @@ export default function VsWebllmClient() {
     win === side ? <Check size={14} style={{ color: 'var(--success)', flexShrink: 0 }} aria-hidden /> :
     win === 'tie' ? <Minus size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} aria-hidden /> : null;
 
-  return (
-    <main style={{ maxWidth: 820, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <BackLink />
-        <button
-          onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
-          style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-        >
-          {locale === 'fr' ? 'EN' : 'FR'}
-        </button>
-      </div>
+  const toc = [
+    { id: 'measured', label: t('Measured, side by side', 'Mesuré, côte à côte') },
+    { id: 'difference', label: t('The difference that decides', 'La différence qui décide') },
+    { id: 'which', label: t('Which one should you use?', 'Lequel choisir ?') },
+  ];
 
-      <div style={{ borderTop: '2px solid var(--accent)', marginTop: 20, paddingTop: 22 }}>
+  return (
+    <DocsShell toc={toc}>
+      <div style={{ borderTop: '2px solid var(--accent)', paddingTop: 22 }}>
         <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>
           {t('measured comparison', 'comparaison mesurée')}
         </span>
@@ -100,12 +94,12 @@ export default function VsWebllmClient() {
             'Les deux exécutent un grand modèle de langage côté client sur WebGPU, sans serveur ni clé d’API. Ils diffèrent sur un point décisif : ce qu’il faut faire subir à un modèle avant qu’il tourne.')}
         </p>
         <p style={{ color: 'var(--text-muted)', fontSize: 13.5, lineHeight: 1.55, margin: '0 0 22px', maxWidth: 680 }}>
-          {t('Numbers below were measured between 2026-08-13 and 2026-08-15, same laptop GPU, same model (DeepSeek-R1-Distill-Qwen-7B, int4), same prompt. Nothing here is an estimate — and that model is in the catalogue, so you can run it yourself.',
-            'Les chiffres ci-dessous ont été mesurés entre le 13 et le 15 août 2026, même GPU de portable, même modèle (DeepSeek-R1-Distill-Qwen-7B, int4), même prompt. Rien ici n’est estimé — et ce modèle est dans le catalogue, vous pouvez donc le lancer vous-même.')}
+          {t('Numbers below were measured between 2026-08-13 and 2026-08-15, same laptop GPU, same model (DeepSeek-R1-Distill-Qwen-7B, int4), same prompt. Nothing here is an estimate, and that model is in the catalogue, so you can run it yourself.',
+            'Les chiffres ci-dessous ont été mesurés entre le 13 et le 15 août 2026, même GPU de portable, même modèle (DeepSeek-R1-Distill-Qwen-7B, int4), même prompt. Rien ici n’est estimé, et ce modèle est dans le catalogue, vous pouvez donc le lancer vous-même.')}
         </p>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Link href={`${href('/chat')}?start=1`} className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
-            {t('Run a model now — 149 MB', 'Lancer un modèle — 149 Mo')} <ArrowRight size={15} />
+            {t('Run a model now: 149 MB', 'Lancer un modèle : 149 Mo')} <ArrowRight size={15} />
           </Link>
           <Link href={href('/docs')} className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
             {t('Read the docs', 'Lire la doc')}
@@ -117,7 +111,7 @@ export default function VsWebllmClient() {
           Un vrai <table> (et non des div en grille) : c'est un tableau de données, les lecteurs
           d'écran doivent pouvoir l'annoncer ligne par ligne avec ses en-têtes. Il défile
           horizontalement dans son propre conteneur sur écran étroit. */}
-      <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)' }}>
+      <h2 id="measured" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)', scrollMarginTop: 24 }}>
         {t('Measured, side by side', 'Mesuré, côte à côte')}
       </h2>
       <div style={{ overflowX: 'auto', margin: '18px 0 0' }}>
@@ -151,7 +145,7 @@ export default function VsWebllmClient() {
       </div>
 
       {/* ── LA DIFFÉRENCE DE FOND ──────────────────────────────────────────────────────────── */}
-      <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)' }}>
+      <h2 id="difference" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)', scrollMarginTop: 24 }}>
         {t('The difference that decides', 'La différence qui décide')}
       </h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
@@ -160,8 +154,8 @@ export default function VsWebllmClient() {
             {t('WebLLM: compile, then run', 'WebLLM : compiler, puis exécuter')}
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: 0 }}>
-            {t('Weights go through the MLC/TVM toolchain and come out as a WebLLM artifact. That step buys auto-tuned kernels per architecture — and costs you a build every time you want a model that is not already in the catalogue.',
-              'Les poids passent par la chaîne MLC/TVM et en ressortent en artefact WebLLM. Cette étape achète des kernels auto-tunés par architecture — et vous coûte une compilation dès que vous voulez un modèle absent du catalogue.')}
+            {t('Weights go through the MLC/TVM toolchain and come out as a WebLLM artifact. That step buys auto-tuned kernels per architecture, and costs you a build every time you want a model that is not already in the catalogue.',
+              'Les poids passent par la chaîne MLC/TVM et en ressortent en artefact WebLLM. Cette étape achète des kernels auto-tunés par architecture, et vous coûte une compilation dès que vous voulez un modèle absent du catalogue.')}
           </p>
         </div>
         <div className="card" style={{ padding: 20 }}>
@@ -176,7 +170,7 @@ export default function VsWebllmClient() {
       </div>
 
       {/* ── QUI DEVRAIT CHOISIR QUOI ───────────────────────────────────────────────────────── */}
-      <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)' }}>
+      <h2 id="which" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)', scrollMarginTop: 24 }}>
         {t('Which one should you use?', 'Lequel choisir ?')}
       </h2>
       <ul style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.7, margin: 0, paddingLeft: 20 }}>
@@ -194,14 +188,14 @@ export default function VsWebllmClient() {
         <li>
           {t('Your widget stays open for a long conversation and memory must not creep → ', 'Votre widget reste ouvert sur une longue conversation et la mémoire ne doit pas grimper → ')}
           <strong style={{ color: 'var(--text-primary)' }}>Brimkern</strong>
-          {t(' — the catalogue includes recurrent models (RWKV-7) whose state is a fixed ~1 MB instead of a KV cache that grows with every token.',
-             ' — le catalogue contient des modèles récurrents (RWKV-7) dont l’état est un bloc fixe d’environ 1 Mo, au lieu d’un cache KV qui grandit à chaque token.')}
+          {t(': the catalogue includes recurrent models (RWKV-7) whose state is a fixed ~1 MB instead of a KV cache that grows with every token.',
+             ' : le catalogue contient des modèles récurrents (RWKV-7) dont l’état est un bloc fixe d’environ 1 Mo, au lieu d’un cache KV qui grandit à chaque token.')}
         </li>
         <li>
           {t('You need to host the weights yourself, on your own domain → ', 'Vous devez héberger les poids vous-même, sur votre domaine → ')}
           <strong style={{ color: 'var(--text-primary)' }}>Brimkern</strong>
-          {t(' — convert a GGUF to .brik in the browser, put the file on any static host, and it streams by HTTP range from there.',
-             ' — convertissez un GGUF en .brik dans le navigateur, posez le fichier sur n’importe quel hébergement statique, et il se streame par plages depuis là.')}
+          {t(': convert a GGUF to .brik in the browser, put the file on any static host, and it streams by HTTP range from there.',
+             ' : convertissez un GGUF en .brik dans le navigateur, posez le fichier sur n’importe quel hébergement statique, et il se streame par plages depuis là.')}
         </li>
         <li>
           {t('You need an OpenAI-compatible API surface out of the box → ', 'Vous voulez une API compatible OpenAI clé en main → ')}
@@ -210,8 +204,8 @@ export default function VsWebllmClient() {
       </ul>
 
       <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6, margin: '30px 0 0' }}>
-        {t('WebLLM is an excellent project and the reason in-browser inference is taken seriously at all. This page compares engineering trade-offs, not teams. If a number here is wrong, tell us — the benchmark harness is in the repository.',
-          'WebLLM est un excellent projet, et la raison pour laquelle l’inférence dans le navigateur est prise au sérieux. Cette page compare des choix techniques, pas des équipes. Si un chiffre est faux, dites-le — le harnais de mesure est dans le dépôt.')}
+        {t('WebLLM is an excellent project and the reason in-browser inference is taken seriously at all. This page compares engineering trade-offs, not teams. If a number here is wrong, tell us: the benchmark harness is in the repository.',
+          'WebLLM est un excellent projet, et la raison pour laquelle l’inférence dans le navigateur est prise au sérieux. Cette page compare des choix techniques, pas des équipes. Si un chiffre est faux, dites-le : le harnais de mesure est dans le dépôt.')}
       </p>
 
       <div style={{ marginTop: 34, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -223,7 +217,6 @@ export default function VsWebllmClient() {
         </a>
       </div>
 
-      <ByLine />
-    </main>
+    </DocsShell>
   );
 }

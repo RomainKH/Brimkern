@@ -11,9 +11,9 @@ import VsWebllmClient from './VsWebllmClient';
 // les chiffres sont reproductibles avec le harnais du dépôt, et ce qui est à notre désavantage y est
 // écrit aussi.
 export const metadata: Metadata = {
-  title: 'Brimkern vs WebLLM — running an LLM in the browser, measured',
+  title: 'Brimkern vs WebLLM: running an LLM in the browser, measured',
   description:
-    'A measured comparison of two WebGPU engines that run large language models client-side: prefill and decode throughput on the same 7B int4 model, and the structural difference — Brimkern reads single-file GGUF straight from Hugging Face, WebLLM needs weights compiled with MLC/TVM.',
+    'A measured comparison of two WebGPU engines that run large language models client-side: prefill and decode throughput on the same 7B int4 model, and the structural difference. Brimkern reads single-file GGUF straight from Hugging Face, WebLLM needs weights compiled with MLC/TVM.',
   keywords: [
     'WebLLM alternative', 'run LLM in browser', 'WebGPU LLM', 'in-browser inference',
     'client-side LLM', 'local LLM browser', 'GGUF browser', 'browser AI without server',
@@ -23,9 +23,9 @@ export const metadata: Metadata = {
     languages: { en: `${SITE_URL}/vs-webllm`, fr: `${SITE_URL}/fr/vs-webllm`, 'x-default': `${SITE_URL}/vs-webllm` },
   },
   openGraph: {
-    title: 'Brimkern vs WebLLM — running an LLM in the browser, measured',
+    title: 'Brimkern vs WebLLM: running an LLM in the browser, measured',
     description:
-      'Same GPU, same 7B int4 model: prefill 47.2 vs 18.7 tok/s, decode measured on both sides — and why one of them needs no compilation step.',
+      'Same GPU, same 7B int4 model: prefill 47.2 vs 18.7 tok/s, decode measured on both sides, and why one of them needs no compilation step.',
     url: `${SITE_URL}/vs-webllm`,
     type: 'article',
   },

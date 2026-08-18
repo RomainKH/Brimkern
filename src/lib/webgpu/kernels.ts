@@ -268,34 +268,34 @@ export class WebGpuEngine {
 		if (WebGpuEngine.profileOn) {
 			if (this.device.features?.has?.('timestamp-query')) {
 				this.profiler = new GpuProfiler(this.device);
-				console.info('[webgpu] profilage par passe ACTIF (?gpuprofile=1) — __gpuProfile() pour le rapport');
+				console.info('[webgpu] profilage par passe ACTIF (?gpuprofile=1) : __gpuProfile() pour le rapport');
 			} else {
 				// Le dire, et fort : un profileur silencieusement inactif rendrait un rapport vide qu'on
 				// lirait comme « rien à optimiser » (le piège du commutateur qui ne commute rien).
-				console.warn('[webgpu] ?gpuprofile=1 demandé mais la feature timestamp-query est ABSENTE de cet adapter — aucune mesure ne sera prise.');
+				console.warn('[webgpu] ?gpuprofile=1 demandé mais la feature timestamp-query est ABSENTE de cet adapter : aucune mesure ne sera prise.');
 			}
 		}
 		// Kill-switch diagnostic : ?attndecode=0 → kernels d'attention classiques uniquement.
 		try {
 			if (urlFlag('attndecode') === '0') {
 				this.attnDecodeOk = false;
-				console.warn('[webgpu] attention décodage COUPÉE par ?attndecode=0 — kernels classiques');
+				console.warn('[webgpu] attention décodage COUPÉE par ?attndecode=0 : kernels classiques');
 			}
 			if (urlFlag('attnfullwg') === '0') {
 				this.attnFullWgOk = false;
-				console.warn('[webgpu] attention_full workgroup COUPÉE par ?attnfullwg=0 — kernel classique');
+				console.warn('[webgpu] attention_full workgroup COUPÉE par ?attnfullwg=0 : kernel classique');
 			}
 			if (urlFlag('attnprefill') === '0') {
 				this.attnPrefillOk = false;
-				console.warn('[webgpu] attention prefill tuilée COUPÉE par ?attnprefill=0 — kernel classique');
+				console.warn('[webgpu] attention prefill tuilée COUPÉE par ?attnprefill=0 : kernel classique');
 			}
 			if (urlFlag('rmsvec') === '0') {
 				this.rmsVecOk = false;
-				console.warn('[webgpu] RMSNorm parallèle COUPÉE par ?rmsvec=0 — kernel une-ligne-par-thread');
+				console.warn('[webgpu] RMSNorm parallèle COUPÉE par ?rmsvec=0 : kernel une-ligne-par-thread');
 			}
 			if (urlFlag('topkpar') === '0') {
 				this.topKParOk = false;
-				console.warn('[webgpu] top-K parallèle COUPÉE par ?topkpar=0 — sélection finale sur un seul thread');
+				console.warn('[webgpu] top-K parallèle COUPÉE par ?topkpar=0 : sélection finale sur un seul thread');
 			}
 			if (urlFlag('rwkv') === '0') {
 				this.rwkvWkv7Ok = false;
@@ -307,19 +307,19 @@ export class WebGpuEngine {
 			}
 			if (urlFlag('lfm2resident') === '0') {
 				this.lfm2ResidentOk = false;
-				console.warn('[webgpu] LFM2 résident COUPÉ par ?lfm2resident=0 — forwardToken JS+readback');
+				console.warn('[webgpu] LFM2 résident COUPÉ par ?lfm2resident=0 : forwardToken JS+readback');
 			}
 			if (urlFlag('lfm2batch') === '0') {
 				this.lfm2BatchOk = false;
-				console.warn('[webgpu] prefill LFM2 batché COUPÉ par ?lfm2batch=0 — token par token');
+				console.warn('[webgpu] prefill LFM2 batché COUPÉ par ?lfm2batch=0 : token par token');
 			}
 			if (urlFlag('swa') === '0') {
 				this.swaOk = false;
-				console.warn('[webgpu] fenêtre glissante COUPÉE par ?swa=0 — attention causale pleine sur toutes les couches');
+				console.warn('[webgpu] fenêtre glissante COUPÉE par ?swa=0 : attention causale pleine sur toutes les couches');
 			}
 			if (urlFlag('rwkvresident') === '0') {
 				this.rwkvResidentOk = false;
-				console.warn('[webgpu] RWKV résident COUPÉ par ?rwkvresident=0 — forwardToken JS+readback');
+				console.warn('[webgpu] RWKV résident COUPÉ par ?rwkvresident=0 : forwardToken JS+readback');
 			}
 			if (urlFlag('video') === '0') {
 				this.videoOk = false;
@@ -327,23 +327,23 @@ export class WebGpuEngine {
 			}
 			if (urlFlag('f16shared') === '0') {
 				this.f16SharedOk = false;
-				console.warn('[webgpu] GEMM f16 tuilé COUPÉ par ?f16shared=0 — matmul_t_f16w pour tous les m');
+				console.warn('[webgpu] GEMM f16 tuilé COUPÉ par ?f16shared=0 : matmul_t_f16w pour tous les m');
 			}
 			if (urlFlag('gemv') === '0') {
 				this.gemvOk = false;
-				console.warn('[webgpu] GEMV de décodage COUPÉ par ?gemv=0 — kernels par lignes');
+				console.warn('[webgpu] GEMV de décodage COUPÉ par ?gemv=0 : kernels par lignes');
 			}
 			if (urlFlag('qshared') === '0') {
 				this.qSharedOk = false;
-				console.warn('[webgpu] GEMM q8/q4 tuilés COUPÉS par ?qshared=0 — kernels 4 lignes/invocation');
+				console.warn('[webgpu] GEMM q8/q4 tuilés COUPÉS par ?qshared=0 : kernels 4 lignes/invocation');
 			}
 			if (urlFlag('qshared2') === '0') {
 				this.qShared2Ok = false;
-				console.warn('[webgpu] GEMM q8/q4 v2 (bloc 4×8 vec4) COUPÉS par ?qshared2=0 — tuile 32×64 v1');
+				console.warn('[webgpu] GEMM q8/q4 v2 (bloc 4×8 vec4) COUPÉS par ?qshared2=0 : tuile 32×64 v1');
 			}
 			if (urlFlag('videoresident') === '0') {
 				this.videoResidentOk = false;
-				console.warn('[webgpu] motion résident COUPÉ par ?videoresident=0 — chemin JS+readback');
+				console.warn('[webgpu] motion résident COUPÉ par ?videoresident=0 : chemin JS+readback');
 			}
 		} catch { /* hors navigateur (tests Node) */ }
 		// device.lost est une promesse : elle résout quand le GPU disparaît (jamais sur un simple
@@ -2156,7 +2156,7 @@ export class WebGpuEngine {
 			// pastLen > 0 sur une session que l'engine ne connaît pas = le caller croit réutiliser un
 			// cache qui n'existe plus (reset intervenu ?) → l'attention lirait des K/V vides. On
 			// continue (sortie fausse mais non fatale) en le disant très fort.
-			if (pastLen > 0) console.error(`[kv] session "${sessionId}" inconnue avec pastLen=${pastLen} — cache perdu, sortie invalide. Le caller doit repartir de pastLen 0.`);
+			if (pastLen > 0) console.error(`[kv] session "${sessionId}" inconnue avec pastLen=${pastLen} : cache perdu, sortie invalide. Le caller doit repartir de pastLen 0.`);
 			this.resetKvGpu();
 			this.kvSession = sessionId;
 		}
@@ -2199,7 +2199,7 @@ export class WebGpuEngine {
 			// pastLen > 0 sur une session que l'engine ne connaît pas = le caller croit réutiliser un
 			// cache qui n'existe plus (reset intervenu ?) → l'attention lirait des K/V vides. On
 			// continue (sortie fausse mais non fatale) en le disant très fort.
-			if (pastLen > 0) console.error(`[kv] session "${sessionId}" inconnue avec pastLen=${pastLen} — cache perdu, sortie invalide. Le caller doit repartir de pastLen 0.`);
+			if (pastLen > 0) console.error(`[kv] session "${sessionId}" inconnue avec pastLen=${pastLen} : cache perdu, sortie invalide. Le caller doit repartir de pastLen 0.`);
 			this.resetKvGpu();
 			this.kvSession = sessionId;
 		}
@@ -2249,7 +2249,7 @@ export class WebGpuEngine {
 		const kvDim = nKvHeads * headDim;
 		const kvLen = pastLen + seq;
 		if (sessionId !== this.kvSession || pastLen === 0) {
-			if (pastLen > 0) console.error(`[kv] session "${sessionId}" inconnue avec pastLen=${pastLen} — cache perdu, sortie invalide. Le caller doit repartir de pastLen 0.`);
+			if (pastLen > 0) console.error(`[kv] session "${sessionId}" inconnue avec pastLen=${pastLen} : cache perdu, sortie invalide. Le caller doit repartir de pastLen 0.`);
 			this.resetKvGpu();
 			this.kvSession = sessionId;
 		}
@@ -2470,7 +2470,7 @@ export class WebGpuEngine {
 
 	private lfm2SessionReset(sessionId: string, pastLen: number): void {
 		if (sessionId !== this.lfm2Session || pastLen === 0) {
-			if (pastLen > 0) console.error(`[lfm2] session "${sessionId}" inconnue avec pastLen=${pastLen} — état perdu, sortie invalide. Repartir de pastLen 0.`);
+			if (pastLen > 0) console.error(`[lfm2] session "${sessionId}" inconnue avec pastLen=${pastLen} : état perdu, sortie invalide. Repartir de pastLen 0.`);
 			this.resetLfm2State();
 			this.lfm2Session = sessionId;
 		}
@@ -2571,7 +2571,7 @@ export class WebGpuEngine {
 
 	private rwkvSessionReset(sessionId: string, pastLen: number): void {
 		if (sessionId !== this.rwkvSession || pastLen === 0) {
-			if (pastLen > 0) console.error(`[rwkv] session "${sessionId}" inconnue avec pastLen=${pastLen} — état perdu, sortie invalide. Repartir de pastLen 0.`);
+			if (pastLen > 0) console.error(`[rwkv] session "${sessionId}" inconnue avec pastLen=${pastLen} : état perdu, sortie invalide. Repartir de pastLen 0.`);
 			this.resetRwkvState();
 			this.rwkvSession = sessionId;
 		}
@@ -2868,7 +2868,7 @@ export class WebGpuEngine {
 					const same = got.length === ref.length && got.every((v, i) => Math.abs(v - ref[i]) <= 1e-3 * (1 + Math.abs(ref[i])));
 					if (!same) {
 						this.f16SharedOk = false;
-						console.warn(`[selfValidate] matmul_t_f16w_shared KO sur ce GPU (m=${s.m}, k=${s.k}, n=${s.n}) — repli sur matmul_t_f16w (plus lent, même résultat).`);
+						console.warn(`[selfValidate] matmul_t_f16w_shared KO sur ce GPU (m=${s.m}, k=${s.k}, n=${s.n}) : repli sur matmul_t_f16w (plus lent, même résultat).`);
 						break;
 					}
 				}
@@ -3082,7 +3082,7 @@ export class WebGpuEngine {
 				nibBuf.destroy?.(); sc4.destroy?.(); mn4.destroy?.();
 				if (!close(got8, ref8) || !close(got4, ref4)) {
 					this.qShared2Ok = false;
-					console.warn(`[selfValidate] matmul_t_q8/q4_shared2 KO sur ce GPU (m=${m}, k=${k}, n=${n}) — repli sur les tuiles 32×64 v1 (plus lentes, même résultat).`);
+					console.warn(`[selfValidate] matmul_t_q8/q4_shared2 KO sur ce GPU (m=${m}, k=${k}, n=${n}) : repli sur les tuiles 32×64 v1 (plus lentes, même résultat).`);
 					break;
 				}
 			}
@@ -3218,7 +3218,7 @@ export class WebGpuEngine {
 			const ok2 = closeRel(await this.ropeMrope(xr, distinct, rows, headDim, nHeads, sections, base), mropeCpu(xr, distinct, rows, headDim, nHeads, sections, base));
 			if (!ok1 || !ok2) {
 				this.mropeOk = false;
-				console.error(`[selfValidate] rope_mrope KO sur ce GPU (${!ok1 ? 'dégénéré≠rope' : 'positions 3D'}) — vision désactivée, chat texte intact.`);
+				console.error(`[selfValidate] rope_mrope KO sur ce GPU (${!ok1 ? 'dégénéré≠rope' : 'positions 3D'}). Vision désactivée, chat texte intact.`);
 			}
 		}
 
@@ -3459,7 +3459,7 @@ export class WebGpuEngine {
 				const same = a.length === b.length && a.every((v, i) => v === b[i]);
 				if (!same) {
 					const i = a.findIndex((v, j) => v !== b[j]);
-					failSoft(`top_k_par(${c.label}) — premier écart au rang ${i} : ${a[i]} vs ${b[i]}`);
+					failSoft(`top_k_par(${c.label}). Premier écart au rang ${i} : ${a[i]} vs ${b[i]}`);
 					break;
 				}
 			}
@@ -3691,7 +3691,7 @@ export class WebGpuEngine {
 				const okI = Math.abs(ref[gotIds[r]] - gotVals[r]) <= 1e-4 * (1 + Math.abs(gotVals[r]));
 				if (!okV || !okI) {
 					this.topKOk = false;
-					console.error(`[selfValidate] top_k KO sur ce GPU (rang ${r}) — repli sur le sampling CPU plein-vocab (plus lent, même résultat).`);
+					console.error(`[selfValidate] top_k KO sur ce GPU (rang ${r}) : repli sur le sampling CPU plein-vocab (plus lent, même résultat).`);
 					break;
 				}
 			}
@@ -3725,7 +3725,7 @@ export class WebGpuEngine {
 			const rel = (x: Float32Array, y: Float32Array) => x.length === y.length && x.every((val, idx) => Math.abs(val - y[idx]) <= 1e-3 * (1 + Math.abs(y[idx])));
 			if (!rel(got.S, Sref) || !rel(got.y, yref)) {
 				this.rwkvWkv7Ok = false;
-				console.error('[selfValidate] RWKV-7 WKV KO sur ce GPU — une archi RWKV (moteur v2) refuserait de charger (non bloquant pour le chat texte).');
+				console.error('[selfValidate] RWKV-7 WKV KO sur ce GPU : une archi RWKV (moteur v2) refuserait de charger (non bloquant pour le chat texte).');
 			} else {
 				console.log('[selfValidate] RWKV-7 WKV OK (récurrence à état fixe, moteur v2)');
 			}
@@ -3818,13 +3818,13 @@ export class WebGpuEngine {
 					so.destroy?.();
 					if (!okKprep || !okGn || !okDec || !okVr || !okLerp || !okSq) {
 						this.rwkvResidentOk = false;
-						console.error(`[selfValidate] glu RWKV résidente KO sur ce GPU (kprep:${okKprep} gn:${okGn} decay:${okDec} vresid:${okVr} lerp:${okLerp} sqrelu:${okSq}) — repli forwardToken JS+readback (correct, lent).`);
+						console.error(`[selfValidate] glu RWKV résidente KO sur ce GPU (kprep:${okKprep} gn:${okGn} decay:${okDec} vresid:${okVr} lerp:${okLerp} sqrelu:${okSq}). Repli forwardToken JS+readback (correct, lent).`);
 					} else {
 						console.log('[selfValidate] glu RWKV résidente OK (kprep, out_gn, decay, vresid, lerp, sqrelu)');
 					}
 				} catch (e) {
 					this.rwkvResidentOk = false;
-					console.error('[selfValidate] glu RWKV résidente : erreur d’exécution — repli forwardToken JS+readback.', e);
+					console.error('[selfValidate] glu RWKV résidente : erreur d’exécution. Repli forwardToken JS+readback.', e);
 				}
 			}
 		}
@@ -3848,7 +3848,7 @@ export class WebGpuEngine {
 			const got = await this.lfm2ShortConv(bcx, st0.slice(), wc, Dc, LC);
 			if (!rel(got.out, outRef) || !rel(got.state, stRef)) {
 				this.lfm2ShortConvOk = false;
-				console.error('[selfValidate] LFM2 shortconv KO sur ce GPU — une archi lfm2 refuserait de charger (non bloquant pour le reste).');
+				console.error('[selfValidate] LFM2 shortconv KO sur ce GPU : une archi lfm2 refuserait de charger (non bloquant pour le reste).');
 			} else {
 				console.log('[selfValidate] LFM2 shortconv OK (conv courte gatée, moteur v2)');
 			}
@@ -3857,13 +3857,13 @@ export class WebGpuEngine {
 		// Image-gen primitives (jalon 1) are checked NON-blocking: they're not on the text path yet, so
 		// a bug in the new (browser-unvalidated) WGSL must NOT prevent loading an LLM. Logs pass/fail.
 		const diffFail = await this.validateDiffusion();
-		if (diffFail) console.warn('[selfValidate] image-gen primitive KO:', diffFail, '(non bloquant — chemin texte intact)');
+		if (diffFail) console.warn('[selfValidate] image-gen primitive KO:', diffFail, '(non bloquant: chemin texte intact)');
 		else console.log('[selfValidate] image-gen primitives OK (silu, group_norm, conv2d, conv2d_direct, conv2d_direct_q8, relu, upsample_nearest, layernorm, quick_gelu, attention_full)');
 
 		// Motion résident vidéo (gate NON BLOQUANT, motif convTiledOk) : un kernel raté → videoResidentOk=false
 		// → repli JS+readback (correct). Ne gate jamais le texte ni la vidéo POC.
 		const vresFail = await this.validateVideoResident();
-		if (vresFail) { this.videoResidentOk = false; console.warn('[selfValidate] motion résident KO:', vresFail, '— repli JS+readback (plus lent, même résultat).'); }
+		if (vresFail) { this.videoResidentOk = false; console.warn('[selfValidate] motion résident KO:', vresFail, ', repli JS+readback (plus lent, même résultat).'); }
 		else console.log('[selfValidate] motion résident OK (video_motion_gather, video_motion_scatter, video_add_pe, attn_temporal)');
 
 		return true;
@@ -3989,7 +3989,7 @@ export class WebGpuEngine {
 			this.convTiledOk = saved;
 			if (!closeRel(gotTiled, refDirect)) {
 				this.convTiledOk = false;
-				console.warn('[selfValidate] conv2d_3x3_tiled KO sur ce GPU — repli sur conv2d_direct (plus lent, même résultat).');
+				console.warn('[selfValidate] conv2d_3x3_tiled KO sur ce GPU : repli sur conv2d_direct (plus lent, même résultat).');
 			}
 		}
 
@@ -4108,7 +4108,7 @@ export class WebGpuEngine {
 				const got = await this.attentionFullWg(q, k, v, c.nT, c.nH, c.nH, c.hd, c.kvL);
 				if (!closeRel(got, ref)) {
 					this.attnFullWgOk = false;
-					console.warn(`[selfValidate] attention_full_wg KO sur ce GPU (hd=${c.hd}, kv=${c.kvL}) — repli sur attention_full (plus lent, même résultat).`);
+					console.warn(`[selfValidate] attention_full_wg KO sur ce GPU (hd=${c.hd}, kv=${c.kvL}) : repli sur attention_full (plus lent, même résultat).`);
 					break;
 				}
 			}

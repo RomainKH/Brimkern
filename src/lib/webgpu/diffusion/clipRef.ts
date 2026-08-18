@@ -30,10 +30,10 @@ export async function validateClipVsRef(log: (...a: unknown[]) => void = console
     const enc = await tok([prompt], { padding: 'max_length', max_length: 77, truncation: true });
     const ids = Array.from(enc.input_ids.data as ArrayLike<number | bigint>, (v) => Number(v));
     const refOut = await refModel({ input_ids: enc.input_ids, attention_mask: enc.attention_mask });
-    log('[clipRef] sortie réf — clés:', Object.keys(refOut));
+    log('[clipRef] sortie réf. Clés:', Object.keys(refOut));
     // transformers.js may name it last_hidden_state / logits / token_embeddings depending on the load.
     const refTensor = refOut.last_hidden_state ?? refOut.logits ?? refOut.token_embeddings ?? refOut.text_embeds;
-    if (!refTensor?.data) { log('[clipRef] aucune sortie séquence exploitable — clés:', Object.keys(refOut)); return; }
+    if (!refTensor?.data) { log('[clipRef] aucune sortie séquence exploitable. Clés:', Object.keys(refOut)); return; }
     const ref = refTensor.data as Float32Array; // expect [1, 77, 512]
     log('[clipRef] référence', refTensor.dims ?? '(no dims)', stats(ref));
 
@@ -51,7 +51,7 @@ export async function validateClipVsRef(log: (...a: unknown[]) => void = console
     let maxAbs = 0, sumAbs = 0;
     const n = Math.min(ours.length, ref.length);
     for (let i = 0; i < n; i++) { const d = Math.abs(ours[i] - ref[i]); if (d > maxAbs) maxAbs = d; sumAbs += d; }
-    const verdict = maxAbs < 0.1 ? 'MATCH ✓ — moteur CLIP correct (bug en aval : UNet/scheduler)' : 'MISMATCH ✗ — bug côté CLIP';
+    const verdict = maxAbs < 0.1 ? 'MATCH ✓. Moteur CLIP correct (bug en aval : UNet/scheduler)' : 'MISMATCH ✗ : bug côté CLIP';
     log(`[clipRef] diff maxabs=${maxAbs.toFixed(4)} meanabs=${(sumAbs / n).toFixed(5)} → ${verdict}`);
   } catch (e) {
     log('[clipRef] échec', e);

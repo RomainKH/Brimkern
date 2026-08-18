@@ -65,7 +65,7 @@ function appliquerOptions(cfg: { worker?: boolean; workerUrl?: string }): void {
 // message » → le modèle se met à répéter le message en écho). Trois consignes simples :
 // pas d'outils (tool-calling halluciné), honnêteté (pas de faits inventés), concision.
 const GUARDRAILS =
-  '\nAnswer briefly and honestly. If you do not know something, say so — never invent facts or details.' +
+  '\nAnswer briefly and honestly. If you do not know something, say so: never invent facts or details.' +
   '\nYou have no tools and no internet access: never emit tool calls, reply in plain text only.';
 
 export interface EmbedConfig {
@@ -156,7 +156,7 @@ function knowledgeExamples(): { user: string; assistant: string }[] {
 	return [
 		{
 			user: '--- NOTES ---\n[1] Opening hours\nThe workshop is open on Thursday until 8pm.\n--- END OF NOTES ---\n\nQuestion: Are you open on Thursday evening?',
-			assistant: 'Yes — the workshop is open on Thursday until 8pm.',
+			assistant: 'Yes: the workshop is open on Thursday until 8pm.',
 		},
 		{
 			user: 'No reference note matches this question.\n\nQuestion: Who won the 1998 World Cup?',
@@ -308,7 +308,7 @@ function mountWidget(cfg: EmbedConfig) {
         bubble.textContent = t || '…'; msgsEl.scrollTop = msgsEl.scrollHeight;
       });
       // Réponse vide (ultra-rare : stop en 1er token) → repli poli plutôt qu'une bulle « (vide) ».
-      if (!acc) acc = 'Sorry, I can only answer in plain text here — could you rephrase?';
+      if (!acc) acc = 'Sorry, I can only answer in plain text here: could you rephrase?';
       bubble.textContent = acc;
       history.push({ role: 'assistant', content: acc });
     } catch (e: any) { bubble.textContent = 'Erreur : ' + (e?.message || String(e)); }

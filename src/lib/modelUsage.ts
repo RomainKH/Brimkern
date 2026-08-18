@@ -113,7 +113,7 @@ export async function evictStaleModels(keepUrls: string[] = [], now = Date.now()
     if (evicted.length) {
       const report: EvictReport = { at: now, freedBytes, models: evicted };
       localStorage.setItem(REPORT_KEY, JSON.stringify(report));
-      console.info(`[stockage] ${evicted.length} modèle(s) inutilisé(s) depuis ${days} j purgé(s) — ${(freedBytes / 1e6).toFixed(0)} Mo libérés :`, evicted.join(', '));
+      console.info(`[stockage] ${evicted.length} modèle(s) inutilisé(s) depuis ${days} j purgé(s). ${(freedBytes / 1e6).toFixed(0)} Mo libérés :`, evicted.join(', '));
       return report;
     }
   } catch { /* ignore */ }

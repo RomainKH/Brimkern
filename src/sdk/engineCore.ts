@@ -37,7 +37,7 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
   // les générations suivantes échouaient définitivement (« WebGPU indisponible » jusqu'au
   // redémarrage du navigateur). Les poids reviennent du cache BRIK : pas de retéléchargement.
   engine.onLost = (info) => {
-    console.warn('[brimkern] device GPU perdu (' + (info?.reason || 'unknown') + ') — rechargement au prochain appel');
+    console.warn('[brimkern] device GPU perdu (' + (info?.reason || 'unknown') + '): rechargement au prochain appel');
     models.delete(url);
   };
   await engine.selfValidate();
@@ -50,7 +50,7 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
   if (!m?.config?.lfm2) {
     const arch = m?.arch ?? m?.config?.arch ?? 'unknown';
     throw new Error(
-      `Brimkern SDK v0 runs LFM2 .brik models only — this file's architecture is "${arch}". ` +
+      `Brimkern SDK v0 runs LFM2 .brik models only: this file's architecture is "${arch}". ` +
       'Use the default model (omit `model`), or convert/pick an LFM2 .brik. ' +
       'Full model support lives in the app: https://brimkern.com/chat',
     );
@@ -92,7 +92,7 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
     const bpe = new BpeTokenizer(loadable.tokenizer.json);
     tok = { encode: (s) => bpe.encode(s), decode: (ids) => bpe.decode(ids) };
   } catch (e) {
-    console.warn('[brimkern] tokenizer.json non couvert par le BPE bundlé — repli transformers.js (CDN)', e);
+    console.warn('[brimkern] tokenizer.json non couvert par le BPE bundlé : repli transformers.js (CDN)', e);
     const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
     const hf = new tf.PreTrainedTokenizer(JSON.parse(loadable.tokenizer.json), JSON.parse(loadable.tokenizer.config));
     tok = {
@@ -161,7 +161,7 @@ export async function withDeviceRetry<T>(url: string, fn: (core: Lfm2Model) => P
     const entry = models.get(url);
     const lost = !entry || (await entry.promise.then((l) => l.engine.lost).catch(() => true));
     if (!lost) throw err;
-    console.warn('[brimkern] génération interrompue par une perte de device — nouvelle tentative');
+    console.warn('[brimkern] génération interrompue par une perte de device : nouvelle tentative');
     models.delete(url);
     return fn(await getLiveModel(url));
   }

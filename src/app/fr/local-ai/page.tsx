@@ -3,7 +3,7 @@ import LocalAiClient from '../../local-ai/LocalAiClient';
 import { SITE_URL } from '@/lib/site';
 
 export const metadata: Metadata = {
-  title: 'IA locale pour votre site — Brimkern',
+  title: 'IA locale pour votre site | Brimkern',
   description: "Embarquez une IA qui tourne sur le GPU de vos visiteurs : zéro coût d'inférence, données privées, aucun serveur.",
   alternates: {
     canonical: `${SITE_URL}/fr/local-ai`,

@@ -197,8 +197,8 @@ export default function LandingClient() {
             <span className="lp-h1-accent">{t('Running in your browser.', 'Exécuté dans votre navigateur.')}</span>
           </h1>
           <p className="lp-lede">
-            {t('Brimkern reads single-file GGUF straight from Hugging Face and runs it on your own GPU — no conversion, no compile step, no server, no API key. The weights stream in once, stay on your device, and work offline afterwards.',
-               'Brimkern lit les GGUF mono-fichier directement depuis Hugging Face et les exécute sur votre propre GPU — sans conversion, sans étape de compilation, sans serveur, sans clé d’API. Les poids arrivent une fois, restent chez vous, et fonctionnent hors-ligne ensuite.')}
+            {t('Brimkern reads single-file GGUF straight from Hugging Face and runs it on your own GPU: no conversion, no compile step, no server, no API key. The weights stream in once, stay on your device, and work offline afterwards.',
+               'Brimkern lit les GGUF mono-fichier directement depuis Hugging Face et les exécute sur votre propre GPU : sans conversion, sans étape de compilation, sans serveur, sans clé d’API. Les poids arrivent une fois, restent chez vous, et fonctionnent hors-ligne ensuite.')}
           </p>
           <div className="lp-cta-row">
             <Link
@@ -206,7 +206,7 @@ export default function LandingClient() {
               className="btn btn-primary lp-cta"
               onClick={() => metric('landing_cta', { webgpu: gpuOk ?? 'inconnu' })}
             >
-              <Sparkles size={15} /> {t('Try it now — 149 MB', 'Essayer maintenant — 149 Mo')}
+              <Sparkles size={15} /> {t('Try it now: 149 MB', 'Essayer maintenant: 149 Mo')}
             </Link>
             <Link href={href('/docs')} className="lp-cta-ghost">
               {t('Read the docs', 'Lire la doc')} <ArrowRight size={14} />
@@ -238,12 +238,12 @@ export default function LandingClient() {
           <div className="lp-console">
             <div className="lp-console-bar">
               <span className="lp-dots" aria-hidden><i /><i /><i /></span>
-              {t('paste a model — the Hub hosts tens of thousands', 'collez un modèle — le Hub en héberge des dizaines de milliers')}
+              {t('paste a model: the Hub hosts tens of thousands', 'collez un modèle : le Hub en héberge des dizaines de milliers')}
             </div>
             {/* La console SE TAPE toute seule, en CSS pur : `width` animée en `steps()` sur une police
                 à chasse fixe pour la frappe, puis un fondu par ligne. Pourquoi pas de JS : le texte
                 final est déjà dans le HTML servi (donc identique au rendu serveur, indexable, et sans
-                risque de désaccord d'hydratation) — l'animation ne fait que le dévoiler. Un visiteur
+                risque de désaccord d'hydratation): l'animation ne fait que le dévoiler. Un visiteur
                 qui a demandé moins d'animations voit l'état final tout de suite (prefers-reduced-motion).
                 tabIndex : le bloc défile horizontalement sur écran étroit — sans focus clavier son
                 contenu serait inatteignable autrement qu'à la souris (règle axe). */}
@@ -258,7 +258,7 @@ export default function LandingClient() {
               {([
                 ['✓', t('resolved', 'résolu'), 'Qwen3-0.6B-Q4_K_M.gguf'],
                 ['✓', t('streamed', 'streamé'), t('HTTP ranges · resumable · cached on device', 'plages HTTP · reprise · gardé sur l’appareil')],
-                ['✓', t('tokenizer', 'tokenizer'), t('read from the file — nothing to configure', 'lu dans le fichier — rien à régler')],
+                ['✓', t('tokenizer', 'tokenizer'), t('read from the file: nothing to configure', 'lu dans le fichier : rien à régler')],
                 ['▸', t('running', 'exécution'), t('on your GPU, in this tab', 'sur votre GPU, dans cet onglet')],
               ] as [string, string, string][]).map(([mark, label, value], i) => (
                 <div key={label} className="lp-line lp-step" style={{ '--d': `${1.15 + i * 0.3}s` } as React.CSSProperties} aria-hidden>
@@ -285,12 +285,12 @@ export default function LandingClient() {
               src={chatShot}
               placeholder="blur"
               sizes="(max-width: 1028px) 100vw, 980px"
-              alt={t('The Brimkern chat: a Qwen 2.5 0.5B answering a question about WebGPU, with its measured throughput underneath — 460 tokens/s prefill, 47.5 tokens/s decode.',
-                     'Le chat Brimkern : un Qwen 2.5 0.5B répond à une question sur WebGPU, avec ses mesures en dessous — 460 tokens/s de prefill, 47,5 tokens/s de décodage.')}
+              alt={t('The Brimkern chat: a Qwen 2.5 0.5B answering a question about WebGPU, with its measured throughput underneath. 460 tokens/s prefill, 47.5 tokens/s decode.',
+                     'Le chat Brimkern : un Qwen 2.5 0.5B répond à une question sur WebGPU, avec ses mesures en dessous. 460 tokens/s de prefill, 47,5 tokens/s de décodage.')}
             />
             <figcaption>
-              {t('A real session, on a laptop GPU. Every reply carries its own measurements — nothing here is estimated.',
-                 'Une vraie session, sur le GPU d’un portable. Chaque réponse porte ses mesures — rien ici n’est estimé.')}
+              {t('A real session, on a laptop GPU. Every reply carries its own measurements: nothing here is estimated.',
+                 'Une vraie session, sur le GPU d’un portable. Chaque réponse porte ses mesures : rien ici n’est estimé.')}
             </figcaption>
           </figure>
         </section>
@@ -298,7 +298,7 @@ export default function LandingClient() {
         {/* ── LES FORCES ───────────────────────────────────────────────────────────────────────── */}
         <section className="lp-section">
           {/* Un h2 ici n'est pas décoratif : sans lui les trois forces (h3) suivaient directement le
-              h1, et l'ordre des titres sautait un niveau — un lecteur d'écran annonce alors une
+              h1, et l'ordre des titres sautait un niveau : un lecteur d'écran annonce alors une
               hiérarchie fausse (relevé axe-core, règle heading-order). */}
           <div className="lp-eyebrow">{t('why it exists', 'pourquoi ça existe')}</div>
           <h2 className="lp-h2">{t('Three things you won’t find together elsewhere', 'Trois choses qu’on ne trouve pas ensemble ailleurs')}</h2>
@@ -308,12 +308,12 @@ export default function LandingClient() {
                  'Collez auteur/modèle et ça tourne. La meilleure quantification est choisie pour vous, le tokenizer vient du fichier. Les autres moteurs navigateur exigent des poids pré-compilés dans leur propre format avant de pouvoir y toucher.')}
             </Strength>
             <Strength i={1} eyebrow={t('kernels we wrote', 'des kernels écrits à la main')} title={t('WGSL, validated at load', 'WGSL, validé au chargement')}>
-              {t('The forward pass is hand-written compute shaders — fused quantized matmuls, resident KV cache, one kernel library shared by text, vision, image and video. Each one self-validates against a CPU reference at load and falls back to a simpler path if a GPU miscompiles.',
-                 'Le forward pass est fait de compute shaders écrits à la main — matmuls quantifiés fusionnés, cache KV résident, une seule bibliothèque de kernels pour le texte, la vision, l’image et la vidéo. Chacun se valide contre une référence CPU au chargement, et retombe sur un chemin plus simple si un GPU compile mal.')}
+              {t('The forward pass is hand-written compute shaders: fused quantized matmuls, resident KV cache, one kernel library shared by text, vision, image and video. Each one self-validates against a CPU reference at load and falls back to a simpler path if a GPU miscompiles.',
+                 'Le forward pass est fait de compute shaders écrits à la main : matmuls quantifiés fusionnés, cache KV résident, une seule bibliothèque de kernels pour le texte, la vision, l’image et la vidéo. Chacun se valide contre une référence CPU au chargement, et retombe sur un chemin plus simple si un GPU compile mal.')}
             </Strength>
             <Strength i={2} eyebrow={t('streamed, not downloaded', 'streamé, pas téléchargé')} title={t('.brik: a layer is one HTTP range', '.brik : une couche = une plage HTTP')}>
-              {t('Our container stores weights already quantized in the exact layout the kernels read, laid out so each layer is one contiguous range. A 4.7 GB model comes back from cache in 15.8 s — resumable, partial, genuinely offline afterwards.',
-                 'Notre conteneur range les poids déjà quantifiés dans la disposition exacte que lisent les kernels, une couche par plage contiguë. Un modèle de 4,7 Go revient du cache en 15,8 s — reprise possible, partielle, vraiment hors-ligne ensuite.')}
+              {t('Our container stores weights already quantized in the exact layout the kernels read, laid out so each layer is one contiguous range. A 4.7 GB model comes back from cache in 15.8 s: resumable, partial, genuinely offline afterwards.',
+                 'Notre conteneur range les poids déjà quantifiés dans la disposition exacte que lisent les kernels, une couche par plage contiguë. Un modèle de 4,7 Go revient du cache en 15,8 s : reprise possible, partielle, vraiment hors-ligne ensuite.')}
             </Strength>
           </div>
           {/* Le visiteur qui connaît déjà WebLLM se pose la question tout de suite — on l'emmène
@@ -342,7 +342,7 @@ export default function LandingClient() {
               ['03', t('It streams', 'Ça streame'), t('one layer = one range', 'une couche = une plage'),
                t('Only the bytes of the layer being loaded, resumable, cached on your device.', 'Seulement les octets de la couche en cours, reprise possible, gardés sur votre appareil.')],
               ['04', t('It runs', 'Ça tourne'), t('on your GPU', 'sur votre GPU'),
-               t('Hand-written WGSL kernels. Nothing goes back out — there is no server to send it to.', 'Des kernels WGSL écrits à la main. Rien ne repart — il n’y a aucun serveur où l’envoyer.')],
+               t('Hand-written WGSL kernels. Nothing goes back out: there is no server to send it to.', 'Des kernels WGSL écrits à la main. Rien ne repart : il n’y a aucun serveur où l’envoyer.')],
             ] as [string, string, React.ReactNode, string][]).map(([num, quoi, cible, desc]) => (
               <li key={num} className="lp-step-flow">
                 <div className="lp-flow-num">{num}</div>
@@ -407,10 +407,10 @@ export default function LandingClient() {
           <div className="lp-eyebrow">{t('also in the box', 'aussi dans la boîte')}</div>
           <h2 className="lp-h2">{t('One engine, four modalities', 'Un moteur, quatre modalités')}</h2>
           <ul className="lp-list">
-            <li><strong>{t('Chat', 'Chat')}</strong> — {t('multi-turn, reasoning models, French & English, on a resident GPU KV cache.', 'multi-tours, modèles à raisonnement, français & anglais, sur un cache KV résident en GPU.')}</li>
-            <li><strong>{t('Vision', 'Vision')}</strong> — {t('attach an image and ask about it (Qwen2-VL, desktop).', 'joignez une image et posez vos questions (Qwen2-VL, sur ordinateur).')}</li>
-            <li><strong>{t('Images', 'Images')}</strong> — {t('text-to-image in the tab (SD-Turbo / SDXS with a WebGPU diffusion stack).', 'texte vers image dans l’onglet (SD-Turbo / SDXS sur une pile de diffusion WebGPU).')}</li>
-            <li><strong>{t('Video (beta)', 'Vidéo (bêta)')}</strong> — {t('short animated clips from a prompt, on the same kernels.', 'de courts clips animés depuis un prompt, sur les mêmes kernels.')}</li>
+            <li><strong>{t('Chat', 'Chat')}</strong>{t(': ', ' : ')}{t('multi-turn, reasoning models, French & English, on a resident GPU KV cache.', 'multi-tours, modèles à raisonnement, français & anglais, sur un cache KV résident en GPU.')}</li>
+            <li><strong>{t('Vision', 'Vision')}</strong>{t(': ', ' : ')}{t('attach an image and ask about it (Qwen2-VL, desktop).', 'joignez une image et posez vos questions (Qwen2-VL, sur ordinateur).')}</li>
+            <li><strong>{t('Images', 'Images')}</strong>{t(': ', ' : ')}{t('text-to-image in the tab (SD-Turbo / SDXS with a WebGPU diffusion stack).', 'texte vers image dans l’onglet (SD-Turbo / SDXS sur une pile de diffusion WebGPU).')}</li>
+            <li><strong>{t('Video (beta)', 'Vidéo (bêta)')}</strong>{t(': ', ' : ')}{t('short animated clips from a prompt, on the same kernels.', 'de courts clips animés depuis un prompt, sur les mêmes kernels.')}</li>
           </ul>
         </section>
       </main>

@@ -104,7 +104,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={msg.video.poster} alt={t('clip preview (first frame)', 'aperçu du clip (première frame)')} style={{ width: '100%', height: 'auto', display: 'block', imageRendering: 'pixelated' }} />
                 <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, textShadow: '0 1px 4px rgba(0,0,0,0.7)', background: 'rgba(0,0,0,0.25)', textAlign: 'center', padding: 8 }}>
-                  {t('Clip not kept after reload — reload the video model and resend the prompt to regenerate.', 'Clip non conservé après rechargement — recharge le modèle vidéo et renvoie le prompt pour régénérer.')}
+                  {t('Clip not kept after reload: reload the video model and resend the prompt to regenerate.', 'Clip non conservé après rechargement : recharge le modèle vidéo et renvoie le prompt pour régénérer.')}
                 </span>
               </span>
             ) : msg.image
