@@ -345,7 +345,7 @@ function App() {
     activeEngine, activeModel, activeTokenizer,
     loadedModelName, loadedModelUrl,
     modelMetadata, weightPrec, setWeightPrec, kvQuantOn, setKvQuantOn, modelIsBrik, autoPrec, setAutoPrec,
-    selectedFile, setSelectedFile, customHFUrl, setCustomHFUrl, brikUrl, setBrikUrl,
+    selectedFile, setSelectedFile,
     autoConvert, setAutoConvert, convertTier, setConvertTier, isDragging,
     handleDragOver, handleDragLeave, handleDrop, handleFileChange,
     handleLoadModelFromUrl: engineLoadFromUrl, handleLoadLocalModel: engineLoadLocal,
@@ -379,7 +379,7 @@ function App() {
   // Les presets peuvent pointer un .brik (poids pré-quantifiés streamés) : router vers le streamer.
   const handleLoadModelFromUrl = (url: string) => { leaveImageMode(); leaveVisionMode(); return url.endsWith('.brik') ? engineStreamBrik(url) : engineLoadFromUrl(url); };
   const handleLoadLocalModel = () => { leaveImageMode(); leaveVisionMode(); return engineLoadLocal(); };
-  const handleStreamBrik = (urlOverride?: string, source?: string) => { leaveImageMode(); leaveVisionMode(); return engineStreamBrik(urlOverride, source); };
+  const handleStreamBrik = (url: string, source?: string) => { leaveImageMode(); leaveVisionMode(); return engineStreamBrik(url, source); };
 
   // Conversation history: list, auto-save, and new/open/delete handlers. Depends on the engine above
   // (activeModel/loadedModel*) so it's created here. The page keeps the bridge mount-effect that wires
@@ -2663,10 +2663,6 @@ function App() {
               handleFileChange={handleFileChange}
               selectedFile={selectedFile}
               setSelectedFile={setSelectedFile}
-              customHFUrl={customHFUrl}
-              setCustomHFUrl={setCustomHFUrl}
-              brikUrl={brikUrl}
-              setBrikUrl={setBrikUrl}
               selectedTokenizerId={selectedTokenizerId}
               setSelectedTokenizerId={setSelectedTokenizerId}
               isDragging={isDragging}

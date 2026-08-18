@@ -21,7 +21,7 @@ import { brikCacheKey, getBrik, putBrik } from '@/lib/brikCache';
 import { cachedModelUrls } from '@/lib/storage';
 import { loadBrikStream, prefetchBrik, loadGgufStream, prefetchGguf } from '@/lib/webgpu/source';
 import { PRESET_MODELS, type ArchType } from '@/lib/presets';
-import { MOBILE_BRIK_URL, pickAutoPrecision, ggufArchFamilyFor } from '@/lib/modelCatalog';
+import { pickAutoPrecision, ggufArchFamilyFor } from '@/lib/modelCatalog';
 import { useT } from '@/lib/i18n';
 import { metric, metricOnce } from '@/lib/metrics';
 import { sampleRate, type RateWindow, type TransferRate } from '@/lib/transferRate';
@@ -81,8 +81,6 @@ export function useModelEngine(deps: ModelEngineDeps) {
   const [modelIsBrik, setModelIsBrik] = useState<boolean>(false);
   const [autoPrec, setAutoPrec] = useState<boolean>(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [customHFUrl, setCustomHFUrl] = useState<string>('');
-  const [brikUrl, setBrikUrl] = useState<string>(MOBILE_BRIK_URL);
   const [autoConvert, setAutoConvert] = useState<boolean>(false);
   const [convertTier, setConvertTier] = useState<WeightDType>('q8');
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -826,8 +824,11 @@ export function useModelEngine(deps: ModelEngineDeps) {
 
   // Stream-load a hosted .brik by URL (header first, tensors range-fetched + cached).
   // `source` qualifie la provenance du clic dans le funnel (welcome / sidebar / browse…).
-  const handleStreamBrik = async (urlOverride?: string, source: string = 'brik-stream') => {
-    const u = (urlOverride ?? brikUrl).trim();
+  // L'URL est OBLIGATOIRE depuis le retrait du champ « .brik hébergé » du navigateur de modèles
+  // (2026-08-18) : le champ « n'importe quel modèle » accepte les liens .brik, il n'y a plus de
+  // valeur par défaut tapie derrière un appel sans argument.
+  const handleStreamBrik = async (url: string, source: string = 'brik-stream') => {
+    const u = url.trim();
     if (!u) return;
     if (isMobile) setIsSidebarOpen(false);
     setLoadedModelUrl(u);
@@ -866,7 +867,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
     activeEngine, activeModel, activeTokenizer,
     loadedModelName, loadedModelUrl,
     modelMetadata, weightPrec, setWeightPrec, kvQuantOn, setKvQuantOn, modelIsBrik, autoPrec, setAutoPrec,
-    selectedFile, setSelectedFile, customHFUrl, setCustomHFUrl, brikUrl, setBrikUrl,
+    selectedFile, setSelectedFile,
     autoConvert, setAutoConvert, convertTier, setConvertTier, isDragging,
     // handlers
     handleDragOver, handleDragLeave, handleDrop, handleFileChange,

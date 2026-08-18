@@ -1,13 +1,15 @@
 "use client";
 
 // The "Choisir un modèle" modal: two tabs (Modèles = preset grid + your added models + roadmap
-// teasers, with search; Importer = local file / GGUF URL / streamed .brik), plus the BRIK-convert
-// toggle. Pure presentation — every action/state is injected by the page (props share the page's
-// names so the JSX is unchanged). Rendered via createPortal from the page when browseOpen is true.
+// teasers, with search, plus the any-model field which also takes .gguf/.brik URLs; Importer =
+// LOCAL file only — the by-URL blocks were removed 2026-08-18, the any-model field covers them and
+// reads the tokenizer from the file), plus the BRIK-convert toggle. Pure presentation — every
+// action/state is injected by the page (props share the page's names so the JSX is unchanged).
+// Rendered via createPortal from the page when browseOpen is true.
 
 import { useEffect, useState, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 import Link from 'next/link';
-import { Database, X, Flame, Upload, Search, Info, Play, Download, Package, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Timer, Feather, HardDriveDownload, Cpu, Gauge, AlertCircle, Film } from 'lucide-react';
+import { Database, X, Flame, Upload, Search, Info, Play, Package, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Timer, Feather, HardDriveDownload, Cpu, Gauge, AlertCircle, Film } from 'lucide-react';
 import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
 import { COMING_SOON, MODALITY_PILL, fmtModelSize, normModelName } from '@/lib/modelCatalog';
 import { type WeightDType } from '@/lib/brik/convert';
@@ -49,7 +51,7 @@ interface Props {
   benchRunning: boolean;
   handleUnloadModel: () => void;
   handleLoadModelFromUrl: (url: string) => void | Promise<void>;
-  handleStreamBrik: (urlOverride?: string) => void | Promise<void>;
+  handleStreamBrik: (url: string) => void | Promise<void>;
   // Recharge un .brik importé depuis l'IndexedDB (bibliothèque) — false si absent → re-import.
   loadLocalBrikFromCache?: (name: string) => Promise<boolean>;
   // Saisie libre « n'importe quel modèle du Hub » : rend un message d'erreur à afficher, ou null.
@@ -61,10 +63,6 @@ interface Props {
   handleFileChange: (e: ChangeEvent<HTMLInputElement>) => void;
   selectedFile: File | null;
   setSelectedFile: Dispatch<SetStateAction<File | null>>;
-  customHFUrl: string;
-  setCustomHFUrl: Dispatch<SetStateAction<string>>;
-  brikUrl: string;
-  setBrikUrl: Dispatch<SetStateAction<string>>;
   selectedTokenizerId: string;
   setSelectedTokenizerId: Dispatch<SetStateAction<string>>;
   isDragging: boolean;
@@ -87,7 +85,7 @@ export function ModelBrowserModal({
   modelQuery, setModelQuery, isMobile, showAllModels, setShowAllModels, loadedModelName, isCached,
   userModels, setUserModels, benchRunning, handleUnloadModel, handleLoadModelFromUrl, handleStreamBrik, loadLocalBrikFromCache, onLoadFromInput,
   handleLoadLocalModel, handleDragOver, handleDragLeave, handleDrop, handleFileChange,
-  selectedFile, setSelectedFile, customHFUrl, setCustomHFUrl, brikUrl, setBrikUrl,
+  selectedFile, setSelectedFile,
   selectedTokenizerId, setSelectedTokenizerId, isDragging, onLoadImageModel, onLoadVisionModel,
 }: Props) {
   const t = useT();
@@ -186,7 +184,7 @@ export function ModelBrowserModal({
                   disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
                   style={{ fontSize: '12px', padding: '8px 4px' }}
                 >
-                  <Upload size={13} /> {t('Import / URL', 'Importer / URL')}
+                  <Upload size={13} /> {t('Import a file', 'Importer un fichier')}
                 </button>
               </div>
 
@@ -433,7 +431,7 @@ export function ModelBrowserModal({
                             // purge) → repli sur le sélecteur de fichier comme avant.
                             <button className="btn" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', flexShrink: 0 }} disabled={busy} onClick={async () => { if (!(await loadLocalBrikFromCache?.(m.name))) setActiveTab('import'); }} title={t('Reload from the local cache (falls back to re-selecting the file)', 'Recharger depuis le cache local (sinon re-sélection du fichier)')}>{t('Reload', 'Recharger')}</button>
                           ) : (
-                            <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', flexShrink: 0 }} disabled={busy} onClick={() => m.kind === 'brik' ? handleStreamBrik(m.url) : handleLoadModelFromUrl(m.url!)}>{t('Load', 'Charger')}</button>
+                            <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', flexShrink: 0 }} disabled={busy} onClick={() => m.kind === 'brik' ? handleStreamBrik(m.url!) : handleLoadModelFromUrl(m.url!)}>{t('Load', 'Charger')}</button>
                           )}
                         </div>
                       </div>
@@ -595,28 +593,16 @@ export function ModelBrowserModal({
                     </button>
                   </div>
 
-                  {/* 2) GGUF by URL (Hugging Face direct) */}
+                  {/* Les deux blocs « par URL » (GGUF direct, .brik hébergé) sont RETIRÉS
+                      (2026-08-18, retour Romain) : le champ « n'importe quel modèle » de l'onglet
+                      Modèles accepte déjà les liens .gguf et .brik — et lui lit le tokenizer dans
+                      le fichier, là où ces blocs le faisaient régler à la main. Cet onglet ne
+                      garde que ce que le champ ne sait pas faire : un FICHIER local. */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{t('GGUF URL (Hugging Face)', 'URL GGUF (Hugging Face)')}</div>
-                    <input type="text" className="input-control" style={{ fontSize: '12px' }} placeholder="https://huggingface.co/…/model.gguf" value={customHFUrl} onChange={(e) => setCustomHFUrl(e.target.value)} disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'} />
-                    <div className="input-group">
-                      <span className="input-label">{t('Tokenizer:', 'Tokenizer :')}</span>
-                      <select className="input-control" value={selectedTokenizerId} onChange={(e) => setSelectedTokenizerId(e.target.value)} disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}>
-                        {TOKENIZER_PRESETS.map((tk, idx) => (<option key={idx} value={tk.id}>{tk.name}</option>))}
-                      </select>
-                    </div>
-                    <button className="btn btn-primary btn-block" onClick={() => handleLoadModelFromUrl(customHFUrl.trim())} disabled={!customHFUrl.trim() || modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}>
-                      <Download size={14} /> {t('Download & load', 'Télécharger & charger')}
-                    </button>
-                  </div>
-
-                  {/* 3) Stream a hosted .brik by URL */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)' }}>{t('Stream a hosted .brik', 'Streamer un .brik hébergé')}</div>
-                    <input className="input-control" style={{ fontSize: '12px' }} placeholder="https://…/model.brik" value={brikUrl} onChange={(e) => setBrikUrl(e.target.value)} disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'} />
-                    <button className="btn btn-primary btn-block" onClick={() => handleStreamBrik()} disabled={!brikUrl.trim() || modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}>
-                      <Download size={14} /> {t('Load via streaming', 'Charger en streaming')}
-                    </button>
+                    <p style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--text-secondary)', margin: 0 }}>
+                      {t('A model by URL (Hugging Face repo, .gguf or .brik link)? Use the field at the top of the Models tab — it reads the tokenizer from the file.',
+                         "Un modèle par URL (dépôt Hugging Face, lien .gguf ou .brik) ? Utilisez le champ en haut de l'onglet Modèles — il lit le tokenizer dans le fichier.")}
+                    </p>
                     <Link href={href('/convert')} className="btn btn-secondary btn-block" style={{ fontSize: '12px', textDecoration: 'none' }}>
                       <Package size={14} /> {t('Convert a GGUF → BRIK (dedicated page)', 'Convertir un GGUF → BRIK (page dédiée)')}
                     </Link>
