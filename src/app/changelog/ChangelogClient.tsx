@@ -41,6 +41,15 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Video generation joins the chat (beta)', fr: 'La génération vidéo entre dans le chat (bêta)' },
+        items: [
+          { en: 'The video lab becomes a real mode: pick “Generate in the chat” on the video card (desktop), describe a scene, and a short looping clip is generated on your GPU — with step-by-step progress, since a clip takes minutes, not seconds. Your one-line prompt is first expanded by a small local language model into a fuller visual direction (short prompts make static clips).',
+            fr: 'Le labo vidéo devient un vrai mode : choisissez « Générer dans le chat » sur la carte vidéo (bureau), décrivez une scène, et un court clip en boucle est généré sur votre GPU — avec la progression étape par étape, car un clip prend des minutes, pas des secondes. Votre prompt d’une ligne est d’abord développé par un petit modèle de langage local en vraie direction visuelle (les prompts courts font des clips statiques).' },
+          { en: 'Reopening a video conversation shows each clip’s first frame rather than silently losing it: a generated clip lives only for the session (unlike images, regenerating one costs minutes, so there is no click-to-reveal).',
+            fr: 'Rouvrir une conversation vidéo montre la première frame de chaque clip plutôt que de le perdre en silence : un clip généré ne vit que la session (contrairement aux images, en régénérer un coûte des minutes, donc pas de « cliquer pour révéler »).' },
+        ],
+      },
+      {
         title: { en: 'The SDK lands on npm, and the docs get a spine', fr: 'Le SDK arrive sur npm, et la doc gagne une colonne vertébrale' },
         items: [
           { en: 'The embeddable SDK is now published as the brimkern package on npm — TypeScript types included, safe to import on a server (Next.js, Remix, Astro), same API as the script tag: embed, createSession, generate, preload, status.',

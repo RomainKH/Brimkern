@@ -72,7 +72,9 @@ export async function framesToWebm(frames: ImageData[], fps = 12, targetSec = 10
     return chunks.length ? URL.createObjectURL(new Blob(chunks, { type: mime || 'video/webm' })) : null;
   } catch { return null; }
 }
-export interface VideoGenerator { generate(prompt: string, opts?: { seed?: number; frames?: number; size?: number; onProgress?: (s: string) => void }): Promise<VideoFrames>; enrich(prompt: string, onProgress?: (s: string) => void): Promise<string>; dispose(): void }
+// `engine` est exposé pour le filet « GPU perdu » côté app (onLost), comme en mode vision : une
+// génération vidéo dure des minutes, c'est le cas le plus exposé à une reprise de VRAM par l'OS.
+export interface VideoGenerator { generate(prompt: string, opts?: { seed?: number; frames?: number; size?: number; onProgress?: (s: string) => void }): Promise<VideoFrames>; enrich(prompt: string, onProgress?: (s: string) => void): Promise<string>; engine: WebGpuEngine; dispose(): void }
 
 // Les 21 modules motion depuis le BRIK (q8 packé → codes/scales GPU, petits tenseurs f32 CPU).
 async function loadMotionModules(engine: WebGpuEngine, url: string, onProgress?: (s: string) => void): Promise<Map<string, MotionModule>> {
@@ -189,5 +191,5 @@ export async function loadVideoGenerator(
     return enricher.enrich(prompt);
   };
 
-  return { generate, enrich, dispose: () => { for (const m of motions.values()) m.unload(); } };
+  return { generate, enrich, engine, dispose: () => { for (const m of motions.values()) m.unload(); } };
 }

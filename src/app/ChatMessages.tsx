@@ -83,7 +83,31 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
           </div>
 
           <div className="message-text">
-            {msg.image
+            {/* Clip vidéo généré (AnimateDiff). Le blob WebM ne vit que la session : après un
+                rechargement, seul le POSTER (1re frame) reste — pas de « révéler » comme en image,
+                régénérer un clip coûte des minutes. */}
+            {msg.video?.url ? (
+              <video
+                src={msg.video.url}
+                poster={msg.video.poster}
+                controls
+                autoPlay
+                loop
+                muted
+                playsInline
+                width={msg.video.w}
+                height={msg.video.h}
+                style={{ width: `min(${Math.min(384, msg.video.w * 2)}px, 72vw)`, maxWidth: '100%', height: 'auto', borderRadius: 8, display: 'block', background: '#000' }}
+              />
+            ) : msg.video?.poster ? (
+              <span style={{ position: 'relative', display: 'block', width: `min(${Math.min(384, msg.video.w * 2)}px, 72vw)`, maxWidth: '100%', borderRadius: 8, overflow: 'hidden' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={msg.video.poster} alt={t('clip preview (first frame)', 'aperçu du clip (première frame)')} style={{ width: '100%', height: 'auto', display: 'block', imageRendering: 'pixelated' }} />
+                <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 600, textShadow: '0 1px 4px rgba(0,0,0,0.7)', background: 'rgba(0,0,0,0.25)', textAlign: 'center', padding: 8 }}>
+                  {t('Clip not kept after reload — reload the video model and resend the prompt to regenerate.', 'Clip non conservé après rechargement — recharge le modèle vidéo et renvoie le prompt pour régénérer.')}
+                </span>
+              </span>
+            ) : msg.image
               ? (msg.image.url
                 // Full image available (just generated or revealed). Canvas data URL → no next/image.
                 // eslint-disable-next-line @next/next/no-img-element
@@ -126,7 +150,18 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                 ✎ {t('Refine this image', 'Affiner cette image')}
               </button>
             )}
-            {!msg.image && !msg.content && showTyping && (
+            {/* Un message vidéo peut PORTER un texte (ex. « WebM non supporté ») : la chaîne
+                ternaire ci-dessus n'affiche le contenu que sans média, on le rend donc ici. */}
+            {msg.video && msg.content ? (
+              <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>{msg.content}</span>
+            ) : null}
+            {/* Sous le clip : la trace mesurée (frames uniques + temps de calcul), comme partout. */}
+            {msg.video && (msg.video.url || msg.video.poster) && msg.video.frames ? (
+              <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                {msg.video.frames} frames{msg.video.ms ? ` · ${(msg.video.ms / 1000).toFixed(0)} s ${t('of GPU compute', 'de calcul GPU')}` : ''}
+              </span>
+            ) : null}
+            {!msg.image && !msg.video && !msg.content && showTyping && (
               // Waiting on the first token → typing dots INSIDE this bubble (only the LAST message,
               // the one being generated — see the parent's showTyping condition).
               <div className="typing-indicator">

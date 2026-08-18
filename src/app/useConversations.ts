@@ -80,6 +80,9 @@ export function useConversations(deps: Deps) {
         id: m.id, role: m.role, content: m.content, isError: m.isError, timings: m.timings,
         // `full` (img2img) : seule image persistée entière — non régénérable depuis prompt+seed.
         image: m.image ? { w: m.image.w, h: m.image.h, thumb: m.image.thumb, prompt: m.image.prompt, seed: m.image.seed, full: m.image.full } : undefined,
+        // Vidéo : le poster (1re frame réduite) et les paramètres, JAMAIS l'URL — c'est un blob de
+        // session, mort au rechargement (et un clip ne se « révèle » pas : minutes de calcul).
+        video: m.video ? { w: m.video.w, h: m.video.h, poster: m.video.poster, prompt: m.video.prompt, seed: m.video.seed, frames: m.video.frames, ms: m.video.ms } : undefined,
       })),
       // In image mode record the generator identity (so reopening auto-loads it); else the LLM's.
       modelName: imageModel ? imageModel.name : loadedModelName,

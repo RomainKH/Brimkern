@@ -37,6 +37,8 @@ interface Props {
   imageMode: boolean;
   imageSize: number;                                  // latent side: 16/32/64 → 128/256/512px
   setImageSize: Dispatch<SetStateAction<number>>;
+  // Mode vidéo (AnimateDiff) : le placeholder décrit une SCÈNE, pas un message — et rappelle le coût.
+  videoMode?: boolean;
   webSearchOn: boolean;                               // la ligne de confidentialité doit dire la vérité
   // Mode vision (Qwen2-VL) : bouton 📎 pour joindre une image + vignette de la pièce jointe.
   visionMode?: boolean;
@@ -48,7 +50,7 @@ export function Composer({
   attachments, setAttachments, modelArchType, modelState, reflectionLevel, setReflectionLevel,
   benchRunning, activeSkills, setSkillsOpen, textareaRef, handlePaste, isMobile,
   userInput, setUserInput, handleSendMessage, handleStopGeneration, contextOver, contextTokens,
-  imageMode, imageSize, setImageSize, webSearchOn,
+  imageMode, imageSize, setImageSize, webSearchOn, videoMode,
   visionMode, pendingImage, setPendingImage,
 }: Props) {
   const t = useT();
@@ -124,7 +126,9 @@ export function Composer({
             </div>
           )}
           {/* Reflection level (reasoning models only) — a compact dropdown right above the composer. */}
-          {!imageMode && (modelArchType === 'deepseek' || modelArchType === 'qwen3') && (modelState === 'ready' || modelState === 'generating') && (
+          {/* !videoMode : modelArchType est un résidu du DERNIER LLM chargé — en mode vidéo le
+              sélecteur de réflexion s'affichait au-dessus d'un pipeline qui ne raisonne pas. */}
+          {!imageMode && !videoMode && (modelArchType === 'deepseek' || modelArchType === 'qwen3') && (modelState === 'ready' || modelState === 'generating') && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
               <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
               <span>{t('Reasoning:', 'Réflexion :')}</span>
@@ -200,7 +204,11 @@ export function Composer({
               onPaste={handlePaste}
               placeholder={
                 modelState === 'ready'
-                  ? t('Type your message…', 'Saisissez votre message…')
+                  ? (videoMode
+                    ? t('Describe a scene to animate (a few minutes per clip)…', 'Décrivez une scène à animer (quelques minutes par clip)…')
+                    : imageMode
+                      ? t('Describe an image to generate…', 'Décrivez une image à générer…')
+                      : t('Type your message…', 'Saisissez votre message…'))
                   : modelState === 'generating'
                     ? (isMobile ? t('Generating…', 'Génération…') : t('WebGPU matrix inference in progress…', 'Inférence matricielle WebGPU en cours…'))
                     : (isMobile ? t('Load a model to begin', 'Chargez un modèle pour commencer') : t('Select and load a model from the sidebar to begin.', 'Sélectionnez et chargez un modèle dans le menu latéral pour commencer.'))

@@ -17,7 +17,7 @@ import {
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
-import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
 import { detectCalcs, formatCalc, currentDateLine } from '@/lib/localTools';
 import { listConversations, type Conversation } from '@/lib/chatStore';
@@ -41,6 +41,7 @@ import { Composer } from './Composer';
 import { ChatMessages } from './ChatMessages';
 import { useConversations } from './useConversations';
 import type { ImageGenerator } from '@/lib/webgpu/diffusion/imageGen';
+import type { VideoGenerator } from '@/lib/webgpu/video/videoGen';
 import type { VisionSession as VisionSessionT } from '@/lib/webgpu/vision/qwen2vl';
 import { nextMsgId } from './ids';
 import { CONTEXT_SOFT_CAP, approxTokens, type PastedAttachment } from './composer-shared';
@@ -60,6 +61,9 @@ const IMAGE_MODEL_URL = 'sdturbo://image';
 // Sentinel des conversations VISION (Qwen2-VL) : pas d'auto-rechargement (~2,3 Go), la conv se
 // rouvre en lecture et un nouveau tour repart d'un contexte neuf (les pixels ne sont pas persistés).
 const VISION_MODEL_URL = 'qwen2vl://vision';
+// Sentinel des conversations VIDÉO (AnimateDiff) : comme l'image, la conv se rouvre en LECTURE
+// (posters persistés) sans recharger le pipeline (~1,5 Go) — le mode se relance à la demande.
+const VIDEO_MODEL_URL = 'animatediff://video';
 
 
 // Advisory context budget (CONTEXT_SOFT_CAP) + the cheap ~4 chars/token estimate (approxTokens) and
@@ -76,12 +80,17 @@ const PASTE_COLLAPSE_CHARS = 800;
 // Suggested starter prompts — built through t() so the card AND the prompt sent to the model follow
 // the active locale. Adapted to the loaded model's MODALITY: an image generator gets image prompts,
 // a vision model gets "describe the attached image" prompts, a chat LLM gets the text defaults.
-type PromptMode = 'text' | 'image' | 'vision';
+type PromptMode = 'text' | 'image' | 'video' | 'vision';
 const SUGGESTED_PROMPTS = (t: (en: string, fr: string) => string, mode: PromptMode = 'text') => {
   if (mode === 'image') return [
     { title: t('Cozy landscape', 'Paysage cosy'), text: t('A cozy wooden cabin by a lake at sunset, warm golden light, digital painting, highly detailed.', "Une cabane en bois cosy au bord d'un lac au coucher du soleil, lumière dorée chaude, peinture numérique, très détaillé.") },
     { title: t('Cute character', 'Personnage mignon'), text: t('A cute red fox wearing a wool scarf, soft studio lighting, adorable, highly detailed illustration.', "Un adorable renard roux portant une écharpe en laine, éclairage studio doux, illustration très détaillée.") },
     { title: t('Abstract art', 'Art abstrait'), text: t('Abstract flowing shapes in red and cream, minimalist elegant composition, smooth gradients.', 'Formes fluides abstraites en rouge et crème, composition minimaliste et élégante, dégradés doux.') },
+  ];
+  if (mode === 'video') return [
+    { title: t('Running fox', 'Renard qui court'), text: t('A red fox running through a snowy forest, cinematic, soft light.', 'Un renard roux qui court dans une forêt enneigée, cinématique, lumière douce.') },
+    { title: t('Ocean waves', 'Vagues océanes'), text: t('Ocean waves rolling onto a beach at golden hour, gentle motion.', "Des vagues qui roulent sur une plage à l'heure dorée, mouvement doux.") },
+    { title: t('City rain', 'Pluie en ville'), text: t('Rain falling on a neon-lit city street at night, reflections on wet asphalt.', 'La pluie sur une rue éclairée au néon la nuit, reflets sur l’asphalte mouillé.') },
   ];
   if (mode === 'vision') return [
     // Cliquer REMPLIT le champ (au lieu d'envoyer) : un modèle vision a besoin d'une image jointe
@@ -173,6 +182,9 @@ function App() {
   // When set, the chat is in IMAGE mode: prompts go to this generator instead of the LLM token loop.
   // The real SD-Turbo pipeline (CLIP → UNet int8 → TAESD), lazy-loaded by loadImageModel.
   const [imageGen, setImageGen] = useState<ImageGenerator | null>(null);
+  // Mode VIDÉO (AnimateDiff-Lightning sur pile SD 1.5, desktop) : prompt → clip WebM. Chargé par
+  // loadVideoModel (§ 3 P2 — l'onglet produit du labo /video-test). Exclusif des autres modes.
+  const [videoGen, setVideoGen] = useState<VideoGenerator | null>(null);
   // Mode VISION (Qwen2-VL 2B, desktop) : image + texte → texte. Session = LLM Q8 + ViT/merger sur
   // un engine partagé (~2,6 Go VRAM), chargée par loadVisionModel. Exclusif des modes LLM/image.
   const [visionSession, setVisionSession] = useState<VisionSessionT | null>(null);
@@ -369,6 +381,12 @@ function App() {
     imageGen?.dispose?.();
     setImageGen(null);
   };
+  // Même exigence pour le mode vidéo : le pipeline (UNet + motion + CLIP + TAESD, ~1,5 Go de VRAM)
+  // doit être libéré quand un autre mode se charge par-dessus.
+  const leaveVideoMode = () => {
+    videoGen?.dispose?.();
+    setVideoGen(null);
+  };
   // Même exigence pour le mode vision : un LLM/image chargé par-dessus doit libérer ses ~2,6 Go.
   const leaveVisionMode = () => {
     visionSession?.dispose();
@@ -377,9 +395,9 @@ function App() {
     visionKvRef.current = { convId: null, sess: '', fed: 0, pending: [] };
   };
   // Les presets peuvent pointer un .brik (poids pré-quantifiés streamés) : router vers le streamer.
-  const handleLoadModelFromUrl = (url: string) => { leaveImageMode(); leaveVisionMode(); return url.endsWith('.brik') ? engineStreamBrik(url) : engineLoadFromUrl(url); };
-  const handleLoadLocalModel = () => { leaveImageMode(); leaveVisionMode(); return engineLoadLocal(); };
-  const handleStreamBrik = (url: string, source?: string) => { leaveImageMode(); leaveVisionMode(); return engineStreamBrik(url, source); };
+  const handleLoadModelFromUrl = (url: string) => { leaveImageMode(); leaveVideoMode(); leaveVisionMode(); return url.endsWith('.brik') ? engineStreamBrik(url) : engineLoadFromUrl(url); };
+  const handleLoadLocalModel = () => { leaveImageMode(); leaveVideoMode(); leaveVisionMode(); return engineLoadLocal(); };
+  const handleStreamBrik = (url: string, source?: string) => { leaveImageMode(); leaveVideoMode(); leaveVisionMode(); return engineStreamBrik(url, source); };
 
   // Conversation history: list, auto-save, and new/open/delete handlers. Depends on the engine above
   // (activeModel/loadedModel*) so it's created here. The page keeps the bridge mount-effect that wires
@@ -393,6 +411,7 @@ function App() {
     activeModel, loadedModelName, loadedModelUrl, selectedTokenizerId, setSelectedTokenizerId,
     modelArchType, setModelArchType,
     imageModel: visionSession ? { name: 'Qwen2-VL 2B (vision)', url: VISION_MODEL_URL }
+      : videoGen ? { name: 'AnimateDiff (video)', url: VIDEO_MODEL_URL }
       : imageGen ? { name: imageGen.name, url: IMAGE_MODEL_URL } : null,
   });
 
@@ -1166,11 +1185,11 @@ function App() {
   useEffect(() => { if (loadedModelName) autoLoadedRef.current = true; }, [loadedModelName]);
   useEffect(() => {
     if (!prefetchDone || autoLoadedRef.current || !isMobile) return;
-    if (modelState !== 'idle' || loadedModelName || imageGen) return;
+    if (modelState !== 'idle' || loadedModelName || imageGen || videoGen) return;
     if (urlWantsModel()) return; // un deeplink est en route : ne pas lui passer devant
     autoLoadedRef.current = true;
     handleStreamBrik(MOBILE_BRIK_URL, 'mobile-auto');
-  }, [prefetchDone, isMobile, modelState, loadedModelName, imageGen]);
+  }, [prefetchDone, isMobile, modelState, loadedModelName, imageGen, videoGen]);
 
   // Deeplink « ouvrir ce modèle dans Le Kern » — la surface consommée par le menu « Use this model »
   // des pages modèles Hugging Face (cf. docs/huggingface-integration.md) et par les bancs :
@@ -1420,12 +1439,12 @@ function App() {
       if (urlWantsModel()) return;
       const last = cs.find((c) => c.messages?.length);
       if (!last) return;
-      if (last.modelUrl === IMAGE_MODEL_URL) {
-        // Conversation IMAGE : on la restaure SANS charger le générateur (retour mobile de Romain
-        // 2026-07-21 — même « en cache », le rechargement auto déclenchait des téléchargements et
-        // bloquait l'utilisateur). Les images sont persistées dans les messages → elles s'affichent
-        // sans le modèle ; seuls les modèles TEXTE s'auto-chargent. Pour regénérer, l'utilisateur
-        // relance le mode image à la demande (tuile / bouton).
+      if (last.modelUrl === IMAGE_MODEL_URL || last.modelUrl === VIDEO_MODEL_URL) {
+        // Conversation IMAGE ou VIDÉO : on la restaure SANS charger le générateur (retour mobile de
+        // Romain 2026-07-21 — même « en cache », le rechargement auto déclenchait des téléchargements
+        // et bloquait l'utilisateur). Images et posters vidéo sont persistés dans les messages → ils
+        // s'affichent sans le modèle ; seuls les modèles TEXTE s'auto-chargent. Pour regénérer,
+        // l'utilisateur relance le mode à la demande (tuile / bouton).
         restoreConversation(last);
         return;
       }
@@ -1518,6 +1537,7 @@ function App() {
     if (isMobile) setIsSidebarOpen(false);
     if (activeModel) handleUnloadModel();
     leaveImageMode(); // un pipeline image déjà chargé ? le libérer avant d'en reconstruire un
+    leaveVideoMode();
     leaveVisionMode();
     setModelState('loading');
     setLoadingStep(t('Loading Stable Diffusion Turbo…', 'Chargement de Stable Diffusion Turbo…'));
@@ -1598,6 +1618,58 @@ function App() {
     }
   };
 
+  // ── Mode VIDÉO (AnimateDiff-Lightning, desktop) ────────────────────────────────────────────────
+  // L'onglet PRODUIT du labo /video-test (§ 3 P2) : CLIP-L → UNet SD 1.5 + 21 modules motion →
+  // TAESD par frame, tout en BRIK q8 (~1,5 Go). Desktop uniquement (thermique) ; duty-cycle par
+  // défaut hérité du réglage GPU (gpuDuty), ?duty= reste l'override dev comme en image.
+  const loadVideoModel = async () => {
+    setBrowseOpen(false);
+    if (activeModel) handleUnloadModel();
+    leaveImageMode();
+    leaveVideoMode();
+    leaveVisionMode();
+    setModelState('loading');
+    setLoadingStep(t('Loading the video pipeline (AnimateDiff)…', 'Chargement du pipeline vidéo (AnimateDiff)…'));
+    try {
+      const { loadVideoGenerator } = await import('@/lib/webgpu/video/videoGen');
+      const q = new URLSearchParams(window.location.search);
+      const dutyRaw = q.get('duty');
+      const pace = { duty: dutyRaw !== null ? Math.min(1, Math.max(0.1, parseFloat(dutyRaw) || 0.6)) : gpuDuty };
+      // lfm = enrichissement de prompt (chargé PARESSEUSEMENT sur le même engine, au 1er clip) :
+      // un prompt d'une ligne donne des clips statiques, le LFM le développe en direction visuelle.
+      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, lfm: MOBILE_BRIK_URL }, (s) => setLoadingStep(s), pace);
+      // Une génération dure des MINUTES : c'est le mode le plus exposé à une reprise de VRAM par
+      // l'OS. Même filet que la vision — erreur récupérable plutôt qu'une attente infinie.
+      gen.engine.onLost = (info) => {
+        if (info?.reason === 'destroyed') return;
+        console.warn('[video] device GPU perdu pendant la génération/le chargement vidéo');
+        setVideoGen(null);
+        setModelState('error');
+        setErrorMsg(t(
+          'The GPU disconnected during video generation (it needs ~1.5 GB of VRAM for several minutes). Reload the model to try again.',
+          'Le GPU s’est déconnecté pendant la génération vidéo (elle demande ~1,5 Go de VRAM pendant plusieurs minutes). Recharge le modèle pour réessayer.',
+        ));
+      };
+      setVideoGen(gen);
+      setCurrentConvId(null);
+      setMessages([{
+        id: 'welcome', role: 'assistant',
+        content: t(
+          'Video mode — **AnimateDiff** (beta). Describe a scene and I’ll generate a short looping clip (16 frames, 256px).\n\n' +
+            '⏱️ Expect **several minutes of GPU work** per clip — progress is shown step by step.',
+          'Mode vidéo — **AnimateDiff** (bêta). Décris une scène, je génère un court clip en boucle (16 frames, 256px).\n\n' +
+            '⏱️ Compte **plusieurs minutes de calcul GPU** par clip — la progression s’affiche étape par étape.',
+        ),
+      }]);
+      setModelState('ready');
+    } catch (e: unknown) {
+      console.error('[video] chargement AnimateDiff échoué', e);
+      setVideoGen(null);
+      setModelState('idle');
+      setMessages([{ id: 'welcome', role: 'assistant', content: t(`Failed to load the video pipeline: ${(e as Error)?.message || e}`, `Échec du chargement du pipeline vidéo : ${(e as Error)?.message || e}`), isError: true }]);
+    }
+  };
+
   // ── Mode VISION (Qwen2-VL 2B, desktop) ─────────────────────────────────────────────────────────
   // Charge le LLM Q8_0 (~1 Go) + le mmproj ViT (~1,3 Go, quantifié q8 au chargement) sur un engine
   // partagé. Desktop uniquement (~2,6 Go VRAM) — la tuile n'apparaît pas sur mobile.
@@ -1605,6 +1677,7 @@ function App() {
     setBrowseOpen(false);
     if (activeModel) handleUnloadModel();
     leaveImageMode();
+    leaveVideoMode();
     leaveVisionMode();
     setModelState('loading');
     setLoadingStep(t('Loading Qwen2-VL (vision)…', 'Chargement de Qwen2-VL (vision)…'));
@@ -1764,6 +1837,59 @@ function App() {
     }
   };
 
+  // Poster d'un clip : la 1re frame réduite en data URL JPEG (~96px). C'est la SEULE trace du clip
+  // qui persiste (le blob WebM meurt avec la session) — régénérer coûte des minutes, contrairement
+  // à une image, donc pas de « révéler » : le poster dit ce que la conversation contenait.
+  const frameToPoster = (frame: ImageData): string | undefined => {
+    try {
+      const c = document.createElement('canvas');
+      const w = 96, h = Math.round((frame.height / frame.width) * 96);
+      const full = document.createElement('canvas');
+      full.width = frame.width; full.height = frame.height;
+      full.getContext('2d')!.putImageData(frame, 0, 0);
+      c.width = w; c.height = h;
+      c.getContext('2d')!.drawImage(full, 0, 0, w, h);
+      return c.toDataURL('image/jpeg', 0.6);
+    } catch { return undefined; }
+  };
+
+  const handleGenerateVideo = async (prompt: string) => {
+    if (!videoGen) return;
+    if (!currentConvId) beginConversation();
+    setMessages(prev => [...prev, { id: nextMsgId(), role: 'user', content: prompt }]);
+    setUserInput('');
+    setAttachments([]);
+    const aId = nextMsgId();
+    setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating the clip…', 'Génération du clip…') }]);
+    setModelState('generating');
+    try {
+      const onProgress = (s: string) => setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s } : m));
+      const q = new URLSearchParams(window.location.search);
+      // 16 frames par défaut (≈ 1,3 s de mouvement unique, bouclé au montage) ; ?vframes=8..32 en
+      // dev — 32 est le MAXIMUM du modèle (pos_embed temporel [1,32,C]). ?enrich=0 coupe le LFM.
+      const frames = Math.min(32, Math.max(8, parseInt(q.get('vframes') || '16', 10) || 16));
+      let finalPrompt = prompt;
+      if (q.get('enrich') !== '0') {
+        onProgress(t('Enriching the prompt (local LLM)…', 'Enrichissement du prompt (LLM local)…'));
+        finalPrompt = await videoGen.enrich(prompt, onProgress);
+      }
+      const res = await videoGen.generate(finalPrompt, { frames, size: 256, onProgress });
+      onProgress(t('Encoding the video (WebM)…', 'Compilation de la vidéo (WebM)…'));
+      const { framesToWebm } = await import('@/lib/webgpu/video/videoGen');
+      const url = await framesToWebm(res.frames); // 12 fps, séquence bouclée (~10 s) — null si non supporté
+      const first = res.frames[0];
+      setMessages(prev => prev.map(m => m.id === aId ? {
+        ...m,
+        content: url ? '' : t('WebM not supported by this browser — clip lost after generation.', 'WebM non supporté par ce navigateur — clip perdu après génération.'),
+        video: { url: url ?? undefined, w: first.width, h: first.height, poster: frameToPoster(first), prompt, seed: res.seed, frames: res.frames.length, ms: res.ms },
+      } : m));
+    } catch (e: unknown) {
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: t(`Generation error: ${(e as Error)?.message || String(e)}`, `Erreur de génération : ${(e as Error)?.message || String(e)}`), isError: true } : m));
+    } finally {
+      setModelState('ready');
+    }
+  };
+
   // Click-to-reveal a persisted image: regenerate the full PNG from its prompt+seed (only the blurred
   // thumb was stored). Needs the image model loaded. Deterministic → identical to the original.
   const revealImage = async (id: string, prompt?: string, seed?: number) => {
@@ -1787,6 +1913,12 @@ function App() {
     if (visionSession) {
       const prompt = (textToSend ?? userInput).trim();
       if (prompt && modelState === 'ready') void handleVisionMessage(prompt);
+      return;
+    }
+    // Video mode: the prompt produces a short clip (AnimateDiff), not an LLM token stream.
+    if (videoGen) {
+      const prompt = (textToSend ?? userInput).trim();
+      if (prompt && modelState === 'ready') void handleGenerateVideo(prompt);
       return;
     }
     // Image mode: a text→image model is loaded → the prompt produces an image, not an LLM token stream.
@@ -2379,10 +2511,11 @@ function App() {
   };
 
   // What the header/sidebar show as "loaded": the image generator's name in image mode, else the LLM.
-  const displayModelName = visionSession ? 'Qwen2-VL 2B (vision)' : imageGen ? imageGen.name : loadedModelName;
-  // Unload whichever model is active (LLM, image generator or vision session).
+  const displayModelName = visionSession ? 'Qwen2-VL 2B (vision)' : videoGen ? 'AnimateDiff (video)' : imageGen ? imageGen.name : loadedModelName;
+  // Unload whichever model is active (LLM, image generator, video pipeline or vision session).
   const unloadActiveModel = () => {
     if (visionSession) { leaveVisionMode(); setMessages([]); setModelState('idle'); }
+    else if (videoGen) { leaveVideoMode(); setMessages([]); setModelState('idle'); }
     else if (imageGen) { imageGen.dispose?.(); setImageGen(null); setMessages([]); setModelState('idle'); }
     else handleUnloadModel();
   };
@@ -2667,6 +2800,7 @@ function App() {
               setSelectedTokenizerId={setSelectedTokenizerId}
               isDragging={isDragging}
               onLoadImageModel={loadImageModel}
+              onLoadVideoModel={isMobile ? undefined : loadVideoModel}
               onLoadVisionModel={isMobile ? undefined : loadVisionModel}
             />
             ), document.body)}
@@ -3135,7 +3269,7 @@ function App() {
 
         {/* Suggestions card — adaptées à la modalité du modèle chargé (image / vision / texte). */}
         {modelState === 'ready' && messages.length <= 1 && (() => {
-          const promptMode: PromptMode = imageGen ? 'image' : visionSession ? 'vision' : 'text';
+          const promptMode: PromptMode = videoGen ? 'video' : imageGen ? 'image' : visionSession ? 'vision' : 'text';
           const suggestions = SUGGESTED_PROMPTS(t, promptMode);
           return (
           <div style={{ maxWidth: '850px', width: '100%', margin: '0 auto 16px', padding: '0 24px' }}>
@@ -3185,6 +3319,7 @@ function App() {
           contextOver={contextOver}
           contextTokens={contextTokens}
           imageMode={!!imageGen}
+          videoMode={!!videoGen}
           imageSize={imageSize}
           setImageSize={setImageSize}
           webSearchOn={webSearchOn || urlReadOn}

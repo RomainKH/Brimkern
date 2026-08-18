@@ -71,6 +71,9 @@ interface Props {
   onLoadImageModel?: () => void;
   // Charge le modèle VISION (Qwen2-VL 2B, desktop) — la carte « vision » devient chargeable.
   onLoadVisionModel?: () => void;
+  // Charge le pipeline VIDÉO (AnimateDiff, desktop) dans le chat — la carte vidéo devient un vrai
+  // mode produit (§ 3 P2), le labo /video-test reste accessible en secondaire.
+  onLoadVideoModel?: () => void;
 }
 
 const fmtBytes = (bytes: number, dm = 2) => {
@@ -86,7 +89,7 @@ export function ModelBrowserModal({
   userModels, setUserModels, benchRunning, handleUnloadModel, handleLoadModelFromUrl, handleStreamBrik, loadLocalBrikFromCache, onLoadFromInput,
   handleLoadLocalModel, handleDragOver, handleDragLeave, handleDrop, handleFileChange,
   selectedFile, setSelectedFile,
-  selectedTokenizerId, setSelectedTokenizerId, isDragging, onLoadImageModel, onLoadVisionModel,
+  selectedTokenizerId, setSelectedTokenizerId, isDragging, onLoadImageModel, onLoadVisionModel, onLoadVideoModel,
 }: Props) {
   const t = useT();
   // Les tailles et badges du catalogue sont des DONNÉES : elles se formatent selon la locale
@@ -503,13 +506,27 @@ export function ModelBrowserModal({
                         <span>{t('~1.5 GB to download, then several minutes of GPU work for a few seconds of video.',
                                  '~1,5 Go à télécharger, puis plusieurs minutes de calcul GPU pour quelques secondes de vidéo.')}</span>
                       </div>
-                      <a
-                        href="/video-test?gen=1"
-                        className="btn btn-secondary"
-                        style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', textDecoration: 'none', marginTop: 'auto', alignSelf: 'flex-start' }}
-                      >
-                        <Film size={12} /> {t('Open the lab', 'Ouvrir le labo')}
-                      </a>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
+                        {/* Mode produit (§ 3 P2) : générer DANS le chat. Le labo reste la porte
+                            secondaire (selfValidate + contrôles fins). */}
+                        {onLoadVideoModel && (
+                          <button
+                            className="btn btn-primary"
+                            style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
+                            disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
+                            onClick={() => onLoadVideoModel()}
+                          >
+                            <Film size={12} /> {t('Generate in the chat', 'Générer dans le chat')}
+                          </button>
+                        )}
+                        <a
+                          href="/video-test?gen=1"
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', textDecoration: 'none' }}
+                        >
+                          {t('Open the lab', 'Ouvrir le labo')}
+                        </a>
+                      </div>
                     </div>
                   )}
                   </div>
