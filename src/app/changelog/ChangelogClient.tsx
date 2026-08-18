@@ -40,6 +40,17 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Image and video generation, 1.67× faster', fr: 'Génération d’image et de vidéo, 1,67× plus rapide' },
+        items: [
+          { en: 'A new benchmark profiles a whole generation kernel by kernel, and it found the culprit immediately: the convolutions ate 73.8 % of the GPU, and one of them alone (the 3×3 convolution on quantized weights) took 70 % at 35 ms per call. The plain-precision path had a fast tiled version of that convolution; the quantized path, the one the app actually runs, never got one.',
+            fr: 'Un nouveau banc profile une génération entière kernel par kernel, et il a trouvé le coupable immédiatement : les convolutions mangeaient 73,8 % du GPU, et l’une d’elles à elle seule (la convolution 3×3 sur poids quantifiés) en prenait 70 %, à 35 ms l’appel. Le chemin en pleine précision avait une version tuilée rapide de cette convolution ; le chemin quantifié, celui que l’application exécute vraiment, n’en avait jamais eu.' },
+          { en: 'Written, it reads each input pixel once per workgroup instead of nine times, and unpacks each weight once instead of 256 times. Measured on a 256px image: the whole generation drops from 5.0 to 3.0 seconds (×1.67), and that convolution from 35 to 19 ms. Video generation shares the same network, so it benefits too. As always: checked against the CPU reference at every load, with a kill-switch (?convtq=0) and an automatic fallback.',
+            fr: 'Écrite, elle lit chaque pixel d’entrée une fois par groupe de travail au lieu de neuf, et déballe chaque poids une fois au lieu de 256. Mesuré sur une image 256px : la génération entière passe de 5,0 à 3,0 secondes (×1,67), et cette convolution de 35 à 19 ms. La génération vidéo partage le même réseau, elle en profite donc aussi. Comme toujours : vérifiée contre la référence CPU à chaque chargement, avec un kill-switch (?convtq=0) et un repli automatique.' },
+          { en: 'A generated clip showed a duration of 0:00 in the player: browsers record WebM as a live stream whose length is never written into the file header. The player now measures it on load, so the timeline and the seek bar work.',
+            fr: 'Un clip généré affichait une durée de 0:00 dans le lecteur : les navigateurs enregistrent le WebM comme un flux live dont la longueur n’est jamais inscrite dans l’en-tête du fichier. Le lecteur la mesure désormais au chargement, la timeline et la barre de lecture fonctionnent.' },
+        ],
+      },
+      {
         title: { en: 'Video generation joins the chat (beta)', fr: 'La génération vidéo entre dans le chat (bêta)' },
         items: [
           { en: 'The video lab becomes a real mode: pick “Generate in the chat” on the video card (desktop), describe a scene, and a short looping clip is generated on your GPU. With step-by-step progress, since a clip takes minutes, not seconds. Your one-line prompt is first expanded by a small local language model into a fuller visual direction (short prompts make static clips).',

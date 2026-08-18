@@ -14,7 +14,7 @@
 import Link from 'next/link';
 import { ArrowRight, Check, Minus } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
-import DocsShell from '../docs/DocsShell';
+import DocsShell, { PageTitle } from '../docs/DocsShell';
 
 export default function VsWebllmClient() {
   const t = useT();
@@ -81,18 +81,12 @@ export default function VsWebllmClient() {
 
   return (
     <DocsShell toc={toc}>
-      <div style={{ borderTop: '2px solid var(--accent)', paddingTop: 22 }}>
-        <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>
-          {t('measured comparison', 'comparaison mesurée')}
-        </span>
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 40, fontWeight: 800, lineHeight: 1.1, margin: '10px 0 14px', color: 'var(--text-primary)' }}>
-          {t('Brimkern vs WebLLM: two ways to run an LLM in the browser',
-            'Brimkern vs WebLLM : deux façons de faire tourner un LLM dans le navigateur')}
-        </h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 17, lineHeight: 1.55, margin: '0 0 10px', maxWidth: 680 }}>
-          {t('Both run a large language model client-side on WebGPU, with no server and no API key. They differ on one decisive point: what you must do to a model before it can run.',
-            'Les deux exécutent un grand modèle de langage côté client sur WebGPU, sans serveur ni clé d’API. Ils diffèrent sur un point décisif : ce qu’il faut faire subir à un modèle avant qu’il tourne.')}
-        </p>
+      <PageTitle title={t('Brimkern vs WebLLM: two ways to run an LLM in the browser',
+        'Brimkern vs WebLLM : deux façons de faire tourner un LLM dans le navigateur')}>
+        {t('Both run a large language model client-side on WebGPU, with no server and no API key. They differ on one decisive point: what you must do to a model before it can run.',
+          'Les deux exécutent un grand modèle de langage côté client sur WebGPU, sans serveur ni clé d’API. Ils diffèrent sur un point décisif : ce qu’il faut faire subir à un modèle avant qu’il tourne.')}
+      </PageTitle>
+      <div>
         <p style={{ color: 'var(--text-muted)', fontSize: 13.5, lineHeight: 1.55, margin: '0 0 22px', maxWidth: 680 }}>
           {t('Numbers below were measured between 2026-08-13 and 2026-08-15, same laptop GPU, same model (DeepSeek-R1-Distill-Qwen-7B, int4), same prompt. Nothing here is an estimate, and that model is in the catalogue, so you can run it yourself.',
             'Les chiffres ci-dessous ont été mesurés entre le 13 et le 15 août 2026, même GPU de portable, même modèle (DeepSeek-R1-Distill-Qwen-7B, int4), même prompt. Rien ici n’est estimé, et ce modèle est dans le catalogue, vous pouvez donc le lancer vous-même.')}

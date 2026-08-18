@@ -28,7 +28,7 @@ const ctx = await chromium.launchPersistentContext(
   { executablePath: EXE, headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal'], viewport: { width: 1400, height: 900 } },
 );
 const page = ctx.pages()[0] ?? await ctx.newPage();
-page.on('console', (m) => { const t = m.text(); if (/COUPÉE|HS sur ce GPU|timestamp-query|perdu/.test(t)) console.log('  ·', t); });
+page.on('console', (m) => { const t = m.text(); if (/COUPÉE|HS sur ce GPU|timestamp-query|perdu|selfValidate|KO/.test(t)) console.log('  ·', t.slice(0, 220)); });
 
 // duty=1 : régime GPU plein. Un duty-cycle < 1 insère des pauses entre les blocs — utile en
 // production (thermique), mais il fausserait des PARTS de temps GPU mesurées par passe.

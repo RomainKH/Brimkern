@@ -2014,6 +2014,135 @@ export const SHADERS = {
 			if (inBounds) { o[(co * p.OH + oy) * p.OW + ox] = acc + bias[co]; }
 		}`,
 
+	// conv2d 3×3 TUILÉ sur poids QUANTIFIÉS (q8 et q4) — le pendant quantifié de conv2d_3x3_tiled.
+	//
+	// Pourquoi il existe : le chemin f32 avait sa version tuilée depuis toujours, les chemins q8/q4
+	// non — or c'est le q8 que la PRODUCTION exécute (les BRIK image/vidéo sont pré-quantifiés). Le
+	// profil d'une génération 256px l'a chiffré : conv2d_direct_q8 = 70,2 % du GPU à 35 ms par tir,
+	// contre 3,2 ms pour le tuilé f32 de TAESD. Exactement l'asymétrie déjà payée sur les GEMM f16
+	// (§ 1 de la roadmap) : le kernel lent était celui du chemin par défaut.
+	//
+	// La structure est celle du tuilé f32, à l'identique (patch 18×18 en mémoire partagée = 16 sorties
+	// + 1 px de halo, chargement coopératif, 9 poids par (co,ci) en mémoire partagée) ; seule change
+	// la LECTURE des poids, déquantifiée à la volée par les 9 premiers threads. Le gain vient du même
+	// endroit : chaque pixel d'entrée lu UNE fois par workgroup au lieu de 9, chaque poids déquantifié
+	// UNE fois au lieu de 256 — c'est cette seconde économie qui compte le plus ici, la déquantif
+	// étant plus chère qu'une simple lecture.
+	conv2d_3x3_tiled_q8: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> bias: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> o: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn wq8(i: u32) -> f32 {
+			let q = f32(i32(codes[i >> 2u] << ((3u - (i & 3u)) * 8u)) >> 24u);
+			let si = i >> 5u;
+			let sw = sc[si >> 1u];
+			return q * f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
+		}
+		var<workgroup> tile: array<f32, 324>;
+		var<workgroup> wloc: array<f32, 9>;
+		@compute @workgroup_size(16, 16)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let co = wid.z;
+			let oy0 = wid.y * 16u;
+			let ox0 = wid.x * 16u;
+			let oy = oy0 + lid.y;
+			let ox = ox0 + lid.x;
+			let inBounds = oy < p.OH && ox < p.OW;
+			let tid = lid.y * 16u + lid.x;
+			var acc = 0.0;
+			for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
+				let base = ci * p.H * p.W;
+				for (var t = tid; t < 324u; t = t + 256u) {
+					let iy = i32(oy0 + t / 18u) - 1;
+					let ix = i32(ox0 + t % 18u) - 1;
+					var v = 0.0;
+					if (iy >= 0 && iy < i32(p.H) && ix >= 0 && ix < i32(p.W)) { v = inp[base + u32(iy) * p.W + u32(ix)]; }
+					tile[t] = v;
+				}
+				if (tid < 9u) { wloc[tid] = wq8((co * p.Cin + ci) * 9u + tid); }
+				workgroupBarrier();
+				if (inBounds) {
+					let r0 = lid.y * 18u + lid.x;
+					acc = acc
+						+ tile[r0]       * wloc[0u] + tile[r0 + 1u]  * wloc[1u] + tile[r0 + 2u]  * wloc[2u]
+						+ tile[r0 + 18u] * wloc[3u] + tile[r0 + 19u] * wloc[4u] + tile[r0 + 20u] * wloc[5u]
+						+ tile[r0 + 36u] * wloc[6u] + tile[r0 + 37u] * wloc[7u] + tile[r0 + 38u] * wloc[8u];
+				}
+				workgroupBarrier();
+			}
+			if (inBounds) { o[(co * p.OH + oy) * p.OW + ox] = acc + bias[co]; }
+		}`,
+
+	// Idem en int4 (tier « light » des BRIK image) : même structure, déquantification asymétrique
+	// (échelle + minimum par groupe de 32) reprise telle quelle de conv2d_direct_q4.
+	conv2d_3x3_tiled_q4: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read> bias: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> o: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn wq4(i: u32) -> f32 {
+			let q = f32((nib[i >> 3u] >> ((i & 7u) * 4u)) & 0xFu);
+			let si = i >> 5u;
+			let half = (si & 1u) == 1u;
+			let s = f16d(select(sc[si >> 1u] & 0xFFFFu, sc[si >> 1u] >> 16u, half));
+			let m = f16d(select(mn[si >> 1u] & 0xFFFFu, mn[si >> 1u] >> 16u, half));
+			return q * s + m;
+		}
+		var<workgroup> tile: array<f32, 324>;
+		var<workgroup> wloc: array<f32, 9>;
+		@compute @workgroup_size(16, 16)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let co = wid.z;
+			let oy0 = wid.y * 16u;
+			let ox0 = wid.x * 16u;
+			let oy = oy0 + lid.y;
+			let ox = ox0 + lid.x;
+			let inBounds = oy < p.OH && ox < p.OW;
+			let tid = lid.y * 16u + lid.x;
+			var acc = 0.0;
+			for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
+				let base = ci * p.H * p.W;
+				for (var t = tid; t < 324u; t = t + 256u) {
+					let iy = i32(oy0 + t / 18u) - 1;
+					let ix = i32(ox0 + t % 18u) - 1;
+					var v = 0.0;
+					if (iy >= 0 && iy < i32(p.H) && ix >= 0 && ix < i32(p.W)) { v = inp[base + u32(iy) * p.W + u32(ix)]; }
+					tile[t] = v;
+				}
+				if (tid < 9u) { wloc[tid] = wq4((co * p.Cin + ci) * 9u + tid); }
+				workgroupBarrier();
+				if (inBounds) {
+					let r0 = lid.y * 18u + lid.x;
+					acc = acc
+						+ tile[r0]       * wloc[0u] + tile[r0 + 1u]  * wloc[1u] + tile[r0 + 2u]  * wloc[2u]
+						+ tile[r0 + 18u] * wloc[3u] + tile[r0 + 19u] * wloc[4u] + tile[r0 + 20u] * wloc[5u]
+						+ tile[r0 + 36u] * wloc[6u] + tile[r0 + 37u] * wloc[7u] + tile[r0 + 38u] * wloc[8u];
+				}
+				workgroupBarrier();
+			}
+			if (inBounds) { o[(co * p.OH + oy) * p.OW + ox] = acc + bias[co]; }
+		}`,
+
 	// Direct conv2d (NO im2col): one invocation per output element accumulates over the patch. Same
 	// result as im2col+GEMM but with NO big column buffer → memory-safe at full resolution (512²),
 	// where im2col would blow past maxStorageBufferBindingSize. Slower per element (no weight reuse),

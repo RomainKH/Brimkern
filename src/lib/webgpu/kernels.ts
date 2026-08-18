@@ -341,6 +341,10 @@ export class WebGpuEngine {
 				this.qShared2Ok = false;
 				console.warn('[webgpu] GEMM q8/q4 v2 (bloc 4×8 vec4) COUPÉS par ?qshared2=0 : tuile 32×64 v1');
 			}
+			if (urlFlag('convtq') === '0') {
+				this.convTiledQOk = false;
+				console.warn('[webgpu] conv 3×3 tuilé q8/q4 COUPÉ par ?convtq=0 : conv2d_direct_q8/q4 (plus lent, même résultat)');
+			}
 			if (urlFlag('videoresident') === '0') {
 				this.videoResidentOk = false;
 				console.warn('[webgpu] motion résident COUPÉ par ?videoresident=0 : chemin JS+readback');
@@ -1443,6 +1447,10 @@ export class WebGpuEngine {
 	// Tiled 3×3 conv health (set by validateDiffusion): false → recConv2dDirect always uses the
 	// per-element kernel. Never blocks anything — pure perf downgrade on failure.
 	convTiledOk = true;
+	// Même gate pour la version QUANTIFIÉE du conv tuilé (q8/q4). Séparé de convTiledOk : les deux
+	// kernels ont des chemins de déquantification distincts, un GPU peut rater l'un sans l'autre, et
+	// on veut pouvoir couper le nouveau sans perdre le tuilé f32 déjà éprouvé. Kill-switch ?convtq=0.
+	convTiledQOk = true;
 	private recConv2dDirect(enc: GPUAny, trash: GPUAny[], inp: GPUAny, w: GPUAny, bias: GPUAny, Cin: number, H: number, W: number, Cout: number, kh: number, kw: number, stride: number, pad: number): GPUAny {
 		const OH = Math.floor((H + 2 * pad - kh) / stride) + 1, OW = Math.floor((W + 2 * pad - kw) / stride) + 1;
 		const n = Cout * OH * OW;
@@ -1468,6 +1476,15 @@ export class WebGpuEngine {
 		const n = Cout * OH * OW;
 		const p = this.uniformOf(48);
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([Cin, H, W, Cout, kh, kw, stride, pad, OH, OW]));
+		// La forme DOMINANTE de l'UNet (3×3, stride 1, pad 1) prend le kernel tuilé : chaque pixel
+		// d'entrée lu une fois par workgroup au lieu de 9, chaque poids déquantifié une fois au lieu
+		// de 256. Mesuré sur une génération 256px : conv2d_direct_q8 pesait 70,2 % du GPU.
+		if (kh === 3 && kw === 3 && stride === 1 && pad === 1 && this.convTiledQOk) {
+			const outT = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_3x3_tiled_q8', [p, inp, q8.codes, q8.sc, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Cout]);
+			trash.push(p, outT);
+			return outT;
+		}
 		const out = this.storage(n * 4);
 		this.recordPass(enc, 'conv2d_direct_q8', [p, inp, q8.codes, q8.sc, bias, out], this.grid1D(n));
 		trash.push(p, out);
@@ -1480,6 +1497,12 @@ export class WebGpuEngine {
 		const n = Cout * OH * OW;
 		const p = this.uniformOf(48);
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([Cin, H, W, Cout, kh, kw, stride, pad, OH, OW]));
+		if (kh === 3 && kw === 3 && stride === 1 && pad === 1 && this.convTiledQOk) {
+			const outT = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_3x3_tiled_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Cout]);
+			trash.push(p, outT);
+			return outT;
+		}
 		const out = this.storage(n * 4);
 		this.recordPass(enc, 'conv2d_direct_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, out], this.grid1D(n));
 		trash.push(p, out);
@@ -3858,7 +3881,7 @@ export class WebGpuEngine {
 		// a bug in the new (browser-unvalidated) WGSL must NOT prevent loading an LLM. Logs pass/fail.
 		const diffFail = await this.validateDiffusion();
 		if (diffFail) console.warn('[selfValidate] image-gen primitive KO:', diffFail, '(non bloquant: chemin texte intact)');
-		else console.log('[selfValidate] image-gen primitives OK (silu, group_norm, conv2d, conv2d_direct, conv2d_direct_q8, relu, upsample_nearest, layernorm, quick_gelu, attention_full)');
+		else console.log(`[selfValidate] image-gen primitives OK (silu, group_norm, conv2d, conv2d_direct, conv2d_direct_q8/q4, conv 3×3 tuilé q8/q4 ${this.convTiledQOk ? 'OK' : 'KO (repli direct)'}, relu, upsample_nearest, layernorm, quick_gelu, attention_full)`);
 
 		// Motion résident vidéo (gate NON BLOQUANT, motif convTiledOk) : un kernel raté → videoResidentOk=false
 		// → repli JS+readback (correct). Ne gate jamais le texte ni la vidéo POC.
@@ -4006,8 +4029,11 @@ export class WebGpuEngine {
 				codes: this.uploadGpuRaw(new Uint8Array(qt.codes.buffer, qt.codes.byteOffset, qt.codes.byteLength)),
 				sc: this.uploadGpuRaw(new Uint8Array(qt.scales.buffer, qt.scales.byteOffset, qt.scales.byteLength)),
 			};
+			const savedQT = this.convTiledQOk;
+			this.convTiledQOk = false; // forcer le chemin DIRECT : sa forme (3×3/1/1) prend le tuilé sinon
 			const s = this.recordingSession();
 			const got = await s.finish(s.conv2d(qx, q8, qb, qCin, Hh, Ww, qCout, kk, kk, st, pd), qCout * Hh * Ww);
+			this.convTiledQOk = savedQT;
 			this.releaseGpu([q8.codes, q8.sc]);
 			if (!closeRel(got, qref)) return 'conv2d_direct_q8';
 		}
@@ -4024,10 +4050,48 @@ export class WebGpuEngine {
 				sc: this.uploadGpuRaw(new Uint8Array(qt.scales.buffer, qt.scales.byteOffset, qt.scales.byteLength)),
 				mn: this.uploadGpuRaw(new Uint8Array(qt.mins.buffer, qt.mins.byteOffset, qt.mins.byteLength)),
 			};
+			const savedQT = this.convTiledQOk;
+			this.convTiledQOk = false;
 			const s = this.recordingSession();
 			const got = await s.finish(s.conv2d(qx, q4, qb, qCin, Hh, Ww, qCout, kk, kk, st, pd), qCout * Hh * Ww);
+			this.convTiledQOk = savedQT;
 			this.releaseGpu([q4.nib, q4.sc, q4.mn]);
 			if (!closeRel(got, qref)) return 'conv2d_direct_q4';
+		}
+
+		// conv2d_3x3_tiled_q8 / _q4 vs leur homologue DIRECT — le kernel qui porte 70 % du GPU d'une
+		// génération. Forme 20×20 : une grille 2×2 de tuiles 16×16, donc des tuiles pleines ET des
+		// bords déchiquetés (le piège classique du tuilage). Poids : 8·4·9 = 288 = 9×32, la
+		// contrainte de groupe de q8web/q4web (vraie sur toutes les convs réelles).
+		// Gate NON BLOQUANT, comme le tuilé f32 : un GPU qui rate ce kernel retombe sur le direct,
+		// plus lent mais juste — on ne casse jamais la génération pour une optimisation.
+		{
+			const tCin = 8, tH = 20, tW = 20, tCout = 4;
+			const tx = rand(tCin * tH * tW), tw = rand(tCout * tCin * 9), tb = rand(tCout);
+			const savedQT = this.convTiledQOk;
+			for (const prec of ['q8', 'q4'] as const) {
+				const packed = prec === 'q8'
+					? (() => { const q = quantizeQ8(tw); return { deq: dequantizeQ8(q), gpu: {
+						codes: this.uploadGpuRaw(new Uint8Array(q.codes.buffer, q.codes.byteOffset, q.codes.byteLength)),
+						sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)) } }; })()
+					: (() => { const q = quantizeQ4(tw); return { deq: dequantizeQ4(q), gpu: {
+						nib: this.uploadGpuRaw(q.nibbles),
+						sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)),
+						mn: this.uploadGpuRaw(new Uint8Array(q.mins.buffer, q.mins.byteOffset, q.mins.byteLength)) } }; })();
+				// Référence : le MÊME conv sur les poids déquantifiés — les deux chemins voient des
+				// valeurs identiques, ils doivent donc coïncider à l'ordre d'accumulation près.
+				const ref = await this.conv2dDirect(tx, packed.deq, tb, tCin, tH, tW, tCout, 3, 3, 1, 1);
+				this.convTiledQOk = true;
+				const ss = this.recordingSession();
+				const got = await ss.finish(ss.conv2d(tx, packed.gpu as never, tb, tCin, tH, tW, tCout, 3, 3, 1, 1), tCout * tH * tW);
+				this.releaseGpu(Object.values(packed.gpu));
+				if (!closeRel(got, ref)) {
+					if (savedQT) console.warn(`[selfValidate] conv2d_3x3_tiled_${prec} KO sur ce GPU : repli sur conv2d_direct_${prec} (plus lent, même résultat).`);
+					this.convTiledQOk = false;
+					break;
+				}
+			}
+			this.convTiledQOk = this.convTiledQOk && savedQT;
 		}
 
 		// f16_to_f32 (bulk GPU conversion for safetensors F16 weights): round-trip random values

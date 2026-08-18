@@ -47,6 +47,29 @@ interface ItemProps {
   showReasoning?: boolean;
 }
 
+// Durée d'un WebM de MediaRecorder : le lecteur affiche 0:00 (retour Romain sur un clip généré
+// dans le chat). Ce n'est pas notre encodage qui est faux, c'est le format : MediaRecorder produit
+// un flux « live » dont la longueur n'est PAS écrite dans l'en-tête (elle n'est connue qu'à
+// l'arrêt de l'enregistrement, et le fichier n'est jamais réécrit). Le navigateur rend donc
+// duration = Infinity, la barre de progression est morte et la durée s'affiche à zéro.
+//
+// Contournement standard, et le seul qui ne demande pas de réécrire le conteneur : demander une
+// position absurde, ce qui force le navigateur à parcourir le fichier jusqu'au bout et à en
+// déduire la vraie durée, puis revenir à zéro. `dataset` garde la trace pour ne le faire qu'une
+// fois par élément (le ref est rappelé à chaque rendu de la bulle).
+function fixWebmDuration(v: HTMLVideoElement | null) {
+  if (!v || v.dataset.durationFixed === '1') return;
+  v.dataset.durationFixed = '1';
+  const measure = () => {
+    if (v.duration !== Infinity && !Number.isNaN(v.duration)) return;
+    const back = () => { v.removeEventListener('timeupdate', back); v.currentTime = 0; };
+    v.addEventListener('timeupdate', back);
+    v.currentTime = 1e101; // au-delà de toute durée réelle : le navigateur cherche la fin
+  };
+  if (v.readyState >= 1) measure();
+  else v.addEventListener('loadedmetadata', measure, { once: true });
+}
+
 // One bubble, MEMOIZED on the message object's identity: during streaming, setMessages only creates
 // a new object for the message being generated — every other bubble keeps its reference, so at 8 Hz
 // only ONE bubble re-renders/re-parses its markdown instead of the whole list (the mobile jank).
@@ -88,6 +111,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                 régénérer un clip coûte des minutes. */}
             {msg.video?.url ? (
               <video
+                ref={fixWebmDuration}
                 src={msg.video.url}
                 poster={msg.video.poster}
                 controls
