@@ -2004,6 +2004,14 @@ html.dark .docs-code {
   border-color: #34312a;
 }
 
+/* Jetons colorés des blocs de code. Le fond est de l'encre dans les DEUX thèmes, donc une seule
+   palette suffit — chaude, dans la famille de la marque, et volontairement sobre : quatre teintes,
+   pas le sapin de Noël d'une coloration générique. Contrastes vérifiés sur #23211d et #131211. */
+.docs-code .c-com { color: #8d8779; font-style: italic; }  /* commentaires : présents, en retrait */
+.docs-code .c-str { color: #d8b984; }                       /* chaînes et URLs : sable */
+.docs-code .c-kw  { color: #ef8a7a; }                       /* mots-clés, balises, drapeaux : accent */
+.docs-code .c-num { color: #9fc0b4; }                       /* nombres */
+
 .docs-chips {
   display: none;
   flex-wrap: wrap;

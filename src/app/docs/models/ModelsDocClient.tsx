@@ -31,7 +31,7 @@ export default function ModelsDocClient() {
           {t('Brimkern reads single-file GGUF directly: the format the Hub already hosts, with no conversion or compilation step. Paste any of these into the field on the home screen (or in the model browser):',
              "Brimkern lit directement les GGUF mono-fichier : le format que le Hub héberge déjà, sans étape de conversion ni de compilation. Collez n'importe laquelle de ces formes dans le champ de l'accueil (ou du navigateur de modèles) :")}
         </P>
-        <Code>{`Qwen/Qwen3-0.6B-GGUF
+        <Code lang="url">{`Qwen/Qwen3-0.6B-GGUF
 https://huggingface.co/Qwen/Qwen3-0.6B-GGUF
 https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q8_0.gguf
 https://example.com/my-model.gguf`}</Code>
@@ -46,7 +46,7 @@ https://example.com/my-model.gguf`}</Code>
           {t('Any model can be turned into a link that loads it directly: handy to share a demo, to file a bug report, or to point a colleague at an exact quantization.',
              "N'importe quel modèle peut devenir un lien qui le charge directement : pratique pour partager une démo, joindre un rapport de bug, ou renvoyer un collègue vers une quantification précise.")}
         </P>
-        <Code>{`${SITE_URL}/chat?model=Qwen/Qwen3-0.6B-GGUF
+        <Code lang="url">{`${SITE_URL}/chat?model=Qwen/Qwen3-0.6B-GGUF
 ${SITE_URL}/chat?model=Qwen/Qwen3-0.6B-GGUF&file=Qwen3-0.6B-Q8_0.gguf
 ${SITE_URL}/chat?gguf=https://example.com/model.gguf
 ${SITE_URL}/chat?brik=https://example.com/model.brik`}</Code>

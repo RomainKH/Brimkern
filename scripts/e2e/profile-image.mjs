@@ -36,17 +36,23 @@ await page.goto(`http://localhost:3618/chat?gpuprofile=1&duty=1${FLAG}&v=${Date.
 await page.waitForTimeout(2500);
 
 // Ouvrir le navigateur de modèles, puis charger le pipeline image (carte text2img).
-await page.evaluate(() => {
-  const b = [...document.querySelectorAll('button')].find((x) => /browse|parcourir/i.test(x.textContent || ''));
-  b?.click();
-});
-await page.waitForTimeout(800);
-const clique = await page.evaluate(() => {
-  const b = [...document.querySelectorAll('button')].find((x) => /Load \(preview\)|Charger \(aperçu\)/i.test(x.textContent || ''));
-  if (!b) return 'bouton introuvable';
-  b.click();
-  return 'ok';
-});
+// ⚠️ Le profil Chrome est PERSISTANT (indispensable : sans lui, ~700 Mo de poids re-téléchargés à
+// chaque banc). Il peut donc restaurer une conversation et RECHARGER son modèle au démarrage, et
+// pendant ce temps les boutons sont désactivés. On réessaie donc au lieu de conclure à leur absence.
+let clique = 'bouton introuvable';
+for (let essai = 0; essai < 40 && clique !== 'ok'; essai++) {
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /browse|parcourir/i.test(x.textContent || ''));
+    b?.click();
+  });
+  await page.waitForTimeout(1000);
+  clique = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /Load \(preview\)|Charger \(aperçu\)/i.test(x.textContent || ''));
+    if (!b || b.disabled) return 'bouton introuvable';
+    b.click();
+    return 'ok';
+  });
+}
 if (clique !== 'ok') { console.log(`✗ ${clique} — le pipeline image n'a pas pu être chargé`); await ctx.close(); process.exit(1); }
 console.log('chargement du pipeline image…');
 await page.waitForFunction(() => { const ta = document.querySelector('textarea'); return ta && !ta.disabled; }, null, { timeout: 900_000, polling: 2000 });

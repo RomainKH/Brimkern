@@ -14,17 +14,78 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useT, useLocale, useHref } from '@/lib/i18n';
-import BackLink from '../BackLink';
 import ByLine from '../ByLine';
 
 export interface TocEntry { id: string; label: string }
 
 // ── Briques de contenu partagées entre les pages de doc ──────────────────────────────────────────
 
-// Un bloc de code copiable, sobre (pas de dépendance de coloration syntaxique pour trois lignes).
-// Le fond vient de `.docs-code` (globals.css) : de l'encre, pour que les commandes RESSORTENT du
-// papier — les couleurs restent en CSS, où vivent leurs variantes clair/sombre.
-export function Code({ children }: { children: string }) {
+// COLORATION SYNTAXIQUE, écrite ici plutôt qu'importée : une bibliothèque de coloration pèse
+// 30 à 300 Ko pour des blocs qui tiennent en trois lignes et n'emploient que quatre langages. Elle
+// ne traite donc QUE ce que la doc contient vraiment (shell, JS, HTML, commutateurs d'URL), et
+// s'abstient sur le reste au lieu de deviner.
+//
+// Règle absolue : le texte rendu doit rester IDENTIQUE à l'entrée, caractère pour caractère — un
+// bloc de code est là pour être copié. On ne fait donc qu'envelopper des tranches dans des <span>,
+// jamais réécrire, et tout ce qui n'est pas reconnu ressort tel quel.
+type Lang = 'js' | 'html' | 'sh' | 'url' | 'text';
+
+// Les motifs, dans l'ordre de PRIORITÉ : un mot-clé à l'intérieur d'une chaîne ou d'un commentaire
+// ne doit pas être coloré, donc commentaires et chaînes passent en premier et consomment la zone.
+const RULES: Record<Exclude<Lang, 'text'>, { re: RegExp; cls: string }[]> = {
+  js: [
+    { re: /\/\/[^\n]*/g, cls: 'c-com' },
+    { re: /'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, cls: 'c-str' },
+    { re: /\b(import|from|export|const|let|var|function|return|await|async|new|if|else)\b/g, cls: 'c-kw' },
+    { re: /\b\d+(?:\.\d+)?\b/g, cls: 'c-num' },
+  ],
+  html: [
+    { re: /<!--[\s\S]*?-->/g, cls: 'c-com' },
+    { re: /"[^"\n]*"/g, cls: 'c-str' },
+    { re: /<\/?[a-zA-Z][\w-]*/g, cls: 'c-kw' },
+  ],
+  sh: [
+    { re: /#[^\n]*/g, cls: 'c-com' },
+    { re: /^\s*(npm|npx|node|git|curl)\b/gm, cls: 'c-kw' },
+  ],
+  // Les listes de commutateurs (?gemv=0 …) et les URLs de test : on met en avant le drapeau ou la
+  // query, qui est la seule partie que le lecteur va recopier ou modifier.
+  url: [
+    { re: /\?[a-zA-Z]+=[^\s]*/g, cls: 'c-kw' },
+    { re: /&[a-zA-Z]+=[^\s]*/g, cls: 'c-kw' },
+    { re: /https?:\/\/[^\s]+/g, cls: 'c-str' },
+  ],
+};
+
+function colorer(code: string, lang: Lang): React.ReactNode {
+  if (lang === 'text') return code;
+  // Une seule passe : on collecte les correspondances de toutes les règles, on écarte celles qui
+  // chevauchent une correspondance déjà retenue (la priorité va à la règle déclarée en premier),
+  // puis on reconstruit la chaîne dans l'ordre.
+  const spans: { start: number; end: number; cls: string }[] = [];
+  for (const { re, cls } of RULES[lang]) {
+    re.lastIndex = 0;
+    for (let m = re.exec(code); m; m = re.exec(code)) {
+      const [start, end] = [m.index, m.index + m[0].length];
+      if (!spans.some((s) => start < s.end && end > s.start)) spans.push({ start, end, cls });
+    }
+  }
+  spans.sort((a, b) => a.start - b.start);
+  const out: React.ReactNode[] = [];
+  let at = 0;
+  spans.forEach((sp, i) => {
+    if (sp.start > at) out.push(code.slice(at, sp.start));
+    out.push(<span key={i} className={sp.cls}>{code.slice(sp.start, sp.end)}</span>);
+    at = sp.end;
+  });
+  if (at < code.length) out.push(code.slice(at));
+  return out;
+}
+
+// Un bloc de code copiable. Le fond vient de `.docs-code` (globals.css) : de l'encre, pour que les
+// commandes RESSORTENT du papier ; les couleurs des jetons sont des classes, donc elles vivent avec
+// lui dans la feuille de style.
+export function Code({ children, lang = 'text' }: { children: string; lang?: Lang }) {
   return (
     <pre
       tabIndex={0}
@@ -35,7 +96,7 @@ export function Code({ children }: { children: string }) {
         fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.6,
       }}
     >
-      {children}
+      {colorer(children, lang)}
     </pre>
   );
 }
@@ -118,7 +179,9 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
   return (
     <main style={{ maxWidth: 1080, margin: '0 auto', padding: '48px 24px 80px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <BackLink />
+        <Link href={href('/')} style={{ color: 'var(--accent-text)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>
+          ← Brimkern
+        </Link>
         <button
           onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
           aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}

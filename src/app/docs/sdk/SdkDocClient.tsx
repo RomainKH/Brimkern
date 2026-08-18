@@ -52,14 +52,13 @@ export default function SdkDocClient() {
 
       <Section id="install" title={t('Install', 'Installation')}>
         <P>{t('From npm. TypeScript types included:', 'Depuis npm. Types TypeScript inclus :')}</P>
-        <Code>{`npm i brimkern
-
-import { embed, createSession, generate, preload, status } from 'brimkern';`}</Code>
+        <Code lang="sh">{'npm i brimkern'}</Code>
+        <Code lang="js">{`import { embed, createSession, generate, preload, status } from 'brimkern';`}</Code>
         <P>
           {t('Or as a script tag, with no build step. The IIFE exposes the same API on a global:',
              'Ou en balise script, sans étape de build. L’IIFE expose la même API sur une globale :')}
         </P>
-        <Code>{`<script src="${SDK_URL}"></script>
+        <Code lang="html">{`<script src="${SDK_URL}"></script>
 <script>
   Brimkern.embed({ title: "Ask us anything" });
 </script>`}</Code>
@@ -98,7 +97,7 @@ import { embed, createSession, generate, preload, status } from 'brimkern';`}</C
           {t('Headless: a conversation object for your own interface. Same config as embed() minus the visual options, plus temperature.',
              'Sans interface : un objet conversation pour votre propre UI. Même config que embed() moins les options visuelles, plus temperature.')}
         </P>
-        <Code>{`const session = createSession({ system: "You are a sommelier.", temperature: 0.7 });
+        <Code lang="js">{`const session = createSession({ system: "You are a sommelier.", temperature: 0.7 });
 
 const reply = await session.ask("A wine for oysters?", {
   onToken: (text) => output.textContent += text,  // streaming
@@ -115,7 +114,7 @@ session.destroy()`}</Code>
           {t('One shot: a prompt, a reply, no history kept. Takes the session config plus prompt, onToken and signal.',
              'One-shot : un prompt, une réponse, pas d’historique conservé. Prend la config de session plus prompt, onToken et signal.')}
         </P>
-        <Code>{`const answer = await generate({
+        <Code lang="js">{`const answer = await generate({
   system: "Answer in one sentence.",
   prompt: "Why is the sky blue?",
   onToken: (text) => process(text),
@@ -127,7 +126,7 @@ session.destroy()`}</Code>
           {t('Give the assistant your content: pages, FAQs, product sheets. Documents are chunked into passages in the browser, and only the 1–3 passages closest to the visitor’s question are given to the model. The ranking is local (lexical): nothing is sent anywhere.',
              "Donnez vos contenus à l'assistant : pages, FAQ, fiches produit. Les documents sont découpés en passages dans le navigateur, et seuls les 1 à 3 passages les plus proches de la question du visiteur sont donnés au modèle. Le tri est local (lexical) : rien n'est envoyé où que ce soit.")}
         </P>
-        <Code>{`knowledge: [
+        <Code lang="js">{`knowledge: [
   "Plain strings work.",
   { title: "Shipping", text: "Free in France from 60 euros." },
 ],
@@ -139,7 +138,7 @@ knowledgeBudget: 800  // ${t('max tokens of passages per question', 'tokens de p
           {t('preload() downloads the engine and the model ahead of the first question: call it on a hover, or on the pricing page before support opens. onProgress receives the phase and, during download, the bytes: enough for a real progress bar.',
              "preload() télécharge le moteur et le modèle avant la première question : appelez-le sur un survol, ou sur la page tarifs avant l'ouverture du support. onProgress reçoit la phase et, pendant le téléchargement, les octets : de quoi afficher une vraie barre de progression.")}
         </P>
-        <Code>{`await preload({
+        <Code lang="js">{`await preload({
   onProgress: (status, p) => {
     if (p) bar.style.width = (100 * p.loaded / p.total) + "%";
   },
@@ -157,7 +156,7 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
           {t('Pin a version if you would rather the widget did not change under your feet:',
              'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds :')}
         </P>
-        <Code>{`${SITE_URL}/sdk-0.1.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
+        <Code lang="url">{`${SITE_URL}/sdk-0.1.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
 
 <!-- ${t('or from the npm CDNs', 'ou depuis les CDN npm')} -->
 https://unpkg.com/brimkern@0.1.0/dist/brimkern.iife.js

@@ -1650,11 +1650,14 @@ function App() {
       const q = new URLSearchParams(window.location.search);
       const dutyRaw = q.get('duty');
       const pace = { duty: dutyRaw !== null ? Math.min(1, Math.max(0.1, parseFloat(dutyRaw) || 0.6)) : gpuDuty };
-      // lfm = enrichissement de prompt (chargé PARESSEUSEMENT sur le même engine, au 1er clip) :
-      // un prompt d'une ligne donne des clips statiques, le LFM le développe en direction visuelle.
+      // PAS d'enrichissement de prompt par défaut (retour Romain) : le LFM développait le prompt
+      // d'une ligne en direction visuelle, mais un clip demande déjà plusieurs minutes et cette
+      // étape s'ajoutait DEVANT, avant la moindre frame. Le levier reste en ?enrich=1, et le labo
+      // /video-test le garde par défaut, lui. Sans URL de LFM, enrich() est un no-op.
+      const enrichOn = q.get('enrich') === '1';
       // Le libellé ET les octets : le pipeline pèse ~1,5 Go, une ligne de texte sans barre ni
       // temps restant laisse l'utilisateur devant un écran qui semble figé (retour Romain).
-      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, lfm: MOBILE_BRIK_URL }, onLoadProgress, pace, t);
+      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
       // Une génération dure des MINUTES : c'est le mode le plus exposé à une reprise de VRAM par
       // l'OS. Même filet que la vision — erreur récupérable plutôt qu'une attente infinie.
       gen.engine.onLost = (info) => {
@@ -1885,10 +1888,10 @@ function App() {
       const onProgress = (s: string) => setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s } : m));
       const q = new URLSearchParams(window.location.search);
       // 16 frames par défaut (≈ 1,3 s de mouvement unique, bouclé au montage) ; ?vframes=8..32 en
-      // dev — 32 est le MAXIMUM du modèle (pos_embed temporel [1,32,C]). ?enrich=0 coupe le LFM.
+      // dev — 32 est le MAXIMUM du modèle (pos_embed temporel [1,32,C]). ?enrich=1 rallume le LFM.
       const frames = Math.min(32, Math.max(8, parseInt(q.get('vframes') || '16', 10) || 16));
       let finalPrompt = prompt;
-      if (q.get('enrich') !== '0') {
+      if (q.get('enrich') === '1') {
         onProgress(t('Enriching the prompt (local LLM)…', 'Enrichissement du prompt (LLM local)…'));
         finalPrompt = await videoGen.enrich(prompt, onProgress);
       }

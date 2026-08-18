@@ -15,7 +15,7 @@ export default function DiagnosticsDocClient() {
         {t('Every risky code path has a URL switch that falls back to the slower, simpler one. Handy to check whether an optimization is responsible for something odd: the answer should be identical, only slower.',
            "Chaque chemin de code risqué a un commutateur d'URL qui revient à la version plus lente et plus simple. Pratique pour vérifier si une optimisation est responsable d'un comportement bizarre : la réponse doit être identique, seulement plus lente.")}
       </PageTitle>
-      <Code>{`?gemv=0        ${t('decode matmul → row kernels', 'matmul de décodage → kernels par lignes')}
+      <Code lang="url">{`?gemv=0        ${t('decode matmul → row kernels', 'matmul de décodage → kernels par lignes')}
 ?f16shared=0   ${t('f16 prefill GEMM → one row per thread', 'GEMM f16 du prefill → une ligne par thread')}
 ?qshared=0     ${t('q4/q8 prefill GEMM → 4 rows per invocation', 'GEMM q4/q8 du prefill → 4 lignes par invocation')}
 ?qshared2=0    ${t('q4/q8 prefill GEMM → v1 tiles (32×64)', 'GEMM q4/q8 du prefill → tuiles v1 (32×64)')}
