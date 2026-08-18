@@ -345,23 +345,25 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
 
   // Boucle Euler depuis l'index `start` (0 = txt2img complet ; >0 = img2img, latent déjà bruité à
   // σ[start]) puis décodage TAESD. `latent` est consommé.
-  const denoise = async (latent: Float32Array, sched: ReturnType<typeof makeEulerScheduler>, start: number, ctx: Float32Array, H: number, W: number, usedSeed: number, onProgress?: (s: string) => void, duty?: number, keepFull = false): Promise<ImageResult> => {
+  const denoise = async (latent: Float32Array, sched: ReturnType<typeof makeEulerScheduler>, start: number, ctx: Float32Array, H: number, W: number, usedSeed: number, onProgress?: OnProgress, duty?: number, keepFull = false): Promise<ImageResult> => {
     const nSteps = sched.timesteps.length - start;
+    // Unités d'avancement : un bloc d'UNet par pas, plus le décodage VAE final (compté 1 bloc).
+    const unitsTotal = nSteps * blocksTotal + 1;
     for (let i = start; i < sched.timesteps.length; i++) {
       const n = i - start + 1;
-      onProgress?.(`${tr('Denoising', 'Débruitage')} ${n}/${nSteps}…`);
+      onProgress?.(`${tr('Denoising', 'Débruitage')} ${n}/${nSteps}…`, undefined, ((n - 1) * blocksTotal) / unitsTotal);
       const scaled = sched.scaleModelInput(latent, i);
       const stepPace: UnetPace = {
         ...pace,
         duty: duty ?? pace.duty,
-        onBlock: (b) => onProgress?.(`${tr('Denoising', 'Débruitage')} ${n}/${nSteps}, ${tr('block', 'bloc')} ${b}/${blocksTotal}…`),
+        onBlock: (b) => onProgress?.(`${tr('Denoising', 'Débruitage')} ${n}/${nSteps}, ${tr('block', 'bloc')} ${b}/${blocksTotal}…`, undefined, ((n - 1) * blocksTotal + b) / unitsTotal),
       };
       const eps = await unetForward(engine, unetW, scaled, sched.timesteps[i], ctx, { ...unetCfg, H, W }, stepPace);
       console.log(`[sdturbo] step ${i} t=${sched.timesteps[i]} σ=${sched.sigmas[i].toFixed(2)} eps`, stats(eps));
       latent = sched.step(eps, latent, i);
     }
     console.log('[sdturbo] latent final', stats(latent));
-    onProgress?.(tr('Decoding (VAE)…', 'Décodage (VAE)…'));
+    onProgress?.(tr('Decoding (VAE)…', 'Décodage (VAE)…'), undefined, (nSteps * blocksTotal) / unitsTotal);
     // TAESD takes the raw model latent (its Clamp handles the range) — NO 0.18215 division (that
     // over-scales and saturates the clamp). VAE_SCALE kept for reference if we wire the full VAE.
     void VAE_SCALE;

@@ -11,7 +11,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Globe, Package, Info, Film, ArrowUpRight, Sparkles } from 'lucide-react';
+import { MessageSquare, Globe, Package, Info, ArrowUpRight, Sparkles } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
 import GithubMark from '../GithubMark';
 import DocsShell, { P, PageTitle, Section } from './DocsShell';
@@ -120,12 +120,6 @@ export default function DocsClient() {
           icon={<GithubMark size={17} />}
           title={t('Source code', 'Code source')}
           desc={t('The whole engine under MIT: WGSL kernels, the .brik format, the loaders, the app.', "Tout le moteur sous licence MIT : kernels WGSL, format .brik, chargeurs, application.")}
-        />
-        <NavCard
-          href="/video-test?gen=1"
-          icon={<Film size={17} />}
-          title={t('Video lab (beta)', 'Labo vidéo (bêta)')}
-          desc={t('Generate a short clip. ~1.5 GB and several minutes of GPU: desktop only.', '~1,5 Go et plusieurs minutes de GPU pour un court clip : bureau uniquement.')}
         />
       </div>
 

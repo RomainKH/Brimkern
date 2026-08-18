@@ -12,7 +12,11 @@
 //    que le reste. Il reste OPTIONNEL : une étape de calcul (quantification, débruitage) n'a pas
 //    d'octets à annoncer, elle n'envoie que son libellé.
 export type ProgressBytes = { loaded: number; total: number };
-export type OnProgress = (step: string, bytes?: ProgressBytes) => void;
+// `frac` : avancement du CALCUL, de 0 à 1. Les octets répondent « combien reste-t-il à
+// télécharger », la fraction « où en est la génération » — une image ou un clip passent des minutes
+// en calcul pur, sans un octet à descendre, et c'est précisément là que l'attente est la plus
+// aveugle. L'app en tire une barre et un temps restant.
+export type OnProgress = (step: string, bytes?: ProgressBytes, frac?: number) => void;
 
 // Traducteur : t(anglais, français). L'app passe le sien ; le défaut sert les appels internes et
 // les bancs, où l'anglais est la langue de référence du dépôt.

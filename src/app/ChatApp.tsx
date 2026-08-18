@@ -185,6 +185,9 @@ function App() {
   // Mode VIDÉO (AnimateDiff-Lightning sur pile SD 1.5, desktop) : prompt → clip WebM. Chargé par
   // loadVideoModel (§ 3 P2 — l'onglet produit du labo /video-test). Exclusif des autres modes.
   const [videoGen, setVideoGen] = useState<VideoGenerator | null>(null);
+  // Frames uniques du clip, réglées depuis le composer (?vframes= reste prioritaire, pour les bancs).
+  // 16 = ~1,3 s de mouvement unique, bouclé à ~10 s au montage.
+  const [videoFrames, setVideoFrames] = useState<number>(16);
   // Mode VISION (Qwen2-VL 2B, desktop) : image + texte → texte. Session = LLM Q8 + ViT/merger sur
   // un engine partagé (~2,6 Go VRAM), chargée par loadVisionModel. Exclusif des modes LLM/image.
   const [visionSession, setVisionSession] = useState<VisionSessionT | null>(null);
@@ -1676,10 +1679,12 @@ function App() {
       setMessages([{
         id: 'welcome', role: 'assistant',
         content: t(
-          'Video mode: **AnimateDiff** (beta). Describe a scene and I’ll generate a short looping clip (16 frames, 256px).\n\n' +
-            '⏱️ Expect **several minutes of GPU work** per clip: progress is shown step by step.',
-          'Mode vidéo : **AnimateDiff** (bêta). Décris une scène, je génère un court clip en boucle (16 frames, 256px).\n\n' +
-            '⏱️ Compte **plusieurs minutes de calcul GPU** par clip : la progression s’affiche étape par étape.',
+          'Video mode: **AnimateDiff** (beta). Describe a scene and I’ll generate a short looping clip in 256px.\n\n' +
+            'Set its **length** above the input box: more frames means longer motion, and proportionally longer compute. ' +
+            '⏱️ Expect **minutes, not seconds** per clip: elapsed time and time remaining are shown as it goes.',
+          'Mode vidéo : **AnimateDiff** (bêta). Décris une scène, je génère un court clip en boucle en 256px.\n\n' +
+            'Sa **longueur** se règle au-dessus de la zone de saisie : plus de frames donne un mouvement plus long, et un calcul proportionnellement plus long. ' +
+            '⏱️ Compte **des minutes, pas des secondes** par clip : le temps écoulé et le temps restant s’affichent au fur et à mesure.',
         ),
       }]);
       setModelState('ready');
@@ -1833,10 +1838,14 @@ function App() {
     setUserInput('');
     setAttachments([]);
     const aId = nextMsgId();
-    setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating…', 'Génération…') }]);
+    const debut = Date.now();
+    setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating…', 'Génération…'), gen: { startedAt: debut } }]);
     setModelState('generating');
     try {
-      const onProgress = (s: string) => setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s } : m));
+      // Le libellé ET la fraction : c'est elle qui donne la barre et le temps restant. Une étape
+      // sans fraction garde la dernière connue plutôt que de faire reculer la barre.
+      const onProgress = (s: string, _b?: { loaded: number; total: number }, frac?: number) =>
+        setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s, gen: { startedAt: debut, frac: frac ?? m.gen?.frac } } : m));
       // Plafond mobile : 256px max même si un vieux réglage/URL porte 512 (pic VRAM → GPU repris
       // par l'OS en pleine génération — le sélecteur ne propose plus 512 sur téléphone).
       const refineSeed = refineSeedRef.current ?? undefined;
@@ -1851,9 +1860,9 @@ function App() {
       } else {
         img = await imageGen.generate(prompt, onProgress, refineSeed, isMobile ? Math.min(imageSize, 32) : imageSize, gpuDuty);
       }
-      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: '', image: { url: img.url, w: img.w, h: img.h, thumb: img.thumb, prompt, seed: img.seed, full: img.full } } : m));
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: '', gen: undefined, image: { url: img.url, w: img.w, h: img.h, thumb: img.thumb, prompt, seed: img.seed, full: img.full } } : m));
     } catch (e: any) {
-      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: t(`Generation error: ${e?.message || String(e)}`, `Erreur de génération : ${e?.message || String(e)}`), isError: true } : m));
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, gen: undefined, content: t(`Generation error: ${e?.message || String(e)}`, `Erreur de génération : ${e?.message || String(e)}`), isError: true } : m));
     } finally {
       setModelState('ready');
     }
@@ -1882,14 +1891,16 @@ function App() {
     setUserInput('');
     setAttachments([]);
     const aId = nextMsgId();
-    setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating the clip…', 'Génération du clip…') }]);
+    const debutClip = Date.now();
+    setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating the clip…', 'Génération du clip…'), gen: { startedAt: debutClip } }]);
     setModelState('generating');
     try {
-      const onProgress = (s: string) => setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s } : m));
+      const onProgress = (s: string, _b?: { loaded: number; total: number }, frac?: number) =>
+        setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s, gen: { startedAt: debutClip, frac: frac ?? m.gen?.frac } } : m));
       const q = new URLSearchParams(window.location.search);
       // 16 frames par défaut (≈ 1,3 s de mouvement unique, bouclé au montage) ; ?vframes=8..32 en
       // dev — 32 est le MAXIMUM du modèle (pos_embed temporel [1,32,C]). ?enrich=1 rallume le LFM.
-      const frames = Math.min(32, Math.max(8, parseInt(q.get('vframes') || '16', 10) || 16));
+      const frames = Math.min(32, Math.max(8, parseInt(q.get('vframes') || '', 10) || videoFrames));
       let finalPrompt = prompt;
       if (q.get('enrich') === '1') {
         onProgress(t('Enriching the prompt (local LLM)…', 'Enrichissement du prompt (LLM local)…'));
@@ -1903,10 +1914,11 @@ function App() {
       setMessages(prev => prev.map(m => m.id === aId ? {
         ...m,
         content: url ? '' : t('WebM not supported by this browser: clip lost after generation.', 'WebM non supporté par ce navigateur : clip perdu après génération.'),
+        gen: undefined,
         video: { url: url ?? undefined, w: first.width, h: first.height, poster: frameToPoster(first), prompt, seed: res.seed, frames: res.frames.length, ms: res.ms },
       } : m));
     } catch (e: unknown) {
-      setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: t(`Generation error: ${(e as Error)?.message || String(e)}`, `Erreur de génération : ${(e as Error)?.message || String(e)}`), isError: true } : m));
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, gen: undefined, content: t(`Generation error: ${(e as Error)?.message || String(e)}`, `Erreur de génération : ${(e as Error)?.message || String(e)}`), isError: true } : m));
     } finally {
       setModelState('ready');
     }
@@ -3342,6 +3354,8 @@ function App() {
           contextTokens={contextTokens}
           imageMode={!!imageGen}
           videoMode={!!videoGen}
+          videoFrames={videoFrames}
+          setVideoFrames={setVideoFrames}
           imageSize={imageSize}
           setImageSize={setImageSize}
           webSearchOn={webSearchOn || urlReadOn}

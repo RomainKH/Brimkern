@@ -40,6 +40,17 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Waiting for a generation, made legible', fr: 'L’attente d’une génération, rendue lisible' },
+        items: [
+          { en: 'A generation now shows a running clock, a progress bar that tracks the actual computation, and an estimate of the time remaining, instead of a line of text that changed every few seconds. The bar comes from the pipeline itself, so it advances at the real pace rather than pretending.',
+            fr: 'Une génération affiche désormais un chronomètre, une barre qui suit le calcul réel et une estimation du temps restant, au lieu d’une ligne de texte qui changeait toutes les quelques secondes. La barre vient du pipeline lui-même : elle avance au vrai rythme plutôt que de faire semblant.' },
+          { en: 'Video clips are still shown as 0:00 by no more: browsers record WebM as a live stream whose length never reaches the file header, and the player now measures it on load. Clip length is also yours to choose, from 8 to 32 frames, with the compute cost stated next to each option.',
+            fr: 'Les clips ne s’affichent plus en 0:00 : les navigateurs enregistrent le WebM comme un flux live dont la longueur n’arrive jamais dans l’en-tête du fichier, et le lecteur la mesure maintenant au chargement. La longueur du clip se choisit aussi, de 8 à 32 frames, avec le coût de calcul annoncé en face de chaque option.' },
+          { en: 'The separate video lab page is gone: video generation lives in the chat now, next to the other modalities, so the lab was a second door to the same room.',
+            fr: 'La page de labo vidéo disparaît : la génération vidéo vit dans le chat, à côté des autres modalités, et le labo était une seconde porte vers la même pièce.' },
+        ],
+      },
+      {
         title: { en: 'Image and video generation, 1.67× faster', fr: 'Génération d’image et de vidéo, 1,67× plus rapide' },
         items: [
           { en: 'A new benchmark profiles a whole generation kernel by kernel, and it found the culprit immediately: the convolutions ate 73.8 % of the GPU, and one of them alone (the 3×3 convolution on quantized weights) took 70 % at 35 ms per call. The plain-precision path had a fast tiled version of that convolution; the quantized path, the one the app actually runs, never got one.',

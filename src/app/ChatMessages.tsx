@@ -4,7 +4,7 @@
 // dots while the first token streams), and per-message timing stats. Pure UI — messages and the copy
 // state come from the page. The trailing ref is the scroll anchor the page scrolls into view.
 
-import { memo, type RefObject } from 'react';
+import { memo, useEffect, useState, type RefObject } from 'react';
 import { User, Bot, Copy, Cpu, Zap } from 'lucide-react';
 import { renderMessageContent } from './ChatMarkdown';
 import { useT } from '@/lib/i18n';
@@ -60,14 +60,58 @@ interface ItemProps {
 function fixWebmDuration(v: HTMLVideoElement | null) {
   if (!v || v.dataset.durationFixed === '1') return;
   v.dataset.durationFixed = '1';
+  // ⚠️ Chrome ne rend pas seulement Infinity sur ces fichiers : il rend AUSSI 0 (c'est le cas
+  // observé, « 0sec/0sec »). Un test qui ne guette qu'Infinity laisse donc le bug intact — il faut
+  // traiter toute durée non finie OU nulle.
+  const cassee = () => !Number.isFinite(v.duration) || v.duration <= 0;
   const measure = () => {
-    if (v.duration !== Infinity && !Number.isNaN(v.duration)) return;
-    const back = () => { v.removeEventListener('timeupdate', back); v.currentTime = 0; };
-    v.addEventListener('timeupdate', back);
-    v.currentTime = 1e101; // au-delà de toute durée réelle : le navigateur cherche la fin
+    if (!cassee()) return;
+    // `loop` ramènerait la lecture au début au lieu de laisser le navigateur atteindre la fin :
+    // on le suspend le temps de la mesure, et on le rétablit ensuite.
+    const boucle = v.loop;
+    v.loop = false;
+    const fini = () => {
+      v.removeEventListener('timeupdate', fini);
+      v.removeEventListener('durationchange', fini);
+      v.currentTime = 0;
+      v.loop = boucle;
+    };
+    v.addEventListener('timeupdate', fini);
+    v.addEventListener('durationchange', fini);
+    v.currentTime = 1e7; // très au-delà d'un clip (~115 jours), sans être une valeur refusée
   };
   if (v.readyState >= 1) measure();
   else v.addEventListener('loadedmetadata', measure, { once: true });
+}
+
+// L'ATTENTE, RENDUE LISIBLE. Une génération dure des minutes ; une ligne de texte qui change ne dit
+// ni où on en est ni combien de temps il reste. Ce bloc montre les trois choses que l'on veut
+// savoir : l'étape en cours, une barre qui avance vraiment (la fraction vient du pipeline, pas
+// d'une animation décorative), et un chrono qui compte le temps écoulé avec une estimation du
+// restant. L'estimation n'apparaît qu'au-delà de 8 % d'avancement : plus tôt, elle serait fantaisiste.
+function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: number; startedAt: number }) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, []);
+  const ecoule = Math.max(0, (now - startedAt) / 1000);
+  const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const reste = frac && frac > 0.08 ? (ecoule / frac) * (1 - frac) : null;
+  const pct = Math.max(0, Math.min(100, (frac ?? 0) * 100));
+  return (
+    <div className="gen-progress">
+      <div className="gen-progress-head">
+        <span className="gen-progress-clock">{mmss(ecoule)}</span>
+        {reste !== null && <span className="gen-progress-eta">{t('about', 'environ')} {mmss(reste)} {t('left', 'restantes')}</span>}
+      </div>
+      <div className="gen-progress-track">
+        <div className="gen-progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="gen-progress-step">{step}</span>
+    </div>
+  );
 }
 
 // One bubble, MEMOIZED on the message object's identity: during streaming, setMessages only creates
@@ -158,6 +202,8 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                       {msg.image.revealing ? t('Regenerating…', 'Régénération…') : canReveal ? t('↻ Click to reveal', '↻ Cliquer pour révéler') : t('Load the image model', 'Charge le modèle image')}
                     </span>
                   </button>)
+              : msg.gen
+              ? null // l'étape est déjà affichée par GenerationProgress
               : msg.content
               // `settled` = ce message n'est plus en cours de génération : un <think> resté ouvert
               // s'y affiche en « Raisonnement (interrompu) » au lieu d'un « Réflexion… » éternel.
@@ -173,6 +219,11 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
               >
                 ✎ {t('Refine this image', 'Affiner cette image')}
               </button>
+            )}
+            {/* Génération en cours (image ou vidéo) : le bloc animé remplace la ligne de texte —
+                étape, barre réelle et chrono avec estimation du restant. */}
+            {msg.gen && !msg.image && !msg.video && (
+              <GenerationProgress step={msg.content} frac={msg.gen.frac} startedAt={msg.gen.startedAt} />
             )}
             {/* Un message vidéo peut PORTER un texte (ex. « WebM non supporté ») : la chaîne
                 ternaire ci-dessus n'affiche le contenu que sans média, on le rend donc ici. */}

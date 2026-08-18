@@ -5,7 +5,7 @@
 // Pure UI — all state/handlers come from the page (props keep the page's names so the JSX is verbatim).
 
 import { useRef, type Dispatch, type SetStateAction, type RefObject, type ClipboardEvent as ReactClipboardEvent } from 'react';
-import { Brain, Sparkles, Square, Send, X, Copy, AlertTriangle, Image as ImageIcon, Paperclip } from 'lucide-react';
+import { Brain, Sparkles, Square, Send, X, Copy, AlertTriangle, Image as ImageIcon, Paperclip, Film } from 'lucide-react';
 import { THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
 import type { ArchType } from '@/lib/presets';
 import type { Skill } from '@/lib/skillStore';
@@ -39,6 +39,10 @@ interface Props {
   setImageSize: Dispatch<SetStateAction<number>>;
   // Mode vidéo (AnimateDiff) : le placeholder décrit une SCÈNE, pas un message — et rappelle le coût.
   videoMode?: boolean;
+  // Nombre de frames UNIQUES du clip : il fixe à la fois la longueur du mouvement et le temps de
+  // calcul (l'un ne va pas sans l'autre), d'où un seul réglage plutôt que deux.
+  videoFrames?: number;
+  setVideoFrames?: Dispatch<SetStateAction<number>>;
   webSearchOn: boolean;                               // la ligne de confidentialité doit dire la vérité
   // Mode vision (Qwen2-VL) : bouton 📎 pour joindre une image + vignette de la pièce jointe.
   visionMode?: boolean;
@@ -50,7 +54,7 @@ export function Composer({
   attachments, setAttachments, modelArchType, modelState, reflectionLevel, setReflectionLevel,
   benchRunning, activeSkills, setSkillsOpen, textareaRef, handlePaste, isMobile,
   userInput, setUserInput, handleSendMessage, handleStopGeneration, contextOver, contextTokens,
-  imageMode, imageSize, setImageSize, webSearchOn, videoMode,
+  imageMode, imageSize, setImageSize, webSearchOn, videoMode, videoFrames, setVideoFrames,
   visionMode, pendingImage, setPendingImage,
 }: Props) {
   const t = useT();
@@ -122,6 +126,31 @@ export function Composer({
                 {/* 512² sur téléphone = pic VRAM (activations + TAESD) qui fait reprendre le GPU
                     par l'OS en pleine génération (blocage silencieux constaté) → desktop only. */}
                 {!isMobile && <option value={64}>{t('512px (native, slower)', '512px (natif, plus lent)')}</option>}
+              </select>
+            </div>
+          )}
+          {/* Durée du clip (mode vidéo) : même emplacement que la qualité en mode image. Les libellés
+              annoncent le COÛT, parce que c'est la vraie décision ici — 32 frames, c'est deux fois le
+              calcul de 16. */}
+          {videoMode && setVideoFrames && (modelState === 'ready' || modelState === 'generating') && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+              <Film size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              <span>{t('Clip:', 'Clip :')}</span>
+              <select
+                value={videoFrames}
+                onChange={(e) => setVideoFrames(Number(e.target.value))}
+                disabled={modelState === 'generating' || benchRunning}
+                title={t('Unique frames: more frames means longer motion, and proportionally longer compute',
+                         'Frames uniques : plus de frames donne un mouvement plus long, et un calcul proportionnellement plus long')}
+                style={{
+                  fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
+                  background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
+                }}
+              >
+                <option value={8}>{t('8 frames (~1 min)', '8 frames (~1 min)')}</option>
+                <option value={16}>{t('16 frames (~2 min)', '16 frames (~2 min)')}</option>
+                <option value={24}>{t('24 frames (~3 min)', '24 frames (~3 min)')}</option>
+                <option value={32}>{t('32 frames (~4 min)', '32 frames (~4 min)')}</option>
               </select>
             </div>
           )}

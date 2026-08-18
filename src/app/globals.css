@@ -1921,6 +1921,86 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   }
 }
 
+/* ══ ATTENTE D'UNE GÉNÉRATION ════════════════════════════════════════════════════════════════════
+   Une image demande des secondes, un clip des minutes : une ligne de texte qui change ne dit ni où
+   on en est, ni combien de temps il reste. Trois éléments, et pas un de plus : un chrono, une barre
+   qui avance VRAIMENT (la fraction vient du pipeline — une barre décorative qui n'avance pas au
+   rythme du calcul est pire que pas de barre), et l'étape en cours. */
+.gen-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: min(320px, 62vw);
+}
+
+.gen-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Le chrono : chiffres tabulaires, sinon la largeur danse à chaque seconde. */
+.gen-progress-clock {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.gen-progress-eta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gen-progress-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-card-hover, rgba(127, 127, 127, 0.15));
+}
+
+/* Le remplissage porte DEUX mouvements : sa largeur, qui est la vraie progression, et un reflet
+   qui balaie la partie déjà faite — c'est lui qui dit « ça travaille » pendant les longues étapes
+   où la largeur bouge à peine. */
+.gen-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 55%, #e8a13a) 100%);
+  background-size: 200% 100%;
+  transition: width .45s cubic-bezier(.4, 0, .2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.gen-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.45) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: gen-sheen 1.6s ease-in-out infinite;
+}
+
+@keyframes gen-sheen {
+  to { transform: translateX(100%); }
+}
+
+.gen-progress-step {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gen-progress-fill::after { animation: none; }
+  .gen-progress-fill { transition: none; }
+}
+
 /* ══ COQUILLE DE LA DOC : le menu latéral ═════════════════════════════════════════════════════════
    Deux colonnes au-dessus de 1000 px : un latéral COLLANT (pages de la doc + sections de la page,
    surlignées au défilement) et le contenu, gardé à sa largeur de lecture d'origine. En dessous, le

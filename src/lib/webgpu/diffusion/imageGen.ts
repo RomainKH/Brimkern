@@ -15,15 +15,17 @@ export interface ImageResult { url: string; w: number; h: number; thumb: string;
 // in the composer). Reveal passes the original image's w/8 so a regeneration matches exactly.
 // `duty` = target GPU duty cycle in (0,1] — thermal throttle; the pipeline sleeps proportionally to
 // measured GPU busy time so average power scales with duty. 1 = full throttle.
+import type { OnProgress } from '../progress';
+
 export interface ImageGenerator {
   name: string;
   placeholder: boolean;
-  generate: (prompt: string, onProgress?: (step: string) => void, seed?: number, latentSize?: number, duty?: number) => Promise<ImageResult>;
+  generate: (prompt: string, onProgress?: OnProgress, seed?: number, latentSize?: number, duty?: number) => Promise<ImageResult>;
   // Vrai img2img : repart des PIXELS de `initUrl` (blob/data URL d'une image générée), encodés en
   // latent (TAESD encodeur, ~5 Mo chargés à la 1re utilisation) puis re-bruités à σ(strength) —
   // strength ∈ (0,1] : 0.3 = retouche légère, 0.55 = affinage, 1 = ignore la source. La taille de
   // sortie suit la source (pas le sélecteur de qualité). Optionnel : absent sur un vieux générateur.
-  generateImg2Img?: (prompt: string, initUrl: string, strength: number, onProgress?: (step: string) => void, seed?: number, duty?: number) => Promise<ImageResult>;
+  generateImg2Img?: (prompt: string, initUrl: string, strength: number, onProgress?: OnProgress, seed?: number, duty?: number) => Promise<ImageResult>;
   // L'engine du pipeline, exposé pour le PROFILEUR (?gpuprofile=1) : sans lui, __gpuProfile ne
   // lisait que l'engine du LLM et rendait « aucun modèle chargé » en mode image, alors que le GPU
   // travaillait. Même exposition qu'en vidéo et en vision.

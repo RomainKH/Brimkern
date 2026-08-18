@@ -72,7 +72,7 @@ interface Props {
   // Charge le modèle VISION (Qwen2-VL 2B, desktop) — la carte « vision » devient chargeable.
   onLoadVisionModel?: () => void;
   // Charge le pipeline VIDÉO (AnimateDiff, desktop) dans le chat — la carte vidéo devient un vrai
-  // mode produit (§ 3 P2), le labo /video-test reste accessible en secondaire.
+  // mode produit (§ 3 P2). Le labo /video-test a été retiré le 2026-08-19 : il faisait doublon.
   onLoadVideoModel?: () => void;
 }
 
@@ -519,13 +519,6 @@ export function ModelBrowserModal({
                             <Film size={12} /> {t('Generate in the chat', 'Générer dans le chat')}
                           </button>
                         )}
-                        <a
-                          href="/video-test?gen=1"
-                          className="btn btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', textDecoration: 'none' }}
-                        >
-                          {t('Open the lab', 'Ouvrir le labo')}
-                        </a>
                       </div>
                     </div>
                   )}

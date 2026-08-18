@@ -75,7 +75,7 @@ export async function framesToWebm(frames: ImageData[], fps = 12, targetSec = 10
 }
 // `engine` est exposé pour le filet « GPU perdu » côté app (onLost), comme en mode vision : une
 // génération vidéo dure des minutes, c'est le cas le plus exposé à une reprise de VRAM par l'OS.
-export interface VideoGenerator { generate(prompt: string, opts?: { seed?: number; frames?: number; size?: number; onProgress?: (s: string) => void }): Promise<VideoFrames>; enrich(prompt: string, onProgress?: (s: string) => void): Promise<string>; engine: WebGpuEngine; dispose(): void }
+export interface VideoGenerator { generate(prompt: string, opts?: { seed?: number; frames?: number; size?: number; onProgress?: OnProgress }): Promise<VideoFrames>; enrich(prompt: string, onProgress?: OnProgress): Promise<string>; engine: WebGpuEngine; dispose(): void }
 
 // Les 21 modules motion depuis le BRIK (q8 packé → codes/scales GPU, petits tenseurs f32 CPU).
 async function loadMotionModules(engine: WebGpuEngine, url: string, onProgress?: OnProgress, tr: Tr = EN_ONLY): Promise<Map<string, MotionModule>> {
@@ -187,16 +187,19 @@ export async function loadVideoGenerator(
     let blocksTotal = unetCfg.noMid ? 0 : 1;
     for (let i = 0; i < L; i++) blocksTotal += unetCfg.layersPerBlock + (i < L - 1 ? 1 : 0);
     for (let i = 0; i < L; i++) blocksTotal += unetCfg.layersPerBlock + 1 + (i > 0 ? 1 : 0);
+    // Unités d'avancement : un bloc d'UNet par pas, puis une frame à décoder. C'est la même
+    // granularité que celle qu'on affiche, donc la fraction ne saute pas.
+    const unitsTotal = sched.timesteps.length * blocksTotal + F;
     for (let i = 0; i < sched.timesteps.length; i++) {
-      prog?.(`${tr('Denoising', 'Débruitage')} ${i + 1}/${sched.timesteps.length} (${F} frames)…`);
+      prog?.(`${tr('Denoising', 'Débruitage')} ${i + 1}/${sched.timesteps.length} (${F} frames)…`, undefined, (i * blocksTotal) / unitsTotal);
       const scaled = latents.map((l) => sched.scaleModelInput(l, i));
-      const stepPace: UnetPace = { ...pace, onBlock: (b) => prog?.(`${tr('Denoising', 'Débruitage')} ${i + 1}/${sched.timesteps.length} (${F} frames), ${tr('block', 'bloc')} ${b}/${blocksTotal}…`) };
+      const stepPace: UnetPace = { ...pace, onBlock: (b) => prog?.(`${tr('Denoising', 'Débruitage')} ${i + 1}/${sched.timesteps.length} (${F} frames), ${tr('block', 'bloc')} ${b}/${blocksTotal}…`, undefined, (i * blocksTotal + b) / unitsTotal) };
       const eps = await unetForwardVideo(engine, unetW, scaled, sched.timesteps[i], ctx, { ...unetCfg, H: latS, W: latS }, motionHook, stepPace);
       latents = latents.map((l, f) => sched.step(eps[f], l, i));
     }
     const frames: ImageData[] = [];
     for (let f = 0; f < F; f++) {
-      prog?.(`${tr('Decoding frame', 'Décodage frame')} ${f + 1}/${F}…`);
+      prog?.(`${tr('Decoding frame', 'Décodage frame')} ${f + 1}/${F}…`, undefined, (sched.timesteps.length * blocksTotal + f) / unitsTotal);
       const img = await taesd.decode(latents[f].map((v) => v * VAE_SCALE) as Float32Array, latS, latS, pace?.duty);
       const rgba = chwToRGBA(img);
       frames.push(new ImageData(new Uint8ClampedArray(rgba), img.W, img.H));

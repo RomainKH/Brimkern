@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 
-// SEO : sitemap. Pages PRODUIT uniquement — le labo /video-test (beta) est volontairement exclu.
+// SEO : sitemap. Pages PRODUIT uniquement (le labo /video-test a été retiré le 2026-08-19 : la
+// génération vidéo vit dans le chat, il faisait doublon).
 import { SITE_URL as SITE } from '@/lib/site';
 
 // Les DEUX langues, chacune déclarant ses alternates : c'est ce qui dit au moteur que /x et /fr/x sont

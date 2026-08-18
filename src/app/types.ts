@@ -28,6 +28,10 @@ export interface Message {
   // `full` (img2img) : data URL PNG persistée — une image affinée dépend des pixels source, elle
   // n'est pas régénérable depuis prompt+seed comme le txt2img (pas de reveal, on la garde entière).
   image?: { url?: string; w: number; h: number; thumb?: string; prompt?: string; seed?: number; revealing?: boolean; full?: string };
+  // Génération EN COURS (image ou vidéo) : l'instant de départ et la fraction d'avancement que le
+  // pipeline remonte. Effacé dès que le média arrive. Jamais persisté (une génération interrompue
+  // par un rechargement ne reprend pas).
+  gen?: { startedAt: number; frac?: number };
   // Video-generation result (AnimateDiff). `url` est un blob WebM de SESSION (jamais persisté) ;
   // seul le `poster` (1re frame, petite data URL) traverse le rechargement — contrairement à une
   // image, régénérer un clip coûte des minutes, on ne propose donc pas de « révéler ».
