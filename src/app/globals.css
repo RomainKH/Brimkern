@@ -1948,6 +1948,15 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+  display: inline-block;
+  animation: gen-tick .5s ease-out;
+}
+
+/* Un battement à chaque seconde (l'élément est remonté par sa clé React, ce qui rejoue le
+   keyframe). Très court et sans changement de couleur : le chiffre doit rester lisible pendant. */
+@keyframes gen-tick {
+  0%   { transform: scale(1.06); }
+  100% { transform: scale(1); }
 }
 
 .gen-progress-eta {
@@ -1990,15 +1999,43 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   to { transform: translateX(100%); }
 }
 
+/* Le titre de phase : c'est lui qu'on lit, l'étape brute passe en dessous. */
+.gen-progress-phase {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: baseline;
+}
+
+/* Trois points qui montent l'un après l'autre. Discret : l'attente est déjà longue, une animation
+   voyante la rendrait plus longue encore. */
+.gen-dots i {
+  font-style: normal;
+  display: inline-block;
+  animation: gen-dot 1.4s ease-in-out infinite;
+}
+
+.gen-dots i:nth-child(2) { animation-delay: .18s; }
+.gen-dots i:nth-child(3) { animation-delay: .36s; }
+
+@keyframes gen-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: .35; }
+  30%           { transform: translateY(-3px); opacity: 1; }
+}
+
 .gen-progress-step {
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.4;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .gen-progress-fill::after { animation: none; }
+  .gen-progress-fill::after,
+  .gen-dots i,
+  .gen-progress-clock { animation: none; }
   .gen-progress-fill { transition: none; }
+  .gen-dots i { opacity: 1; }
 }
 
 /* ══ COQUILLE DE LA DOC : le menu latéral ═════════════════════════════════════════════════════════

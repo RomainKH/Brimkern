@@ -26,6 +26,7 @@ import OptionsPanel from './OptionsPanel';
 import SkillsPanel from './SkillsPanel';
 import { listCustomSkills, BUILTIN_SKILLS, type Skill } from '@/lib/skillStore';
 import { useT, useLocale, useHref } from '@/lib/i18n';
+import { useGpuCapability } from '@/lib/useGpuCapability';
 import { metric, metricOnce } from '@/lib/metrics';
 import { sampleRate, type RateWindow, type TransferRate } from '@/lib/transferRate';
 import { parseDeeplink, parseModelInput, resolveHfModel } from '@/lib/deeplink';
@@ -188,6 +189,11 @@ function App() {
   // Frames uniques du clip, réglées depuis le composer (?vframes= reste prioritaire, pour les bancs).
   // 16 = ~1,3 s de mouvement unique, bouclé à ~10 s au montage.
   const [videoFrames, setVideoFrames] = useState<number>(16);
+  // Capacité du GPU : elle décide de la résolution d'image par défaut (cf. loadImageModel).
+  const gpuCap = useGpuCapability(isMobile);
+  // Annulation d'une génération image/vidéo : levée depuis le callback de progression (cf. plus bas).
+  const genCancelRef = useRef(false);
+  const CANCEL = '__brimkern_cancel__';
   // Mode VISION (Qwen2-VL 2B, desktop) : image + texte → texte. Session = LLM Q8 + ViT/merger sur
   // un engine partagé (~2,6 Go VRAM), chargée par loadVisionModel. Exclusif des modes LLM/image.
   const [visionSession, setVisionSession] = useState<VisionSessionT | null>(null);
@@ -1565,7 +1571,13 @@ function App() {
       const q = new URLSearchParams(window.location.search);
       const p = q.get('finalLN');
       const finalLN = p === null ? undefined : p === '1' || p === 'true';
-      const size = Math.min(64, Math.max(8, parseInt(q.get('size') || '32', 10) || 32));
+      // 512px PAR DÉFAUT sur une machine capable. Ce n'est pas un réglage de confort : SD-Turbo est
+      // entraîné en 512, et en dessous il ne compose plus — à 256 le même prompt rend un gros plan
+      // tronqué sur un fragment de visage là où 512 rend le portrait entier (comparé à seed égale,
+      // 2026-08-19). Le coût est de 1,6× à 3× selon la chauffe, ce que la barre de progression rend
+      // désormais supportable. Mobile et petits GPU restent en 256 : la VRAM y décide, pas le goût.
+      const grosseMachine = !isMobile && gpuCap.tier === 'high';
+      const size = Math.min(64, Math.max(8, parseInt(q.get('size') || '', 10) || (grosseMachine ? 64 : 32)));
       const steps = Math.min(4, Math.max(1, parseInt(q.get('steps') || '1', 10) || 1));
       const dutyRaw = q.get('duty');
       // Régime GPU : réglage utilisateur (panneau Réglages), l'URL ?duty= reste l'override dev.
@@ -1612,9 +1624,11 @@ function App() {
         id: 'welcome', role: 'assistant',
         content: t(
           `Image mode: **${gen.name}**. Describe an image and I'll generate it.\n\n` +
-            `Set the **quality** above the input box (256px recommended · 512px native, slower).`,
+            `Generating at **${size * 8}px**${grosseMachine ? ', its native size' : ' (your GPU’s budget)'}. ` +
+            `The **quality** selector sits above the input box: below 512px the model stops composing properly, so smaller sizes are drafts.`,
           `Mode image : **${gen.name}**. Décris une image, je la génère.\n\n` +
-            `La **qualité** se règle au-dessus de la zone de saisie (256px conseillé · 512px natif, plus lent).`,
+            `Génération en **${size * 8}px**${grosseMachine ? ', sa taille native' : ' (le budget de ton GPU)'}. ` +
+            `Le sélecteur de **qualité** est au-dessus de la zone de saisie : en dessous de 512px le modèle ne compose plus correctement, les tailles inférieures sont donc des brouillons.`,
         ),
       }]);
       setModelState('ready');
@@ -1839,13 +1853,16 @@ function App() {
     setAttachments([]);
     const aId = nextMsgId();
     const debut = Date.now();
+    genCancelRef.current = false;
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating…', 'Génération…'), gen: { startedAt: debut } }]);
     setModelState('generating');
     try {
       // Le libellé ET la fraction : c'est elle qui donne la barre et le temps restant. Une étape
       // sans fraction garde la dernière connue plutôt que de faire reculer la barre.
-      const onProgress = (s: string, _b?: { loaded: number; total: number }, frac?: number) =>
+      const onProgress = (s: string, _b?: { loaded: number; total: number }, frac?: number) => {
+        if (genCancelRef.current) throw new Error(CANCEL);
         setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s, gen: { startedAt: debut, frac: frac ?? m.gen?.frac } } : m));
+      };
       // Plafond mobile : 256px max même si un vieux réglage/URL porte 512 (pic VRAM → GPU repris
       // par l'OS en pleine génération — le sélecteur ne propose plus 512 sur téléphone).
       const refineSeed = refineSeedRef.current ?? undefined;
@@ -1862,7 +1879,10 @@ function App() {
       }
       setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: '', gen: undefined, image: { url: img.url, w: img.w, h: img.h, thumb: img.thumb, prompt, seed: img.seed, full: img.full } } : m));
     } catch (e: any) {
-      setMessages(prev => prev.map(m => m.id === aId ? { ...m, gen: undefined, content: t(`Generation error: ${e?.message || String(e)}`, `Erreur de génération : ${e?.message || String(e)}`), isError: true } : m));
+      const annule = (e as Error)?.message === CANCEL;
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, gen: undefined,
+        content: annule ? t('Generation cancelled.', 'Génération annulée.') : t(`Generation error: ${e?.message || String(e)}`, `Erreur de génération : ${e?.message || String(e)}`),
+        isError: !annule } : m));
     } finally {
       setModelState('ready');
     }
@@ -1892,11 +1912,14 @@ function App() {
     setAttachments([]);
     const aId = nextMsgId();
     const debutClip = Date.now();
+    genCancelRef.current = false;
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: t('Generating the clip…', 'Génération du clip…'), gen: { startedAt: debutClip } }]);
     setModelState('generating');
     try {
-      const onProgress = (s: string, _b?: { loaded: number; total: number }, frac?: number) =>
+      const onProgress = (s: string, _b?: { loaded: number; total: number }, frac?: number) => {
+        if (genCancelRef.current) throw new Error(CANCEL);
         setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: s, gen: { startedAt: debutClip, frac: frac ?? m.gen?.frac } } : m));
+      };
       const q = new URLSearchParams(window.location.search);
       // 16 frames par défaut (≈ 1,3 s de mouvement unique, bouclé au montage) ; ?vframes=8..32 en
       // dev — 32 est le MAXIMUM du modèle (pos_embed temporel [1,32,C]). ?enrich=1 rallume le LFM.
@@ -1918,7 +1941,10 @@ function App() {
         video: { url: url ?? undefined, w: first.width, h: first.height, poster: frameToPoster(first), prompt, seed: res.seed, frames: res.frames.length, ms: res.ms },
       } : m));
     } catch (e: unknown) {
-      setMessages(prev => prev.map(m => m.id === aId ? { ...m, gen: undefined, content: t(`Generation error: ${(e as Error)?.message || String(e)}`, `Erreur de génération : ${(e as Error)?.message || String(e)}`), isError: true } : m));
+      const annule = (e as Error)?.message === CANCEL;
+      setMessages(prev => prev.map(m => m.id === aId ? { ...m, gen: undefined,
+        content: annule ? t('Clip cancelled.', 'Clip annulé.') : t(`Generation error: ${(e as Error)?.message || String(e)}`, `Erreur de génération : ${(e as Error)?.message || String(e)}`),
+        isError: !annule } : m));
     } finally {
       setModelState('ready');
     }
@@ -2402,6 +2428,9 @@ function App() {
   };
 
   const handleStopGeneration = () => {
+    // Image et vidéo : le drapeau est lu au bloc suivant. Une génération vidéo dure des minutes,
+    // le bouton stop ne pouvait pas rester décoratif pour elle.
+    genCancelRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       setModelState('ready');

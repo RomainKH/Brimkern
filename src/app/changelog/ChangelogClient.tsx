@@ -40,6 +40,17 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Image generation grows up', fr: 'La génération d’image passe à l’âge adulte' },
+        items: [
+          { en: 'Images are now generated at 512px by default on a capable GPU. This is not a comfort setting: the model is trained at 512, and below that it stops composing. On the same prompt and the same seed, 256px returned a cropped fragment of a face where 512px returned the whole portrait. Phones and smaller GPUs stay at 256px, where memory decides rather than taste.',
+            fr: 'Les images sont désormais générées en 512px par défaut sur un GPU capable. Ce n’est pas un réglage de confort : le modèle est entraîné en 512, et en dessous il ne compose plus. Sur le même prompt et la même seed, le 256px rendait un fragment de visage recadré là où le 512px rendait le portrait entier. Les téléphones et les petits GPU restent en 256px, où c’est la mémoire qui décide et non le goût.' },
+          { en: 'A running generation can be cancelled. The stop button only interrupted the language model before, so an image or a clip had to be waited out to the end. It now stops at the next block, and frees the GPU memory it was holding.',
+            fr: 'Une génération en cours peut être annulée. Le bouton stop n’interrompait que le modèle de langage : il fallait attendre la fin d’une image ou d’un clip. Il s’arrête maintenant au bloc suivant, et libère la mémoire GPU qu’il occupait.' },
+          { en: 'Generated images and clips can be saved. A clip in particular only lived for the session, so minutes of computation disappeared when the tab closed.',
+            fr: 'Les images et les clips générés peuvent être enregistrés. Un clip, en particulier, ne vivait que le temps de la session : des minutes de calcul disparaissaient à la fermeture de l’onglet.' },
+        ],
+      },
+      {
         title: { en: 'Waiting for a generation, made legible', fr: 'L’attente d’une génération, rendue lisible' },
         items: [
           { en: 'A generation now shows a running clock, a progress bar that tracks the actual computation, and an estimate of the time remaining, instead of a line of text that changed every few seconds. The bar comes from the pipeline itself, so it advances at the real pace rather than pretending.',

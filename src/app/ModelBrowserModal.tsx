@@ -442,7 +442,9 @@ export function ModelBrowserModal({
                   })}
                   {shownComingSoon.map((m, idx) => {
                     const pill = MODALITY_PILL[m.modality];
-                    // The text→image teaser is loadable (placeholder pipeline) when the page wires it.
+                    // Image et vision sont CHARGEABLES : leurs pipelines sont complets et mesurés, elles
+                    // ne sont dans cette grille que parce qu'elles n'ont pas la fiche d'un preset
+                    // texte (taille, temps de téléchargement). Le reste de la grille est à venir.
                     const previewable = (m.modality === 'text2img' && !!onLoadImageModel) || (m.modality === 'vision' && !!onLoadVisionModel);
                     const loadPreview = m.modality === 'vision' ? onLoadVisionModel : onLoadImageModel;
                     return (
@@ -472,9 +474,11 @@ export function ModelBrowserModal({
                               style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', flexShrink: 0 }}
                               disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
                               onClick={loadPreview}
-                              title={t('Preview: real image decoder + placeholder generator (SD-Turbo pipeline in progress)', 'Aperçu : décodeur image réel + générateur placeholder (pipeline SD-Turbo en cours)')}
+                              title={m.modality === 'vision'
+                                ? t('Loads Qwen2-VL: attach an image and ask about it. Desktop only, ~2.6 GB of VRAM.', 'Charge Qwen2-VL : joignez une image et posez vos questions. Bureau uniquement, ~2,6 Go de VRAM.')
+                                : t('Loads the full Stable Diffusion pipeline (CLIP, UNet int8, decoder) and generates in the chat.', 'Charge le pipeline Stable Diffusion complet (CLIP, UNet int8, décodeur) et génère dans le chat.')}
                             >
-                              {t('Load (preview)', 'Charger (aperçu)')}
+                              {t('Load', 'Charger')}
                             </button>
                           ) : (
                             <button className="btn" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px', flexShrink: 0 }} disabled>{t('Soon', 'Bientôt')}</button>

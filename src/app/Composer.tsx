@@ -115,17 +115,18 @@ export function Composer({
                 value={imageSize}
                 onChange={(e) => setImageSize(Number(e.target.value))}
                 disabled={modelState === 'generating' || benchRunning}
-                title={t('Generation resolution: bigger = more faithful but slower and more GPU-hungry', 'Résolution de génération : plus grand = plus fidèle mais plus lent et plus gourmand en GPU')}
+                title={t('The model is trained at 512: below that it stops composing properly (tight crops, cut-off subjects), so smaller sizes are drafts rather than fast previews.',
+                         'Le modèle est entraîné en 512 : en dessous il ne compose plus correctement (cadrages serrés, sujets coupés). Les tailles inférieures sont donc des brouillons, pas des aperçus rapides.')}
                 style={{
                   fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
                   background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
                 }}
               >
-                <option value={16}>{t('128px (fast)', '128px (rapide)')}</option>
-                <option value={32}>{t('256px (recommended)', '256px (recommandé)')}</option>
+                <option value={16}>{t('128px (draft)', '128px (brouillon)')}</option>
+                <option value={32}>{t('256px (faster, looser framing)', '256px (plus rapide, cadrage approximatif)')}</option>
                 {/* 512² sur téléphone = pic VRAM (activations + TAESD) qui fait reprendre le GPU
                     par l'OS en pleine génération (blocage silencieux constaté) → desktop only. */}
-                {!isMobile && <option value={64}>{t('512px (native, slower)', '512px (natif, plus lent)')}</option>}
+                {!isMobile && <option value={64}>{t('512px (native, recommended)', '512px (natif, recommandé)')}</option>}
               </select>
             </div>
           )}
@@ -140,17 +141,17 @@ export function Composer({
                 value={videoFrames}
                 onChange={(e) => setVideoFrames(Number(e.target.value))}
                 disabled={modelState === 'generating' || benchRunning}
-                title={t('Unique frames: more frames means longer motion, and proportionally longer compute',
-                         'Frames uniques : plus de frames donne un mouvement plus long, et un calcul proportionnellement plus long')}
+                title={t('Every clip plays as a ~10 s loop; what changes here is how much unique motion happens before it repeats. More frames also means proportionally more compute.',
+                         'Tout clip est joué en boucle sur ~10 s ; ce qui change ici, c’est la quantité de mouvement unique avant que la boucle ne reprenne. Plus de frames demande aussi proportionnellement plus de calcul.')}
                 style={{
                   fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
                   background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
                 }}
               >
-                <option value={8}>{t('8 frames (~1 min)', '8 frames (~1 min)')}</option>
-                <option value={16}>{t('16 frames (~2 min)', '16 frames (~2 min)')}</option>
-                <option value={24}>{t('24 frames (~3 min)', '24 frames (~3 min)')}</option>
-                <option value={32}>{t('32 frames (~4 min)', '32 frames (~4 min)')}</option>
+                <option value={8}>{t('8 frames · 0.7 s of motion', '8 frames · 0,7 s de mouvement')}</option>
+                <option value={16}>{t('16 frames · 1.3 s of motion', '16 frames · 1,3 s de mouvement')}</option>
+                <option value={24}>{t('24 frames · 2 s of motion', '24 frames · 2 s de mouvement')}</option>
+                <option value={32}>{t('32 frames · 2.7 s of motion', '32 frames · 2,7 s de mouvement')}</option>
               </select>
             </div>
           )}

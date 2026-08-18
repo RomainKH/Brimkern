@@ -84,6 +84,18 @@ function fixWebmDuration(v: HTMLVideoElement | null) {
   else v.addEventListener('loadedmetadata', measure, { once: true });
 }
 
+function SaveLink({ url, name, label }: { url: string; name: string; label: string }) {
+  return (
+    <a
+      href={url}
+      download={name}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, marginRight: 8, background: 'none', border: '1px solid var(--border-color)', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: 'var(--text-secondary)', textDecoration: 'none' }}
+    >
+      ↓ {label}
+    </a>
+  );
+}
+
 // L'ATTENTE, RENDUE LISIBLE. Une génération dure des minutes ; une ligne de texte qui change ne dit
 // ni où on en est ni combien de temps il reste. Ce bloc montre les trois choses que l'on veut
 // savoir : l'étape en cours, une barre qui avance vraiment (la fraction vient du pipeline, pas
@@ -100,15 +112,46 @@ function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: nu
   const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const reste = frac && frac > 0.08 ? (ecoule / frac) * (1 - frac) : null;
   const pct = Math.max(0, Math.min(100, (frac ?? 0) * 100));
+
+  // Le TITRE de l'étape, en langage d'utilisateur. Il n'est pas décoratif : il est déduit de
+  // l'étape réelle que le pipeline remonte (et de l'avancement pour distinguer l'ébauche de la
+  // finition), donc il dit toujours quelque chose de vrai. Un mot qui tourne au hasard pendant
+  // qu'on attend, c'est de l'amusement ; un mot qui suit le calcul, c'est de l'information.
+  const titre = (() => {
+    if (/CLIP|prompt|Tokeni/i.test(step)) return t('Reading your prompt', 'Lecture de votre description');
+    if (/WebM|Encoding the video|Compilation/i.test(step)) return t('Assembling the clip', 'Montage du clip');
+    if (/frame/i.test(step) && /Decod|Décod/i.test(step)) return t('Developing the frames', 'Développement des frames');
+    if (/Decod|Décod|VAE/i.test(step)) return t('Developing the image', 'Développement de l’image');
+    if (/Denois|Débruit/i.test(step)) {
+      return (frac ?? 0) < 0.45
+        ? t('Sketching the scene', 'Esquisse de la scène')
+        : t('Refining the details', 'Affinage des détails');
+    }
+    if (/Enrich/i.test(step)) return t('Expanding your description', 'Développement de votre description');
+    return t('Preparing', 'Préparation');
+  })();
+
+  const sec = Math.floor(ecoule);
   return (
     <div className="gen-progress">
       <div className="gen-progress-head">
-        <span className="gen-progress-clock">{mmss(ecoule)}</span>
-        {reste !== null && <span className="gen-progress-eta">{t('about', 'environ')} {mmss(reste)} {t('left', 'restantes')}</span>}
+        {/* La clé sur la seconde REMONTE l'élément à chaque tic : c'est ce qui rejoue l'animation.
+            Sans elle, le keyframe ne se déclencherait qu'une fois. */}
+        <span className="gen-progress-clock" key={sec}>{mmss(ecoule)}</span>
+        {reste !== null && (
+          <span className="gen-progress-eta">
+            {reste < 5 ? t('almost done', 'presque fini') : `${t('about', 'environ')} ${mmss(reste)} ${t('left', 'restantes')}`}
+          </span>
+        )}
       </div>
       <div className="gen-progress-track">
         <div className="gen-progress-fill" style={{ width: `${pct}%` }} />
       </div>
+      <span className="gen-progress-phase">
+        {titre}<span className="gen-dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>
+      </span>
+      {/* L'étape brute reste lisible en dessous, en petit : elle est la preuve que le titre au-dessus
+          n'est pas une animation qui tourne dans le vide. */}
       <span className="gen-progress-step">{step}</span>
     </div>
   );
@@ -211,6 +254,9 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
               : null}
             {/* « Affiner » : reprend prompt + seed dans le composer — préciser le texte en gardant
                 la même composition (même bruit initial). Visible sous toute image générée. */}
+            {msg.image?.url && (
+              <SaveLink url={msg.image.url} name={`brimkern-${msg.image.seed ?? 'image'}.png`} label={t('Save', 'Enregistrer')} />
+            )}
             {msg.image && onRefineImage && (
               <button
                 type="button"
@@ -230,6 +276,9 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
             {msg.video && msg.content ? (
               <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>{msg.content}</span>
             ) : null}
+            {msg.video?.url && (
+              <SaveLink url={msg.video.url} name={`brimkern-${msg.video.seed ?? 'clip'}.webm`} label={t('Save the clip', 'Enregistrer le clip')} />
+            )}
             {/* Sous le clip : la trace mesurée (frames uniques + temps de calcul), comme partout. */}
             {msg.video && (msg.video.url || msg.video.poster) && msg.video.frames ? (
               <span style={{ display: 'block', marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
