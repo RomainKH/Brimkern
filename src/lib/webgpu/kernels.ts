@@ -211,6 +211,12 @@ export class WebGpuEngine {
 	// matmul_t_q4_shared — le chemin des presets BRIK) : gate NON BLOQUANT posé par selfValidate, ou
 	// forcé par ?qshared=0 → repli sur les kernels à 4 lignes par invocation (corrects, plus lents).
 	qSharedOk = true;
+	// GEMM q8/q4 v2 — bloc 4×8 en vec4, tuile 64×128 (matmul_t_q8_shared2 / matmul_t_q4_shared2),
+	// dispatché au prefill dès m ≥ 64. Le banc de plafond (scripts/e2e/flops.mjs) a montré que la
+	// boucle interne v1 plafonne à 973 GFLOP/s (= le GEMM réel) pour un plafond FMA machine de 2825 ;
+	// la boucle 4×8 vec4 en rend 1683 en maquette. Gate NON BLOQUANT posé par selfValidate, ou forcé
+	// par ?qshared2=0 → repli sur les kernels v1 (tuile 32×64, corrects partout).
+	qShared2Ok = true;
 	// GEMV dédié au DÉCODAGE (m = 1, kernels matmul_t_q4_vec / q8_vec) : gate NON BLOQUANT posé par
 	// selfValidate, ou forcé par ?gemv=0 → retour aux kernels par lignes (corrects, mais qui laissent
 	// 7 threads sur 8 inutilisés à m = 1 : 15 Go/s effectifs mesurés contre ~56 chez WebLLM).
@@ -330,6 +336,10 @@ export class WebGpuEngine {
 			if (urlFlag('qshared') === '0') {
 				this.qSharedOk = false;
 				console.warn('[webgpu] GEMM q8/q4 tuilés COUPÉS par ?qshared=0 — kernels 4 lignes/invocation');
+			}
+			if (urlFlag('qshared2') === '0') {
+				this.qShared2Ok = false;
+				console.warn('[webgpu] GEMM q8/q4 v2 (bloc 4×8 vec4) COUPÉS par ?qshared2=0 — tuile 32×64 v1');
 			}
 			if (urlFlag('videoresident') === '0') {
 				this.videoResidentOk = false;
@@ -1357,6 +1367,27 @@ export class WebGpuEngine {
 		return this.run('matmul_t_q8_shared', [dims, this.buf(a, ST), codes, sc, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1], out, m * n * 4);
 	}
 
+	// GEMM q8 v2 (matmul_t_q8_shared2, bloc 4×8 vec4, tuile 64×128) avec readback — pour selfValidate
+	// et __gemmBench, qui comparent explicitement ce kernel à v1 et à la référence CPU.
+	async matmulQ8Shared2(a: Float32Array, codes: GPUAny, sc: GPUAny, m: number, k: number, n: number): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
+		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('matmul_t_q8_shared2', [dims, this.buf(a, ST), codes, sc, out], [Math.ceil(n / 128), Math.ceil(m / 64), 1], out, m * n * 4);
+	}
+
+	// Idem q4 v2 (matmul_t_q4_shared2).
+	async matmulQ4Shared2(a: Float32Array, nib: GPUAny, sc: GPUAny, mn: GPUAny, m: number, k: number, n: number): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([m, k, n]));
+		const out = this.device.createBuffer({ size: m * n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		return this.run('matmul_t_q4_shared2', [dims, this.buf(a, ST), nib, sc, mn, out], [Math.ceil(n / 128), Math.ceil(m / 64), 1], out, m * n * 4);
+	}
+
 	// A small uniform buffer holding the given u32 values, then optional f32 tail value(s) written
 	// consecutively from `offset` (one or several — e.g. attention's scale + softcap).
 	// Uniform buffers are POOLED by size (release() returns them instead of destroying): the decode
@@ -1665,10 +1696,10 @@ export class WebGpuEngine {
 	// f16 (avec wF16), soit un triple q4 {nib,sc,mn} / une paire q8 {codes,sc} — recMM dispatche comme
 	// en production. `shared` choisit le chemin (tuilé ou repli) sans laisser le gate modifié.
 	// Banc uniquement (hooks dev __gemmBench / __qgemmBench).
-	async benchMatmul(a: Float32Array, w: GPUAny, m: number, k: number, n: number, opts: { iters?: number; shared?: boolean; wF16?: boolean } = {}): Promise<number> {
-		const { iters = 10, shared = true, wF16 = false } = opts;
-		const prevF16 = this.f16SharedOk, prevQ = this.qSharedOk;
-		this.f16SharedOk = shared; this.qSharedOk = shared;
+	async benchMatmul(a: Float32Array, w: GPUAny, m: number, k: number, n: number, opts: { iters?: number; shared?: boolean; shared2?: boolean; wF16?: boolean } = {}): Promise<number> {
+		const { iters = 10, shared = true, shared2 = true, wF16 = false } = opts;
+		const prevF16 = this.f16SharedOk, prevQ = this.qSharedOk, prevQ2 = this.qShared2Ok;
+		this.f16SharedOk = shared; this.qSharedOk = shared; this.qShared2Ok = shared && shared2;
 		const aBuf = this.uploadGpu(a);
 		const trash: GPUAny[] = [];
 		const warm = this.device.createCommandEncoder();
@@ -1683,7 +1714,7 @@ export class WebGpuEngine {
 		const ms = (performance.now() - t0) / iters;
 		this.release(trash);
 		aBuf.destroy?.();
-		this.f16SharedOk = prevF16; this.qSharedOk = prevQ;
+		this.f16SharedOk = prevF16; this.qSharedOk = prevQ; this.qShared2Ok = prevQ2;
 		return ms;
 	}
 	// Full teardown: destroys the GPUDevice, which invalidates EVERY buffer/pipeline of this engine
@@ -1758,6 +1789,9 @@ export class WebGpuEngine {
 			// Décodage : un workgroup de 64 threads PAR ligne de sortie (cf. matmul_t_q4_vec).
 			const g = this.gemvGrid(n);
 			this.recordPass(enc, 'matmul_t_q4_vec', [this.uniform([m, k, n, g.stride]), a, q4.nib, q4.sc, q4.mn, out], g.grid);
+		} else if (m >= 64 && this.qSharedOk && this.qShared2Ok) {
+			// v2 dès m ≥ 64 : en dessous, la moitié de la tuile de 64 lignes serait du travail perdu.
+			this.recordPass(enc, 'matmul_t_q4_shared2', [dims, a, q4.nib, q4.sc, q4.mn, out], [Math.ceil(n / 128), Math.ceil(m / 64), 1]);
 		} else if (m >= 32 && this.qSharedOk) {
 			this.recordPass(enc, 'matmul_t_q4_shared', [dims, a, q4.nib, q4.sc, q4.mn, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1]);
 		} else if (m >= 2) {
@@ -1777,6 +1811,9 @@ export class WebGpuEngine {
 		if (m === 1 && this.gemvOk) {
 			const g = this.gemvGrid(n);
 			this.recordPass(enc, 'matmul_t_q8_vec', [this.uniform([m, k, n, g.stride]), a, q8.codes, q8.sc, out], g.grid);
+		} else if (m >= 64 && this.qSharedOk && this.qShared2Ok) {
+			// v2 dès m ≥ 64 : en dessous, la moitié de la tuile de 64 lignes serait du travail perdu.
+			this.recordPass(enc, 'matmul_t_q8_shared2', [dims, a, q8.codes, q8.sc, out], [Math.ceil(n / 128), Math.ceil(m / 64), 1]);
 		} else if (m >= 32 && this.qSharedOk) {
 			this.recordPass(enc, 'matmul_t_q8_shared', [dims, a, q8.codes, q8.sc, out], [Math.ceil(n / 64), Math.ceil(m / 32), 1]);
 		} else if (m >= 2) {
@@ -3007,6 +3044,48 @@ export class WebGpuEngine {
 			for (let r = 0; r < m; r++) for (let cc = 0; cc < n; cc++) { let s = 0; for (let i = 0; i < k; i++) s += a[r * k + i] * Wd[cc * k + i]; ref[r * n + cc] = s; }
 			codesBuf.destroy?.(); scBuf.destroy?.();
 			if (!close(got, ref)) return fail(`matmul_q8_shared(${m},${n})`);
+		}
+
+		// GEMM q8/q4 v2 (matmul_t_*_shared2, bloc 4×8 vec4, tuile 64 lignes × 128 colonnes) : gate NON
+		// BLOQUANT qShared2Ok (motif f16SharedOk) — un driver qui le rate repasse sur v1, même résultat,
+		// juste plus lent. Le risque de ce kernel est le TUILAGE et le dépôt transposé en composantes
+		// vec4, pas la math — les formes visent donc : tuile pleine exacte (64×128), bords partiels des
+		// deux côtés avec plusieurs tuiles (65×130), n ≪ 128 (gardes d'écriture par colonne, k=160 pour
+		// varier les groupes d'échelle), et m juste au-dessus du seuil de dispatch avec un n à cheval
+		// sur la 2e tuile de colonnes (70×200, k=96). Référence : a · dequant(W), comme v1.
+		if (this.qShared2Ok) {
+			const shapes = [
+				{ m: 64, k: 128, n: 128 },
+				{ m: 65, k: 128, n: 130 },
+				{ m: 100, k: 160, n: 18 },
+				{ m: 70, k: 96, n: 200 },
+			];
+			for (const s of shapes) {
+				const m = s.m, k = s.k, n = s.n;
+				const a = rand(m * k), W = rand(n * k);
+				const ref8 = new Float32Array(m * n);
+				const q8 = quantizeQ8(W);
+				const Wd8 = dequantizeQ8(q8);
+				for (let r = 0; r < m; r++) for (let cc = 0; cc < n; cc++) { let s2 = 0; for (let i = 0; i < k; i++) s2 += a[r * k + i] * Wd8[cc * k + i]; ref8[r * n + cc] = s2; }
+				const codesBuf = this.uploadGpuRaw(new Uint8Array(q8.codes.buffer, q8.codes.byteOffset, q8.codes.byteLength));
+				const sc8 = this.uploadGpuRaw(new Uint8Array(q8.scales.buffer, q8.scales.byteOffset, q8.scales.byteLength));
+				const got8 = await this.matmulQ8Shared2(a, codesBuf, sc8, m, k, n);
+				codesBuf.destroy?.(); sc8.destroy?.();
+				const q4 = quantizeQ4(W);
+				const Wd4 = dequantizeQ4(q4);
+				const ref4 = new Float32Array(m * n);
+				for (let r = 0; r < m; r++) for (let cc = 0; cc < n; cc++) { let s2 = 0; for (let i = 0; i < k; i++) s2 += a[r * k + i] * Wd4[cc * k + i]; ref4[r * n + cc] = s2; }
+				const nibBuf = this.uploadGpuRaw(q4.nibbles);
+				const sc4 = this.uploadGpuRaw(new Uint8Array(q4.scales.buffer, q4.scales.byteOffset, q4.scales.byteLength));
+				const mn4 = this.uploadGpuRaw(new Uint8Array(q4.mins.buffer, q4.mins.byteOffset, q4.mins.byteLength));
+				const got4 = await this.matmulQ4Shared2(a, nibBuf, sc4, mn4, m, k, n);
+				nibBuf.destroy?.(); sc4.destroy?.(); mn4.destroy?.();
+				if (!close(got8, ref8) || !close(got4, ref4)) {
+					this.qShared2Ok = false;
+					console.warn(`[selfValidate] matmul_t_q8/q4_shared2 KO sur ce GPU (m=${m}, k=${k}, n=${n}) — repli sur les tuiles 32×64 v1 (plus lentes, même résultat).`);
+					break;
+				}
+			}
 		}
 
 		// Chunked GGUF→BRIK conversion must byte-match the single-pass path. This guards the chunk

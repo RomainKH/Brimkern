@@ -21,6 +21,26 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'August 18, 2026', fr: '18 août 2026' },
+    tagline: {
+      en: 'The machine’s compute ceiling is finally measured — and it showed our matrix multiplies were capped by their own inner loop, not by the hardware. Rewritten, they read your prompt up to 1.5× faster at the kernel level on 7B-class models.',
+      fr: 'Le plafond de calcul de la machine est enfin mesuré — et il a montré que nos multiplications matricielles étaient bridées par leur propre boucle interne, pas par le matériel. Réécrites, elles lisent votre prompt jusqu’à 1,5× plus vite au niveau kernel sur les modèles de classe 7B.',
+    },
+    groups: [
+      {
+        title: { en: 'Prompt reading: the multiplies catch up', fr: 'Lecture du prompt : les multiplications rattrapent leur retard' },
+        items: [
+          { en: 'A new benchmark measures what this GPU can actually compute: 2 825 GFLOP/s. Our prompt-phase matrix multiplies were running at 973 — and a mock-up of their inner loop capped at exactly that number: the bottleneck was the kernel’s structure (too many shared-memory reads per multiply), not the machine. The benchmark ships in the repo (scripts/e2e/flops.mjs).',
+            fr: 'Un nouveau banc mesure ce que ce GPU sait vraiment calculer : 2 825 GFLOP/s. Nos multiplications matricielles de lecture de prompt tournaient à 973 — et une maquette de leur boucle interne plafonnait exactement à ce chiffre : le goulot était la structure du kernel (trop de lectures de mémoire partagée par multiplication), pas la machine. Le banc est dans le dépôt (scripts/e2e/flops.mjs).' },
+          { en: 'The int8 and int4 kernels were rewritten with wider register blocks (each thread now computes 4×8 outputs, fed by vectorized reads). Measured kernel-isolated on the exact shapes of a 7B: ×1.4 to ×1.5, lifting the theoretical prompt-reading ceiling of that model from 74 to 113 tok/s. As always: validated against the CPU reference on every load, with a kill-switch (?qshared2=0) and an automatic fallback.',
+            fr: 'Les kernels int8 et int4 sont réécrits avec des blocs de registres plus larges (chaque thread calcule désormais 4×8 sorties, nourries par des lectures vectorisées). Mesuré kernel isolé sur les formes exactes d’un 7B : ×1,4 à ×1,5, ce qui monte le plafond théorique de lecture de prompt de ce modèle de 74 à 113 tok/s. Comme toujours : validé contre la référence CPU à chaque chargement, avec un kill-switch (?qshared2=0) et un repli automatique.' },
+          { en: 'Measured end to end on a small model (Qwen3 0.6B, ~480-token prompt): prompt reading goes from 506 to 556 tok/s (×1.10) — on small models the multiplies are only a quarter of the prompt phase since the August 16 attention fix, so the biggest wins land on the largest models, where they dominate.',
+            fr: 'Mesuré de bout en bout sur un petit modèle (Qwen3 0.6B, prompt d’environ 480 tokens) : la lecture passe de 506 à 556 tok/s (×1,10) — sur les petits modèles les multiplications ne pèsent plus qu’un quart de la phase de prompt depuis le correctif d’attention du 16 août, donc les plus gros gains vont aux plus gros modèles, où elles dominent.' },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'August 14, 2026', fr: '14 août 2026' },
     tagline: {
       en: 'Answers arrive about 40 % faster: the normalization step of every layer was running on a single GPU thread. Reasoning models no longer get stuck on “Thinking…”, the storage panel stops hoarding ranges that will never be read again, and a measured comparison with WebLLM is now online.',

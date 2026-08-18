@@ -802,6 +802,289 @@ export const SHADERS = {
 			}
 		}`,
 
+	// GEMM q8 v2 — BLOC 4×8 EN PRODUIT EXTÉRIEUR vec4, tuile 64 lignes × 128 colonnes (2026-08-18).
+	// Le banc de plafond (scripts/e2e/flops.mjs) a montré que la boucle interne du kernel v1
+	// (6 lectures partagées scalaires pour 8 FMA scalaires) plafonne à 973 GFLOP/s — EXACTEMENT le
+	// débit du GEMM réel (971-1003 sur les formes 7B), pour un plafond FMA machine de 2825. Le goulot
+	// est donc le rapport lectures-partagées/FMA, pas la déquantification. Ici :
+	//   • bloc 4 lignes × 8 colonnes par thread = 8 accumulateurs vec4 (32 sorties), nourris par
+	//     3 lectures vec4 (1 de A, 2 de W) et 8 FMA vec4 par pas de k — le rapport de la maquette à
+	//     1683 GFLOP/s (le 8×8 ne rendait que 3 % de plus pour deux fois plus de registres) ;
+	//   • mémoire partagée en vec4, k-majeure : Asv[k][16 groupes de 4 lignes], Wsv[k][32 groupes de
+	//     4 colonnes] — au calcul, les threads voisins (tc consécutifs) lisent des slots consécutifs ;
+	//   • la tuile 64×128 divise aussi par 2 le trafic GLOBAL : A relu n/128 fois (vs n/64) et W relu
+	//     m/64 fois (vs m/32).
+	// Le CHARGEMENT est scindé : les threads 0-127 déquantifient W par micro-tuiles 4 colonnes × 4 k
+	// (4 mots \`codes\`, une TRANSPOSITION 4×4 en registres, 4 dépôts vec4) ; les threads 128-255
+	// remplissent A (4 lectures foulées par vec4 de 4 lignes). Deux leçons y sont gravées :
+	//   ⚠️ une écriture de COMPOSANTE vec4 à indice dynamique (Wsv[i][ci] = v) est PERDUE en silence
+	//     sur Metal pour ci ≠ 0 (constaté : seules les colonnes ≡ 0 mod 4 sortaient justes) — d'où la
+	//     transposition en registres, qui n'écrit que des vec4 entiers via des composantes STATIQUES ;
+	//   ⚠️ la forme dot-produit (vec4 le long de k, r += vec4(dot,dot,dot,dot)) évitait aussi le bug
+	//     mais rendait ×0,91 vs v1 : dot() ne fusionne pas en FMA et sérialise sa réduction. Mesuré,
+	//     pas supposé — c'est le produit extérieur qui porte le gain.
+	// Barrières en flux uniforme (nTiles ne dépend que de k), bords m/n gardés. Dispatché au prefill
+	// dès m ≥ 64 (en dessous, la tuile 32×64 de v1 est mieux taillée) ; selfValidate (gate non
+	// bloquant qShared2Ok) + kill-switch ?qshared2=0 → repli v1.
+	matmul_t_q8_shared2: `
+		struct Dims { m: u32, k: u32, n: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<f32>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read_write> c: array<f32>;
+		var<workgroup> Asv: array<vec4<f32>, 256>;  // [16 k][16 groupes de 4 lignes]
+		var<workgroup> Wsv: array<vec4<f32>, 512>;  // [16 k][32 groupes de 4 colonnes]
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let mm = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(mm) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(mm) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn q8x4(word: u32, s: f32) -> vec4<f32> {
+			return vec4<f32>(
+				f32(i32(word << 24u) >> 24u),
+				f32(i32(word << 16u) >> 24u),
+				f32(i32(word << 8u) >> 24u),
+				f32(i32(word) >> 24u)) * s;
+		}
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+			let m = d.m; let k = d.k; let n = d.n;
+			let row0 = wid.y * 64u;
+			let col0 = wid.x * 128u;
+			let nG = k / 32u;
+			// Threads 0-127 : W par micro-tuile 4 colonnes × 4 k. Threads 128-255 : A, 2 vec4 chacun.
+			let wCG = (tid >> 2u) & 31u; let wKq = tid & 3u;
+			let tA = tid - 128u;
+			let tr = (tid >> 4u) * 4u; let tc = (tid & 15u) * 8u; // calcul : bloc 4 lignes × 8 colonnes
+			var r00 = vec4<f32>(0.0); var r01 = vec4<f32>(0.0);
+			var r10 = vec4<f32>(0.0); var r11 = vec4<f32>(0.0);
+			var r20 = vec4<f32>(0.0); var r21 = vec4<f32>(0.0);
+			var r30 = vec4<f32>(0.0); var r31 = vec4<f32>(0.0);
+			let nTiles = (k + 15u) / 16u;
+			for (var t = 0u; t < nTiles; t = t + 1u) {
+				let kk = t * 16u;
+				if (tid < 128u) {
+					let kp = kk + wKq * 4u;
+					let cBase = col0 + wCG * 4u;
+					var v0 = vec4<f32>(0.0); var v1 = vec4<f32>(0.0); var v2 = vec4<f32>(0.0); var v3 = vec4<f32>(0.0);
+					if (kp < k) {
+						let gOff = kp / 32u;
+						if (cBase < n) { let idx = cBase * k + kp; let si = cBase * nG + gOff; let sw = sc[si >> 1u]; v0 = q8x4(codes[idx >> 2u], f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u))); }
+						if (cBase + 1u < n) { let idx = (cBase + 1u) * k + kp; let si = (cBase + 1u) * nG + gOff; let sw = sc[si >> 1u]; v1 = q8x4(codes[idx >> 2u], f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u))); }
+						if (cBase + 2u < n) { let idx = (cBase + 2u) * k + kp; let si = (cBase + 2u) * nG + gOff; let sw = sc[si >> 1u]; v2 = q8x4(codes[idx >> 2u], f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u))); }
+						if (cBase + 3u < n) { let idx = (cBase + 3u) * k + kp; let si = (cBase + 3u) * nG + gOff; let sw = sc[si >> 1u]; v3 = q8x4(codes[idx >> 2u], f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u))); }
+					}
+					// Transposition 4×4 en registres : composantes STATIQUES uniquement (cf. leçon Metal).
+					let wb = (wKq * 4u) * 32u + wCG;
+					Wsv[wb] = vec4<f32>(v0.x, v1.x, v2.x, v3.x);
+					Wsv[wb + 32u] = vec4<f32>(v0.y, v1.y, v2.y, v3.y);
+					Wsv[wb + 64u] = vec4<f32>(v0.z, v1.z, v2.z, v3.z);
+					Wsv[wb + 96u] = vec4<f32>(v0.w, v1.w, v2.w, v3.w);
+				} else {
+					for (var p = 0u; p < 2u; p = p + 1u) {
+						let slot = tA * 2u + p;
+						let aK = slot >> 4u; let aRG = slot & 15u;
+						let kp = kk + aK;
+						let ar = row0 + aRG * 4u;
+						var av = vec4<f32>(0.0);
+						if (kp < k) {
+							if (ar < m) { av.x = a[ar * k + kp]; }
+							if (ar + 1u < m) { av.y = a[(ar + 1u) * k + kp]; }
+							if (ar + 2u < m) { av.z = a[(ar + 2u) * k + kp]; }
+							if (ar + 3u < m) { av.w = a[(ar + 3u) * k + kp]; }
+						}
+						Asv[aK * 16u + aRG] = av;
+					}
+				}
+				workgroupBarrier();
+				for (var i = 0u; i < 16u; i = i + 1u) {
+					let avc = Asv[i * 16u + (tr >> 2u)];
+					let wb2 = i * 32u + (tc >> 2u);
+					let wv0 = Wsv[wb2]; let wv1 = Wsv[wb2 + 1u];
+					r00 = fma(vec4<f32>(avc.x), wv0, r00); r01 = fma(vec4<f32>(avc.x), wv1, r01);
+					r10 = fma(vec4<f32>(avc.y), wv0, r10); r11 = fma(vec4<f32>(avc.y), wv1, r11);
+					r20 = fma(vec4<f32>(avc.z), wv0, r20); r21 = fma(vec4<f32>(avc.z), wv1, r21);
+					r30 = fma(vec4<f32>(avc.w), wv0, r30); r31 = fma(vec4<f32>(avc.w), wv1, r31);
+				}
+				workgroupBarrier();
+			}
+			let gr = row0 + tr;
+			let gc = col0 + tc;
+			if (gr < m) {
+				if (gc < n) { c[gr * n + gc] = r00.x; }
+				if (gc + 1u < n) { c[gr * n + gc + 1u] = r00.y; }
+				if (gc + 2u < n) { c[gr * n + gc + 2u] = r00.z; }
+				if (gc + 3u < n) { c[gr * n + gc + 3u] = r00.w; }
+				if (gc + 4u < n) { c[gr * n + gc + 4u] = r01.x; }
+				if (gc + 5u < n) { c[gr * n + gc + 5u] = r01.y; }
+				if (gc + 6u < n) { c[gr * n + gc + 6u] = r01.z; }
+				if (gc + 7u < n) { c[gr * n + gc + 7u] = r01.w; }
+			}
+			if (gr + 1u < m) {
+				if (gc < n) { c[(gr + 1u) * n + gc] = r10.x; }
+				if (gc + 1u < n) { c[(gr + 1u) * n + gc + 1u] = r10.y; }
+				if (gc + 2u < n) { c[(gr + 1u) * n + gc + 2u] = r10.z; }
+				if (gc + 3u < n) { c[(gr + 1u) * n + gc + 3u] = r10.w; }
+				if (gc + 4u < n) { c[(gr + 1u) * n + gc + 4u] = r11.x; }
+				if (gc + 5u < n) { c[(gr + 1u) * n + gc + 5u] = r11.y; }
+				if (gc + 6u < n) { c[(gr + 1u) * n + gc + 6u] = r11.z; }
+				if (gc + 7u < n) { c[(gr + 1u) * n + gc + 7u] = r11.w; }
+			}
+			if (gr + 2u < m) {
+				if (gc < n) { c[(gr + 2u) * n + gc] = r20.x; }
+				if (gc + 1u < n) { c[(gr + 2u) * n + gc + 1u] = r20.y; }
+				if (gc + 2u < n) { c[(gr + 2u) * n + gc + 2u] = r20.z; }
+				if (gc + 3u < n) { c[(gr + 2u) * n + gc + 3u] = r20.w; }
+				if (gc + 4u < n) { c[(gr + 2u) * n + gc + 4u] = r21.x; }
+				if (gc + 5u < n) { c[(gr + 2u) * n + gc + 5u] = r21.y; }
+				if (gc + 6u < n) { c[(gr + 2u) * n + gc + 6u] = r21.z; }
+				if (gc + 7u < n) { c[(gr + 2u) * n + gc + 7u] = r21.w; }
+			}
+			if (gr + 3u < m) {
+				if (gc < n) { c[(gr + 3u) * n + gc] = r30.x; }
+				if (gc + 1u < n) { c[(gr + 3u) * n + gc + 1u] = r30.y; }
+				if (gc + 2u < n) { c[(gr + 3u) * n + gc + 2u] = r30.z; }
+				if (gc + 3u < n) { c[(gr + 3u) * n + gc + 3u] = r30.w; }
+				if (gc + 4u < n) { c[(gr + 3u) * n + gc + 4u] = r31.x; }
+				if (gc + 5u < n) { c[(gr + 3u) * n + gc + 5u] = r31.y; }
+				if (gc + 6u < n) { c[(gr + 3u) * n + gc + 6u] = r31.z; }
+				if (gc + 7u < n) { c[(gr + 3u) * n + gc + 7u] = r31.w; }
+			}
+		}`,
+
+	// Idem q4 v2 : même bloc 4×8 produit extérieur, même tuile 64×128 et même transposition 4×4 en
+	// registres — seul le déquant de la micro-tuile change (nibble asymétrique × échelle + min, un
+	// paquet de 4 valeurs = la moitié basse ou haute d'un mot de nibbles). Mêmes gate (qShared2Ok)
+	// et kill-switch (?qshared2=0) que le q8 v2.
+	matmul_t_q4_shared2: `
+		struct Dims { m: u32, k: u32, n: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<f32>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read_write> c: array<f32>;
+		var<workgroup> Asv: array<vec4<f32>, 256>;
+		var<workgroup> Wsv: array<vec4<f32>, 512>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let mm = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(mm) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(mm) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn q4x4(word: u32, sh: u32, s: f32, mnv: f32) -> vec4<f32> {
+			return vec4<f32>(
+				f32((word >> sh) & 0xFu),
+				f32((word >> (sh + 4u)) & 0xFu),
+				f32((word >> (sh + 8u)) & 0xFu),
+				f32((word >> (sh + 12u)) & 0xFu)) * s + vec4<f32>(mnv);
+		}
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+			let m = d.m; let k = d.k; let n = d.n;
+			let row0 = wid.y * 64u;
+			let col0 = wid.x * 128u;
+			let nG = k / 32u;
+			let wCG = (tid >> 2u) & 31u; let wKq = tid & 3u;
+			let tA = tid - 128u;
+			let tr = (tid >> 4u) * 4u; let tc = (tid & 15u) * 8u;
+			var r00 = vec4<f32>(0.0); var r01 = vec4<f32>(0.0);
+			var r10 = vec4<f32>(0.0); var r11 = vec4<f32>(0.0);
+			var r20 = vec4<f32>(0.0); var r21 = vec4<f32>(0.0);
+			var r30 = vec4<f32>(0.0); var r31 = vec4<f32>(0.0);
+			let nTiles = (k + 15u) / 16u;
+			for (var t = 0u; t < nTiles; t = t + 1u) {
+				let kk = t * 16u;
+				if (tid < 128u) {
+					let kp = kk + wKq * 4u;
+					let cBase = col0 + wCG * 4u;
+					var v0 = vec4<f32>(0.0); var v1 = vec4<f32>(0.0); var v2 = vec4<f32>(0.0); var v3 = vec4<f32>(0.0);
+					if (kp < k) {
+						let gOff = kp / 32u;
+						if (cBase < n) { let idx = cBase * k + kp; let si = cBase * nG + gOff; let sw = sc[si >> 1u]; let mw = mn[si >> 1u]; v0 = q4x4(nib[idx >> 3u], (idx & 7u) * 4u, f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u)), f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u))); }
+						if (cBase + 1u < n) { let idx = (cBase + 1u) * k + kp; let si = (cBase + 1u) * nG + gOff; let sw = sc[si >> 1u]; let mw = mn[si >> 1u]; v1 = q4x4(nib[idx >> 3u], (idx & 7u) * 4u, f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u)), f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u))); }
+						if (cBase + 2u < n) { let idx = (cBase + 2u) * k + kp; let si = (cBase + 2u) * nG + gOff; let sw = sc[si >> 1u]; let mw = mn[si >> 1u]; v2 = q4x4(nib[idx >> 3u], (idx & 7u) * 4u, f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u)), f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u))); }
+						if (cBase + 3u < n) { let idx = (cBase + 3u) * k + kp; let si = (cBase + 3u) * nG + gOff; let sw = sc[si >> 1u]; let mw = mn[si >> 1u]; v3 = q4x4(nib[idx >> 3u], (idx & 7u) * 4u, f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u)), f16d(select(mw & 0xFFFFu, mw >> 16u, (si & 1u) == 1u))); }
+					}
+					let wb = (wKq * 4u) * 32u + wCG;
+					Wsv[wb] = vec4<f32>(v0.x, v1.x, v2.x, v3.x);
+					Wsv[wb + 32u] = vec4<f32>(v0.y, v1.y, v2.y, v3.y);
+					Wsv[wb + 64u] = vec4<f32>(v0.z, v1.z, v2.z, v3.z);
+					Wsv[wb + 96u] = vec4<f32>(v0.w, v1.w, v2.w, v3.w);
+				} else {
+					for (var p = 0u; p < 2u; p = p + 1u) {
+						let slot = tA * 2u + p;
+						let aK = slot >> 4u; let aRG = slot & 15u;
+						let kp = kk + aK;
+						let ar = row0 + aRG * 4u;
+						var av = vec4<f32>(0.0);
+						if (kp < k) {
+							if (ar < m) { av.x = a[ar * k + kp]; }
+							if (ar + 1u < m) { av.y = a[(ar + 1u) * k + kp]; }
+							if (ar + 2u < m) { av.z = a[(ar + 2u) * k + kp]; }
+							if (ar + 3u < m) { av.w = a[(ar + 3u) * k + kp]; }
+						}
+						Asv[aK * 16u + aRG] = av;
+					}
+				}
+				workgroupBarrier();
+				for (var i = 0u; i < 16u; i = i + 1u) {
+					let avc = Asv[i * 16u + (tr >> 2u)];
+					let wb2 = i * 32u + (tc >> 2u);
+					let wv0 = Wsv[wb2]; let wv1 = Wsv[wb2 + 1u];
+					r00 = fma(vec4<f32>(avc.x), wv0, r00); r01 = fma(vec4<f32>(avc.x), wv1, r01);
+					r10 = fma(vec4<f32>(avc.y), wv0, r10); r11 = fma(vec4<f32>(avc.y), wv1, r11);
+					r20 = fma(vec4<f32>(avc.z), wv0, r20); r21 = fma(vec4<f32>(avc.z), wv1, r21);
+					r30 = fma(vec4<f32>(avc.w), wv0, r30); r31 = fma(vec4<f32>(avc.w), wv1, r31);
+				}
+				workgroupBarrier();
+			}
+			let gr = row0 + tr;
+			let gc = col0 + tc;
+			if (gr < m) {
+				if (gc < n) { c[gr * n + gc] = r00.x; }
+				if (gc + 1u < n) { c[gr * n + gc + 1u] = r00.y; }
+				if (gc + 2u < n) { c[gr * n + gc + 2u] = r00.z; }
+				if (gc + 3u < n) { c[gr * n + gc + 3u] = r00.w; }
+				if (gc + 4u < n) { c[gr * n + gc + 4u] = r01.x; }
+				if (gc + 5u < n) { c[gr * n + gc + 5u] = r01.y; }
+				if (gc + 6u < n) { c[gr * n + gc + 6u] = r01.z; }
+				if (gc + 7u < n) { c[gr * n + gc + 7u] = r01.w; }
+			}
+			if (gr + 1u < m) {
+				if (gc < n) { c[(gr + 1u) * n + gc] = r10.x; }
+				if (gc + 1u < n) { c[(gr + 1u) * n + gc + 1u] = r10.y; }
+				if (gc + 2u < n) { c[(gr + 1u) * n + gc + 2u] = r10.z; }
+				if (gc + 3u < n) { c[(gr + 1u) * n + gc + 3u] = r10.w; }
+				if (gc + 4u < n) { c[(gr + 1u) * n + gc + 4u] = r11.x; }
+				if (gc + 5u < n) { c[(gr + 1u) * n + gc + 5u] = r11.y; }
+				if (gc + 6u < n) { c[(gr + 1u) * n + gc + 6u] = r11.z; }
+				if (gc + 7u < n) { c[(gr + 1u) * n + gc + 7u] = r11.w; }
+			}
+			if (gr + 2u < m) {
+				if (gc < n) { c[(gr + 2u) * n + gc] = r20.x; }
+				if (gc + 1u < n) { c[(gr + 2u) * n + gc + 1u] = r20.y; }
+				if (gc + 2u < n) { c[(gr + 2u) * n + gc + 2u] = r20.z; }
+				if (gc + 3u < n) { c[(gr + 2u) * n + gc + 3u] = r20.w; }
+				if (gc + 4u < n) { c[(gr + 2u) * n + gc + 4u] = r21.x; }
+				if (gc + 5u < n) { c[(gr + 2u) * n + gc + 5u] = r21.y; }
+				if (gc + 6u < n) { c[(gr + 2u) * n + gc + 6u] = r21.z; }
+				if (gc + 7u < n) { c[(gr + 2u) * n + gc + 7u] = r21.w; }
+			}
+			if (gr + 3u < m) {
+				if (gc < n) { c[(gr + 3u) * n + gc] = r30.x; }
+				if (gc + 1u < n) { c[(gr + 3u) * n + gc + 1u] = r30.y; }
+				if (gc + 2u < n) { c[(gr + 3u) * n + gc + 2u] = r30.z; }
+				if (gc + 3u < n) { c[(gr + 3u) * n + gc + 3u] = r30.w; }
+				if (gc + 4u < n) { c[(gr + 3u) * n + gc + 4u] = r31.x; }
+				if (gc + 5u < n) { c[(gr + 3u) * n + gc + 5u] = r31.y; }
+				if (gc + 6u < n) { c[(gr + 3u) * n + gc + 6u] = r31.z; }
+				if (gc + 7u < n) { c[(gr + 3u) * n + gc + 7u] = r31.w; }
+			}
+		}`,
+
 	// GEMM TUILÉ + BLOQUÉ EN REGISTRES pour poids f16 (le chemin par défaut desktop/BRIK, qui n'avait
 	// AUCUNE variante tuilée : chaque thread relisait k poids pour UNE ligne de tokens). C'est le gros
 	// levier prefill de docs/perf-webgpu.md §3.1. Trois choix, tous mesurés :

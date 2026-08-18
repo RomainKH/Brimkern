@@ -449,7 +449,7 @@ function App() {
       const gates = {
         hasF16: e.hasF16, f16SharedOk: e.f16SharedOk, attnDecodeOk: e.attnDecodeOk,
         attnPrefillOk: e.attnPrefillOk, attnFullWgOk: e.attnFullWgOk, swaOk: e.swaOk,
-        convTiledOk: e.convTiledOk,
+        convTiledOk: e.convTiledOk, qShared2Ok: e.qShared2Ok,
       };
       const stage = e.validationFailure;
       e.destroy();
@@ -635,23 +635,25 @@ function App() {
         const wF16 = dtype === 'f16';
         // Temps du kernel SEUL (benchMatmul : A résident, 10 passes dans un encodeur, une attente),
         // en gardant le minimum sur 3 séries — un hoquet suffit à inverser un A/B de quelques ms.
-        const time = async (shared: boolean) => {
+        // Trois bras pour q8/q4 : v2 (bloc 4×8 vec4, défaut dès m ≥ 64), v1 (tuile 32×64) et le
+        // repli 4-lignes ; le f16 n'a pas (encore) de v2, shared2 y est sans effet.
+        const time = async (shared: boolean, shared2 = true) => {
           let ms = Infinity;
-          for (let i = 0; i < 3; i++) ms = Math.min(ms, await e.benchMatmul(a, w, mTokens, sh.k, sh.n, { shared, wF16 }));
+          for (let i = 0; i < 3; i++) ms = Math.min(ms, await e.benchMatmul(a, w, mTokens, sh.k, sh.n, { shared, shared2, wF16 }));
           return ms;
         };
-        const tiled = await time(true), fallback = await time(false);
+        const tiled = await time(true), tiledV1 = await time(true, false), fallback = await time(false);
         // Équivalence des sorties sur ces formes réelles (selfValidate couvre les bords partiels).
         const out = async (shared: boolean) => {
           e.f16SharedOk = shared; e.qSharedOk = shared;
           const r = dtype === 'f16' ? await e.matmulT(a, w, mTokens, sh.k, sh.n, true)
-            : dtype === 'q8' ? await e.matmulQ8Shared(a, w.codes, w.sc, mTokens, sh.k, sh.n)
-            : await e.matmulQ4Shared(a, w.nib, w.sc, w.mn, mTokens, sh.k, sh.n);
+            : dtype === 'q8' ? await e.matmulQ8Shared2(a, w.codes, w.sc, mTokens, sh.k, sh.n)
+            : await e.matmulQ4Shared2(a, w.nib, w.sc, w.mn, mTokens, sh.k, sh.n);
           e.f16SharedOk = true; e.qSharedOk = true;
           return r;
         };
-        // Pour q8/q4 les wrappers de readback ciblent explicitement le kernel tuilé : on compare donc
-        // au kernel 4-lignes via matmulQ8Tiled / matmulQ4Tiled (le repli réel du prefill).
+        // Pour q8/q4 les wrappers de readback ciblent explicitement le kernel v2 : on compare donc
+        // au kernel 4-lignes via matmulQ8Tiled / matmulQ4Tiled (le repli le plus éloigné).
         const outTiled = await out(true);
         const outRef = dtype === 'f16' ? await out(false)
           : dtype === 'q8' ? await e.matmulQ8Tiled(a, w.codes, w.sc, mTokens, sh.k, sh.n)
@@ -664,13 +666,15 @@ function App() {
         const gflop = (2 * mTokens * sh.k * sh.n) / 1e9;
         results.push({
           shape: sh.label,
-          tiledMs: +tiled.toFixed(2), fallbackMs: +fallback.toFixed(2),
+          tiledMs: +tiled.toFixed(2), tiledV1Ms: +tiledV1.toFixed(2), fallbackMs: +fallback.toFixed(2),
+          speedupVsV1: +(tiledV1 / tiled).toFixed(2),
           speedup: +(fallback / tiled).toFixed(2),
           tiledGflops: +(gflop / (tiled / 1000)).toFixed(1),
+          tiledV1Gflops: +(gflop / (tiledV1 / 1000)).toFixed(1),
           fallbackGflops: +(gflop / (fallback / 1000)).toFixed(1),
           maxRel: +maxRel.toExponential(1),
         });
-        console.log(`[gemm ${dtype}] ${sh.label} m=${mTokens} : tuilé ${tiled.toFixed(2)} ms vs repli ${fallback.toFixed(2)} ms (×${(fallback / tiled).toFixed(2)}), écart max ${maxRel.toExponential(1)}`);
+        console.log(`[gemm ${dtype}] ${sh.label} m=${mTokens} : v2 ${tiled.toFixed(2)} ms vs v1 ${tiledV1.toFixed(2)} ms (×${(tiledV1 / tiled).toFixed(2)}) vs repli ${fallback.toFixed(2)} ms, écart max ${maxRel.toExponential(1)}`);
       }
       e.destroy();
       return { mTokens, dtype, results };
@@ -706,108 +710,6 @@ function App() {
       return r;
     };
   }, [activeEngine]);
-  // Le hook de banc de tokenisation doit voir le modèle COURANT : dans l'effet de montage il
-  // capturerait le tokenizer de la première render (null). Effet dédié, re-posé à chaque
-  // changement de modèle/tokenizer.
-  useEffect(() => {
-    // __tokTest(texte?) : ce que le modèle chargé VOIT réellement. Sort le prompt formaté (template
-    // de l'arch), les ids produits par le tokenizer actif, leur re-décodage, et la taille de vocab
-    // annoncée par le manifeste. C'est le premier test à faire devant une sortie incohérente : un
-    // décalage d'ids (mauvais tokenizer pour l'arch) donne exactement le même symptôme que des poids
-    // corrompus, et rien dans l'UI ne les distingue.
-    (window as any).__tokTest = async (texte = 'Bonjour, comment vas-tu ?') => {
-      const tok = activeTokenizer;
-      if (!tok) return { error: 'aucun modèle chargé' };
-      const prompt = formatPrompt([{ role: 'user', content: texte }] as any, modelArchType, '');
-      const enc = await tok(prompt);
-      const ids: number[] = Array.from(enc?.input_ids?.data ?? enc?.input_ids ?? []).map(Number);
-      const encNoSpecial = await tok(texte, { add_special_tokens: false });
-      const idsPlain: number[] = Array.from(encNoSpecial?.input_ids?.data ?? encNoSpecial?.input_ids ?? []).map(Number);
-      const emb = (activeModel as any)?.manifest?.tensors?.['token_embd.weight'];
-      const d = (activeModel as any)?.manifest?.config?.d;
-      return {
-        arch: (activeModel as any)?.manifest?.arch, archType: modelArchType, tokenizerId: selectedTokenizerId,
-        vocabFromWeights: emb && d ? emb.nElems / d : null,
-        prompt: prompt.slice(0, 400),
-        promptIds: ids.slice(0, 40), nPromptIds: ids.length, maxId: ids.length ? Math.max(...ids) : null,
-        plainIds: idsPlain.slice(0, 20),
-      };
-    };
-    // __gemmBench(mTokens, dtype) : banc A/B des GEMM du PREFILL sur des formes réelles d'un 0.5B —
-    // le kernel tuilé + bloqué en registres (32×64, défaut dès m ≥ 32) contre son repli (f16 :
-    // une ligne par thread ; q8/q4 : 4 lignes par invocation). dtype = 'f16' (défaut desktop), 'q8'
-    // ou 'q4' (chemin des presets BRIK). Retourne par forme les ms des deux chemins, le rapport, les
-    // GFLOP/s et l'écart relatif MAX entre les deux sorties (bruit de sommation attendu, ~1e-5).
-    (window as any).__gemmBench = async (mTokens = 512, dtype: 'f16' | 'q8' | 'q4' = 'f16') => {
-      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
-      const e = new WebGpuEngine();
-      if (!(await e.init())) return { error: 'WebGPU indisponible' };
-      if (dtype === 'f16' && !e.hasF16) return { error: 'shader-f16 absent sur ce GPU — chemin f16 inutilisé' };
-      const shapes = [
-        { label: 'attn qkv/o 1024→1024', k: 1024, n: 1024 },
-        { label: 'ffn gate/up 1024→2816', k: 1024, n: 2816 },
-        { label: 'ffn down 2816→1024', k: 2816, n: 1024 },
-      ];
-      const fill = (n: number, seed: number) => {
-        const x = new Float32Array(n);
-        let s = seed;
-        for (let i = 0; i < n; i++) { s = (s * 1664525 + 1013904223) >>> 0; x[i] = (s / 4294967296) - 0.5; }
-        return x;
-      };
-      const results: any[] = [];
-      for (const sh of shapes) {
-        const a = fill(mTokens * sh.k, 7), wt = fill(sh.n * sh.k, 13);
-        // Le poids est quantifié SUR LE GPU (même chemin que la construction d'un modèle).
-        const wf32 = e.uploadGpu(wt);
-        const w = dtype === 'f16' ? e.uploadGpuF16(wt)
-          : dtype === 'q8' ? e.f32ToQ8Gpu(wf32, sh.n * sh.k)
-          : e.f32ToQ4Gpu(wf32, sh.n * sh.k);
-        wf32.destroy?.();
-        const wF16 = dtype === 'f16';
-        // Temps du kernel SEUL (benchMatmul : A résident, 10 passes dans un encodeur, une attente),
-        // en gardant le minimum sur 3 séries — un hoquet suffit à inverser un A/B de quelques ms.
-        const time = async (shared: boolean) => {
-          let ms = Infinity;
-          for (let i = 0; i < 3; i++) ms = Math.min(ms, await e.benchMatmul(a, w, mTokens, sh.k, sh.n, { shared, wF16 }));
-          return ms;
-        };
-        const tiled = await time(true), fallback = await time(false);
-        // Équivalence des sorties sur ces formes réelles (selfValidate couvre les bords partiels).
-        const out = async (shared: boolean) => {
-          e.f16SharedOk = shared; e.qSharedOk = shared;
-          const r = dtype === 'f16' ? await e.matmulT(a, w, mTokens, sh.k, sh.n, true)
-            : dtype === 'q8' ? await e.matmulQ8Shared(a, w.codes, w.sc, mTokens, sh.k, sh.n)
-            : await e.matmulQ4Shared(a, w.nib, w.sc, w.mn, mTokens, sh.k, sh.n);
-          e.f16SharedOk = true; e.qSharedOk = true;
-          return r;
-        };
-        // Pour q8/q4 les wrappers de readback ciblent explicitement le kernel tuilé : on compare donc
-        // au kernel 4-lignes via matmulQ8Tiled / matmulQ4Tiled (le repli réel du prefill).
-        const outTiled = await out(true);
-        const outRef = dtype === 'f16' ? await out(false)
-          : dtype === 'q8' ? await e.matmulQ8Tiled(a, w.codes, w.sc, mTokens, sh.k, sh.n)
-          : await e.matmulQ4Tiled(a, w.nib, w.sc, w.mn, mTokens, sh.k, sh.n);
-        for (const b of dtype === 'f16' ? [w] : Object.values(w)) (b as any).destroy?.();
-        let maxRel = 0;
-        for (let i = 0; i < outTiled.length; i++) {
-          maxRel = Math.max(maxRel, Math.abs(outTiled[i] - outRef[i]) / (1 + Math.abs(outRef[i])));
-        }
-        const gflop = (2 * mTokens * sh.k * sh.n) / 1e9;
-        results.push({
-          shape: sh.label,
-          tiledMs: +tiled.toFixed(2), fallbackMs: +fallback.toFixed(2),
-          speedup: +(fallback / tiled).toFixed(2),
-          tiledGflops: +(gflop / (tiled / 1000)).toFixed(1),
-          fallbackGflops: +(gflop / (fallback / 1000)).toFixed(1),
-          maxRel: +maxRel.toExponential(1),
-        });
-        console.log(`[gemm ${dtype}] ${sh.label} m=${mTokens} : tuilé ${tiled.toFixed(2)} ms vs repli ${fallback.toFixed(2)} ms (×${(fallback / tiled).toFixed(2)}), écart max ${maxRel.toExponential(1)}`);
-      }
-      e.destroy();
-      return { mTokens, dtype, results };
-    };
-  }, []);
-
   // Le hook de banc de tokenisation doit voir le modèle COURANT : dans l'effet de montage il
   // capturerait le tokenizer de la première render (null). Effet dédié, re-posé à chaque
   // changement de modèle/tokenizer.
