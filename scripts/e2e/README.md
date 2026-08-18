@@ -69,6 +69,24 @@ Il affiche la **longueur de prompt réellement vue par le moteur** à chaque tou
 décoratif : c'est la preuve qu'on mesure bien un prefill long. Un prompt court ne dit rien de cette
 phase — l'attention y croît en O(n²) quand le reste croît en O(n).
 
+### `flops.mjs` — le plafond de CALCUL de la machine
+
+Le pendant de `bandwidth.mjs` pour le prefill (compute-bound là où le décodage est memory-bound).
+Mesure le plafond FMA pur, puis des MAQUETTES de boucles internes de GEMM (rapport lectures
+partagées/FMA) — pour choisir la structure d'un kernel AVANT de l'écrire.
+
+```bash
+node scripts/e2e/flops.mjs    # autonome : sert sa propre page, n'exige pas next start
+```
+
+Relevé du 2026-08-18 (Apple, metal-3) : plafond FMA **2825 GFLOP/s** ; la boucle interne des
+GEMM v1 (6 lectures scalaires / 8 FMA) plafonne à **973** — exactement le débit des kernels réels —
+et le bloc 4×8 en vec4 à **1683**. C'est ce relevé qui a dicté `matmul_t_q8/q4_shared2`.
+⚠️ Une maquette dit le plafond d'une STRUCTURE, pas le gain d'un kernel : la première v2 écrite sur
+la foi de la maquette perdait ses écritures de composantes vec4 à indice dynamique (Metal les jette
+en silence), et la seconde (forme dot-produit) rendait ×0,91 — seule la troisième (produit
+extérieur + transposition en registres) a tenu la promesse. Le juge reste `bench-decode.mjs`.
+
 ### `validate-kernels.mjs` — la boucle courte quand on écrit un kernel
 
 Fait tourner `window.__selfValidate()` : exactement la validation que subit tout chargement de
