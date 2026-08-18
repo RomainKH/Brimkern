@@ -1,11 +1,14 @@
 "use client";
 
-// Coquille commune des pages de documentation (/docs, /docs/sdk) : le menu latéral collant qui
-// manquait — retour Romain du 2026-08-18 : la doc était « très vide », et « un menu sur le côté
-// c'est bien pour se retrouver ». Le menu porte deux choses : les PAGES de la doc (on est passé
-// d'une page unique à plusieurs) et les SECTIONS de la page courante, surlignées au défilement.
-// Sous 1000 px le latéral disparaît et le sommaire redevient la rangée de pastilles d'origine —
-// un latéral collant sur mobile mangerait la largeur de lecture.
+// Coquille commune des pages de documentation : le menu latéral collant. Deux itérations sur
+// retour Romain (2026-08-18) : d'abord « la doc est très vide, un menu sur le côté c'est bien pour
+// se retrouver » ; puis « les liens du latéral doivent emmener sur la page directement » — les
+// ancres de sections ressemblaient à de la navigation sans en être, et le texte était trop petit.
+// Le latéral porte donc de VRAIES pages (la doc est découpée), et le sommaire de la page courante
+// vit dans un second groupe « Sur cette page », dont les ancres défilent en `replaceState` : les
+// ancres n'empilent plus d'entrées d'historique, donc le bouton « Retour » d'une page visitée
+// ensuite (ex. le convertisseur) revient d'un coup, au lieu de rejouer chaque ancre cliquée.
+// Sous 1000 px le latéral disparaît et le sommaire redevient la rangée de pastilles d'origine.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -19,14 +22,17 @@ export interface TocEntry { id: string; label: string }
 // ── Briques de contenu partagées entre les pages de doc ──────────────────────────────────────────
 
 // Un bloc de code copiable, sobre (pas de dépendance de coloration syntaxique pour trois lignes).
+// Le fond vient de `.docs-code` (globals.css) : de l'encre, pour que les commandes RESSORTENT du
+// papier — les couleurs restent en CSS, où vivent leurs variantes clair/sombre.
 export function Code({ children }: { children: string }) {
   return (
     <pre
       tabIndex={0}
+      className="docs-code"
       style={{
         margin: '8px 0 0', padding: '12px 14px', borderRadius: 10, overflowX: 'auto',
-        background: 'var(--bg-code, var(--bg-sidebar))', border: '1px solid var(--border-color)',
-        fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-primary)',
+        border: '1px solid',
+        fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.6,
       }}
     >
       {children}
@@ -49,9 +55,19 @@ export function Section({ id, title, children }: { id: string; title: string; ch
   );
 }
 
+// Le titre + chapeau commun des pages de doc, pour que le découpage garde une seule voix.
+export function PageTitle({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <>
+      <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 800, lineHeight: 1.15, margin: '14px 0 10px', color: 'var(--text-primary)' }}>{title}</h1>
+      <P>{children}</P>
+    </>
+  );
+}
+
 // ── La coquille ───────────────────────────────────────────────────────────────────────────────────
 
-export default function DocsShell({ toc, children }: { toc: TocEntry[]; children: React.ReactNode }) {
+export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; children: React.ReactNode }) {
   const t = useT();
   const { locale, setLocale } = useLocale();
   const href = useHref();
@@ -60,16 +76,15 @@ export default function DocsShell({ toc, children }: { toc: TocEntry[]; children
   // /fr éventuel — on le retire pour comparer à la même clé dans les deux langues.
   const current = (pathname ?? '').replace(/^\/fr(?=\/|$)/, '') || '/';
 
-  // Scrollspy : la section courante est la DERNIÈRE dont le haut est passé au-dessus du tiers
-  // supérieur de l'écran. Un IntersectionObserver par section suffit — pas de listener scroll.
+  // Scrollspy : la section courante est celle dont le haut entre dans la bande 0-30 % du haut de
+  // l'écran. Un IntersectionObserver par section suffit — pas de listener scroll.
   const [active, setActive] = useState<string>(toc[0]?.id ?? '');
   useEffect(() => {
+    if (!toc.length) return;
     const obs = new IntersectionObserver(
       (entries) => {
         for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
       },
-      // La « ligne de lecture » : une section devient courante quand elle entre dans la bande
-      // 0-30 % du haut de l'écran. -70 % en bas replie la fenêtre d'observation sur cette bande.
       { rootMargin: '0px 0px -70% 0px' },
     );
     for (const s of toc) {
@@ -79,9 +94,25 @@ export default function DocsShell({ toc, children }: { toc: TocEntry[]; children
     return () => obs.disconnect();
   }, [toc]);
 
+  // Défilement d'ancre SANS entrée d'historique : un clic d'ancre natif fait un pushState, et après
+  // trois clics de sommaire le bouton « Retour » du navigateur (et notre BackLink, qui fait
+  // history.back()) rejouait chaque ancre au lieu de changer de page — le bug rapporté depuis le
+  // convertisseur. replaceState garde l'URL partageable sans polluer l'historique.
+  const versAncre = (id: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    document.getElementById(id)?.scrollIntoView();
+    history.replaceState(null, '', `#${id}`);
+  };
+
+  // Les PAGES de la doc — chaque libellé du menu emmène sur une vraie page. Les deux dernières
+  // existaient déjà hors de /docs : le menu les rend atteignables sans repasser par le hub.
   const pages: { path: string; label: string }[] = [
     { path: '/docs', label: t('Overview', "Vue d'ensemble") },
+    { path: '/docs/models', label: t('Models & the .brik format', 'Modèles & format .brik') },
     { path: '/docs/sdk', label: t('SDK & npm package', 'SDK & paquet npm') },
+    { path: '/docs/diagnostics', label: t('Diagnostics', 'Diagnostics') },
+    { path: '/vs-webllm', label: t('Compared to WebLLM', 'Comparé à WebLLM') },
+    { path: '/changelog', label: 'Changelog' },
   ];
 
   return (
@@ -107,29 +138,34 @@ export default function DocsShell({ toc, children }: { toc: TocEntry[]; children
               </Link>
             ))}
           </nav>
-          <nav className="docs-side-block" aria-label={t('On this page', 'Sur cette page')}>
-            <span className="docs-side-title">{t('On this page', 'Sur cette page')}</span>
-            {toc.map((s) => (
-              <a key={s.id} href={`#${s.id}`} className={`docs-side-link${active === s.id ? ' active' : ''}`}>
-                {s.label}
-              </a>
-            ))}
-          </nav>
+          {toc.length > 1 && (
+            <nav className="docs-side-block" aria-label={t('On this page', 'Sur cette page')}>
+              <span className="docs-side-title">{t('On this page', 'Sur cette page')}</span>
+              {toc.map((s) => (
+                <a key={s.id} href={`#${s.id}`} onClick={versAncre(s.id)} className={`docs-side-link${active === s.id ? ' active' : ''}`}>
+                  {s.label}
+                </a>
+              ))}
+            </nav>
+          )}
         </aside>
 
         <div className="docs-content">
           {/* Le sommaire mobile : mêmes ancres que le latéral, en pastilles, seulement < 1000 px. */}
-          <nav className="docs-chips" aria-label={t('Table of contents', 'Sommaire')}>
-            {toc.map((s) => (
-              <a
-                key={s.id}
-                href={`#${s.id}`}
-                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 999, textDecoration: 'none', color: 'var(--text-secondary)', background: 'var(--bg-card-hover, rgba(127,127,127,0.1))', border: '1px solid var(--border-color)' }}
-              >
-                {s.label}
-              </a>
-            ))}
-          </nav>
+          {toc.length > 1 && (
+            <nav className="docs-chips" aria-label={t('Table of contents', 'Sommaire')}>
+              {toc.map((s) => (
+                <a
+                  key={s.id}
+                  href={`#${s.id}`}
+                  onClick={versAncre(s.id)}
+                  style={{ fontSize: 12, padding: '4px 10px', borderRadius: 999, textDecoration: 'none', color: 'var(--text-secondary)', background: 'var(--bg-card-hover, rgba(127,127,127,0.1))', border: '1px solid var(--border-color)' }}
+                >
+                  {s.label}
+                </a>
+              ))}
+            </nav>
+          )}
           {children}
           <ByLine />
         </div>

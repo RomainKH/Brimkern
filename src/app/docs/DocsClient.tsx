@@ -1,19 +1,33 @@
 "use client";
 
-// Documentation UNIQUE du produit : tout ce qui était éparpillé (comment charger un modèle, les liens
-// de test instantané, le convertisseur BRIK, le SDK embarquable, les commutateurs de diagnostic) est
-// rassemblé ici. La coquille (menu latéral collant, sommaire mobile, briques P/Code/Section) vit dans
-// DocsShell — partagée avec /docs/sdk, la référence du paquet npm.
+// Vue d'ensemble de la documentation : le hub (toutes les portes du projet) + l'essentiel pour
+// démarrer. Les sujets de fond vivent sur leurs propres pages — /docs/models, /docs/sdk,
+// /docs/diagnostics — atteignables par le menu latéral (DocsShell) : retour Romain, les libellés
+// du menu doivent emmener sur une page, pas sur une ancre.
 //
 // Bilingue par le même mécanisme que le reste (t('EN','FR')) et servie sur les DEUX URLs (/docs et
 // /fr/docs) : une doc anglaise indexable est le point d'entrée des visiteurs venus de Hugging Face.
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { MessageSquare, Globe, Package, Info, Film, ArrowUpRight, Sparkles } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
 import GithubMark from '../GithubMark';
-import DocsShell, { Code, P, Section } from './DocsShell';
-import { SDK_URL, SITE_URL } from '@/lib/site';
+import DocsShell, { P, PageTitle, Section } from './DocsShell';
+
+// Les sections parties vivre sur leur propre page. Des liens vers les anciennes ancres de la page
+// unique (#brik, #sdk…) circulent depuis le 13/08 : on les honore en redirigeant vers la nouvelle
+// adresse plutôt que de laisser un lien qui « ne fait rien ».
+const ANCRES_DEPLACEES: Record<string, string> = {
+  'any-model': '/docs/models#any-model',
+  links: '/docs/models#links',
+  brik: '/docs/models#brik',
+  sdk: '/docs/sdk',
+  diagnostics: '/docs/diagnostics',
+  'vs-webllm': '/vs-webllm',
+  changelog: '/changelog',
+};
 
 // Une destination du projet. Le hub existe pour ça : sans lui, « où est le convertisseur ? », « où
 // est le SDK ? », « où sont les modèles publiés ? » n'avaient de réponse que dans une barre latérale
@@ -41,28 +55,28 @@ function NavCard({ href, icon, title, desc, external }: { href: string; icon: Re
 export default function DocsClient() {
   const t = useT();
   const href = useHref();
+  const router = useRouter();
+
+  // Redirection des ancres déplacées — `replace` pour ne pas laisser l'entrée intermédiaire dans
+  // l'historique (le bouton retour doit revenir d'où l'on venait, pas sur la redirection).
+  useEffect(() => {
+    const cible = ANCRES_DEPLACEES[window.location.hash.slice(1)];
+    if (cible) router.replace(href(cible));
+    // `href` change avec la locale mais l'ancre, elle, ne revient pas : un seul passage suffit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toc: { id: string; label: string }[] = [
     { id: 'start', label: t('Getting started', 'Démarrer') },
-    { id: 'any-model', label: t('Run any Hugging Face model', "N'importe quel modèle Hugging Face") },
-    { id: 'links', label: t('Instant test links', 'Liens de test instantané') },
-    { id: 'brik', label: t('The .brik format & converter', 'Le format .brik & le convertisseur') },
-    { id: 'sdk', label: t('Embeddable SDK', 'SDK embarquable') },
     { id: 'storage', label: t('Storage & offline', 'Stockage & hors-ligne') },
-    { id: 'diagnostics', label: t('Diagnostics', 'Diagnostics') },
-    { id: 'vs-webllm', label: t('Compared to WebLLM', 'Comparé à WebLLM') },
-    { id: 'changelog', label: 'Changelog' },
   ];
 
   return (
     <DocsShell toc={toc}>
-      <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 800, lineHeight: 1.15, margin: '14px 0 10px', color: 'var(--text-primary)' }}>
-        {t('Documentation', 'Documentation')}
-      </h1>
-      <P>
-        {t('Every part of the project, and how to use it: the chat, the embeddable SDK, the converter, the published models, the source. Reference notes below.',
-           "Toutes les briques du projet et comment s'en servir : le chat, le SDK embarquable, le convertisseur, les modèles publiés, le code source. Notes de référence en dessous.")}
-      </P>
+      <PageTitle title={t('Documentation', 'Documentation')}>
+        {t('Every part of the project, and how to use it: the chat, the embeddable SDK, the converter, the published models, the source. The side menu leads to each topic’s page.',
+           "Toutes les briques du projet et comment s'en servir : le chat, le SDK embarquable, le convertisseur, les modèles publiés, le code source. Le menu latéral mène à la page de chaque sujet.")}
+      </PageTitle>
 
       {/* ── LE HUB ─────────────────────────────────────────────────────────────────────────────
           Toutes les portes du projet au même endroit. C'est ce qui manquait : l'accueil mène au chat,
@@ -115,10 +129,6 @@ export default function DocsClient() {
         />
       </div>
 
-      <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 800, margin: '34px 0 4px', color: 'var(--text-primary)' }}>
-        {t('Reference', 'Référence')}
-      </h2>
-
       <Section id="start" title={t('Getting started', 'Démarrer')}>
         <P>
           {t('Open the app and click the single button on the home screen. The model streams in once (149 MB for the default), is cached on your device, and every later visit starts in seconds — offline included. Nothing is ever uploaded: the weights come down to your machine and the computation happens on your GPU.',
@@ -129,81 +139,12 @@ export default function DocsClient() {
           {t('a browser with WebGPU (Chrome, Edge, or Safari 18+). A discrete GPU helps for models above 1B parameters, but a laptop runs the small ones comfortably.',
              'un navigateur avec WebGPU (Chrome, Edge, ou Safari 18+). Un GPU dédié aide au-delà de 1 Md de paramètres, mais un portable fait tourner les petits modèles confortablement.')}
         </P>
-      </Section>
-
-      <Section id="any-model" title={t('Run any Hugging Face model', "N'importe quel modèle Hugging Face")}>
         <P>
-          {t('Brimkern reads single-file GGUF directly — the format the Hub already hosts, with no conversion or compilation step. Paste any of these into the field on the home screen (or in the model browser):',
-             "Brimkern lit directement les GGUF mono-fichier — le format que le Hub héberge déjà, sans étape de conversion ni de compilation. Collez n'importe laquelle de ces formes dans le champ de l'accueil (ou du navigateur de modèles) :")}
+          {t('To go further: ', 'Pour aller plus loin : ')}
+          <Link href={href('/docs/models')} style={{ color: 'var(--accent-text)' }}>{t('run any Hugging Face model', "charger n'importe quel modèle Hugging Face")}</Link>
+          {t(', or ', ', ou ')}
+          <Link href={href('/docs/sdk')} style={{ color: 'var(--accent-text)' }}>{t('put the assistant on your own site', 'poser l’assistant sur votre propre site')}</Link>.
         </P>
-        <Code>{`Qwen/Qwen3-0.6B-GGUF
-https://huggingface.co/Qwen/Qwen3-0.6B-GGUF
-https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q8_0.gguf
-https://example.com/my-model.gguf`}</Code>
-        <P>
-          {t('The best quantization is picked for you (Q4_K_M first, then Q4_K_S, Q5, Q8…), and the tokenizer follows the file — nothing to configure. Sharded GGUFs (-00001-of-0000N) and vision projectors (mmproj) are refused with an explicit message rather than half-loaded.',
-             "La meilleure quantification est choisie pour vous (Q4_K_M d'abord, puis Q4_K_S, Q5, Q8…), et le tokenizer suit le fichier — rien à régler. Les GGUF shardés (-00001-of-0000N) et les projecteurs vision (mmproj) sont refusés avec un message explicite plutôt que chargés à moitié.")}
-        </P>
-      </Section>
-
-      <Section id="links" title={t('Instant test links', 'Liens de test instantané')}>
-        <P>
-          {t('Any model can be turned into a link that loads it directly — handy to share a demo, to file a bug report, or to point a colleague at an exact quantization.',
-             "N'importe quel modèle peut devenir un lien qui le charge directement — pratique pour partager une démo, joindre un rapport de bug, ou renvoyer un collègue vers une quantification précise.")}
-        </P>
-        <Code>{`${SITE_URL}/chat?model=Qwen/Qwen3-0.6B-GGUF
-${SITE_URL}/chat?model=Qwen/Qwen3-0.6B-GGUF&file=Qwen3-0.6B-Q8_0.gguf
-${SITE_URL}/chat?gguf=https://example.com/model.gguf
-${SITE_URL}/chat?brik=https://example.com/model.brik`}</Code>
-        <P>
-          <code>?model=</code>{t(' resolves the repository through the Hub API and picks the best loadable file (a .brik wins over a GGUF). ', " interroge l'API du Hub et choisit le meilleur fichier chargeable (un .brik gagne sur un GGUF). ")}
-          <code>?file=</code>{t(' forces one exact quantization. ', ' force une quantification précise. ')}
-          <code>?gguf=</code>{t(' and ', ' et ')}<code>?brik=</code>{t(' take a direct URL, for models you host yourself.',
-            " prennent une URL directe, pour les modèles que vous hébergez vous-même.")}
-        </P>
-      </Section>
-
-      <Section id="brik" title={t('The .brik format & converter', 'Le format .brik & le convertisseur')}>
-        <P>
-          {t('A .brik is a GGUF re-packaged for the browser: weights already quantized to int4/int8, laid out so each layer is one contiguous HTTP range, with the tokenizer embedded. The practical effect: the model loads by ranges (resumable, partially, genuinely offline afterwards) instead of as one multi-gigabyte download.',
-             "Un .brik est un GGUF ré-empaqueté pour le navigateur : poids déjà quantifiés en int4/int8, disposés pour qu'une couche soit une seule plage HTTP contiguë, tokenizer embarqué. Effet concret : le modèle se charge par plages (reprise possible, partiellement, vraiment hors-ligne ensuite) au lieu d'un téléchargement de plusieurs gigaoctets.")}
-        </P>
-        <P>
-          {t('You can convert a GGUF yourself, in the browser — the file never leaves your machine: ', "Vous pouvez convertir un GGUF vous-même, dans le navigateur — le fichier ne quitte jamais votre machine : ")}
-          <Link href={href('/convert')} style={{ color: 'var(--accent-text)' }}>{t('open the converter', 'ouvrir le convertisseur')}</Link>.
-        </P>
-      </Section>
-
-      <Section id="sdk" title={t('Embeddable SDK', 'SDK embarquable')}>
-        <P>
-          {t('One script tag puts a local assistant on your own site. It runs on your visitor’s GPU: no server, no per-token cost, nothing sent anywhere.',
-             "Une balise script pose un assistant local sur votre site. Il tourne sur le GPU de votre visiteur : aucun serveur, aucun coût par token, rien n'est envoyé où que ce soit.")}
-        </P>
-        <Code>{`<script src="${SDK_URL}"></script>
-<script>
-  Brimkern.embed({
-    system: "You are the assistant of the Ferblanc store.",
-    title: "Ask us anything",
-    // Vos contenus. Découpés en passages, puis seuls les 1 à 3 passages proches de la
-    // question posée sont donnés au modèle. Le tri est LOCAL (lexical) : rien ne part.
-    knowledge: [
-      { title: "Opening hours", text: "Open Tuesday to Saturday, 10am to 7pm." },
-      { title: "Shipping", text: "Free in France from 60 euros. Switzerland: flat 8 euros." },
-    ],
-  });
-</script>`}</Code>
-        <P>
-          {t('The model only downloads when a visitor actually opens the widget, so your page speed is untouched. Knowledge documents stay on the page: they are chunked and ranked in the browser, and only the passages matching the question reach the model. ', "Le modèle ne se télécharge que lorsqu'un visiteur ouvre réellement le widget : votre vitesse de page reste intacte. Les documents de connaissance restent sur la page : ils sont découpés et classés dans le navigateur, et seuls les passages qui correspondent à la question atteignent le modèle. ")}
-          <Link href={href('/local-ai')} style={{ color: 'var(--accent-text)' }}>{t('Full SDK page and live demo', 'Page SDK complète et démo live')}</Link>.
-        </P>
-        <P>
-          {t('It is also an npm package — types included, and importing it on a server does nothing (Next, Remix, Astro are safe). The full API (embed, createSession, generate, preload, status) has its own reference page: ',
-             'C’est aussi un paquet npm — types inclus, et l’importer côté serveur ne fait rien (Next, Remix, Astro passent sans risque). L’API complète (embed, createSession, generate, preload, status) a sa page de référence : ')}
-          <Link href={href('/docs/sdk')} style={{ color: 'var(--accent-text)' }}>{t('SDK & npm package', 'SDK & paquet npm')}</Link>.
-        </P>
-        <Code>{`npm i brimkern
-
-import { embed, createSession } from 'brimkern';`}</Code>
       </Section>
 
       <Section id="storage" title={t('Storage & offline', 'Stockage & hors-ligne')}>
@@ -214,40 +155,6 @@ import { embed, createSession } from 'brimkern';`}</Code>
         <P>
           {t('Models you have not used for 30 days are cleaned up automatically (adjustable, or off, in the Storage panel). Conversations and locally converted .brik files are never touched.',
              "Les modèles inutilisés depuis 30 jours sont nettoyés automatiquement (réglable, ou désactivable, dans le panneau Stockage). Les conversations et les .brik convertis en local ne sont jamais touchés.")}
-        </P>
-      </Section>
-
-      <Section id="diagnostics" title={t('Diagnostics', 'Diagnostics')}>
-        <P>
-          {t('Every risky code path has a URL switch that falls back to the slower, simpler one. Handy to check whether an optimization is responsible for something odd — the answer should be identical, only slower.',
-             "Chaque chemin de code risqué a un commutateur d'URL qui revient à la version plus lente et plus simple. Pratique pour vérifier si une optimisation est responsable d'un comportement bizarre — la réponse doit être identique, seulement plus lente.")}
-        </P>
-        <Code>{`?gemv=0        ${t('decode matmul → row kernels', 'matmul de décodage → kernels par lignes')}
-?f16shared=0   ${t('f16 prefill GEMM → one row per thread', 'GEMM f16 du prefill → une ligne par thread')}
-?qshared=0     ${t('q4/q8 prefill GEMM → 4 rows per invocation', 'GEMM q4/q8 du prefill → 4 lignes par invocation')}
-?qshared2=0    ${t('q4/q8 prefill GEMM → v1 tiles (32×64)', 'GEMM q4/q8 du prefill → tuiles v1 (32×64)')}
-?warmup=0      ${t('no weight warm-up (first message pays it)', 'pas de préchauffe (le 1er message la paye)')}
-?ggufstream=0  ${t('GGUF as one download instead of ranges', 'GGUF en un seul téléchargement au lieu de plages')}
-?kvq=0         ${t('KV cache in f32 instead of int8', 'cache KV en f32 au lieu de int8')}
-?timing=1      ${t('per-stage timing of the forward pass, in the console', 'chronométrage du forward par étape, dans la console')}`}</Code>
-      </Section>
-
-      <Section id="vs-webllm" title={t('Compared to WebLLM', 'Comparé à WebLLM')}>
-        <P>
-          {t('If you already know WebLLM — the other WebGPU engine that runs a large language model client-side — the two differ on one decisive point: what you must do to a model before it can run. We read single-file GGUF straight from Hugging Face; WebLLM needs weights compiled with MLC/TVM first. ',
-             'Si vous connaissez déjà WebLLM — l’autre moteur WebGPU qui exécute un grand modèle de langage côté client — les deux diffèrent sur un point décisif : ce qu’il faut faire subir à un modèle avant qu’il tourne. Nous lisons les GGUF mono-fichier directement depuis Hugging Face ; WebLLM exige des poids compilés avec MLC/TVM. ')}
-          <Link href={href('/vs-webllm')} style={{ color: 'var(--accent-text)' }}>
-            {t('the measured comparison', 'la comparaison mesurée')}
-          </Link>
-          {t(' puts both throughputs side by side on the same GPU and the same model — including where WebLLM is ahead.',
-             ' met les deux débits côte à côte sur le même GPU et le même modèle — y compris là où WebLLM est devant.')}
-        </P>
-      </Section>
-
-      <Section id="changelog" title="Changelog">
-        <P>
-          {t('What changed, release by release, with the measurements behind each claim: ', 'Ce qui a changé, version par version, avec les mesures derrière chaque affirmation : ')}
-          <Link href={href('/changelog')} style={{ color: 'var(--accent-text)' }}>{t('read the changelog', 'lire le changelog')}</Link>.
         </P>
       </Section>
     </DocsShell>
