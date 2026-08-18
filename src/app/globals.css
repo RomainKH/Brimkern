@@ -1921,6 +1921,86 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   }
 }
 
+/* ══ COQUILLE DE LA DOC : le menu latéral ═════════════════════════════════════════════════════════
+   Deux colonnes au-dessus de 1000 px : un latéral COLLANT (pages de la doc + sections de la page,
+   surlignées au défilement) et le contenu, gardé à sa largeur de lecture d'origine. En dessous, le
+   latéral disparaît et `.docs-chips` (la rangée de pastilles historique) reprend le rôle de
+   sommaire — un latéral collant sur mobile mangerait la largeur de lecture. */
+.docs-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 48px;
+  margin-top: 8px;
+}
+
+.docs-content {
+  max-width: 760px;
+  min-width: 0; /* sinon les <pre> larges forcent la colonne au-delà du conteneur */
+  flex: 1;
+}
+
+.docs-side {
+  position: sticky;
+  top: 32px;
+  width: 208px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: 14px;
+  /* Si le menu dépasse l'écran (petites hauteurs), il défile lui-même au lieu de se couper. */
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+
+.docs-side-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.docs-side-title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.docs-side-link {
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 4px 10px;
+  border-left: 2px solid var(--border-color);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color .15s ease, border-color .15s ease;
+}
+
+.docs-side-link:hover {
+  color: var(--text-primary);
+}
+
+.docs-side-link.active {
+  color: var(--accent-text);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.docs-chips {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 6px;
+}
+
+@media (max-width: 1000px) {
+  .docs-side { display: none; }
+  .docs-chips { display: flex; }
+}
+
 /* ══ LE SCHÉMA DU MÉCANISME ══════════════════════════════════════════════════════════════════════
    Un diagramme fait de DOM plutôt qu'une image : il se traduit, il se lit au lecteur d'écran, il
    s'empile sur mobile et il ne pèse rien. Les connecteurs sont des bordures, pas des dessins. */

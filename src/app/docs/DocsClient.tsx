@@ -2,36 +2,18 @@
 
 // Documentation UNIQUE du produit : tout ce qui était éparpillé (comment charger un modèle, les liens
 // de test instantané, le convertisseur BRIK, le SDK embarquable, les commutateurs de diagnostic) est
-// rassemblé ici, avec un sommaire. Avant, ces sujets vivaient dans la barre latérale, dans des
-// info-bulles, ou nulle part — et les liens de la barre latérale allaient devoir bouger de toute
-// façon (retour Romain), donc autant leur donner une destination.
+// rassemblé ici. La coquille (menu latéral collant, sommaire mobile, briques P/Code/Section) vit dans
+// DocsShell — partagée avec /docs/sdk, la référence du paquet npm.
 //
 // Bilingue par le même mécanisme que le reste (t('EN','FR')) et servie sur les DEUX URLs (/docs et
 // /fr/docs) : une doc anglaise indexable est le point d'entrée des visiteurs venus de Hugging Face.
 
 import Link from 'next/link';
 import { MessageSquare, Globe, Package, Info, Film, ArrowUpRight, Sparkles } from 'lucide-react';
-import { useT, useLocale, useHref } from '@/lib/i18n';
-import ByLine from '../ByLine';
-import BackLink from '../BackLink';
+import { useT, useHref } from '@/lib/i18n';
 import GithubMark from '../GithubMark';
+import DocsShell, { Code, P, Section } from './DocsShell';
 import { SDK_URL, SITE_URL } from '@/lib/site';
-
-// Un bloc de code copiable, sobre (pas de dépendance de coloration syntaxique pour trois lignes).
-function Code({ children }: { children: string }) {
-  return (
-    <pre
-      tabIndex={0}
-      style={{
-        margin: '8px 0 0', padding: '12px 14px', borderRadius: 10, overflowX: 'auto',
-        background: 'var(--bg-code, var(--bg-sidebar))', border: '1px solid var(--border-color)',
-        fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-primary)',
-      }}
-    >
-      {children}
-    </pre>
-  );
-}
 
 // Une destination du projet. Le hub existe pour ça : sans lui, « où est le convertisseur ? », « où
 // est le SDK ? », « où sont les modèles publiés ? » n'avaient de réponse que dans une barre latérale
@@ -56,24 +38,8 @@ function NavCard({ href, icon, title, desc, external }: { href: string; icon: Re
     : <Link href={href} className="doc-card">{inner}</Link>;
 }
 
-// Paragraphe de doc. Défini au niveau MODULE (et non dans le composant) : une fonction composant
-// recréée à chaque rendu force React à démonter puis remonter le sous-arbre.
-function P({ children }: { children: React.ReactNode }) {
-  return <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-secondary)', margin: '0 0 10px' }}>{children}</p>;
-}
-
-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
-  return (
-    <section id={id} style={{ scrollMarginTop: 20 }}>
-      <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 800, margin: '38px 0 10px', color: 'var(--text-primary)' }}>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
 export default function DocsClient() {
   const t = useT();
-  const { locale, setLocale } = useLocale();
   const href = useHref();
 
   const toc: { id: string; label: string }[] = [
@@ -89,18 +55,7 @@ export default function DocsClient() {
   ];
 
   return (
-    <main style={{ maxWidth: 820, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-<BackLink />
-        <button
-          onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
-          aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
-          style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 6, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-        >
-          {locale === 'fr' ? 'EN' : 'FR'}
-        </button>
-      </div>
-
+    <DocsShell toc={toc}>
       <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 800, lineHeight: 1.15, margin: '14px 0 10px', color: 'var(--text-primary)' }}>
         {t('Documentation', 'Documentation')}
       </h1>
@@ -163,18 +118,6 @@ export default function DocsClient() {
       <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 800, margin: '34px 0 4px', color: 'var(--text-primary)' }}>
         {t('Reference', 'Référence')}
       </h2>
-      {/* Sommaire de la partie référence. */}
-      <nav aria-label={t('Table of contents', 'Sommaire')} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '18px 0 6px' }}>
-        {toc.map((s) => (
-          <a
-            key={s.id}
-            href={`#${s.id}`}
-            style={{ fontSize: 12, padding: '4px 10px', borderRadius: 999, textDecoration: 'none', color: 'var(--text-secondary)', background: 'var(--bg-card-hover, rgba(127,127,127,0.1))', border: '1px solid var(--border-color)' }}
-          >
-            {s.label}
-          </a>
-        ))}
-      </nav>
 
       <Section id="start" title={t('Getting started', 'Démarrer')}>
         <P>
@@ -254,15 +197,13 @@ ${SITE_URL}/chat?brik=https://example.com/model.brik`}</Code>
           <Link href={href('/local-ai')} style={{ color: 'var(--accent-text)' }}>{t('Full SDK page and live demo', 'Page SDK complète et démo live')}</Link>.
         </P>
         <P>
-          {t('It is also a package — types included, and importing it on a server does nothing (Next, Remix, Astro are safe):', 'C’est aussi un paquet — types inclus, et l’importer côté serveur ne fait rien (Next, Remix, Astro passent sans risque) :')}
+          {t('It is also an npm package — types included, and importing it on a server does nothing (Next, Remix, Astro are safe). The full API (embed, createSession, generate, preload, status) has its own reference page: ',
+             'C’est aussi un paquet npm — types inclus, et l’importer côté serveur ne fait rien (Next, Remix, Astro passent sans risque). L’API complète (embed, createSession, generate, preload, status) a sa page de référence : ')}
+          <Link href={href('/docs/sdk')} style={{ color: 'var(--accent-text)' }}>{t('SDK & npm package', 'SDK & paquet npm')}</Link>.
         </P>
         <Code>{`npm i brimkern
 
 import { embed, createSession } from 'brimkern';`}</Code>
-        <P>
-          {t('Pin a version if you would rather the widget did not change under your feet: ', 'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds : ')}
-          <code>{`${SITE_URL}/sdk-0.1.0.js`}</code>{t(' instead of ', ' au lieu de ')}<code>{`${SITE_URL}/sdk.js`}</code>.
-        </P>
       </Section>
 
       <Section id="storage" title={t('Storage & offline', 'Stockage & hors-ligne')}>
@@ -284,6 +225,7 @@ import { embed, createSession } from 'brimkern';`}</Code>
         <Code>{`?gemv=0        ${t('decode matmul → row kernels', 'matmul de décodage → kernels par lignes')}
 ?f16shared=0   ${t('f16 prefill GEMM → one row per thread', 'GEMM f16 du prefill → une ligne par thread')}
 ?qshared=0     ${t('q4/q8 prefill GEMM → 4 rows per invocation', 'GEMM q4/q8 du prefill → 4 lignes par invocation')}
+?qshared2=0    ${t('q4/q8 prefill GEMM → v1 tiles (32×64)', 'GEMM q4/q8 du prefill → tuiles v1 (32×64)')}
 ?warmup=0      ${t('no weight warm-up (first message pays it)', 'pas de préchauffe (le 1er message la paye)')}
 ?ggufstream=0  ${t('GGUF as one download instead of ranges', 'GGUF en un seul téléchargement au lieu de plages')}
 ?kvq=0         ${t('KV cache in f32 instead of int8', 'cache KV en f32 au lieu de int8')}
@@ -308,8 +250,6 @@ import { embed, createSession } from 'brimkern';`}</Code>
           <Link href={href('/changelog')} style={{ color: 'var(--accent-text)' }}>{t('read the changelog', 'lire le changelog')}</Link>.
         </P>
       </Section>
-
-      <ByLine />
-    </main>
+    </DocsShell>
   );
 }
