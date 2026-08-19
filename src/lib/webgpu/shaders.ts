@@ -2106,6 +2106,77 @@ export const SHADERS = {
 				}
 			}
 		}`,
+	// Convolutions 1×1 (les RACCOURCIS de resnet, dans le UNet comme dans le VAE) : elles n'entraient
+	// pas dans le chemin tuilé, qui exige 3×3 stride 1 pad 1, et retombaient sur conv2d_direct — un
+	// thread par élément de sortie, qui relit l'entrée depuis la mémoire globale pour CHAQUE canal de
+	// sortie, sans la moindre réutilisation. Une fois le 3×3 accéléré (×2,8), le profil les a mises à
+	// 18,8 % du GPU d'une génération : deuxième ligne du budget.
+	// Ici, pas de patch partagé (une sortie 1×1 ne lit qu'UN pixel d'entrée par canal) : ce qu'on
+	// partage, ce sont les POIDS. Par canal d'entrée et par thread : 1 lecture globale, 8 FMA.
+	// Mesuré avant écriture (scripts/e2e/conv.mjs, formes réelles) : direct = 153-176 GFLOP/s,
+	// bloc de 8 = ×3,15 à ×3,41 sur les raccourcis du UNet (×1,97 sur la forme très étalée du VAE,
+	// où la lecture de l'entrée domine).
+	conv2d_1x1_q8: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> bias: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> o: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn wq8(i: u32) -> f32 {
+			let q = f32(i32(codes[i >> 2u] << ((3u - (i & 3u)) * 8u)) >> 24u);
+			let si = i >> 5u;
+			let sw = sc[si >> 1u];
+			return q * f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
+		}
+		var<workgroup> wloc: array<f32, 256>;   // 8 canaux de sortie × 32 canaux d'entrée
+		@compute @workgroup_size(16, 16)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let co0 = wid.z * 8u;
+			let oy = wid.y * 16u + lid.y;
+			let ox = wid.x * 16u + lid.x;
+			let dedans = oy < p.OH && ox < p.OW;
+			let np = p.OH * p.OW;
+			let pos = oy * p.OW + ox;
+			let tid = lid.y * 16u + lid.x;
+			var acc: array<f32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
+			// Les poids par PAQUETS de 32 canaux d'entrée : une barrière tous les 32 ci au lieu d'une
+			// par ci (Cin monte à 1920 sur les raccourcis montants du UNet). Les 256 threads chargent
+			// exactement les 8×32 poids du paquet.
+			for (var cb = 0u; cb < p.Cin; cb = cb + 32u) {
+				let j = tid / 32u;
+				let k = tid % 32u;
+				let co = co0 + j;
+				let ci = cb + k;
+				wloc[tid] = select(0.0, wq8(co * p.Cin + ci), co < p.Cout && ci < p.Cin);
+				workgroupBarrier();
+				if (dedans) {
+					var fin = 32u;
+					if (p.Cin - cb < 32u) { fin = p.Cin - cb; }
+					// Une lecture globale par canal d'entrée, réutilisée pour les 8 canaux de sortie :
+					// c'est tout le gain (le kernel direct la relisait pour CHAQUE canal de sortie).
+					for (var k2 = 0u; k2 < fin; k2 = k2 + 1u) {
+						let v = inp[(cb + k2) * np + pos];
+						for (var j2 = 0u; j2 < 8u; j2 = j2 + 1u) { acc[j2] = acc[j2] + v * wloc[j2 * 32u + k2]; }
+					}
+				}
+				workgroupBarrier();
+			}
+			if (dedans) {
+				for (var j = 0u; j < 8u; j = j + 1u) {
+					let co = co0 + j;
+					if (co < p.Cout) { o[co * np + pos] = acc[j] + bias[co]; }
+				}
+			}
+		}`,
 
 	// Idem en int4 (tier « light » des BRIK image) : même structure, déquantification asymétrique
 	// (échelle + minimum par groupe de 32) reprise telle quelle de conv2d_direct_q4.
@@ -2185,6 +2256,70 @@ export const SHADERS = {
 				for (var j = 0u; j < 8u; j = j + 1u) {
 					let co = co0 + j;
 					if (co < p.Cout) { o[(co * p.OH + oy) * p.OW + ox] = acc[j] + bias[co]; }
+				}
+			}
+		}`,
+	conv2d_1x1_q4: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read> bias: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> o: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn wq4(i: u32) -> f32 {
+			let q = f32((nib[i >> 3u] >> ((i & 7u) * 4u)) & 0xFu);
+			let si = i >> 5u;
+			let half = (si & 1u) == 1u;
+			let s = f16d(select(sc[si >> 1u] & 0xFFFFu, sc[si >> 1u] >> 16u, half));
+			let m = f16d(select(mn[si >> 1u] & 0xFFFFu, mn[si >> 1u] >> 16u, half));
+			return q * s + m;
+		}
+		var<workgroup> wloc: array<f32, 256>;   // 8 canaux de sortie × 32 canaux d'entrée
+		@compute @workgroup_size(16, 16)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let co0 = wid.z * 8u;
+			let oy = wid.y * 16u + lid.y;
+			let ox = wid.x * 16u + lid.x;
+			let dedans = oy < p.OH && ox < p.OW;
+			let np = p.OH * p.OW;
+			let pos = oy * p.OW + ox;
+			let tid = lid.y * 16u + lid.x;
+			var acc: array<f32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
+			// Les poids par PAQUETS de 32 canaux d'entrée : une barrière tous les 32 ci au lieu d'une
+			// par ci (Cin monte à 1920 sur les raccourcis montants du UNet). Les 256 threads chargent
+			// exactement les 8×32 poids du paquet.
+			for (var cb = 0u; cb < p.Cin; cb = cb + 32u) {
+				let j = tid / 32u;
+				let k = tid % 32u;
+				let co = co0 + j;
+				let ci = cb + k;
+				wloc[tid] = select(0.0, wq4(co * p.Cin + ci), co < p.Cout && ci < p.Cin);
+				workgroupBarrier();
+				if (dedans) {
+					var fin = 32u;
+					if (p.Cin - cb < 32u) { fin = p.Cin - cb; }
+					// Une lecture globale par canal d'entrée, réutilisée pour les 8 canaux de sortie :
+					// c'est tout le gain (le kernel direct la relisait pour CHAQUE canal de sortie).
+					for (var k2 = 0u; k2 < fin; k2 = k2 + 1u) {
+						let v = inp[(cb + k2) * np + pos];
+						for (var j2 = 0u; j2 < 8u; j2 = j2 + 1u) { acc[j2] = acc[j2] + v * wloc[j2 * 32u + k2]; }
+					}
+				}
+				workgroupBarrier();
+			}
+			if (dedans) {
+				for (var j = 0u; j < 8u; j = j + 1u) {
+					let co = co0 + j;
+					if (co < p.Cout) { o[co * np + pos] = acc[j] + bias[co]; }
 				}
 			}
 		}`,

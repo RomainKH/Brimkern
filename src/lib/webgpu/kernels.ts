@@ -1485,6 +1485,13 @@ export class WebGpuEngine {
 			trash.push(p, outT);
 			return outT;
 		}
+		// Raccourcis de resnet (1×1) : même blocage par canaux de sortie, sans patch partagé.
+		if (kh === 1 && kw === 1 && stride === 1 && pad === 0 && this.convTiledQOk) {
+			const out1 = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_1x1_q8', [p, inp, q8.codes, q8.sc, bias, out1], [Math.ceil(OW / 16), Math.ceil(OH / 16), Math.ceil(Cout / 8)]);
+			trash.push(p, out1);
+			return out1;
+		}
 		const out = this.storage(n * 4);
 		this.recordPass(enc, 'conv2d_direct_q8', [p, inp, q8.codes, q8.sc, bias, out], this.grid1D(n));
 		trash.push(p, out);
@@ -1502,6 +1509,12 @@ export class WebGpuEngine {
 			this.recordPass(enc, 'conv2d_3x3_tiled_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Math.ceil(Cout / 8)]);
 			trash.push(p, outT);
 			return outT;
+		}
+		if (kh === 1 && kw === 1 && stride === 1 && pad === 0 && this.convTiledQOk) {
+			const out1 = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_1x1_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, out1], [Math.ceil(OW / 16), Math.ceil(OH / 16), Math.ceil(Cout / 8)]);
+			trash.push(p, out1);
+			return out1;
 		}
 		const out = this.storage(n * 4);
 		this.recordPass(enc, 'conv2d_direct_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, out], this.grid1D(n));
@@ -4057,6 +4070,36 @@ export class WebGpuEngine {
 			this.convTiledQOk = savedQT;
 			this.releaseGpu([q4.nib, q4.sc, q4.mn]);
 			if (!closeRel(got, qref)) return 'conv2d_direct_q4';
+		}
+
+		// conv2d_1x1_q8 / _q4 vs le kernel direct, sur une forme qui exerce les deux restes : Cout = 12
+		// n'est pas multiple de 8 (bloc de sortie incomplet) et Cin = 40 ne l'est pas de 32 (paquet de
+		// poids incomplet). Poids : 12·40 = 480 = 15×32, la contrainte de groupe de q8web/q4web.
+		{
+			const oCin = 40, oCout = 12, oH = 20, oW = 20;
+			const ox = rand(oCin * oH * oW), ow = rand(oCout * oCin), ob = rand(oCout);
+			const savedQT = this.convTiledQOk;
+			for (const prec of ['q8', 'q4'] as const) {
+				const packed = prec === 'q8'
+					? (() => { const q = quantizeQ8(ow); return { deq: dequantizeQ8(q), gpu: {
+						codes: this.uploadGpuRaw(new Uint8Array(q.codes.buffer, q.codes.byteOffset, q.codes.byteLength)),
+						sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)) } }; })()
+					: (() => { const q = quantizeQ4(ow); return { deq: dequantizeQ4(q), gpu: {
+						nib: this.uploadGpuRaw(q.nibbles),
+						sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)),
+						mn: this.uploadGpuRaw(new Uint8Array(q.mins.buffer, q.mins.byteOffset, q.mins.byteLength)) } }; })();
+				const ref = await this.conv2dDirect(ox, packed.deq, ob, oCin, oH, oW, oCout, 1, 1, 1, 0);
+				this.convTiledQOk = true;
+				const ss = this.recordingSession();
+				const got = await ss.finish(ss.conv2d(ox, packed.gpu as never, ob, oCin, oH, oW, oCout, 1, 1, 1, 0), oCout * oH * oW);
+				this.releaseGpu(Object.values(packed.gpu));
+				if (!closeRel(got, ref)) {
+					if (savedQT) console.warn(`[selfValidate] conv2d_1x1_${prec} KO sur ce GPU : repli sur conv2d_direct_${prec}.`);
+					this.convTiledQOk = false;
+					break;
+				}
+			}
+			this.convTiledQOk = this.convTiledQOk && savedQT;
 		}
 
 		// conv2d_3x3_tiled_q8 / _q4 vs leur homologue DIRECT — le kernel qui porte 70 % du GPU d'une

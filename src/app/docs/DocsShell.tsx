@@ -10,13 +10,19 @@
 // ensuite (ex. le convertisseur) revient d'un coup, au lieu de rejouer chaque ancre cliquée.
 // Sous 1000 px le latéral disparaît et le sommaire redevient la rangée de pastilles d'origine.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useT, useLocale, useHref } from '@/lib/i18n';
 import ByLine from '../ByLine';
 
 export interface TocEntry { id: string; label: string }
+
+// La ligne de lecture, en pixels sous le haut de la fenêtre. Volontairement HAUTE et non « au tiers
+// de l'écran » : deux sections courtes (« Démarrer » et « Stockage & hors-ligne » sur /docs)
+// tiennent toutes les deux au-dessus d'un tiers d'écran, et c'est la seconde qui l'emportait alors
+// qu'on regarde la première. Mesuré, puis corrigé.
+const LIGNE = 90;
 
 // ── Briques de contenu partagées entre les pages de doc ──────────────────────────────────────────
 
@@ -137,32 +143,75 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
   // /fr éventuel — on le retire pour comparer à la même clé dans les deux langues.
   const current = (pathname ?? '').replace(/^\/fr(?=\/|$)/, '') || '/';
 
-  // Scrollspy : la section courante est celle dont le haut entre dans la bande 0-30 % du haut de
-  // l'écran. Un IntersectionObserver par section suffit — pas de listener scroll.
+  // Scrollspy : la section active est la DERNIÈRE dont le titre est passé au-dessus d'une ligne de
+  // lecture fixée au tiers supérieur de l'écran.
+  //
+  // Ce qui rendait cette règle fausse et comment c'est réglé : les dernières sections d'une page
+  // n'atteignaient jamais ce tiers, faute de défilement disponible en fin de document — elles ne
+  // devenaient donc jamais actives (signalé sur « Stockage & hors-ligne », puis sur « Versions & CDN »
+  // et « Serveur, licence, liens »). Une ligne qui GLISSE vers le bas corrige la dernière mais
+  // déborde sur l'avant-dernière. La bonne réponse n'est pas dans la règle, elle est dans la page :
+  // la page réserve EXACTEMENT l'espace nécessaire en bas (la cale ci-dessous) pour que la dernière
+  // section puisse monter jusqu'à la ligne. La règle redevient alors simple, et juste pour toutes.
+  //
+  // ⚠️ Et SURTOUT pas de « si on est en bas, prendre la dernière » par-dessus : avec la marge, une
+  // page courte est déjà au bout du document quand on regarde sa PREMIÈRE section, et ce filet
+  // surlignait alors la dernière. Il a fallu le retirer après l'avoir mesuré.
   const [active, setActive] = useState<string>(toc[0]?.id ?? '');
   useEffect(() => {
     if (!toc.length) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
-      },
-      { rootMargin: '0px 0px -70% 0px' },
-    );
-    for (const s of toc) {
-      const el = document.getElementById(s.id);
-      if (el) obs.observe(el);
-    }
-    return () => obs.disconnect();
+    const relire = () => {
+      const ligne = LIGNE;
+      let courante = toc[0].id;
+      for (const s of toc) {
+        const el = document.getElementById(s.id);
+        if (el && el.getBoundingClientRect().top <= ligne) courante = s.id;
+      }
+      setActive(courante);
+    };
+    relire();
+    window.addEventListener('scroll', relire, { passive: true });
+    window.addEventListener('resize', relire);
+    return () => { window.removeEventListener('scroll', relire); window.removeEventListener('resize', relire); };
   }, [toc]);
 
   // Défilement d'ancre SANS entrée d'historique : un clic d'ancre natif fait un pushState, et après
   // trois clics de sommaire le bouton « Retour » du navigateur (et notre BackLink, qui fait
   // history.back()) rejouait chaque ancre au lieu de changer de page — le bug rapporté depuis le
   // convertisseur. replaceState garde l'URL partageable sans polluer l'historique.
+  // La CALE de fin de page. Une marge fixe ne marche pas : sur /docs le document fait 1 406 px pour
+  // une fenêtre de 900, donc au maximum du défilement la dernière section reste à 212 px du haut et
+  // ne franchit jamais la ligne de lecture (mesuré). On calcule donc l'espace qui MANQUE, à partir
+  // de la hauteur réelle de tout ce qui suit le dernier titre.
+  const caleRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!toc.length) return;
+    const ajuster = () => {
+      const cale = caleRef.current;
+      const dernier = document.getElementById(toc[toc.length - 1].id);
+      if (!cale || !dernier) return;
+      cale.style.height = '0px';
+      const apres = document.documentElement.scrollHeight - (dernier.getBoundingClientRect().top + window.scrollY);
+      // +12 px de jeu : sans lui la dernière section atterrit EXACTEMENT sur la ligne (90,0 px
+      // mesuré), et le sous-pixel la fait basculer du mauvais côté de la comparaison.
+      cale.style.height = `${Math.max(0, Math.round(window.innerHeight - LIGNE - apres + 12))}px`;
+    };
+    ajuster();
+    // Les polices et les images changent les hauteurs après le premier rendu : on re-mesure une fois
+    // le temps qu'elles arrivent, plutôt que de figer une valeur fausse.
+    const t = setTimeout(ajuster, 400);
+    window.addEventListener('resize', ajuster);
+    return () => { clearTimeout(t); window.removeEventListener('resize', ajuster); };
+  }, [toc]);
+
   const versAncre = (id: string) => (e: React.MouseEvent) => {
     e.preventDefault();
     document.getElementById(id)?.scrollIntoView();
     history.replaceState(null, '', `#${id}`);
+    // On surligne SANS attendre l'observateur : sur une page courte, la dernière section n'atteint
+    // jamais la bande de lecture (le document n'a plus de quoi défiler), donc l'observateur ne se
+    // déclencherait pas et le clic resterait sans effet visible.
+    setActive(id);
   };
 
   // Les PAGES de la doc — chaque libellé du menu emmène sur une vraie page. Les deux dernières
@@ -231,6 +280,8 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
           )}
           {children}
           <ByLine />
+          {/* Cale : voir plus haut. Hauteur posée en JS, donc nulle tant que rien ne manque. */}
+          <div ref={caleRef} aria-hidden />
         </div>
       </div>
     </main>

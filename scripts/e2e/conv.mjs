@@ -211,6 +211,127 @@ const res = await page.evaluate(async () => {
     }
     for (const b of [inp, wt, bias, o, uni]) b.destroy();
   }
+
+  // ── CONVOLUTIONS 1×1 ────────────────────────────────────────────────────────────────────────────
+  // Les raccourcis de resnet (UNet et VAE) sont des convs 1×1 : elles ne passent PAS par le chemin
+  // tuilé (qui exige 3×3 stride 1 pad 1) et retombent sur conv2d_direct, un thread par élément de
+  // sortie qui relit l'entrée depuis la mémoire globale à chaque canal, sans la moindre réutilisation.
+  // Le profil du 2026-08-19 les met à 18,8 % du GPU d'une génération une fois le 3×3 accéléré.
+  const DIRECT11 = `${ENTETE}
+    @compute @workgroup_size(64)
+    fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+      let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+      let np = p.OH * p.OW;
+      if (idx >= p.Cout * np) { return; }
+      let pos = idx % np;
+      let co = idx / np;
+      var acc = bias[co];
+      for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
+        acc = acc + inp[ci * np + pos] * wt[co * p.Cin + ci];
+      }
+      o[idx] = acc;
+    }`;
+
+  // Bloc de 8 canaux de sortie. Pas de patch partagé ici (chaque sortie ne lit qu'UN pixel d'entrée
+  // par canal) : ce qu'on partage, ce sont les POIDS, par paquets de 32 canaux d'entrée pour ne pas
+  // payer une barrière à chaque ci. Par ci et par thread : 1 lecture globale, 8 FMA.
+  const BLOC11 = `${ENTETE}
+    var<workgroup> wloc: array<f32, 256>;   // 8 canaux de sortie × 32 canaux d'entrée
+    @compute @workgroup_size(16, 16)
+    fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+      let co0 = wid.z * 8u;
+      let oy = wid.y * 16u + lid.y;
+      let ox = wid.x * 16u + lid.x;
+      let dedans = oy < p.OH && ox < p.OW;
+      let np = p.OH * p.OW;
+      let pos = oy * p.OW + ox;
+      let tid = lid.y * 16u + lid.x;
+      var acc: array<f32, 8>;
+      for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
+      for (var cb = 0u; cb < p.Cin; cb = cb + 32u) {
+        let j = tid / 32u; let k = tid % 32u;
+        let co = co0 + j; let ci = cb + k;
+        wloc[tid] = select(0.0, wt[co * p.Cin + ci], co < p.Cout && ci < p.Cin);
+        workgroupBarrier();
+        if (dedans) {
+          let fin = min(32u, p.Cin - cb);
+          for (var k2 = 0u; k2 < fin; k2 = k2 + 1u) {
+            let v = inp[(cb + k2) * np + pos];
+            for (var j2 = 0u; j2 < 8u; j2 = j2 + 1u) { acc[j2] = acc[j2] + v * wloc[j2 * 32u + k2]; }
+          }
+        }
+        workgroupBarrier();
+      }
+      if (dedans) {
+        for (var j = 0u; j < 8u; j = j + 1u) {
+          let co = co0 + j;
+          if (co < p.Cout) { o[co * np + pos] = acc[j] + bias[co]; }
+        }
+      }
+    }`;
+
+  // Formes RÉELLES de raccourcis (UNet à 512px, puis VAE).
+  const FORMES11 = [
+    { Cin: 320,  Cout: 640,  H: 32,  W: 32,  label: '320→640 @ 32²   (UNet desc.)' },
+    { Cin: 1920, Cout: 1280, H: 16,  W: 16,  label: '1920→1280 @ 16² (UNet mont.)' },
+    { Cin: 960,  Cout: 640,  H: 32,  W: 32,  label: '960→640 @ 32²   (UNet mont.)' },
+    { Cin: 512,  Cout: 256,  H: 256, W: 256, label: '512→256 @ 256²  (VAE up2)' },
+  ];
+  const VARIANTES11 = [
+    { nom: 'direct (actuel)', code: DIRECT11, n: 1, wg1d: true },
+    { nom: 'bloc 8 canaux', code: BLOC11, n: 8, wg1d: false },
+  ];
+  for (const f of FORMES11) {
+    const nIn = f.Cin * f.H * f.W, nOut = f.Cout * f.H * f.W, nW = f.Cout * f.Cin;
+    const maxB = device.limits.maxStorageBufferBindingSize;
+    if (Math.max(nIn, nOut, nW) * 4 > maxB) { out.push({ shape: f.label, nom: '—', gflops: 0, note: 'trop gros' }); continue; }
+    const inp = device.createBuffer({ size: nIn * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    const wt = device.createBuffer({ size: nW * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    const bias = device.createBuffer({ size: f.Cout * 4, usage: GPUBufferUsage.STORAGE });
+    const o = device.createBuffer({ size: nOut * 4, usage: GPUBufferUsage.STORAGE });
+    const uni = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(uni, 0, new Uint32Array([f.Cin, f.H, f.W, f.Cout, 1, 1, 1, 0, f.H, f.W]));
+    device.queue.writeBuffer(inp, 0, new Float32Array(Math.min(nIn, 1 << 20)).fill(0.21));
+    device.queue.writeBuffer(wt, 0, new Float32Array(Math.min(nW, 1 << 20)).fill(0.03));
+    const flop = 2 * f.Cin * f.Cout * f.H * f.W;
+    for (const v of VARIANTES11) {
+      const mod = device.createShaderModule({ code: v.code });
+      const pipeline = device.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'main' } });
+      const bind = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: uni } }, { binding: 1, resource: { buffer: inp } },
+          { binding: 2, resource: { buffer: wt } }, { binding: 3, resource: { buffer: bias } },
+          { binding: 4, resource: { buffer: o } },
+        ],
+      });
+      const once = () => {
+        const enc = device.createCommandEncoder();
+        const pass = enc.beginComputePass();
+        pass.setPipeline(pipeline); pass.setBindGroup(0, bind);
+        if (v.wg1d) {
+          const wg = Math.ceil((f.Cout * f.H * f.W) / 64);
+          pass.dispatchWorkgroups(Math.min(wg, 65535), Math.ceil(wg / 65535), 1);
+        } else {
+          pass.dispatchWorkgroups(Math.ceil(f.W / 16), Math.ceil(f.H / 16), Math.ceil(f.Cout / 8));
+        }
+        pass.end();
+        device.queue.submit([enc.finish()]);
+      };
+      once(); await device.queue.onSubmittedWorkDone();
+      const tirs = [];
+      for (let s2 = 0; s2 < 3; s2++) {
+        const t0 = performance.now();
+        for (let i = 0; i < 3; i++) once();
+        await device.queue.onSubmittedWorkDone();
+        tirs.push((flop * 3) / ((performance.now() - t0) / 1000) / 1e9);
+      }
+      tirs.sort((a, b) => a - b);
+      out.push({ shape: f.label, nom: v.nom, gflops: tirs[1], onze: true });
+    }
+    for (const b of [inp, wt, bias, o, uni]) b.destroy();
+  }
+
   return { info: { vendor: info.vendor, architecture: info.architecture }, out };
 });
 
@@ -221,7 +342,7 @@ console.log('|' + '-'.repeat(31) + '|' + '-'.repeat(17) + '|---------|------|');
 let base = 0;
 for (const r of res.out) {
   if (r.note) { console.log(('| ' + r.shape).padEnd(32) + '| ' + r.note); continue; }
-  if (r.nom.startsWith('cout1')) base = r.gflops;
+  if (r.nom.startsWith('cout1') || r.nom.startsWith('direct')) base = r.gflops;
   const gain = base ? (r.gflops / base).toFixed(2) + '×' : '';
   console.log(('| ' + r.shape).padEnd(32) + ('| ' + r.nom).padEnd(18) + '| ' + r.gflops.toFixed(0).padStart(7) + ' | ' + gain.padStart(5) + ' |');
 }
