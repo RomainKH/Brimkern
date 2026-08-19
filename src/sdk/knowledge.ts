@@ -206,14 +206,22 @@ export function buildIdf(chunks: Chunk[]): Map<string, number> {
  * Diversifie par document tant que c'est possible (deux passages du même document se répètent
  * souvent), et n'accepte QUE ce qui dépasse un seuil : mieux vaut zéro passage qu'un hors sujet.
  */
-export function selectChunks(question: string, chunks: Chunk[], maxChars = 1200, maxChunks = 3, seuil = 0.22): Chunk[] {
+export function selectChunks(question: string, chunks: Chunk[], maxChars = 1200, maxChunks = 3, seuil = 0.22, relatif = 0.5): Chunk[] {
 	const q = terms(question);
 	if (!q.length || !chunks.length) return [];
 	const idf = buildIdf(chunks);
-	const notes = chunks
+	const bruts = chunks
 		.map((c) => ({ c, s: scoreChunk(q, c, idf) }))
 		.filter((x) => x.s >= seuil)
 		.sort((a, b) => b.s - a.s);
+	// PLANCHER RELATIF au meilleur passage. Le seuil absolu ne peut pas trancher entre « pertinent »
+	// et « contient un mot en commun » : « la livraison est gratuite à partir de combien ? » retenait
+	// la fiche Livraison (0,695) ET la fiche Retours (0,228, pour le seul mot « gratuits »), et le
+	// modèle répondait depuis la seconde (mesuré sur /sdk-demo). Un passage à un tiers du score du
+	// meilleur est du bruit, quel que soit le seuil absolu — et deux notes valent mieux qu'une
+	// seulement quand elles sont vraiment comparables, ce que ce rapport exprime directement.
+	const plancher = bruts.length ? bruts[0].s * relatif : 0;
+	const notes = bruts.filter((x) => x.s >= plancher);
 	const pris: Chunk[] = [];
 	const docsVus = new Set<number>();
 	let budget = maxChars;
@@ -243,17 +251,26 @@ export function isGreetingOrChitchat(q: string): boolean {
  * « uniquement à partir des notes », un petit modèle complète avec ce qu'il croit savoir — et une
  * réponse inventée sur le contenu d'un client est pire que « je ne sais pas ».
  */
-export function buildKnowledgeBlock(chunks: Chunk[], query?: string): string {
+export function buildKnowledgeBlock(chunks: Chunk[], query?: string, fr = false): string {
 	if (query && isGreetingOrChitchat(query)) {
 		return '';
 	}
+	// La consigne suit la LANGUE de la session. Elle était en anglais dans tous les cas : sur une
+	// boutique française, le modèle de 230 M répondait « Yes, the returns are always free. » à une
+	// question française (mesuré sur /sdk-demo le 2026-08-19). À cette taille, la langue de la
+	// dernière instruction lue pèse plus que celle de la question.
 	if (!chunks.length) {
-		return '\n\nNo reference note matches this question. Say that you do not have this information: do not guess.';
+		return fr
+			? '\n\nAucune fiche de référence ne correspond à cette question. Dis que tu n’as pas cette information : ne devine pas.'
+			: '\n\nNo reference note matches this question. Say that you do not have this information: do not guess.';
 	}
 	const notes = chunks
 		.map((c, i) => `[${i + 1}]${c.title ? ` ${c.title}` : ''}\n${c.text}`)
 		.join('\n\n');
-	return `\n\nAnswer using ONLY the reference notes below. If the answer is not in them, say you do not have that information: never fill the gap with what you assume.\n\n--- NOTES ---\n${notes}\n--- END OF NOTES ---`;
+	const consigne = fr
+		? 'Réponds UNIQUEMENT à partir des fiches ci-dessous, en français. Reprends leurs chiffres exactement. Si la réponse n’y est pas, dis que tu n’as pas cette information : n’invente jamais pour combler.'
+		: 'Answer using ONLY the reference notes below. If the answer is not in them, say you do not have that information: never fill the gap with what you assume.';
+	return `\n\n${consigne}\n\n--- NOTES ---\n${notes}\n--- END OF NOTES ---`;
 }
 
 /** Normalise ce que l'intégrateur passe : une chaîne, un objet, ou un mélange des deux. */

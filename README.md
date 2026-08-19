@@ -179,7 +179,7 @@ embed({
 ```
 
 The model downloads only when a visitor actually opens the widget, so your page speed is untouched.
-Pin a version with `https://brimkern.com/sdk-0.1.0.js` if you don't want the widget changing under
+Pin a version with `https://brimkern.com/sdk-0.1.2.js` if you don't want the widget changing under
 your feet. Live pitch page and working demo at
 [brimkern.com/local-ai](https://brimkern.com/local-ai).
 *(SDK v0: widget, LFM2 `.brik` model URL, colours & wording, few-shot examples, knowledge

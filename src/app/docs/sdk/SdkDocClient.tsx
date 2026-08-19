@@ -156,11 +156,11 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
           {t('Pin a version if you would rather the widget did not change under your feet:',
              'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds :')}
         </P>
-        <Code lang="url">{`${SITE_URL}/sdk-0.1.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
+        <Code lang="url">{`${SITE_URL}/sdk-0.1.2.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
 
 <!-- ${t('or from the npm CDNs', 'ou depuis les CDN npm')} -->
-https://unpkg.com/brimkern@0.1.0/dist/brimkern.iife.js
-https://cdn.jsdelivr.net/npm/brimkern@0.1.0/dist/brimkern.iife.js`}</Code>
+https://unpkg.com/brimkern@0.1.2/dist/brimkern.iife.js
+https://cdn.jsdelivr.net/npm/brimkern@0.1.2/dist/brimkern.iife.js`}</Code>
       </Section>
 
       <Section id="server" title={t('Servers, licence, links', 'Serveur, licence, liens')}>

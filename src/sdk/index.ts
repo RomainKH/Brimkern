@@ -80,6 +80,7 @@ export interface EmbedConfig {
   knowledge?: SessionConfig['knowledge'];
   knowledgeBudget?: number;
   examples?: SessionConfig['examples'];  // few-shot : le seul levier de TON efficace sur un 230M
+  lang?: SessionConfig['lang'];          // langue des consignes/exemples ; devinée du prompt si absente
   worker?: SessionConfig['worker'];
   workerUrl?: SessionConfig['workerUrl'];
 }
@@ -103,6 +104,12 @@ export interface SessionConfig {
   knowledge?: string | { title?: string; text: string } | Array<string | { title?: string; text: string }>;
   // Budget de caractères des passages injectés par tour (défaut 1200 ≈ 300 tokens).
   knowledgeBudget?: number;
+  // LANGUE des consignes et des exemples de démonstration ('fr' | 'en'). Absente, elle est DEVINÉE
+  // depuis le prompt système (accents, quelques mots courants) — ce qui suffit dans la pratique mais
+  // reste une heuristique : un prompt français sans accent ni mot repère basculerait en anglais, et
+  // le modèle par défaut répond alors dans la langue de la consigne, pas de la question. À déclarer
+  // explicitement si votre prompt est atypique.
+  lang?: 'fr' | 'en';
   // Inférence dans un Web Worker. **Défaut : false**, et c'est un choix mesuré, pas un oubli : sur
   // le modèle par défaut (230M), le banc ne relève AUCUNE frame perdue sur la page hôte dans l'un ou
   // l'autre bras — la boucle de décodage attend un readback GPU par token et rend donc la main au
@@ -122,7 +129,7 @@ export interface AskOptions {
 
 
 // notes.
-function makeSystemBuilder(cfg: { system?: string; knowledge?: SessionConfig['knowledge']; knowledgeBudget?: number; examples?: { user: string; assistant: string }[] }): {
+function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'knowledgeBudget' | 'examples' | 'lang'>): {
 	system: (q: string) => string;
 	/** Le message réellement envoyé au modèle pour ce tour (notes + question). L'historique affiché, lui, garde la question seule. */
 	userTurn: (q: string) => string;
@@ -135,14 +142,19 @@ function makeSystemBuilder(cfg: { system?: string; knowledge?: SessionConfig['kn
 	if (!cfg.knowledge) return { system: () => base, userTurn: (q) => q, pinned: epingler(cfg.examples || []) };
 	const chunks: Chunk[] = chunkDocuments(normalizeDocs(cfg.knowledge));
 	const budget = cfg.knowledgeBudget ?? 1200;
-	const isFr = cfg.system ? /[àéèêîôùç]|bonjour|conseiller|boutique|aide/i.test(cfg.system) : false;
+	// `lang` déclaré fait foi ; sinon on devine. L'heuristique cherche des accents ou des mots
+	// français fréquents dans le prompt système — bornés par \b, sans quoi « aide » matchait à
+	// l'intérieur de mots anglais (« maiden »).
+	const isFr = cfg.lang ? cfg.lang === 'fr'
+		: cfg.system ? /[àâäéèêëîïôöùûüç]|\b(?:bonjour|salut|vous|tu|réponds|conseiller|boutique|aide|aidez|client|magasin)\b/i.test(cfg.system)
+		: false;
 	const consigne = isFr
 		? base + '\n\nLe message utilisateur peut inclure des fiches de référence entre des balises ---. Dans ce cas, réponds uniquement à partir de ces fiches en citant fidèlement leurs informations dans la langue de la question. Si aucune note ne correspond, indique poliment que tu n’as pas cette information.'
 		: base + '\n\nThe user message may include reference notes between --- markers. When it does, answer from those notes and quote their figures exactly. When it says no note matches, say you do not have that information.';
 	return {
 		system: () => consigne,
 		userTurn: (q: string) => {
-			const b = buildKnowledgeBlock(selectChunks(q, chunks, budget), q).trim();
+			const b = buildKnowledgeBlock(selectChunks(q, chunks, budget), q, isFr).trim();
 			return b ? `${b}\n\nQuestion: ${q}` : q;
 		},
 		pinned: epingler([...knowledgeExamples(isFr), ...(cfg.examples || [])]),
@@ -154,34 +166,55 @@ function makeSystemBuilder(cfg: { system?: string; knowledge?: SessionConfig['kn
 // information » alors que le passage contenant la réponse était juste au-dessus. La leçon est déjà
 // dans le moteur (cf. Lfm2Model.classify) : à cette taille, DÉCRIRE le comportement échoue, le
 // MONTRER fonctionne.
-function knowledgeExamples(isFr = false): { user: string; assistant: string }[] {
-	if (isFr) {
+function knowledgeExamples(fr = false): { user: string; assistant: string }[] {
+	// Les tours de démonstration sont FABRIQUÉS par buildKnowledgeBlock, celui-là même qui construit
+	// les vrais tours. Ils étaient écrits à la main et avaient dérivé : ils montraient les notes SANS
+	// la ligne de consigne qui les précède en vrai. À 230 M, l'appariement se fait sur la surface —
+	// une forme jamais démontrée est une forme jamais suivie. Passer par le builder rend la dérive
+	// impossible : changer le format du bloc met les exemples à jour du même geste.
+	const note = (title: string, text: string): Chunk => ({ title, text, doc: 0 });
+	const tour = (notes: Chunk[], q: string) => `${buildKnowledgeBlock(notes, undefined, fr).trim()}\n\nQuestion: ${q}`;
+
+	// Les VALEURS des exemples sont volontairement différentes de celles d'une vraie base : on montre
+	// l'OPÉRATION (aller chercher la bonne ligne, choisir le bon nombre), pas une réponse à recopier.
+	if (fr) {
 		return [
+			{ user: 'Bonjour !', assistant: 'Bonjour ! Comment puis-je vous aider ?' },
+			// Lecture d'une ligne de tableau. Sans cet exemple, « je fais du 42, quelle taille en cm ? »
+			// rendait « Le 42 est une taille en cm » : le modèle voyait le tableau et ne savait pas
+			// qu'on attendait qu'il y prenne UNE ligne (mesuré, scripts/e2e/sdk-rag.mjs).
 			{
-				user: 'Bonjour !',
-				assistant: 'Bonjour ! Comment puis-je vous aider ?',
+				// La fiche de l'exemple a la MÊME FORME qu'une vraie : liste à puces, deux-points, et une
+				// colonne parasite entre parenthèses. Démontrée sur un tableau en ligne sans parenthèse,
+				// l'opération ne se transférait pas : le modèle répondait « La pointure 42 correspond à
+				// une taille de chaussures : US 43 » — mauvaise colonne ET mauvaise ligne (3 tirs sur 3).
+				user: tour([note('Guide des tailles', 'Tableau des correspondances :\n- Pointure EU 38 : 24,0 cm (US 6,5)\n- Pointure EU 39 : 24,5 cm (US 7,0)\n- Pointure EU 41 : 26,0 cm (US 8,0)')], 'Je fais du 41, quelle taille en cm ?'),
+				assistant: 'La pointure 41 correspond à 26,0 cm.',
+			},
+			// Deux nombres dans la même fiche : il faut celui de la QUESTION. Sans cet exemple, « combien
+			// de temps pour retourner un article ? » répondait avec le délai de remboursement.
+			{
+				user: tour([note('Retours', 'Les retours sont gratuits sous 14 jours. Le remboursement est effectué sous 3 jours ouvrés.')], 'Combien de temps pour retourner un article ?'),
+				assistant: 'Vous disposez de 14 jours pour retourner un article.',
 			},
 			{
-				user: '--- NOTES ---\n[1] Horaires\nL’atelier est ouvert le jeudi jusqu’à 20h.\n--- END OF NOTES ---\n\nQuestion: Êtes-vous ouverts le jeudi soir ?',
-				assistant: 'Oui, l’atelier est ouvert le jeudi jusqu’à 20h.',
-			},
-			{
-				user: 'No reference note matches this question. Say that you do not have this information: do not guess.\n\nQuestion: Qui a gagné la Coupe du Monde 1998 ?',
+				user: tour([], 'Qui a gagné la Coupe du Monde 1998 ?'),
 				assistant: 'Je n’ai pas cette information dans mes fiches.',
 			},
 		];
 	}
 	return [
+		{ user: 'Hello!', assistant: 'Hello! How can I help you today?' },
 		{
-			user: 'Hello!',
-			assistant: 'Hello! How can I help you today?',
+			user: tour([note('Size guide', 'Size conversions:\n- Size EU 38: 24.0 cm (US 6.5)\n- Size EU 39: 24.5 cm (US 7.0)\n- Size EU 41: 26.0 cm (US 8.0)')], 'I wear a 41, what is that in cm?'),
+			assistant: 'A size 41 is 26.0 cm.',
 		},
 		{
-			user: '--- NOTES ---\n[1] Opening hours\nThe workshop is open on Thursday until 8pm.\n--- END OF NOTES ---\n\nQuestion: Are you open on Thursday evening?',
-			assistant: 'Yes: the workshop is open on Thursday until 8pm.',
+			user: tour([note('Returns', 'Returns are free within 14 days. Refunds are issued within 3 working days.')], 'How long do I have to return an item?'),
+			assistant: 'You have 14 days to return an item.',
 		},
 		{
-			user: 'No reference note matches this question. Say that you do not have this information: do not guess.\n\nQuestion: Who won the 1998 World Cup?',
+			user: tour([], 'Who won the 1998 World Cup?'),
 			assistant: 'I do not have that information in my notes.',
 		},
 	];
@@ -325,7 +358,11 @@ function mountWidget(cfg: EmbedConfig) {
     try {
       await ensureModel();
       const envoye = [...history.slice(0, -1), { role: 'user' as const, content: promptOf.userTurn(text) }];
-      const req: TurnRequest = { url, history: envoye, system: promptOf.system(text), maxTokens, temperature: 0.55, pinned: promptOf.pinned };
+      // Température : 0,55 pour du bavardage, 0,25 dès qu'il y a des fiches. Un assistant qui doit
+      // RECOPIER un chiffre d'une note n'a rien à gagner à échantillonner large — et beaucoup à
+      // perdre : à 0,55 la lecture d'une ligne de tableau partait une fois sur trois sur la mauvaise
+      // colonne, ou recopiait la valeur de l'exemple de démonstration.
+      const req: TurnRequest = { url, history: envoye, system: promptOf.system(text), maxTokens, temperature: cfg.knowledge ? 0.25 : 0.55, pinned: promptOf.pinned };
       let acc = await (await backend()).turn(req, (t) => {
         bubble.textContent = t || '…'; msgsEl.scrollTop = msgsEl.scrollHeight;
       });

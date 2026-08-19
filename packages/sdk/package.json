@@ -1,6 +1,6 @@
 {
   "name": "brimkern",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "On-device AI for your site: one script tag runs a real language model on your visitor's GPU (WebGPU). No server, no API key, no per-token cost, nothing leaves the browser.",
   "keywords": [
     "webgpu",
