@@ -1556,19 +1556,28 @@ function App() {
     try {
       const { loadSdTurbo } = await import('@/lib/webgpu/diffusion/sdturbo');
       const taesd = 'https://huggingface.co/madebyollin/taesd/resolve/main/taesd_decoder.safetensors';
+      // Les drapeaux d'URL sont lus ICI : plusieurs choix d'URL de poids en dépendent (le décodeur
+      // complet ci-dessous), et la déclaration vivait après eux.
+      const q = new URLSearchParams(window.location.search);
       // Poids : BRIK pré-quantifiés d'abord (téléchargement ÷2-÷3, zéro quantification au
       // chargement) avec repli safetensors fp16 si le BRIK n'est pas (encore) hébergé.
       // Overrides dev : ?imgbrik=0 force les safetensors ; ?imgmodel=sdxs charge le UNet distillé
       // (~330 Mo, 1 step) ; ?imgtier=mixed|light change le tier BRIK.
+      // Décodeur VAE COMPLET : opt-in par ?vae=full le temps de le mesurer (qualité, temps, VRAM).
+      // Il pèse 160 Mo de plus et fait travailler des activations de 268 Mo à 512² — on ne bascule
+      // pas un défaut là-dessus sans chiffres, c'est la règle du dépôt.
+      const vaeUrl = q.get('vae') === 'full'
+        ? 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/vae/diffusion_pytorch_model.fp16.safetensors'
+        : undefined;
       const stUrls = {
         unet: 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/unet/diffusion_pytorch_model.fp16.safetensors',
         clip: 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/text_encoder/model.fp16.safetensors',
         taesd,
+        vae: vaeUrl,
       };
       // Quality (latent size) is picked PER GENERATION via the composer selector; URL params remain
       // as dev overrides: ?size= (initial selector value), ?steps=1..4, ?finalLN=0|1 (CLIP LN A/B),
       // ?duty=0.4..1 (thermal duty cycle — internal default 0.6, 1 = full throttle).
-      const q = new URLSearchParams(window.location.search);
       const p = q.get('finalLN');
       const finalLN = p === null ? undefined : p === '1' || p === 'true';
       // 512px PAR DÉFAUT sur une machine capable. Ce n'est pas un réglage de confort : SD-Turbo est
@@ -1592,6 +1601,7 @@ function App() {
         unet: tierOverride ? IMAGE_BRIK[model].unet.replace(/-(q8|mixed|light)\.brik$/, `-${tierOverride}.brik`) : IMAGE_BRIK[model].unet,
         clip: IMAGE_BRIK[model].clip, // CLIP partagé (encodeur figé identique SD-Turbo/SDXS)
         taesd,
+        vae: vaeUrl,
       };
       // Perte du device GPU pendant une génération (pic VRAM mobile) : sans ce filet, l'app
       // attendait un GPU mort pour toujours (« bloqué à 1/13 »). On bascule en erreur récupérable.

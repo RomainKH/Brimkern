@@ -19,6 +19,7 @@ import { unetForward, unetBlockCount, validateUnet, type UnetWeights, type UnetC
 import { makeEulerScheduler, randnSeeded } from './scheduler';
 import type { ImageGenerator, ImageResult } from './imageGen';
 import { EN_ONLY, type OnProgress, type Tr } from '../progress';
+import { VaeDecoder } from './vae';
 
 // ── SD-Turbo (SD2.1 architecture) config ──
 export const SD_TURBO_UNET: UnetCfg = {
@@ -327,10 +328,10 @@ export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: 
   return { map, unetCfg: manifest.image?.unetCfg };
 }
 
-interface SdTurboParts { engine: WebGpuEngine; clip: ClipTextEncoder; unetW: UnetWeights<any>; unetCfg: UnetCfg; taesd: TaesdDecoder; steps: number; size: number; pace: UnetPace; tokenize: (p: string) => Promise<number[]>; getEncoder: () => Promise<TaesdEncoder>; tr: Tr; }
+interface SdTurboParts { engine: WebGpuEngine; clip: ClipTextEncoder; unetW: UnetWeights<any>; unetCfg: UnetCfg; taesd: TaesdDecoder; vae?: VaeDecoder; steps: number; size: number; pace: UnetPace; tokenize: (p: string) => Promise<number[]>; getEncoder: () => Promise<TaesdEncoder>; tr: Tr; }
 
 function makeGenerator(parts: SdTurboParts): ImageGenerator {
-  const { engine, clip, unetW, unetCfg, taesd, steps, size, pace, tokenize, getEncoder, tr } = parts;
+  const { engine, clip, unetW, unetCfg, taesd, vae, steps, size, pace, tokenize, getEncoder, tr } = parts;
   const blocksTotal = unetBlockCount(unetCfg);
 
   // Prompt → contexte CLIP [77, 1024] (partagé txt2img / img2img).
@@ -366,8 +367,10 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
     onProgress?.(tr('Decoding (VAE)…', 'Décodage (VAE)…'), undefined, (nSteps * blocksTotal) / unitsTotal);
     // TAESD takes the raw model latent (its Clamp handles the range) — NO 0.18215 division (that
     // over-scales and saturates the clamp). VAE_SCALE kept for reference if we wire the full VAE.
-    void VAE_SCALE;
-    const img = await taesd.decode(latent, H, W, duty ?? pace.duty);
+    void VAE_SCALE; // la division par ce facteur vit dans VaeDecoder ; TAESD prend le latent brut
+    const img = vae
+      ? await vae.decode(latent, H, W, duty ?? pace.duty)
+      : await taesd.decode(latent, H, W, duty ?? pace.duty);
     console.log('[sdturbo] image', stats(img.data));
     // Give the scratch back: a 512² run leaves hundreds of MB of pooled buffers that nothing
     // reclaims otherwise (they'd stay resident for the whole session).
@@ -432,7 +435,7 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
 // blocks then sleep proportionally to the busy time (`duty` = target GPU duty cycle). Internal
 // default 0.6: generation ~1.7× slower than full throttle, average GPU power ~-40% — deliberately
 // NOT exposed in the UI (one less knob); dev override via `?duty=` in the URL.
-export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: string; taesdEncoder?: string }, opts: { steps?: number; size?: number; finalLN?: boolean; pace?: UnetPace; onLost?: () => void; t?: Tr } = {}, onProgress?: OnProgress): Promise<ImageGenerator> {
+export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: string; taesdEncoder?: string; vae?: string }, opts: { steps?: number; size?: number; finalLN?: boolean; pace?: UnetPace; onLost?: () => void; t?: Tr } = {}, onProgress?: OnProgress): Promise<ImageGenerator> {
   const clipCfg: ClipConfig = { ...SD_TURBO_CLIP, finalLN: opts.finalLN ?? SD_TURBO_CLIP.finalLN };
   const pace: UnetPace = { waitEvery: opts.pace?.waitEvery ?? 1, pauseMs: opts.pace?.pauseMs ?? 0, duty: opts.pace?.duty ?? 0.6 };
   const tr: Tr = opts.t ?? EN_ONLY;
@@ -526,6 +529,17 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
   }
   unetST.clear();
   const taesd = new TaesdDecoder(engine, await fetchST(urls.taesd, 'VAE (TAESD)'));
+  // Décodeur VAE COMPLET, si une URL est fournie : ~160 Mo de safetensors fp16 quantifiés int8 sur
+  // le GPU. TAESD reste chargé (2,4 Mo) et sert de repli — il coûte trop peu pour qu'on s'en prive,
+  // et un GPU qui manquerait de mémoire pour le grand décodeur doit pouvoir retomber dessus.
+  let vae: VaeDecoder | undefined;
+  if (urls.vae) {
+    try {
+      vae = new VaeDecoder(engine, await fetchST(urls.vae, tr('full decoder (VAE)', 'décodeur complet (VAE)'), true));
+    } catch (err) {
+      console.warn('[sdturbo] décodeur VAE complet indisponible → TAESD', err);
+    }
+  }
   // Encodeur TAESD (~4,8 Mo) : img2img seulement → chargé PARESSEUSEMENT à la première utilisation
   // (même cache navigateur que le reste). URL dérivée du décodeur si non fournie.
   let taesdEnc: TaesdEncoder | null = null;
@@ -549,5 +563,5 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
     console.log('[sdturbo] tokens', ids.slice(0, ids.indexOf(0) === -1 ? 12 : ids.indexOf(0) + 2).join(','), `(len utile=${ids.indexOf(0) === -1 ? 77 : ids.indexOf(0)})`);
     return ids;
   };
-  return makeGenerator({ engine, clip, unetW, unetCfg, taesd, steps: opts.steps ?? 1, size: opts.size ?? 64, pace, tokenize, getEncoder, tr });
+  return makeGenerator({ engine, clip, unetW, unetCfg, taesd, vae, steps: opts.steps ?? 1, size: opts.size ?? 64, pace, tokenize, getEncoder, tr });
 }
