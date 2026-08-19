@@ -46,13 +46,11 @@ export default function LocalAiDemo() {
       mustAppearInInput: true, notFound: t('No email found in the text.', 'Aucun email trouvé dans le texte.'),
       example: t('Reach our sales team: sales@brimkern.dev (Mon-Fri)', 'Merci d’envoyer la facture à facturation@lekern.fr avant vendredi'),
       tmpl: (s) => ask(`Quel est l’email dans ce texte ? Réponds uniquement avec l’email. Texte : « ${s} »`) },
-    // Le chat qui a motivé le passage au 230M : réponses françaises propres (« Salut ! Comment
-    // puis-je t'aider ? »), arrêt naturel sur <|im_end|> (stops du manifest).
-    // ⚠️ L'exemple DEMANDE une longueur, et le budget la couvre. Avant : « une petite histoire sur
-    // un robot » sous un plafond de 100 tokens — le modèle partait dans un récit et la démo
-    // s'arrêtait au milieu d'une phrase (signalé par Romain). Une vitrine ne doit pas montrer une
-    // réponse tronquée : soit on borne la demande, soit on relève le plafond. Ici les deux, la
-    // borne d'abord — c'est aussi la bonne pratique qu'on veut enseigner à qui intègre le SDK.
+    { key: 'knowledge', label: t('RAG FAQ (Shoe Sizing)', 'RAG FAQ (Tailles Chaussures)'), kind: 'generate', nTokens: 90, sample: false, multiline: true,
+      example: t('Do running shoes run true to size, or should I size up?', 'Les chaussures de running taillent-elles normalement ou faut-il prendre plus grand ?'),
+      tmpl: (s) => turn('--- NOTES ---\n[1] Sizing Guide\nSneakers fit true to size. Running shoes run half a size small: order 0.5 size up. EU 42 = 27cm.\n[2] Returns\nReturns are 100% free within 30 days.\n--- END OF NOTES ---\n\nQuestion: Do running shoes fit true to size?', 'Running shoes run half a size small: we recommend ordering 0.5 size up.')
+        + turn('--- NOTES ---\n[1] Returns\nReturns are 100% free within 30 days.\n--- END OF NOTES ---\n\nQuestion: How long do I have to return an item?', 'You have 30 days to return an item for free.')
+        + ask(`--- NOTES ---\n[1] Sizing Guide\nSneakers fit true to size. Running shoes and football boots run half a size small: order 0.5 size up. Size chart: EU 40 = 25.5cm, EU 41 = 26cm, EU 42 = 27cm, EU 43 = 27.5cm, EU 44 = 28.5cm.\n[2] Returns & Shipping\nReturns are 100% free within 30 days. Standard shipping is free over 50€ (2-4 days).\n--- END OF NOTES ---\n\nQuestion: ${s}`) },
     { key: 'free', label: t('Chat (light model)', 'Chat (modèle léger)'), kind: 'generate', nTokens: 140, sample: true, multiline: true,
       example: t('Tell me a story about a robot, in three sentences.', 'Raconte-moi une histoire de robot, en trois phrases.'),
       tmpl: (s) => ask(s) },

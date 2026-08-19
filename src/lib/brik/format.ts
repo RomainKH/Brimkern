@@ -77,3 +77,99 @@ export interface BrikManifest {
 export function alignUp(n: number, align: number = BRIK_ALIGN): number {
 	return Math.ceil(n / align) * align;
 }
+
+// ── Validation d'un manifeste ARBITRAIRE ──────────────────────────────────────────────────────
+// `parseBrikHeader` fait un JSON.parse sur un fichier distant : tout ce qui en sort est une entrée
+// non fiable, et ces nombres partent ensuite dimensionner des tampons GPU et des plages HTTP. En
+// JavaScript rien n'est corruptible en mémoire (pas de lecture hors borne exploitable), mais sans
+// bornes un `blockCount: 1e9` ou un `byteLength: 2**53` tue l'onglet ou perd le device — le tout
+// derrière un message opaque. On vérifie donc la FORME et la PLAUSIBILITÉ, pas la sémantique :
+// un modèle bizarre reste chargeable, un manifeste absurde est refusé net avec la raison.
+//
+// La vérification qui compte vraiment est la dernière : chaque tenseur doit tenir DANS son shard.
+// C'est elle qui garantit qu'aucune lecture planifiée ne sort de la zone de données annoncée.
+
+const MAX_SHARDS = 4096;
+const MAX_TENSORS = 200_000;
+const MAX_BYTES = 64 * 1024 * 1024 * 1024;   // 64 Go : au-delà, ce n'est plus un modèle web
+const DTYPES: BrikDType[] = ['f16', 'f32', 'q4', 'q8', 'q3'];
+// Un id de tokenizer part dans AutoTokenizer.from_pretrained → une requête réseau. Un manifeste
+// hostile pouvait ainsi faire charger le tokenizer d'un dépôt tiers, ou remonter des chemins.
+// Deux formes acceptées, et rien d'autre :
+//   « auteur/dépôt »  → un dépôt Hugging Face (Xenova/qwen-tokenizer)
+//   « slug »          → une SENTINELLE interne, sans réseau : les BRIK RWKV-7 en ligne portent
+//                       `id: 'rwkv-world'` pour dire « vocab World embarqué » (vérifié le 2026-08-19
+//                       sur les deux BRIK publiés — un validateur écrit sans regarder les fichiers
+//                       réels les aurait rendus inchargeables).
+// Sont donc refusés : les URLs (`https://…`), les chemins absolus, la remontée `..`, et tout ce qui
+// compte plus d'une barre oblique.
+const RE_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+export function isValidTokenizerId(id: string): boolean {
+	if (id.length > 128 || id.includes('..')) return false;
+	const parts = id.split('/');
+	return parts.length <= 2 && parts.every((p) => RE_SEGMENT.test(p));
+}
+
+const entier = (v: unknown, max: number): boolean =>
+	typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max;
+
+/** Lève sur un manifeste malformé ou aux valeurs invraisemblables. Retourne le manifeste tel quel. */
+export function validateBrikManifest(m: BrikManifest): BrikManifest {
+	// Annotation explicite sur la VARIABLE (pas seulement sur le retour de la lambda) : c'est ce qui
+	// permet à TypeScript de comprendre qu'un appel à `ko` interrompt le flux, et donc de narrower
+	// après un `if (x === undefined) ko(…)`.
+	const ko: (raison: string) => never = (raison) => { throw new Error(`BRIK: manifeste invalide — ${raison}`); };
+	if (!m || typeof m !== 'object') ko('ce n\'est pas un objet');
+	if (m.format !== 'brik') ko(`champ format « ${String(m.format)} » (attendu « brik »)`);
+	if (!entier(m.version, 1024) || m.version < 1) ko(`version ${String(m.version)}`);
+	if (!m.model || typeof m.model.name !== 'string' || m.model.name.length > 512) ko('champ model.name');
+
+	const a = m.arch;
+	if (!a || typeof a !== 'object' || typeof a.arch !== 'string' || a.arch.length > 64) ko('champ arch.arch');
+	// Bornes larges : un modèle réel les respecte de plusieurs ordres de grandeur (les BRIK image
+	// portent d'ailleurs des zéros partout — leur topologie vit dans `image.unetCfg`).
+	for (const [clef, max] of [['d', 262144], ['nHeads', 4096], ['nKvHeads', 4096], ['headDim', 4096],
+		['ffn', 1_048_576], ['blockCount', 1024], ['vocab', 10_000_000]] as const) {
+		if (!entier(a[clef], max)) ko(`arch.${clef} = ${String(a[clef])}`);
+	}
+	for (const clef of ['ropeTheta', 'rmsEps'] as const) {
+		if (typeof a[clef] !== 'number' || !Number.isFinite(a[clef])) ko(`arch.${clef} = ${String(a[clef])}`);
+	}
+
+	if (m.tokenizer) {
+		if (m.tokenizer.kind !== 'hf-hub' && m.tokenizer.kind !== 'embedded') ko(`tokenizer.kind « ${String(m.tokenizer.kind)} »`);
+		// `id` vide/absent est normal (vocab embarqué, ou BRIK image sans tokenizer).
+		if (m.tokenizer.id && !isValidTokenizerId(m.tokenizer.id)) ko(`tokenizer.id « ${m.tokenizer.id} » (attendu : « auteur/dépôt » ou une sentinelle sans barre oblique)`);
+	}
+
+	if (!Array.isArray(m.shards) || m.shards.length === 0 || m.shards.length > MAX_SHARDS) ko(`${Array.isArray(m.shards) ? m.shards.length : 'aucun'} shard`);
+	const tailleShard = new Map<number, number>();
+	for (const sh of m.shards) {
+		if (!entier(sh.id, MAX_SHARDS)) ko(`shard.id = ${String(sh.id)}`);
+		if (tailleShard.has(sh.id)) ko(`shard ${sh.id} déclaré deux fois`);
+		if (typeof sh.file !== 'string' || sh.file.length > 256) ko(`shard.file du shard ${sh.id}`);
+		if (!entier(sh.byteLength, MAX_BYTES)) ko(`shard.byteLength du shard ${sh.id} = ${String(sh.byteLength)}`);
+		tailleShard.set(sh.id, sh.byteLength);
+	}
+
+	if (!m.tensors || typeof m.tensors !== 'object') ko('champ tensors');
+	const noms = Object.keys(m.tensors);
+	if (noms.length === 0 || noms.length > MAX_TENSORS) ko(`${noms.length} tenseurs`);
+	let total = 0;
+	for (const nom of noms) {
+		const t = m.tensors[nom];
+		if (!t || typeof t !== 'object') ko(`tenseur ${nom}`);
+		if (!DTYPES.includes(t.dtype)) ko(`dtype « ${String(t.dtype)} » du tenseur ${nom}`);
+		if (!Array.isArray(t.shape) || t.shape.length > 8 || !t.shape.every((d) => entier(d, 2 ** 32))) ko(`shape du tenseur ${nom}`);
+		if (!entier(t.nElems, 2 ** 40)) ko(`nElems du tenseur ${nom}`);
+		if (!entier(t.offset, MAX_BYTES) || !entier(t.byteLength, MAX_BYTES)) ko(`offset/byteLength du tenseur ${nom}`);
+		const taille = tailleShard.get(t.shard);
+		if (taille === undefined) ko(`le tenseur ${nom} référence le shard ${String(t.shard)}, absent du manifeste`);
+		// LA vérification : aucune lecture planifiée ne peut sortir de son shard.
+		if (t.offset + t.byteLength > taille) ko(`le tenseur ${nom} dépasse son shard (${t.offset}+${t.byteLength} > ${taille})`);
+		total += t.byteLength;
+	}
+	if (total > MAX_BYTES) ko(`${total} octets de tenseurs au total`);
+	return m;
+}

@@ -12,6 +12,8 @@ import type { Skill } from '@/lib/skillStore';
 import { useT } from '@/lib/i18n';
 import { CONTEXT_SOFT_CAP, type PastedAttachment } from './composer-shared';
 
+import { planImage, type ImageRatio, type ImageQuality } from '@/lib/webgpu/diffusion/imageGen';
+
 type ModelState = 'idle' | 'initializing' | 'loading' | 'ready' | 'generating' | 'error';
 
 interface Props {
@@ -33,10 +35,19 @@ interface Props {
   handleStopGeneration: () => void;
   contextOver: boolean;
   contextTokens: number;
-  // Image mode (SD-Turbo loaded): show the quality selector instead of the reflection one.
+  // Image mode (SD-Turbo loaded): show the quality & ratio selectors instead of the reflection one.
   imageMode: boolean;
-  imageSize: number;                                  // latent side: 16/32/64 → 128/256/512px
+  imageSize: number;                                  // latent side fallback (16/32/64/128)
   setImageSize: Dispatch<SetStateAction<number>>;
+  imageRatio?: ImageRatio;
+  setImageRatio?: Dispatch<SetStateAction<ImageRatio>>;
+  imageQuality?: ImageQuality;
+  setImageQuality?: Dispatch<SetStateAction<ImageQuality>>;
+  // Le modèle chargé sait-il composer nativement au-delà de 512 ? Non pour SD-Turbo/SDXS : hd est
+  // alors servi par un agrandissement ×2, ce que les libellés doivent dire.
+  nativeHighRes?: boolean;
+  // Plafond de résolution de la machine : rien au-dessus n'est proposé (cf. ChatApp.imageCeiling).
+  imageCeiling?: ImageQuality;
   // Mode vidéo (AnimateDiff) : le placeholder décrit une SCÈNE, pas un message — et rappelle le coût.
   videoMode?: boolean;
   // Nombre de frames UNIQUES du clip : il fixe à la fois la longueur du mouvement et le temps de
@@ -46,39 +57,74 @@ interface Props {
   webSearchOn: boolean;                               // la ligne de confidentialité doit dire la vérité
   // Mode vision (Qwen2-VL) : bouton 📎 pour joindre une image + vignette de la pièce jointe.
   visionMode?: boolean;
-  pendingImage?: { dataUrl: string; preview: string; w: number; h: number } | null;
-  setPendingImage?: Dispatch<SetStateAction<{ dataUrl: string; preview: string; w: number; h: number } | null>>;
+  pendingImage?: { dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null;
+  setPendingImage?: Dispatch<SetStateAction<{ dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null>>;
 }
 
 export function Composer({
   attachments, setAttachments, modelArchType, modelState, reflectionLevel, setReflectionLevel,
   benchRunning, activeSkills, setSkillsOpen, textareaRef, handlePaste, isMobile,
   userInput, setUserInput, handleSendMessage, handleStopGeneration, contextOver, contextTokens,
-  imageMode, imageSize, setImageSize, webSearchOn, videoMode, videoFrames, setVideoFrames,
+  imageMode, imageSize, setImageSize, imageRatio, setImageRatio, imageQuality, setImageQuality,
+  nativeHighRes, imageCeiling,
+  webSearchOn, videoMode, videoFrames, setVideoFrames,
   visionMode, pendingImage, setPendingImage,
 }: Props) {
   const t = useT();
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Pièce jointe image (mode vision) : lue en data URL pleine (envoyée au ViT) + un aperçu ≤160px
-  // (affiché dans la bulle et persisté avec la conversation — les pixels pleins ne le sont pas).
+  // Pièce jointe image (mode vision) : lue en data URL PLEINE (c'est elle qui part au ViT) + un
+  // aperçu qui, lui, est affiché ET persisté avec la conversation. L'aperçu est donc dimensionné pour
+  // son seul usage : la bulle l'affiche au plus à 384 px de large (cf. ChatMessages), d'où 448 px sur
+  // le grand côté — net à l'écran, ~40 Ko en base64. À 640 px et qualité 0,88 il pesait ~250 Ko, et
+  // il était recopié trois fois dans le message : ~750 Ko d'IndexedDB par image jointe.
+  const APERCU_MAX = 448;
   const pickImage = (f: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result);
       const img = new Image();
       img.onload = () => {
-        const scale = Math.min(1, 160 / Math.max(img.naturalWidth, img.naturalHeight));
+        const scale = Math.min(1, APERCU_MAX / Math.max(img.naturalWidth, img.naturalHeight));
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.round(img.naturalWidth * scale));
         c.height = Math.max(1, Math.round(img.naturalHeight * scale));
         c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
-        setPendingImage?.({ dataUrl, preview: c.toDataURL('image/jpeg', 0.8), w: c.width, h: c.height });
+        setPendingImage?.({
+          dataUrl,
+          preview: c.toDataURL('image/jpeg', 0.85),
+          w: img.naturalWidth, h: img.naturalHeight,
+          previewW: c.width, previewH: c.height,
+        });
       };
       img.src = dataUrl;
     };
     reader.readAsDataURL(f);
   };
+
+  // `imageSize` (côté du latent) reste le repli quand la conversation restaurée n'a pas encore de
+  // qualité : on en déduit la marche la plus proche.
+  const ratio = imageRatio ?? '1:1';
+  const quality: ImageQuality = imageQuality
+    ?? (imageSize <= 32 ? 'draft' : imageSize <= 48 ? 'fast' : imageSize >= 120 ? 'fhd' : imageSize >= 96 ? 'hd' : imageSize >= 72 ? 'plus' : 'standard');
+  // Chaque libellé annonce la taille de sortie RÉELLE (planImage), agrandissement compris — lire la
+  // table brute faisait promettre 1920×1088 à un rendu qui sortait en 1280×768.
+  const planOf = (q: ImageQuality) => planImage(ratio, q, { nativeHighRes });
+  const activeDim = planOf(quality);
+  const ORDER: ImageQuality[] = ['draft', 'fast', 'standard', 'plus', 'hd', 'fhd'];
+  const RES_LABEL: Record<ImageQuality, string> = {
+    draft: t('Fast', 'Rapide'),
+    fast: t('Balanced', 'Équilibré'),
+    standard: nativeHighRes ? t('Standard', 'Standard') : t('Standard (native)', 'Standard (natif)'),
+    plus: t('Large', 'Grand format'),
+    hd: nativeHighRes ? `✨ ${t('HD (native)', 'HD (natif)')}` : `✨ ${t('HD (2× upscaled)', 'HD (agrandi ×2)')}`,
+    fhd: `🚀 ${t('Very high res', 'Très haute déf')}`,
+  };
+  // Résolutions proposées : sous le plafond machine, et sans doublon — sur un modèle natif 512,
+  // « fhd » rendrait EXACTEMENT la même image que « hd » (standard puis ×2), donc on ne l'offre pas.
+  const resOptions = ORDER
+    .filter((q) => ORDER.indexOf(q) <= ORDER.indexOf(imageCeiling ?? 'fhd'))
+    .filter((q) => nativeHighRes || q !== 'fhd');
 
   return (
         <div className="chat-input-container">
@@ -104,30 +150,67 @@ export function Composer({
               ))}
             </div>
           )}
-          {/* Image quality (image mode only) — same slot as the reflection selector. Latent side per
-              generation; 512 is SD-Turbo's native training size but f32 makes it slow and GPU-hungry,
-              so it's opt-in and labeled as such. */}
+          {/* Format & Qualité de l'image (mode image uniquement) */}
           {imageMode && (modelState === 'ready' || modelState === 'generating') && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <ImageIcon size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <span>{t('Quality:', 'Qualité :')}</span>
-              <select
-                value={imageSize}
-                onChange={(e) => setImageSize(Number(e.target.value))}
-                disabled={modelState === 'generating' || benchRunning}
-                title={t('The model is trained at 512: below that it stops composing properly (tight crops, cut-off subjects), so smaller sizes are drafts rather than fast previews.',
-                         'Le modèle est entraîné en 512 : en dessous il ne compose plus correctement (cadrages serrés, sujets coupés). Les tailles inférieures sont donc des brouillons, pas des aperçus rapides.')}
-                style={{
-                  fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
-                  background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
-                }}
-              >
-                <option value={16}>{t('128px (draft)', '128px (brouillon)')}</option>
-                <option value={32}>{t('256px (faster, looser framing)', '256px (plus rapide, cadrage approximatif)')}</option>
-                {/* 512² sur téléphone = pic VRAM (activations + TAESD) qui fait reprendre le GPU
-                    par l'OS en pleine génération (blocage silencieux constaté) → desktop only. */}
-                {!isMobile && <option value={64}>{t('512px (native, recommended)', '512px (natif, recommandé)')}</option>}
-              </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ImageIcon size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <span>{t('Ratio:', 'Format :')}</span>
+                <select
+                  value={ratio}
+                  onChange={(e) => setImageRatio?.(e.target.value as ImageRatio)}
+                  disabled={modelState === 'generating' || benchRunning}
+                  aria-label={t('Aspect ratio', 'Format d\'image')}
+                  style={{
+                    fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
+                    background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
+                  }}
+                >
+                  <option value="1:1">{t('1:1 (Square)', '1:1 (Carré)')}</option>
+                  <option value="16:9">{t('16:9 (Landscape)', '16:9 (Paysage)')}</option>
+                  <option value="9:16">{t('9:16 (Story/Reel)', '9:16 (Story/Portrait)')}</option>
+                  <option value="4:3">{t('4:3 (Photo)', '4:3 (Photo)')}</option>
+                  <option value="3:4">{t('3:4 (Portrait)', '3:4 (Portrait)')}</option>
+                  <option value="3:2">{t('3:2 (Classic 3:2)', '3:2 (Cinéma 3:2)')}</option>
+                  <option value="2:3">{t('2:3 (Classic 2:3)', '2:3 (Affiche 2:3)')}</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>{t('Resolution:', 'Résolution :')}</span>
+                <select
+                  value={quality}
+                  onChange={(e) => {
+                    const q = e.target.value as ImageQuality;
+                    setImageQuality?.(q);
+                    setImageSize(planOf(q).latentH);
+                  }}
+                  disabled={modelState === 'generating' || benchRunning}
+                  aria-label={t('Resolution', 'Résolution')}
+                  title={nativeHighRes
+                    ? t('The model composes natively at every size offered here.',
+                        'Le modèle compose nativement à toutes les tailles proposées ici.')
+                    : t('The model is trained at 512: below that it stops composing properly (tight crops, cut-off subjects), so smaller sizes are drafts. Above it, the image is rendered at 512 then upscaled 2× on the GPU — sharp, but not a native high-res render.',
+                        'Le modèle est entraîné en 512 : en dessous il ne compose plus correctement (cadrages serrés, sujets coupés), les tailles inférieures sont donc des brouillons. Au-dessus, l’image est rendue en 512 puis agrandie ×2 sur le GPU — net, mais ce n’est pas un rendu haute résolution natif.')}
+                  style={{
+                    fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
+                    background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
+                  }}
+                >
+                  {resOptions.map((q) => {
+                    const d = planOf(q);
+                    return <option key={q} value={q}>{RES_LABEL[q]} ({d.w}×{d.h})</option>;
+                  })}
+                </select>
+              </div>
+
+              <span style={{
+                fontSize: '11px', padding: '2px 6px', borderRadius: '4px',
+                background: 'var(--bg-card-hover, rgba(127,127,127,0.1))',
+                color: 'var(--text-secondary)', fontWeight: 500,
+              }}>
+                {activeDim.w} × {activeDim.h} px
+              </span>
             </div>
           )}
           {/* Durée du clip (mode vidéo) : même emplacement que la qualité en mode image. Les libellés

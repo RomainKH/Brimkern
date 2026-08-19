@@ -21,19 +21,20 @@ const DOCS = [
   { title: 'Horaires', text: 'La boutique est ouverte du mardi au samedi, de 10h à 19h.\n\nNous sommes fermés le dimanche et le lundi, ainsi que les jours fériés.' },
   { title: 'Livraison', text: 'La livraison est gratuite en France dès 60 euros d’achat.\n\nComptez 2 à 4 jours ouvrés. Nous expédions aussi en Belgique et en Suisse, avec un supplément de 8 euros.' },
   { title: 'Retours', text: 'Vous disposez de 30 jours pour retourner un article non porté, dans son emballage d’origine. Le remboursement intervient sous 5 jours après réception.' },
+  { title: 'Guide des Tailles', text: 'Correspondances pointures : 40 = 25.5cm, 41 = 26cm, 42 = 27cm, 43 = 27.5cm, 44 = 28.5cm.' },
 ];
 
 // ── Découpage ─────────────────────────────────────────────────────────────────────────────────
 const chunks = K.chunkDocuments(DOCS, 200);
 // À 200 caractères, chaque document tient en UN passage (ses paragraphes sont courts) : c'est le
 // comportement voulu — on ne découpe pas pour découper, un document court reste entier.
-check(chunks.length === 3, `découpage à 200 car. : ${chunks.length} passages (1 par document, ils sont courts)`);
+check(chunks.length === 4, `découpage à 200 car. : ${chunks.length} passages (1 par document, ils sont courts)`);
 const fins = K.chunkDocuments(DOCS, 80);
 check(fins.length > chunks.length, `découpage à 80 car. : ${fins.length} passages — le seuil coupe bien aux paragraphes`);
 check(fins.every((c) => !/^\s*[a-zà-ÿ]/.test(c.text)), 'aucun passage ne commence au milieu d’une phrase');
 check(chunks.every((c) => c.text.length <= 400), 'aucun passage démesuré');
 check(chunks.every((c) => c.title), 'chaque passage garde le titre de son document');
-check(new Set(chunks.map((c) => c.doc)).size === 3, 'les trois documents sont représentés');
+check(new Set(chunks.map((c) => c.doc)).size === 4, 'les 4 documents sont représentés');
 
 // Un paragraphe très long doit être coupé aux FINS DE PHRASE, pas au milieu d'un mot.
 const long = K.chunkDocuments([{ title: 'Long', text: 'Phrase une. '.repeat(60) }], 200);
@@ -45,6 +46,9 @@ const cas = [
   ['Quels sont vos horaires le dimanche ?', 'Horaires', /dimanche|ferm/i],
   ['Est-ce que la livraison est gratuite ?', 'Livraison', /gratuite|60/i],
   ['Combien de jours pour retourner un article ?', 'Retours', /30 jours/i],
+  ['Combien de temps pour retourner un article ?', 'Retours', /30 jours/i],
+  ['Je veux renvoyer ou retourner mes chaussures', 'Retours', /30 jours/i],
+  ['Je fais du 42, quelle taille en cm ?', 'Guide des Tailles', /42 = 27cm/i],
   ['Vous livrez en Suisse ?', 'Livraison', /suisse/i],
 ];
 for (const [q, titreAttendu, motif] of cas) {

@@ -78,12 +78,47 @@ const MODELS = {
 		out: (tier) => `video-motion-${tier}.brik`,
 		name: 'AnimateDiff-Lightning 4-step (module motion)',
 	},
+	// ── RealVisXL Turbo / SDXL (1024px natif, double CLIP, photoréalisme studio) ────────────────
+	'realvisxl-unet': {
+		url: 'https://huggingface.co/SG161222/RealVisXL_V4.0_Lightning/resolve/main/unet/diffusion_pytorch_model.safetensors',
+		out: (tier) => `realvisxl-unet-${tier}.brik`,
+		name: 'RealVisXL Turbo UNet (SDXL 2.6B, 1024px)',
+		unetCfg: {
+			baseC: 320,
+			mult: [1, 2, 4],
+			layersPerBlock: 2,
+			attn: [false, true, true],
+			transformerDepth: [0, 2, 10],
+			headDim: 64,
+			crossAttnDim: 2048,
+			admChannels: 2816,
+			isSdxl: true,
+		},
+	},
+	'realvisxl-clip1': {
+		url: 'https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/text_encoder/model.fp16.safetensors',
+		out: (tier) => `realvisxl-clip1-${tier}.brik`,
+		name: 'RealVisXL / SDXL CLIP-L (768 text)',
+		clipCfg: { dim: 768, layers: 12, heads: 12, hidden: 3072, vocab: 49408, maxPos: 77, eps: 1e-5, penultimate: true },
+	},
+	'realvisxl-clip2': {
+		url: 'https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/text_encoder_2/model.fp16.safetensors',
+		out: (tier) => `realvisxl-clip2-${tier}.brik`,
+		name: 'RealVisXL / SDXL OpenCLIP-bigG (1280 text + pooled)',
+		clipCfg: { dim: 1280, layers: 32, heads: 20, hidden: 5120, vocab: 49408, maxPos: 77, eps: 1e-5, penultimate: true, hasProjection: true },
+	},
+	'realvisxl-vae': {
+		url: 'https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/vae/diffusion_pytorch_model.fp16.safetensors',
+		out: (tier) => `realvisxl-vae-${tier}.brik`,
+		name: 'RealVisXL / SDXL VAE (1024px)',
+		scaleFactor: 0.13025,
+	},
 };
 
 const modelKey = process.argv[2];
 const tier = process.argv[3] || 'q8';
 if (!MODELS[modelKey] || !['q8', 'mixed', 'light'].includes(tier)) {
-	console.error('Usage: node scripts/build-image-brik.cjs <sdturbo-unet|sdturbo-clip|sdxs-unet> <q8|mixed|light>');
+	console.error(`Usage: node scripts/build-image-brik.cjs <${Object.keys(MODELS).join('|')}> <q8|mixed|light>`);
 	process.exit(1);
 }
 const MODEL = MODELS[modelKey];

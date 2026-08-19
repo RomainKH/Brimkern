@@ -22,6 +22,9 @@ interface Props {
   // PNG from prompt+seed. canReveal = an image model is loaded (otherwise reveal can't run).
   onRevealImage?: (id: string, prompt?: string, seed?: number) => void;
   canReveal?: boolean;
+  // Upscale 2× GPU temps réel
+  onUpscaleImage?: (id: string, img: NonNullable<Message['image']>) => void;
+  upscalingId?: string | null;
   // « Affiner » : reprend le prompt ET la seed d'une image générée dans le composer — préciser le
   // texte en gardant la même composition (même bruit initial). Absent → bouton masqué.
   onRefineImage?: (prompt: string, seed: number, url?: string) => void;
@@ -39,6 +42,8 @@ interface ItemProps {
   copied: boolean;
   showTyping: boolean;
   canReveal?: boolean;
+  onUpscaleImage?: (id: string, img: NonNullable<Message['image']>) => void;
+  upscalingId?: string | null;
   copyToClipboard: (text: string, index: number) => void;
   onRevealImage?: (id: string, prompt?: string, seed?: number) => void;
   onRefineImage?: (prompt: string, seed: number, url?: string) => void;
@@ -162,7 +167,7 @@ function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: nu
 // only ONE bubble re-renders/re-parses its markdown instead of the whole list (the mobile jank).
 // Function props are deliberately excluded from the comparison (recreated per parent render but
 // semantically stable).
-const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, canReveal, copyToClipboard, onRevealImage, onRefineImage, onContinue, busy, showReasoning }: ItemProps) {
+const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, canReveal, onUpscaleImage, upscalingId, copyToClipboard, onRevealImage, onRefineImage, onContinue, busy, showReasoning }: ItemProps) {
   // Locale comes from context, which bypasses the memo comparison — a language switch still re-renders.
   const t = useT();
   return (
@@ -252,19 +257,37 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
               // s'y affiche en « Raisonnement (interrompu) » au lieu d'un « Réflexion… » éternel.
               ? renderMessageContent(msg.content, showReasoning, !showTyping)
               : null}
-            {/* « Affiner » : reprend prompt + seed dans le composer — préciser le texte en gardant
-                la même composition (même bruit initial). Visible sous toute image générée. */}
-            {msg.image?.url && (
-              <SaveLink url={msg.image.url} name={`brimkern-${msg.image.seed ?? 'image'}.png`} label={t('Save', 'Enregistrer')} />
-            )}
-            {msg.image && onRefineImage && (
-              <button
-                type="button"
-                onClick={() => onRefineImage(msg.image!.prompt ?? '', msg.image!.seed ?? 0, msg.image!.url)}
-                style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px solid var(--border-color)', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}
-              >
-                ✎ {t('Refine this image', 'Affiner cette image')}
-              </button>
+            {/* Actions image : Enregistrer, Upscale 2x, Affiner (uniquement pour les images générées par l'IA) */}
+            {msg.role === 'assistant' && msg.image?.url && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                <SaveLink url={msg.image.url} name={`brimkern-${msg.image.seed ?? 'image'}.png`} label={t('Save', 'Enregistrer')} />
+                {onUpscaleImage && msg.image.w < 1000 && (
+                  <button
+                    type="button"
+                    disabled={upscalingId === msg.id}
+                    onClick={() => onUpscaleImage(msg.id, msg.image!)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                      border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+                      borderRadius: 6, padding: '3px 8px', fontSize: 11,
+                      color: 'var(--accent)', fontWeight: 600, cursor: upscalingId === msg.id ? 'wait' : 'pointer'
+                    }}
+                    title={t('2× GPU Super-Resolution (~100ms): sharpens and doubles image dimensions without memory explosion', 'Super-résolution 2× GPU (~100ms) : double la taille et rehausse la netteté sans freeze')}
+                  >
+                    ✨ {upscalingId === msg.id ? t('Upscaling…', 'Upscale…') : `${t('Upscale 2×', 'Upscale 2×')} (${msg.image.w * 2}×${msg.image.h * 2})`}
+                  </button>
+                )}
+                {onRefineImage && (
+                  <button
+                    type="button"
+                    onClick={() => onRefineImage(msg.image!.prompt ?? '', msg.image!.seed ?? 0, msg.image!.url)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px solid var(--border-color)', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}
+                  >
+                    ✎ {t('Refine', 'Affiner')}
+                  </button>
+                )}
+              </div>
             )}
             {/* Génération en cours (image ou vidéo) : le bloc animé remplace la ligne de texte —
                 étape, barre réelle et chrono avec estimation du restant. */}
@@ -341,7 +364,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
   a.canReveal === b.canReveal && a.index === b.index
 );
 
-export function ChatMessages({ messages, modelState, copiedIndex, copyToClipboard, messagesEndRef, onRevealImage, canReveal, onRefineImage, onContinue, busy, showReasoning }: Props) {
+export function ChatMessages({ messages, modelState, copiedIndex, copyToClipboard, messagesEndRef, onRevealImage, canReveal, onUpscaleImage, upscalingId, onRefineImage, onContinue, busy, showReasoning }: Props) {
   return (
     <>
       {/* List of messages */}
@@ -353,6 +376,8 @@ export function ChatMessages({ messages, modelState, copiedIndex, copyToClipboar
           copied={copiedIndex === index}
           showTyping={msg.role === 'assistant' && modelState === 'generating' && index === messages.length - 1}
           canReveal={canReveal}
+          onUpscaleImage={onUpscaleImage}
+          upscalingId={upscalingId}
           copyToClipboard={copyToClipboard}
           onRevealImage={onRevealImage}
           onRefineImage={onRefineImage}

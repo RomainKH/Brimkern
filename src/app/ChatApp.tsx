@@ -17,7 +17,7 @@ import {
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
-import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
 import { detectCalcs, formatCalc, currentDateLine } from '@/lib/localTools';
 import { listConversations, type Conversation } from '@/lib/chatStore';
@@ -41,8 +41,9 @@ import { ModelBrowserModal } from './ModelBrowserModal';
 import { Composer } from './Composer';
 import { ChatMessages } from './ChatMessages';
 import { useConversations } from './useConversations';
-import type { ImageGenerator } from '@/lib/webgpu/diffusion/imageGen';
+import { planImage, isNativeHighRes, type ImageGenerator, type ImageRatio, type ImageQuality } from '@/lib/webgpu/diffusion/imageGen';
 import type { VideoGenerator } from '@/lib/webgpu/video/videoGen';
+import type { WebGpuEngine as WebGpuEngineT } from '@/lib/webgpu/kernels';
 import type { VisionSession as VisionSessionT } from '@/lib/webgpu/vision/qwen2vl';
 import { nextMsgId } from './ids';
 import { CONTEXT_SOFT_CAP, approxTokens, type PastedAttachment } from './composer-shared';
@@ -135,7 +136,6 @@ function App() {
   const href = useHref();
   const { locale, setLocale } = useLocale();
   // Model loader tab (browse vs import). Engine/model/loading/precision/form state lives in useModelEngine.
-  const [activeTab, setActiveTab] = useState<'models' | 'import'>('models');
 
   // Tokenizer selection
   const [selectedTokenizerId, setSelectedTokenizerId] = useState<string>(TOKENIZER_PRESETS[0].id);
@@ -198,14 +198,25 @@ function App() {
   // un engine partagé (~2,6 Go VRAM), chargée par loadVisionModel. Exclusif des modes LLM/image.
   const [visionSession, setVisionSession] = useState<VisionSessionT | null>(null);
   // Image jointe au prochain message (data URL) + son aperçu réduit pour la bulle utilisateur.
-  const [pendingImage, setPendingImage] = useState<{ dataUrl: string; preview: string; w: number; h: number } | null>(null);
+  // `dataUrl` = pixels PLEINS (ce que le ViT reçoit) ; `preview` = aperçu affiché et persisté.
+  // w/h décrivent l'original (utile au ViT), previewW/H l'aperçu — les confondre faisait annoncer
+  // 4032×3024 pour une image de 512 px de large.
+  const [pendingImage, setPendingImage] = useState<{ dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null>(null);
   // État KV de la conversation vision : convId lié, session engine, tokens déjà préfillés, et les
   // ids générés au tour précédent pas encore poussés dans le cache (le stop-token ou le dernier
   // token échantillonné) — re-préfillés en tête du tour suivant.
   const visionKvRef = useRef<{ convId: string | null; sess: string; fed: number; pending: number[] }>({ convId: null, sess: '', fed: 0, pending: [] });
-  // Image quality = latent side per generation (16/32/64 → 128/256/512px). Default 256px: good
-  // quality without cooking the GPU — 512 is native SD-Turbo but slow/hot in f32, opt-in only.
+  // Image quality = latent side per generation (16/32/64/128). Default 512px on capable desktop.
   const [imageSize, setImageSize] = useState<number>(32);
+  const [imageRatio, setImageRatio] = useState<ImageRatio>('1:1');
+  const [imageQuality, setImageQuality] = useState<ImageQuality>('standard');
+  // PLAFOND de résolution de la machine. 512² sur téléphone = pic VRAM (activations + TAESD) qui
+  // fait reprendre le GPU par l'OS en pleine génération — blocage silencieux constaté, d'où le
+  // plafond dur historique à 256px sur mobile. 384px n'a jamais été mesuré sur ce même axe : on ne
+  // relève pas ce plafond sans chiffres. Le sélecteur ne propose que les résolutions ≤ plafond, et
+  // planImage rabat de toute façon ce qui passerait par une autre porte (URL, réglage persisté).
+  const imageCeiling: ImageQuality = isMobile ? 'draft' : 'fhd';
+  const [upscalingId, setUpscalingId] = useState<string | null>(null);
   const [advOpen, setAdvOpen] = useState<boolean>(false); // "Options avancées (dév)" accordion — collapsed by default
   // Thinking budget for reasoning models (see THINK_BUDGETS). Only surfaced when a reasoning model
   // (deepseek arch) is loaded; ignored otherwise.
@@ -224,14 +235,17 @@ function App() {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
 
   // UI states
-  // Initialisé depuis localStorage dès le PREMIER rendu : au remontage client (retour de
-  // /changelog) il n'y a pas d'hydratation, c'est la seule façon de ne jamais peindre le mauvais
-  // état (un useLayoutEffect arrive après le rendu initial → un frame ouvert + transition visible).
-  // Au chargement complet, le mismatch SSR(true)/client est absorbé par le verrou CSS pré-paint
-  // (html.sb-closed) + suppressHydrationWarning sur l'<aside>.
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem('brimkern-sidebar') !== '0'; } catch { return true; }
-  });
+  // Sidebar : le premier rendu vaut TOUJOURS `true`, comme le HTML prérendu. Lire localStorage ici
+  // faisait diverger le premier rendu client du HTML statique quand la sidebar était fermée, et React
+  // 19 ne « absorbe » pas ça : il lève #418 et REGÉNÈRE tout l'arbre côté client (suppressHydrationWarning
+  // ne fait taire que l'avertissement d'un nœud, il ne réconcilie rien). Mesuré : erreur présente avec
+  // brimkern-sidebar='0', absente à '1' ou sans la clé. Invisible en dev, parce que le script pré-paint
+  // `beforeInteractive` du layout n'y pose pas la classe.
+  // Rien n'est perdu : l'état persisté s'applique juste en dessous, en useLayoutEffect — AVANT le
+  // premier paint, donc l'état intermédiaire n'est jamais peint et aucune transition ne se déclenche.
+  // Et le tout premier paint (avant même l'hydratation) est couvert par le verrou CSS du layout
+  // (html.sb-closed, `transition: none`).
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   // Accueil « navigateur incompatible » : copie du lien de la page pour le rouvrir dans Chrome/Edge.
   // Les WebView in-app (Reddit, X…) n'exposent pas toujours navigator.clipboard → repli execCommand.
@@ -1451,12 +1465,24 @@ function App() {
       if (urlWantsModel()) return;
       const last = cs.find((c) => c.messages?.length);
       if (!last) return;
-      if (last.modelUrl === IMAGE_MODEL_URL || last.modelUrl === VIDEO_MODEL_URL) {
-        // Conversation IMAGE ou VIDÉO : on la restaure SANS charger le générateur (retour mobile de
-        // Romain 2026-07-21 — même « en cache », le rechargement auto déclenchait des téléchargements
-        // et bloquait l'utilisateur). Images et posters vidéo sont persistés dans les messages → ils
-        // s'affichent sans le modèle ; seuls les modèles TEXTE s'auto-chargent. Pour regénérer,
-        // l'utilisateur relance le mode à la demande (tuile / bouton).
+      if (last.modelUrl === IMAGE_MODEL_URL) {
+        // Conversation IMAGE : auto-rechargement rapide si le pipeline est INTÉGRALEMENT en cache
+        // local (0 ms réseau). Les URLs testées viennent de resolveImageModel — LE MÊME résolveur
+        // que loadImageModel utilisera juste après, sinon la garde ne garde rien (cf. son commentaire).
+        const src = await import('@/lib/webgpu/source');
+        const { taesd, brik } = resolveImageModel();
+        const imageCached = await src.imageModelCached({ unet: brik.unet, clip: brik.clip, taesd });
+        if (imageCached) {
+          await loadImageModel();
+          if (cancelled) return;
+          restoreConversation(last);
+          return;
+        }
+        // Si non en cache : restauration sans bloquer l'utilisateur avec un lourd téléchargement.
+        restoreConversation(last);
+        return;
+      }
+      if (last.modelUrl === VIDEO_MODEL_URL) {
         restoreConversation(last);
         return;
       }
@@ -1516,10 +1542,6 @@ function App() {
     return t(`~${Math.round(s / 60)} min left`, `~${Math.round(s / 60)} min restantes`);
   };
 
-
-  // Autoregressive generation loop
-  // Collapse a large paste into an attachment chip instead of flooding the textarea. Smaller pastes
-  // insert normally. The chip's content is folded back into the message on send.
   const handlePaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const text = e.clipboardData.getData('text');
     if (text && text.length > PASTE_COLLAPSE_CHARS) {
@@ -1533,18 +1555,47 @@ function App() {
     }
   };
 
-  // Fold the typed text together with any collapsed-paste attachments into one message string. Each
-  // attachment is fenced so the model sees it as a distinct block; typed text leads (the usual
-  // "do X to this: <paste>" shape).
   const composeOutgoing = (typed: string, atts: PastedAttachment[]) => {
     const body = atts.map((a) => `\n\n\`\`\`\n${a.content}\n\`\`\``).join('');
     return (typed + body).trim();
   };
 
-  // Load the real SD-Turbo text→image pipeline (CLIP + UNet + TAESD) and enter image mode. Frees any
-  // LLM. The diffusion subsystem is lazy-imported so it stays out of the main bundle. ⚠️ Heavy: streams
-  // the model weights (UNet+text encoder, fp16) and runs f32 — first runs are small/slow by design.
-  const loadImageModel = async () => {
+  // Modèles image RÉELLEMENT exécutables par ce moteur. Rien d'autre : le pipeline n'a qu'UN
+  // encodeur CLIP (ctxDim 1024, cf. SD_TURBO_CLIP) et aucun conditionnement additionnel (pooled +
+  // time_ids), donc un UNet SDXL — RealVisXL, SDXL-Turbo — ne peut pas y tourner. Le défaut desktop
+  // avait basculé sur 'realvisxl' : ses BRIK répondaient 404 (vérifié le 2026-08-19) et le repli
+  // safetensors partait chercher 10,27 Go de fp32 pour une topologie que le moteur ne sait pas lire.
+  // Un modèle ne revient ici qu'avec un chemin SDXL implémenté ET ses BRIK hébergés.
+  type ImgModel = 'sdturbo' | 'sdxs';
+  const IMG_MODEL_NAME: Record<ImgModel, string> = { sdturbo: 'Stable Diffusion Turbo', sdxs: 'SDXS-512' };
+
+  // Modèle image + ses URLs. SOURCE UNIQUE pour le chargement ET pour le test « tout est-il en
+  // cache ? » de la reprise de conversation : quand les deux divergeaient, la garde anti-
+  // téléchargement vérifiait le cache de sdturbo pendant que le chargeur prenait un autre modèle —
+  // donc elle laissait passer exactement le gros téléchargement qu'elle devait empêcher.
+  // Tiers par défaut : desktop q8 (équivalence numérique prouvée), mobile light (445 Mo, validé
+  // visuellement). ?imgtier=q8|mixed|light remplace le tier du UNet quel que soit le défaut.
+  const resolveImageModel = (choice?: ImgModel) => {
+    const q = new URLSearchParams(window.location.search);
+    const urlModel = q.get('imgmodel');
+    const model: ImgModel = choice
+      ?? (urlModel === 'sdxs' || urlModel === 'sdturbo' ? urlModel : (isMobile ? 'sdxs' : 'sdturbo'));
+    const tier = ['q8', 'mixed', 'light'].includes(q.get('imgtier') || '') ? q.get('imgtier') : null;
+    return {
+      model,
+      name: IMG_MODEL_NAME[model],
+      taesd: TAESD_DECODER,
+      brik: {
+        unet: tier ? IMAGE_BRIK[model].unet.replace(/-(q8|mixed|light)\.brik$/, `-${tier}.brik`) : IMAGE_BRIK[model].unet,
+        clip: IMAGE_BRIK[model].clip, // CLIP partagé (encodeur figé identique SD-Turbo/SDXS)
+      },
+    };
+  };
+
+  // Charge le pipeline texte→image (CLIP + UNet + TAESD) et entre en mode image. Libère le LLM. Le
+  // sous-système de diffusion est importé paresseusement (il reste hors du bundle principal).
+  // ⚠️ Lourd : streame les poids (UNet + encodeur de texte) et calcule en f32.
+  const loadImageModel = async (imgModelChoice?: ImgModel) => {
     setBrowseOpen(false);
     if (isMobile) setIsSidebarOpen(false);
     if (activeModel) handleUnloadModel();
@@ -1552,32 +1603,29 @@ function App() {
     leaveVideoMode();
     leaveVisionMode();
     setModelState('loading');
-    setLoadingStep(t('Loading Stable Diffusion Turbo…', 'Chargement de Stable Diffusion Turbo…'));
+    const q = new URLSearchParams(window.location.search);
+    const { model, name: modelDisplayName, taesd, brik } = resolveImageModel(imgModelChoice);
+    setLoadingStep(
+      model === 'sdxs'
+        ? t('Loading SDXS-512 (fast 1-step)…', 'Chargement de SDXS-512 (rapide 1-step)…')
+        : t('Loading Stable Diffusion Turbo…', 'Chargement de Stable Diffusion Turbo…')
+    );
     try {
       const { loadSdTurbo } = await import('@/lib/webgpu/diffusion/sdturbo');
-      const taesd = 'https://huggingface.co/madebyollin/taesd/resolve/main/taesd_decoder.safetensors';
-      // Les drapeaux d'URL sont lus ICI : plusieurs choix d'URL de poids en dépendent (le décodeur
-      // complet ci-dessous), et la déclaration vivait après eux.
-      const q = new URLSearchParams(window.location.search);
+      // Décodeur VAE COMPLET : opt-in par ?vae=full le temps de le mesurer (qualité, temps, VRAM).
+      // Il pèse 160 Mo de plus et fait travailler des activations de 268 Mo à 512² — on ne bascule
+      // pas un défaut là-dessus sans chiffres, c'est la règle du dépôt.
+      const vaeUrl = q.get('vae') === 'full' ? `${SD_TURBO_REV}/vae/diffusion_pytorch_model.fp16.safetensors` : undefined;
       // Poids : BRIK pré-quantifiés d'abord (téléchargement ÷2-÷3, zéro quantification au
       // chargement) avec repli safetensors fp16 si le BRIK n'est pas (encore) hébergé.
       // Overrides dev : ?imgbrik=0 force les safetensors ; ?imgmodel=sdxs charge le UNet distillé
       // (~330 Mo, 1 step) ; ?imgtier=mixed|light change le tier BRIK.
-      // Décodeur VAE COMPLET : opt-in par ?vae=full le temps de le mesurer (qualité, temps, VRAM).
-      // Il pèse 160 Mo de plus et fait travailler des activations de 268 Mo à 512² — on ne bascule
-      // pas un défaut là-dessus sans chiffres, c'est la règle du dépôt.
-      const vaeUrl = q.get('vae') === 'full'
-        ? 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/vae/diffusion_pytorch_model.fp16.safetensors'
-        : undefined;
       const stUrls = {
-        unet: 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/unet/diffusion_pytorch_model.fp16.safetensors',
-        clip: 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/text_encoder/model.fp16.safetensors',
+        unet: `${SD_TURBO_REV}/unet/diffusion_pytorch_model.fp16.safetensors`,
+        clip: `${SD_TURBO_REV}/text_encoder/model.fp16.safetensors`,
         taesd,
         vae: vaeUrl,
       };
-      // Quality (latent size) is picked PER GENERATION via the composer selector; URL params remain
-      // as dev overrides: ?size= (initial selector value), ?steps=1..4, ?finalLN=0|1 (CLIP LN A/B),
-      // ?duty=0.4..1 (thermal duty cycle — internal default 0.6, 1 = full throttle).
       const p = q.get('finalLN');
       const finalLN = p === null ? undefined : p === '1' || p === 'true';
       // 512px PAR DÉFAUT sur une machine capable. Ce n'est pas un réglage de confort : SD-Turbo est
@@ -1592,19 +1640,10 @@ function App() {
       // Régime GPU : réglage utilisateur (panneau Réglages), l'URL ?duty= reste l'override dev.
       const pace = { duty: dutyRaw !== null ? Math.min(1, Math.max(0.1, parseFloat(dutyRaw) || 0.6)) : gpuDuty };
       setImageSize(size);
-      const model = (q.get('imgmodel') === 'sdxs' || isMobile) ? 'sdxs' as const : 'sdturbo' as const;
-      // Tiers par défaut : desktop q8 (équivalence numérique prouvée), mobile light (445 Mo,
-      // validé visuellement). ?imgtier=q8|mixed|light remplace le tier du UNet quel que soit le
-      // défaut du modèle.
-      const tierOverride = ['q8', 'mixed', 'light'].includes(q.get('imgtier') || '') ? q.get('imgtier') : null;
-      const brikUrls = {
-        unet: tierOverride ? IMAGE_BRIK[model].unet.replace(/-(q8|mixed|light)\.brik$/, `-${tierOverride}.brik`) : IMAGE_BRIK[model].unet,
-        clip: IMAGE_BRIK[model].clip, // CLIP partagé (encodeur figé identique SD-Turbo/SDXS)
-        taesd,
-        vae: vaeUrl,
-      };
-      // Perte du device GPU pendant une génération (pic VRAM mobile) : sans ce filet, l'app
-      // attendait un GPU mort pour toujours (« bloqué à 1/13 »). On bascule en erreur récupérable.
+      // Le sélecteur de résolution suit le budget réel de la machine : sur mobile / petit GPU on
+      // n'ouvre pas 512² (pic VRAM → GPU repris par l'OS en pleine génération, blocage silencieux).
+      setImageQuality(grosseMachine ? 'standard' : 'draft');
+      const brikUrls = { ...brik, taesd, vae: vaeUrl };
       const onLost = () => {
         console.warn('[image] device GPU perdu pendant la génération/le chargement image');
         setImageGen(null);
@@ -1616,29 +1655,31 @@ function App() {
       };
       let gen;
       if (q.get('imgbrik') === '0') {
-        gen = await loadSdTurbo(stUrls, { steps, size, finalLN, pace, onLost, t }, onLoadProgress);
+        gen = await loadSdTurbo(stUrls, { name: modelDisplayName, steps, size, finalLN, pace, onLost, t }, onLoadProgress);
       } else {
         try {
-          gen = await loadSdTurbo(brikUrls, { steps, size, finalLN, pace, onLost, t }, onLoadProgress);
+          gen = await loadSdTurbo(brikUrls, { name: modelDisplayName, steps, size, finalLN, pace, onLost, t }, onLoadProgress);
         } catch (be) {
-          // BRIK pas encore hébergé / réseau : repli transparent sur les safetensors historiques.
           console.warn('[image] BRIK indisponible → repli safetensors fp16', be);
-          setLoadingProgress(null); // le repli repart de zéro : la fenêtre de débit doit se vider
-          gen = await loadSdTurbo(stUrls, { steps, size, finalLN, pace, onLost, t }, onLoadProgress);
+          setLoadingProgress(null);
+          gen = await loadSdTurbo(stUrls, { name: modelDisplayName, steps, size, finalLN, pace, onLost, t }, onLoadProgress);
         }
       }
       setLoadingProgress(null);
       setImageGen(gen);
       setCurrentConvId(null);
+      // La taille annoncée est celle que le sélecteur produira VRAIMENT (ratio × résolution retenue),
+      // pas `size` — qui n'est plus que le repli quand aucune dimension n'est passée à generate().
+      const dep = planImage(imageRatio, grosseMachine ? 'standard' : 'draft', { nativeHighRes: isNativeHighRes(gen), ceiling: imageCeiling });
       setMessages([{
         id: 'welcome', role: 'assistant',
         content: t(
           `Image mode: **${gen.name}**. Describe an image and I'll generate it.\n\n` +
-            `Generating at **${size * 8}px**${grosseMachine ? ', its native size' : ' (your GPU’s budget)'}. ` +
-            `The **quality** selector sits above the input box: below 512px the model stops composing properly, so smaller sizes are drafts.`,
+            `Generating at **${dep.w}×${dep.h}px**${grosseMachine ? ', its native size' : ' (your GPU’s budget)'}. ` +
+            `The **ratio** and **resolution** selectors sit above the input box: below 512px the model stops composing properly, so smaller sizes are drafts.`,
           `Mode image : **${gen.name}**. Décris une image, je la génère.\n\n` +
-            `Génération en **${size * 8}px**${grosseMachine ? ', sa taille native' : ' (le budget de ton GPU)'}. ` +
-            `Le sélecteur de **qualité** est au-dessus de la zone de saisie : en dessous de 512px le modèle ne compose plus correctement, les tailles inférieures sont donc des brouillons.`,
+            `Génération en **${dep.w}×${dep.h}px**${grosseMachine ? ', sa taille native' : ' (le budget de ton GPU)'}. ` +
+            `Les sélecteurs de **format** et de **résolution** sont au-dessus de la zone de saisie : en dessous de 512px le modèle ne compose plus correctement, les tailles inférieures sont donc des brouillons.`,
         ),
       }]);
       setModelState('ready');
@@ -1777,7 +1818,12 @@ function App() {
     const fresh = vk.convId !== currentConvId || vk.sess === '';
     setMessages(prev => [...prev, {
       id: nextMsgId(), role: 'user', content: prompt,
-      ...(img ? { image: { url: img.preview, w: img.w, h: img.h, thumb: img.preview, full: img.preview } } : {}),
+      // L'aperçu est stocké UNE fois. Il l'était trois (url + thumb + full, la même data URL) : le
+      // message part tel quel en IndexedDB, donc chaque pièce jointe y pesait le triple. `full` sert
+      // aux images GÉNÉRÉES (régénérables depuis prompt+seed sauf en img2img) — une pièce jointe
+      // n'est pas régénérable et n'a rien à y faire, et `thumb` ne sert que quand `url` manque.
+      // w/h décrivent l'aperçu, pas l'original : c'est `url` qu'ils dimensionnent à l'affichage.
+      ...(img ? { image: { url: img.preview, w: img.previewW, h: img.previewH } } : {}),
     }]);
     const aId = nextMsgId();
     setMessages(prev => [...prev, { id: aId, role: 'assistant', content: '' }]);
@@ -1885,7 +1931,22 @@ function App() {
         const strength = (() => { const v = parseFloat(new URLSearchParams(location.search).get('strength') ?? ''); return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.55; })();
         img = await imageGen.generateImg2Img(prompt, refineUrl, strength, onProgress, refineSeed, gpuDuty);
       } else {
-        img = await imageGen.generate(prompt, onProgress, refineSeed, isMobile ? Math.min(imageSize, 32) : imageSize, gpuDuty);
+        const plan = planImage(imageRatio, imageQuality, { nativeHighRes: isNativeHighRes(imageGen), ceiling: imageCeiling });
+        img = await imageGen.generate(prompt, onProgress, refineSeed, { h: plan.latentH, w: plan.latentW }, gpuDuty);
+
+        if (plan.upscale === 2) {
+          // Agrandissement ×2 GPU (bicubique + rehaussement d'arêtes) pour servir hd/fhd sur un
+          // modèle natif 512. Échec = on garde l'image native : mieux vaut 512 que rien.
+          const { upscaleGpu2x } = await import('@/lib/webgpu/diffusion/upscaler');
+          const engine = imageGen?.engine ?? activeEngine;
+          if (engine) {
+            try {
+              img = await upscaleGpu2x(engine, img, 0.5);
+            } catch (upErr) {
+              console.warn('[image] agrandissement ×2 échoué, image native conservée', upErr);
+            }
+          }
+        }
       }
       setMessages(prev => prev.map(m => m.id === aId ? { ...m, content: '', gen: undefined, image: { url: img.url, w: img.w, h: img.h, thumb: img.thumb, prompt, seed: img.seed, full: img.full } } : m));
     } catch (e: any) {
@@ -1895,6 +1956,44 @@ function App() {
         isError: !annule } : m));
     } finally {
       setModelState('ready');
+    }
+  };
+
+  // Agrandissement ×2 sur GPU (bicubique + rehaussement d'arêtes) d'une image déjà produite.
+  const handleUpscaleImage = async (msgId: string, img: NonNullable<Message['image']>) => {
+    if (upscalingId) return;
+    setUpscalingId(msgId);
+    // Moteur EMPRUNTÉ (pipeline image ou LLM actif) ou créé pour l'occasion. Dans le second cas il
+    // faut le détruire : sans ça chaque clic sur « Upscale » laissait un device WebGPU vivant — un
+    // agrandissement se fait justement quand aucun modèle n'est chargé, donc la fuite était la
+    // trajectoire NORMALE, pas le cas limite.
+    let jetable: WebGpuEngineT | null = null;
+    try {
+      const { upscaleGpu2x } = await import('@/lib/webgpu/diffusion/upscaler');
+      let engine = imageGen?.engine ?? activeEngine;
+      if (!engine) {
+        const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+        jetable = new WebGpuEngine();
+        await jetable.init();
+        engine = jetable;
+      }
+      const upscaled = await upscaleGpu2x(engine, img, 0.5);
+      setMessages(prev => prev.map(m => m.id === msgId ? {
+        ...m,
+        image: {
+          ...m.image!,
+          url: upscaled.url,
+          full: upscaled.full,
+          thumb: upscaled.thumb,
+          w: upscaled.w,
+          h: upscaled.h,
+        }
+      } : m));
+    } catch (err) {
+      console.error('[image] agrandissement ×2 échoué', err);
+    } finally {
+      jetable?.destroy?.();
+      setUpscalingId(null);
     }
   };
 
@@ -1964,10 +2063,12 @@ function App() {
   // thumb was stored). Needs the image model loaded. Deterministic → identical to the original.
   const revealImage = async (id: string, prompt?: string, seed?: number) => {
     if (!imageGen || !prompt) return;
-    // Regenerate at the ORIGINAL size (w/8), not the current selector — seed+size must both match
+    // Regenerate at the ORIGINAL size (w/8, h/8), not the current selector — seed+size must both match
     // for the deterministic regeneration to reproduce the persisted thumbnail's image.
     const orig = messages.find(m => m.id === id)?.image;
-    const origLatent = orig?.w ? Math.max(8, Math.round(orig.w / 8)) : undefined;
+    const origLatent = (orig?.w && orig?.h)
+      ? { w: Math.max(8, Math.round(orig.w / 8)), h: Math.max(8, Math.round(orig.h / 8)) }
+      : (orig?.w ? Math.max(8, Math.round(orig.w / 8)) : undefined);
     setMessages(prev => prev.map(m => (m.id === id && m.image) ? { ...m, image: { ...m.image, revealing: true } as Message['image'] } : m));
     try {
       const img = await imageGen.generate(prompt, undefined, seed, origLatent, gpuDuty);
@@ -2840,8 +2941,6 @@ function App() {
             {browseOpen && createPortal((
             <ModelBrowserModal
               setBrowseOpen={setBrowseOpen}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
               modelState={modelState}
               autoConvert={autoConvert}
               setAutoConvert={setAutoConvert}
@@ -2852,12 +2951,14 @@ function App() {
               isMobile={isMobile}
               showAllModels={showAllModels}
               setShowAllModels={setShowAllModels}
-              loadedModelName={loadedModelName}
+              loadedModelName={displayModelName}
               isCached={isCached}
               userModels={userModels}
               setUserModels={setUserModels}
               benchRunning={benchRunning}
-              handleUnloadModel={handleUnloadModel}
+              // `unloadActiveModel` et non `handleUnloadModel` : la modale charge aussi l'image, la
+              // vidéo et la vision, et le déchargeur du moteur LLM ne sait pas les libérer.
+              handleUnloadModel={unloadActiveModel}
               handleLoadModelFromUrl={handleLoadModelFromUrl}
               handleStreamBrik={handleStreamBrik}
               onLoadFromInput={loadModelFromInput}
@@ -3333,6 +3434,8 @@ function App() {
             messagesEndRef={messagesEndRef}
             onRevealImage={revealImage}
             canReveal={!!imageGen}
+            onUpscaleImage={handleUpscaleImage}
+            upscalingId={upscalingId}
             onRefineImage={imageGen ? handleRefineImage : undefined}
             onContinue={handleContinue}
             busy={modelState === 'generating'}
@@ -3397,6 +3500,12 @@ function App() {
           setVideoFrames={setVideoFrames}
           imageSize={imageSize}
           setImageSize={setImageSize}
+          imageRatio={imageRatio}
+          setImageRatio={setImageRatio}
+          imageQuality={imageQuality}
+          setImageQuality={setImageQuality}
+          nativeHighRes={isNativeHighRes(imageGen)}
+          imageCeiling={imageCeiling}
           webSearchOn={webSearchOn || urlReadOn}
           visionMode={!!visionSession}
           pendingImage={pendingImage}

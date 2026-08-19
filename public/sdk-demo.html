@@ -1,23 +1,212 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Brimkern SDK — demo</title>
-  <style>body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 24px;color:#1a1a1a;background:#f2efe8;line-height:1.6}</style>
+  <title>Brimkern SDK — Démo Interactive & RAG Local</title>
+  <style>
+    :root {
+      --bg: #f2efe8;
+      --card-bg: #faf8f5;
+      --text: #1a1a1a;
+      --text-muted: #555555;
+      --accent: #c2410c;
+      --border: rgba(0, 0, 0, 0.12);
+    }
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      max-width: 760px;
+      margin: 40px auto;
+      padding: 0 20px 80px;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
+      color: var(--accent);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px 0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .feature-item {
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(127, 127, 127, 0.06);
+      font-size: 13px;
+    }
+    .feature-title {
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .prompt-chip {
+      display: inline-block;
+      background: rgba(127, 127, 127, 0.09);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin: 4px 4px 4px 0;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .prompt-chip:hover {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 12.5px;
+      background: rgba(127, 127, 127, 0.1);
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    pre {
+      background: #181818;
+      color: #eaeaea;
+      padding: 14px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12.5px;
+    }
+  </style>
 </head>
 <body>
-  <h1>Brimkern SDK — demo</h1>
-  <p>This page embeds an on-device assistant with a single <code>&lt;script&gt;</code> + <code>Brimkern.embed()</code>.
-     The model runs entirely on <strong>your GPU</strong> — nothing is sent to a server. Open the widget (bottom-right).</p>
+  <div class="badge">⚡ 100% WebGPU Local · 0 Coût Serveur · Données Privées</div>
+  <h1>Brimkern SDK — Démo E-Commerce & RAG Local</h1>
+  <p>
+    Cette page illustre l'intégration d'un assistant intelligent pour site e-commerce.
+    Le modèle tourne <strong>directement sur le GPU de votre navigateur</strong> et dispose d'une base de connaissances locale (guide des tailles, retours, livraisons).
+  </p>
+
+  <div class="card">
+    <h3 style="margin-top:0;">📚 Base de connaissances injectée (RAG Local)</h3>
+    <p style="font-size: 13.5px; color: var(--text-muted);">
+      L'assistant ci-dessous a été configuré avec les règles métier réelles du magasin. Essayez de lui poser des questions via le widget en bas à droite :
+    </p>
+    <div class="grid">
+      <div class="feature-item">
+        <div class="feature-title">👟 Guide des Tailles</div>
+        <div>Correspondances EU/US/CM, recommandation +1/2 pointure pour le running.</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-title">📦 Retours & Échanges</div>
+        <div>100% gratuits sous 30 jours, remboursement sous 5 jours.</div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-title">🚚 Expédition</div>
+        <div>Gratuite dès 50€ (2-4 jours), Express 24h disponible.</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 18px;">
+      <strong>💡 Exemples de questions à tester :</strong><br />
+      <span class="prompt-chip" onclick="openAndAsk('Comment taillent les chaussures de running ?')">« Comment taillent les chaussures de running ? »</span>
+      <span class="prompt-chip" onclick="openAndAsk('Je fais du 42, quelle taille en cm ?')">« Je fais du 42, quelle taille en cm ? »</span>
+      <span class="prompt-chip" onclick="openAndAsk('Combien de temps pour retourner un article ?')">« Combien de temps pour retourner un article ? »</span>
+      <span class="prompt-chip" onclick="openAndAsk('Les retours sont-ils gratuits ?')">« Les retours sont-ils gratuits ? »</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">💻 Code d'intégration utilisé sur cette page</h3>
+    <pre><code>&lt;script src="/sdk.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  Brimkern.embed({
+    title: "Conseiller Boutique",
+    system: "Tu es le conseiller officiel. Réponds précisément aux questions sur les tailles, livraisons et retours à partir des fiches.",
+    knowledge: [
+      {
+        title: "Guide des tailles chaussures",
+        text: "Les baskets taillent normalement. Modèles running et crampons : prendre 1/2 taille au-dessus. EU 40 = 25.5cm, EU 41 = 26cm, EU 42 = 27cm, EU 43 = 27.5cm, EU 44 = 28.5cm."
+      },
+      {
+        title: "Politique de retours",
+        text: "Retours 100% gratuits sous 30 jours dans la boîte d'origine. Remboursement sous 5 jours ouvrés."
+      },
+      {
+        title: "Livraison",
+        text: "Livraison standard gratuite dès 50€ d'achat (délai 2 à 4 jours). Express 24h à 7,90€."
+      }
+    ],
+    knowledgeBudget: 1200
+  });
+&lt;/script&gt;</code></pre>
+  </div>
+
   <script src="/sdk.js"></script>
   <script>
     Brimkern.embed({
       model: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
-      title: 'Acme assistant',
-      system: 'You are the support assistant of Acme, a (fictional) online shoe store. Help visitors with sizes, orders and returns. Answer only what is asked.',
-      greeting: 'Hi! I run on your GPU — ask me anything.',
+      title: 'Conseiller Boutique',
+      system: 'Tu es le conseiller officiel de la boutique. Réponds précisément et poliment aux questions sur les tailles de chaussures, les retours et les livraisons en utilisant les fiches de référence fournies.',
+      greeting: 'Bonjour ! Je suis votre conseiller en ligne 100% local. Une question sur votre pointure, les retours ou la livraison ?',
+      knowledge: [
+        {
+          title: 'Guide des Tailles et Pointures',
+          text: `Tableau des correspondances officielles :
+- Pointure EU 40 : 25.5 cm (US 7.5)
+- Pointure EU 41 : 26.0 cm (US 8.0)
+- Pointure EU 42 : 27.0 cm (US 9.0)
+- Pointure EU 43 : 27.5 cm (US 9.5)
+- Pointure EU 44 : 28.5 cm (US 10.5)
+
+Conseil pointure : Les baskets taillent normalement. Pour les chaussures de running et crampons de sport, prenez une demi-pointure au-dessus (+0.5).`
+        },
+        {
+          title: 'Politique de Retour et Remboursement',
+          text: 'Les retours sont 100% gratuits sous 30 jours pour tout article. Vous disposez de 30 jours pour retourner ou renvoyer un article non porté dans sa boîte d’origine. Le remboursement est effectué sous 5 jours ouvrés.'
+        },
+        {
+          title: 'Délais et Frais de Livraison',
+          text: 'La livraison standard à domicile est offerte dès 50 € d’achat (délai de 2 à 4 jours ouvrés). L’expédition Express 24h est proposée à 7,90 € pour toute commande passée avant 14h.'
+        }
+      ],
+      knowledgeBudget: 1200,
     });
+
+    function openAndAsk(text) {
+      const panel = document.querySelector('.bk-panel');
+      const isOpen = panel && panel.classList.contains('bk-open');
+      const fab = document.querySelector('.bk-fab, button[aria-label*="chat"], .brimkern-launcher');
+      
+      if (!isOpen && fab) {
+        fab.click();
+      }
+      
+      setTimeout(() => {
+        const input = document.querySelector('.bk-input, textarea, input[type="text"]');
+        if (input) {
+          input.value = text;
+          input.focus();
+        }
+      }, 80);
+    }
   </script>
 </body>
 </html>

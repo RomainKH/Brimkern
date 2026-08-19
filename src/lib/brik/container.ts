@@ -14,7 +14,7 @@
 // The manifest's shard byteLengths + per-tensor {shard, offset} already describe the layout WITHIN
 // the data section, so a tensor's absolute file offset is dataStart + shardBase + tensorOffset.
 
-import { BRIK_VERSION, alignUp, type BrikManifest } from './format';
+import { BRIK_VERSION, alignUp, validateBrikManifest, type BrikManifest } from './format';
 import type { BrikShardBytes } from './loader';
 
 const MAGIC = 'BRIK';
@@ -78,7 +78,11 @@ export function parseBrikHeader(bytes: Uint8Array): { manifest: BrikManifest; ve
 	const version = dv.getUint32(4, true);
 	const manifestLen = dv.getUint32(8, true);
 	if (HEADER_FIXED + manifestLen > bytes.length) throw new Error('BRIK: manifeste tronqué');
-	const manifest = JSON.parse(new TextDecoder().decode(bytes.subarray(HEADER_FIXED, HEADER_FIXED + manifestLen))) as BrikManifest;
+	// Tout ce qui sort de ce JSON.parse vient du réseau : validé avant d'aller dimensionner quoi que
+	// ce soit (cf. validateBrikManifest — bornes, et surtout « chaque tenseur tient dans son shard »).
+	const manifest = validateBrikManifest(
+		JSON.parse(new TextDecoder().decode(bytes.subarray(HEADER_FIXED, HEADER_FIXED + manifestLen))) as BrikManifest,
+	);
 	return { manifest, version, dataStart: brikDataStart(manifestLen) };
 }
 

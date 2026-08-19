@@ -17,6 +17,7 @@ import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
 import { brikFileToLoadable, brikToGgufManifest, type BrikLoadable } from '@/lib/brik/loader';
 import { convertModelToBrik, type WeightDType } from '@/lib/brik/convert';
 import { serializeBrik, parseBrik, parseBrikHeader } from '@/lib/brik/container';
+import { isValidTokenizerId } from '@/lib/brik/format';
 import { brikCacheKey, getBrik, putBrik } from '@/lib/brikCache';
 import { cachedModelUrls } from '@/lib/storage';
 import { loadBrikStream, prefetchBrik, loadGgufStream, prefetchGguf } from '@/lib/webgpu/source';
@@ -409,6 +410,17 @@ export function useModelEngine(deps: ModelEngineDeps) {
         }
       }
       if (!tokenizer) {
+        // `tokenizerId` peut venir du MANIFESTE d'un .brik distant : c'est une entrée non fiable, et
+        // from_pretrained la transforme en requête réseau. Un id forgé (URL, chemin remontant) ferait
+        // charger le tokenizer d'un dépôt tiers — mauvaise tokenisation, donc modèle détourné sans
+        // qu'aucun poids n'ait été touché. Les .brik hébergés par nous sont déjà filtrés en amont
+        // (validateBrikManifest), ce garde-fou couvre les autres chemins : GGUF, .brik.zip, saisie.
+        if (!isValidTokenizerId(tokenizerId)) {
+          throw new Error(t(
+            `Refused tokenizer id "${tokenizerId}": expected "author/repo" (a Hugging Face repo), nothing else.`,
+            `Identifiant de tokenizer refusé « ${tokenizerId} » : la forme attendue est « auteur/dépôt » (un dépôt Hugging Face), rien d'autre.`,
+          ));
+        }
         setLoadingStep(t('Loading the tokenizer (Hugging Face)...', 'Chargement du Tokenizer (Hugging Face)...'));
         try {
           tokenizer = await AutoTokenizer.from_pretrained(tokenizerId);

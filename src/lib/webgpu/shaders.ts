@@ -2259,6 +2259,345 @@ export const SHADERS = {
 				}
 			}
 		}`,
+
+	// conv2d 3×3 stride 2 pad 1 TUILÉ sur poids int8 (q8) — pour les descentes spatiales du UNet
+	conv2d_3x3_s2_tiled_q8: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> bias: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> o: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn wq8(i: u32) -> f32 {
+			let q = f32(i32(codes[i >> 2u] << ((3u - (i & 3u)) * 8u)) >> 24u);
+			let si = i >> 5u;
+			let sw = sc[si >> 1u];
+			return q * f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
+		}
+		var<workgroup> tile: array<f32, 561>;
+		var<workgroup> wloc: array<f32, 72>;
+		@compute @workgroup_size(16, 8)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let co0 = wid.z * 8u;
+			let oy0 = wid.y * 8u;
+			let ox0 = wid.x * 16u;
+			let oy = oy0 + lid.y;
+			let ox = ox0 + lid.x;
+			let inBounds = oy < p.OH && ox < p.OW;
+			let tid = lid.y * 16u + lid.x;
+			var acc: array<f32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
+			for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
+				let base = ci * p.H * p.W;
+				for (var t = tid; t < 561u; t = t + 128u) {
+					let ty = t / 33u;
+					let tx = t % 33u;
+					let iy = i32(oy0 * 2u + ty) - 1;
+					let ix = i32(ox0 * 2u + tx) - 1;
+					var v = 0.0;
+					if (iy >= 0 && iy < i32(p.H) && ix >= 0 && ix < i32(p.W)) { v = inp[base + u32(iy) * p.W + u32(ix)]; }
+					tile[t] = v;
+				}
+				if (tid < 72u) {
+					let j = tid / 9u;
+					let co = co0 + j;
+					if (co < p.Cout) { wloc[tid] = wq8((co * p.Cin + ci) * 9u + (tid % 9u)); }
+					else { wloc[tid] = 0.0; }
+				}
+				workgroupBarrier();
+				if (inBounds) {
+					let r0 = (lid.y * 2u) * 33u + (lid.x * 2u);
+					let v0 = tile[r0];       let v1 = tile[r0 + 1u];  let v2 = tile[r0 + 2u];
+					let v3 = tile[r0 + 33u]; let v4 = tile[r0 + 34u]; let v5 = tile[r0 + 35u];
+					let v6 = tile[r0 + 66u]; let v7 = tile[r0 + 67u]; let v8 = tile[r0 + 68u];
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let b = j * 9u;
+						acc[j] = acc[j]
+							+ v0 * wloc[b]      + v1 * wloc[b + 1u] + v2 * wloc[b + 2u]
+							+ v3 * wloc[b + 3u] + v4 * wloc[b + 4u] + v5 * wloc[b + 5u]
+							+ v6 * wloc[b + 6u] + v7 * wloc[b + 7u] + v8 * wloc[b + 8u];
+					}
+				}
+				workgroupBarrier();
+			}
+			if (inBounds) {
+				for (var j = 0u; j < 8u; j = j + 1u) {
+					let co = co0 + j;
+					if (co < p.Cout) { o[(co * p.OH + oy) * p.OW + ox] = acc[j] + bias[co]; }
+				}
+			}
+		}`,
+
+	// conv2d 3×3 stride 2 pad 1 TUILÉ sur poids int4 (q4) — pour les descentes spatiales du UNet
+	conv2d_3x3_s2_tiled_q4: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read> bias: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> o: array<f32>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn wq4(i: u32) -> f32 {
+			let q = f32((nib[i >> 3u] >> ((i & 7u) * 4u)) & 0xFu);
+			let si = i >> 5u;
+			let half = (si & 1u) == 1u;
+			let s = f16d(select(sc[si >> 1u] & 0xFFFFu, sc[si >> 1u] >> 16u, half));
+			let m = f16d(select(mn[si >> 1u] & 0xFFFFu, mn[si >> 1u] >> 16u, half));
+			return q * s + m;
+		}
+		var<workgroup> tile: array<f32, 561>;
+		var<workgroup> wloc: array<f32, 72>;
+		@compute @workgroup_size(16, 8)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let co0 = wid.z * 8u;
+			let oy0 = wid.y * 8u;
+			let ox0 = wid.x * 16u;
+			let oy = oy0 + lid.y;
+			let ox = ox0 + lid.x;
+			let inBounds = oy < p.OH && ox < p.OW;
+			let tid = lid.y * 16u + lid.x;
+			var acc: array<f32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
+			for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
+				let base = ci * p.H * p.W;
+				for (var t = tid; t < 561u; t = t + 128u) {
+					let ty = t / 33u;
+					let tx = t % 33u;
+					let iy = i32(oy0 * 2u + ty) - 1;
+					let ix = i32(ox0 * 2u + tx) - 1;
+					var v = 0.0;
+					if (iy >= 0 && iy < i32(p.H) && ix >= 0 && ix < i32(p.W)) { v = inp[base + u32(iy) * p.W + u32(ix)]; }
+					tile[t] = v;
+				}
+				if (tid < 72u) {
+					let j = tid / 9u;
+					let co = co0 + j;
+					if (co < p.Cout) { wloc[tid] = wq4((co * p.Cin + ci) * 9u + (tid % 9u)); }
+					else { wloc[tid] = 0.0; }
+				}
+				workgroupBarrier();
+				if (inBounds) {
+					let r0 = (lid.y * 2u) * 33u + (lid.x * 2u);
+					let v0 = tile[r0];       let v1 = tile[r0 + 1u];  let v2 = tile[r0 + 2u];
+					let v3 = tile[r0 + 33u]; let v4 = tile[r0 + 34u]; let v5 = tile[r0 + 35u];
+					let v6 = tile[r0 + 66u]; let v7 = tile[r0 + 67u]; let v8 = tile[r0 + 68u];
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let b = j * 9u;
+						acc[j] = acc[j]
+							+ v0 * wloc[b]      + v1 * wloc[b + 1u] + v2 * wloc[b + 2u]
+							+ v3 * wloc[b + 3u] + v4 * wloc[b + 4u] + v5 * wloc[b + 5u]
+							+ v6 * wloc[b + 6u] + v7 * wloc[b + 7u] + v8 * wloc[b + 8u];
+					}
+				}
+				workgroupBarrier();
+			}
+			if (inBounds) {
+				for (var j = 0u; j < 8u; j = j + 1u) {
+					let co = co0 + j;
+					if (co < p.Cout) { o[(co * p.OH + oy) * p.OW + ox] = acc[j] + bias[co]; }
+				}
+			}
+		}`,
+
+	// RMSNorm parallèle accéléré par SUBGROUPS (réduction intra-warp, sans mémoire partagée pour la
+	// première passe). ⚠️ `subgroup_size` est une valeur d'EXÉCUTION : 32 sur Apple/NVIDIA, 32 ou 64
+	// sur AMD, mais 8 ou 16 sur les iGPU Intel et 4 ou 16 sur Mali. Le tableau des sommes partielles
+	// est donc dimensionné pour le PIRE cas (256/4 = 64 entrées, 256 octets de mémoire partagée) et
+	// aucun sous-groupe n'est écarté : avec 8 entrées et un `min(…, 8u)`, tout ce qui dépassait était
+	// silencieusement JETÉ — sur un Intel en SIMD16 la moitié de la somme des carrés disparaissait,
+	// donc toutes les normalisations du modèle sortaient fausses, sans une ligne de log.
+	rmsnorm_vec_subgroup: `
+		enable subgroups;
+		struct P { rows: u32, dim: u32, eps: f32, onePlus: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		var<workgroup> part: array<f32, 64>;
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(subgroup_invocation_id) sgi: u32, @builtin(subgroup_size) sgs: u32) {
+			let r = wid.x;
+			let tid = lid.x;
+			let base = r * p.dim;
+			var ss = 0.0;
+			if (r < p.rows) {
+				for (var i = tid; i < p.dim; i = i + 256u) { let v = x[base + i]; ss = ss + v * v; }
+			}
+			let sg_sum = subgroupAdd(ss);
+			let num_sg = min((256u + sgs - 1u) / sgs, 64u);
+			let sg_id = tid / sgs;
+			if (sgi == 0u && sg_id < 64u) {
+				part[sg_id] = sg_sum;
+			}
+			workgroupBarrier();
+			// Somme des partielles. Un seul subgroupAdd ne suffit PAS quand il y a plus de sous-groupes
+			// que de voies dans un sous-groupe (sgs=4 → 64 partielles pour 4 voies) : chaque voie cumule
+			// donc d'abord sa tranche à pas fixe, puis le sous-groupe réduit — correct pour tout sgs.
+			var acc = 0.0;
+			for (var k = sgi; k < num_sg; k = k + sgs) { acc = acc + part[k]; }
+			let total_ss = subgroupAdd(acc);
+			if (r >= p.rows) { return; }
+			let inv = 1.0 / sqrt(total_ss / f32(p.dim) + p.eps);
+			for (var i = tid; i < p.dim; i = i + 256u) {
+				let g = select(w[i], 1.0 + w[i], p.onePlus == 1u);
+				o[base + i] = x[base + i] * inv * g;
+			}
+		}`,
+
+	// GroupNorm accéléré par SUBGROUPS. Même contrainte que rmsnorm_vec_subgroup ci-dessus : les
+	// partielles sont dimensionnées pour le plus petit subgroup_size possible (4) et réduites par
+	// tranches, sinon un GPU en SIMD8/16 perd la plupart des sommes — moyenne et variance fausses,
+	// donc images cassées sans erreur.
+	group_norm_subgroup: `
+		enable subgroups;
+		struct P { C: u32, HW: u32, G: u32, eps: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> gamma: array<f32>;
+		@group(0) @binding(3) var<storage, read> beta: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		var<workgroup> ssum: array<f32, 64>;
+		var<workgroup> ssq: array<f32, 64>;
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(subgroup_invocation_id) sgi: u32, @builtin(subgroup_size) sgs: u32) {
+			let g = wid.x;
+			if (g >= p.G) { return; }
+			let cpg = p.C / p.G;
+			let n = cpg * p.HW;
+			let base = g * cpg * p.HW;
+			var s = 0.0; var sq = 0.0;
+			var i = lid.x;
+			loop {
+				if (i >= n) { break; }
+				let v = x[base + i];
+				s = s + v; sq = sq + v * v;
+				i = i + 256u;
+			}
+			let sg_s = subgroupAdd(s);
+			let sg_sq = subgroupAdd(sq);
+			let num_sg = min((256u + sgs - 1u) / sgs, 64u);
+			let sg_id = lid.x / sgs;
+			if (sgi == 0u && sg_id < 64u) {
+				ssum[sg_id] = sg_s;
+				ssq[sg_id] = sg_sq;
+			}
+			workgroupBarrier();
+			var acc_s = 0.0;
+			var acc_sq = 0.0;
+			for (var k = sgi; k < num_sg; k = k + sgs) { acc_s = acc_s + ssum[k]; acc_sq = acc_sq + ssq[k]; }
+			let total_s = subgroupAdd(acc_s);
+			let total_sq = subgroupAdd(acc_sq);
+			let mean = total_s / f32(n);
+			// max(…, 0) : E[x²] - moyenne² est mathématiquement positif mais peut passer sous zéro en
+			// f32 sur un groupe presque constant — sqrt d'un négatif rendrait NaN sur tout le groupe.
+			let varr = max(total_sq / f32(n) - mean * mean, 0.0);
+			let inv = 1.0 / sqrt(varr + p.eps);
+			var j = lid.x;
+			loop {
+				if (j >= n) { break; }
+				let ch = g * cpg + j / p.HW;
+				o[base + j] = (x[base + j] - mean) * inv * gamma[ch] + beta[ch];
+				j = j + 256u;
+			}
+		}`,
+
+	// Upscaler 2× GPU temps réel : suréchantillonnage bicubique Catmull-Rom tensoriel +
+	// filtre adaptatif de rehaussement de netteté des arêtes (Edge-Preserving Unsharp).
+	upscale2x_enhanced: `
+		struct P { C: u32, H: u32, W: u32, sharpness: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+
+		fn sampleInp(c: u32, y: i32, x: i32) -> f32 {
+			let cy = u32(clamp(y, 0, i32(p.H) - 1));
+			let cx = u32(clamp(x, 0, i32(p.W) - 1));
+			return inp[(c * p.H + cy) * p.W + cx];
+		}
+
+		// Laplacien discret à 5 points en (y,x). sampleInp borne les coordonnées, donc les bords se
+		// comportent comme un prolongement par la valeur du bord (pas de halo noir).
+		fn laplacien(c: u32, y: i32, x: i32) -> f32 {
+			let centre = sampleInp(c, y, x);
+			return (sampleInp(c, y - 1, x) + sampleInp(c, y + 1, x) + sampleInp(c, y, x - 1) + sampleInp(c, y, x + 1)) * 0.25 - centre;
+		}
+
+		fn cubic(x: f32) -> vec4<f32> {
+			let x2 = x * x;
+			let x3 = x2 * x;
+			let w0 = -0.5 * x3 + x2 - 0.5 * x;
+			let w1 = 1.5 * x3 - 2.5 * x2 + 1.0;
+			let w2 = -1.5 * x3 + 2.0 * x2 + 0.5 * x;
+			let w3 = 0.5 * x3 - 0.5 * x2;
+			return vec4<f32>(w0, w1, w2, w3);
+		}
+
+		@compute @workgroup_size(16, 16)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let ox = gid.x;
+			let oy = gid.y;
+			let c = gid.z;
+			let outW = p.W * 2u;
+			let outH = p.H * 2u;
+			if (ox >= outW || oy >= outH || c >= p.C) { return; }
+
+			let srcX = (f32(ox) + 0.5) * 0.5 - 0.5;
+			let srcY = (f32(oy) + 0.5) * 0.5 - 0.5;
+
+			let x0 = i32(floor(srcX));
+			let y0 = i32(floor(srcY));
+			let fx = srcX - f32(x0);
+			let fy = srcY - f32(y0);
+
+			let wx = cubic(fx);
+			let wy = cubic(fy);
+
+			var bicubicVal = 0.0;
+			for (var j = 0; j < 4; j = j + 1) {
+				let py = y0 - 1 + j;
+				var rowVal = 0.0;
+				for (var i = 0; i < 4; i = i + 1) {
+					let px = x0 - 1 + i;
+					let s = sampleInp(c, py, px);
+					rowVal = rowVal + s * wx[i];
+				}
+				bicubicVal = bicubicVal + rowVal * wy[j];
+			}
+
+			// Rehaussement d'arêtes : on retire au résultat un laplacien (moyenne des 4 voisins moins le
+			// centre) — soustraire un flou, c'est accentuer. Le laplacien est INTERPOLÉ à la position
+			// rééchantillonnée : évalué au seul pixel source floor(srcX/Y), les 4 pixels de sortie
+			// issus d'un même pixel source recevaient tous la MÊME correction, ce qui redessinait la
+			// grille source en damier de blocs 2×2 sur les contours francs. Quatre laplaciens aux coins
+			// entiers, puis une bilinéaire : le rehaussement varie alors continûment comme le bicubique
+			// qu'il corrige. Coût : 12 lectures de plus, toutes dans le même voisinage déjà chaud.
+			let lap00 = laplacien(c, y0, x0);
+			let lap01 = laplacien(c, y0, x0 + 1);
+			let lap10 = laplacien(c, y0 + 1, x0);
+			let lap11 = laplacien(c, y0 + 1, x0 + 1);
+			let lapTop = mix(lap00, lap01, fx);
+			let lapBot = mix(lap10, lap11, fx);
+			let laplacian = mix(lapTop, lapBot, fy);
+
+			let enhanced = bicubicVal - p.sharpness * laplacian;
+			let clamped = clamp(enhanced, 0.0, 1.0);
+
+			o[(c * outH + oy) * outW + ox] = clamped;
+		}`,
 	conv2d_1x1_q4: `
 		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
 		@group(0) @binding(0) var<uniform> p: P;

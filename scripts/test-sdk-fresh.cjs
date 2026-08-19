@@ -22,7 +22,18 @@ if (names.length < 20) {
   process.exit(1);
 }
 
-const bundles = ['public/sdk.js', 'public/sdk-0.1.0.js'];
+// QUELS bundles doivent suivre le moteur : `sdk.js` (le « latest » de la balise script) et le
+// fichier de la version COURANTE. Pas les versions antérieures : `public/sdk-<v>.js` est FIGÉ par
+// contrat (cf. l'en-tête de scripts/build-sdk.mjs — « un intégrateur peut épingler une version et
+// ne pas voir son widget changer sous ses pieds »), donc il porte les kernels de SA sortie et prend
+// forcément du retard. Ce test listait toutes les versions : il exigeait donc de régénérer les
+// fichiers épinglés à chaque évolution du moteur, c'est-à-dire exactement de rompre le gel qu'ils
+// promettent. Le 0.1.0 publié sur npm et le 0.1.0 servi par le site avaient d'ailleurs déjà divergé.
+const version = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/sdk/package.json'), 'utf8')).version;
+const bundles = ['public/sdk.js', `public/sdk-${version}.js`];
+const figes = fs.readdirSync(path.join(ROOT, 'public'))
+  .filter((f) => /^sdk-\d/.test(f) && f !== `sdk-${version}.js`);
+if (figes.length) console.log(`  (figés, non vérifiés : ${figes.join(', ')})`);
 let ko = 0;
 for (const rel of bundles) {
   const p = path.join(ROOT, rel);

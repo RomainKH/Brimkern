@@ -12,17 +12,37 @@ import { fetchFullCached } from '../source';
 import { loadMmproj } from './mmproj';
 import { VitEncoder, imageToPatches } from './vit';
 import { EN_ONLY, type OnProgress, type Tr } from '../progress';
+import { urlFlag } from '../urlFlags';
+import { QWEN2VL_REV } from '../../modelCatalog';
 
 // Tokens spéciaux Qwen2-VL (ids du tokenizer officiel) — exportés pour l'orchestration du chat.
 export const IM_END = 151645, ENDOFTEXT = 151643;
 const VISION_START = 151652, VISION_END = 151653, IMAGE_PAD = 151655;
 
-const DEFAULT_LLM = 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/Qwen2-VL-2B-Instruct-Q8_0.gguf';
-const DEFAULT_MMPROJ = 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen2-VL-2B-Instruct-f16.gguf';
+const DEFAULT_LLM = `${QWEN2VL_REV}/Qwen2-VL-2B-Instruct-Q8_0.gguf`;
+const DEFAULT_MMPROJ = `${QWEN2VL_REV}/mmproj-Qwen2-VL-2B-Instruct-f16.gguf`;
+
+// Côté maximal de l'image envoyée au ViT. Le coût est QUADRATIQUE : les tokens visuels valent
+// (côté/28)² après fusion, et ils entrent dans le préfill du LLM comme n'importe quel token.
+//
+// MESURÉ (scripts/e2e/vision-res.mjs, mire de 4 lignes de 72 à 13 px, « transcris tout le texte ») :
+//   vismax=448 → 256 tokens visuels, 11,4 s, 4/4 lignes lues (la ligne de 13 px comprise)
+//   vismax=896 → 729 tokens visuels, 52,8 s, 4/4 lignes lues
+// ×2,8 tokens et ×4,6 sur le temps de réponse, pour zéro ligne de plus. 896 rend une casse plus
+// fidèle (« BRIMKERN » au lieu de « Brimkern »), ce qui ne vaut pas 40 secondes. Le défaut était
+// passé à 896 « pour le texte et les UI » sans mesure : il revient à 448, avec les chiffres.
+// `?vismax=` reste l'override dev (jusqu'à 1400) pour le cas où une image dense le justifierait.
+export const VISION_MAX_SIDE_DEFAULT = 448;
+export function visionMaxSide(): number {
+	const v = parseInt(urlFlag('vismax') || '', 10);
+	// Bornes : en dessous de 28 il n'y a plus un seul patch, au-delà de 1400 le ViT et le préfill
+	// dépassent largement ce qu'un GPU d'entrée de gamme encaisse.
+	return Number.isFinite(v) && v >= 28 && v <= 1400 ? v : VISION_MAX_SIDE_DEFAULT;
+}
 
 // URL/data/blob image → RGB [0,1] channels-first, redimensionnée pour que les côtés soient des
-// multiples de patch·merge (28) et que le nombre de tokens reste raisonnable (≤ ~256 après fusion).
-export async function imageUrlToCHW(url: string, maxSide = 448): Promise<{ data: Float32Array; H: number; W: number }> {
+// multiples de patch·merge (28) et que le nombre de tokens reste raisonnable.
+export async function imageUrlToCHW(url: string, maxSide = visionMaxSide()): Promise<{ data: Float32Array; H: number; W: number }> {
 	const img = new Image();
 	img.crossOrigin = 'anonymous';
 	await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(new Error('image illisible')); img.src = url; });

@@ -135,14 +135,17 @@ function makeSystemBuilder(cfg: { system?: string; knowledge?: SessionConfig['kn
 	if (!cfg.knowledge) return { system: () => base, userTurn: (q) => q, pinned: epingler(cfg.examples || []) };
 	const chunks: Chunk[] = chunkDocuments(normalizeDocs(cfg.knowledge));
 	const budget = cfg.knowledgeBudget ?? 1200;
-	const consigne = base +
-		'\n\nThe user message may include reference notes between --- markers. When it does, answer from those notes and quote their figures exactly. When it says no note matches, say you do not have that information.';
+	const isFr = cfg.system ? /[àéèêîôùç]|bonjour|conseiller|boutique|aide/i.test(cfg.system) : false;
+	const consigne = isFr
+		? base + '\n\nLe message utilisateur peut inclure des fiches de référence entre des balises ---. Dans ce cas, réponds uniquement à partir de ces fiches en citant fidèlement leurs informations dans la langue de la question. Si aucune note ne correspond, indique poliment que tu n’as pas cette information.'
+		: base + '\n\nThe user message may include reference notes between --- markers. When it does, answer from those notes and quote their figures exactly. When it says no note matches, say you do not have that information.';
 	return {
 		system: () => consigne,
-		userTurn: (q: string) => buildKnowledgeBlock(selectChunks(q, chunks, budget)).trim() + `\n\nQuestion: ${q}`,
-		// Les exemples de connaissance viennent EN PREMIER : ils montrent la mécanique (notes →
-		// réponse), ceux de l'intégrateur montrent ensuite le ton. L'ordre compte pour un petit modèle.
-		pinned: epingler([...knowledgeExamples(), ...(cfg.examples || [])]),
+		userTurn: (q: string) => {
+			const b = buildKnowledgeBlock(selectChunks(q, chunks, budget), q).trim();
+			return b ? `${b}\n\nQuestion: ${q}` : q;
+		},
+		pinned: epingler([...knowledgeExamples(isFr), ...(cfg.examples || [])]),
 	};
 }
 
@@ -150,16 +153,35 @@ function makeSystemBuilder(cfg: { system?: string; knowledge?: SessionConfig['kn
 // par défaut (230M), la consigne écrite ne suffit pas — mesuré, il refusait « je n'ai pas cette
 // information » alors que le passage contenant la réponse était juste au-dessus. La leçon est déjà
 // dans le moteur (cf. Lfm2Model.classify) : à cette taille, DÉCRIRE le comportement échoue, le
-// MONTRER fonctionne. Deux exemples suffisent, un par cas : la note répond, ou aucune note ne
-// correspond.
-function knowledgeExamples(): { user: string; assistant: string }[] {
+// MONTRER fonctionne.
+function knowledgeExamples(isFr = false): { user: string; assistant: string }[] {
+	if (isFr) {
+		return [
+			{
+				user: 'Bonjour !',
+				assistant: 'Bonjour ! Comment puis-je vous aider ?',
+			},
+			{
+				user: '--- NOTES ---\n[1] Horaires\nL’atelier est ouvert le jeudi jusqu’à 20h.\n--- END OF NOTES ---\n\nQuestion: Êtes-vous ouverts le jeudi soir ?',
+				assistant: 'Oui, l’atelier est ouvert le jeudi jusqu’à 20h.',
+			},
+			{
+				user: 'No reference note matches this question. Say that you do not have this information: do not guess.\n\nQuestion: Qui a gagné la Coupe du Monde 1998 ?',
+				assistant: 'Je n’ai pas cette information dans mes fiches.',
+			},
+		];
+	}
 	return [
+		{
+			user: 'Hello!',
+			assistant: 'Hello! How can I help you today?',
+		},
 		{
 			user: '--- NOTES ---\n[1] Opening hours\nThe workshop is open on Thursday until 8pm.\n--- END OF NOTES ---\n\nQuestion: Are you open on Thursday evening?',
 			assistant: 'Yes: the workshop is open on Thursday until 8pm.',
 		},
 		{
-			user: 'No reference note matches this question.\n\nQuestion: Who won the 1998 World Cup?',
+			user: 'No reference note matches this question. Say that you do not have this information: do not guess.\n\nQuestion: Who won the 1998 World Cup?',
 			assistant: 'I do not have that information in my notes.',
 		},
 	];

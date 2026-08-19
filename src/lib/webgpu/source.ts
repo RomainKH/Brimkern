@@ -11,6 +11,7 @@ import { type TensorSource } from './model';
 import { parseGguf } from './ggufParser';
 import { parseBrik, parseBrikHeader } from '../brik/container';
 import { brikToGgufManifest, computeShardBases, type GgufManifest } from '../brik/loader';
+import { verifyManifestDigest } from '../brik/integrity';
 import type { BrikManifest, BrikTensorEntry } from '../brik/format';
 
 const CACHE_NAME = 'brik-range-v1';
@@ -119,12 +120,24 @@ export async function loadBrikStream(url: string): Promise<StreamLoadable> {
 		// ouverture re-téléchargeait l'intégralité du fichier).
 		const full = await fetchFullCached(url);
 		const { manifest, data } = parseBrik(full);
+		await verifyManifestDigest(url, manifestBytes(full));
 		return loadableFrom(manifest, bytesSource(data));
 	}
 	const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
 	const header = await fetchRange(url, 0, 12 + manifestLen);
 	const { manifest, dataStart } = parseBrikHeader(header.bytes);
+	// Intégrité AVANT le premier tenseur : sur une URL que l'app a choisie elle-même, un manifeste
+	// d'empreinte inattendue fait échouer le chargement (cf. brik/integrity.ts).
+	await verifyManifestDigest(url, manifestBytes(header.bytes));
 	return loadableFrom(manifest, rangeSource(url, dataStart));
+}
+
+// Les octets EXACTS du manifeste dans un en-tête .brik : [12, 12+longueur). C'est la tranche que
+// scripts/brik-digest.cjs hache — les deux doivent découper au même endroit, sinon toute empreinte
+// est fausse. Une seule fonction pour les deux appelants, plutôt que deux subarray recopiés.
+function manifestBytes(headerOrFull: Uint8Array): Uint8Array {
+	const len = new DataView(headerOrFull.buffer, headerOrFull.byteOffset, 12).getUint32(8, true);
+	return headerOrFull.subarray(12, 12 + len);
 }
 
 function loadableFrom(manifest: ReturnType<typeof parseBrikHeader>['manifest'], source: TensorSource): StreamLoadable {
@@ -173,10 +186,12 @@ export async function streamImageBrik(
 		// chaque ouverture re-téléchargeait tout — pas de reprise, mais au moins la réutilisation).
 		full = await fetchFullCached(url);
 		({ manifest, dataStart } = parseBrikHeader(full));
+		await verifyManifestDigest(url, manifestBytes(full));
 	} else {
 		const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
 		const header = await fetchRange(url, 0, 12 + manifestLen);
 		({ manifest, dataStart } = parseBrikHeader(header.bytes));
+		await verifyManifestDigest(url, manifestBytes(header.bytes));
 	}
 	if (manifest.model?.uiArch !== 'image') {
 		throw new Error('Ce BRIK n\'est pas un modèle image (uiArch ≠ image).');
@@ -206,13 +221,49 @@ export async function streamImageBrik(
 	return manifest;
 }
 
-// (`imageBrikCacheComplete` — le miroir de brikCacheComplete au plan des SHARDS image — a été
-// supprimé le 2026-08-16. Il gardait l'auto-rechargement du générateur d'image à la reprise, mais
-// cet auto-rechargement lui-même a été retiré le 2026-07-21 : sur mobile, « en cache » ou pas, il
-// déclenchait des téléchargements et bloquait l'utilisateur (retour Romain). Une conversation image
-// se restaure sans son modèle — les images sont persistées dans les messages — et le générateur se
-// relance à la demande. Si l'auto-rechargement revient un jour, la fonction se réécrit depuis
-// brikCacheComplete ci-dessous, en substituant le plan par-shard au plan par-couche.)
+// Plan des plages d'un BRIK image (un span par shard de manifest.shards).
+async function planImageBrikRanges(url: string, signal?: AbortSignal): Promise<{ cache: NonNullable<Awaited<ReturnType<typeof openCache>>>; ranges: { off: number; len: number }[] } | null> {
+	const cache = await openCache();
+	if (!cache) return null;
+	const head = await fetchRange(url, 0, 12, signal);
+	if (!head.ranged) return null;
+	const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
+	const header = await fetchRange(url, 0, 12 + manifestLen, signal);
+	const { manifest, dataStart } = parseBrikHeader(header.bytes);
+	if (!manifest.shards) return null;
+	const bases = computeShardBases(manifest.shards);
+	const ranges = manifest.shards.map((s) => ({ off: dataStart + bases[s.id], len: s.byteLength }));
+	return { cache, ranges };
+}
+
+// Le BRIK image est-il INTÉGRALEMENT en cache local ?
+export async function imageBrikCacheComplete(url: string): Promise<boolean> {
+	try {
+		const plan = await planImageBrikRanges(url);
+		if (!plan) return false;
+		const hits = await Promise.all(plan.ranges.map((r) => plan.cache.match(rangeKey(url, r.off, r.off + r.len - 1))));
+		return hits.every(Boolean);
+	} catch {
+		return false;
+	}
+}
+
+// L'ensemble du pipeline image (UNet BRIK + CLIP BRIK + TAESD) est-il 100% en cache local ?
+export async function imageModelCached(urls: { unet: string; clip: string; taesd: string }): Promise<boolean> {
+	try {
+		const cache = await openCache();
+		if (!cache) return false;
+		const taesdHit = await cache.match(urls.taesd);
+		if (!taesdHit) return false;
+		const [unetOk, clipOk] = await Promise.all([
+			imageBrikCacheComplete(urls.unet),
+			imageBrikCacheComplete(urls.clip),
+		]);
+		return unetOk && clipOk;
+	} catch {
+		return false;
+	}
+}
 
 // ── GGUF STREAMÉ (mêmes plages que le BRIK) ───────────────────────────────────────────────────
 // Un GGUF distant se chargeait en UN SEUL téléchargement monolithique : tous les octets en RAM,

@@ -225,6 +225,12 @@ export class WebGpuEngine {
 	// forcé par ?rmsvec=0 → retour au kernel une-ligne-par-thread (correct, mais qui laisse 63 threads
 	// sur 64 inutilisés en décodage — 51,9 % du temps GPU relevé au profileur pour une normalisation).
 	rmsVecOk = true;
+	// Convolutions 3×3 stride-2 TUILÉES (descentes du UNet) : gate NON BLOQUANT posé par selfValidate,
+	// ou forcé par ?convs2=0 → repli sur direct.
+	convS2Ok = true;
+	// WebGPU Subgroups (réductions intra-warp sans shared memory) : activé si disponible sur le device.
+	hasSubgroups = false;
+	subgroupsOk = true;
 	// Sélection top-K à réduction PARALLÈLE (kernel top_k_par) : gate NON BLOQUANT posé par
 	// selfValidate, ou forcé par ?topkpar=0 → retour au kernel dont la phase finale tient sur un seul
 	// thread (correct, mais 866 µs par token relevés au profileur — 14 fois un GEMV).
@@ -253,6 +259,8 @@ export class WebGpuEngine {
 		// Opt into shader-f16 when the adapter offers it (BRIK's f16-weight matmul needs it).
 		const features: string[] = [];
 		try { if (adapter.features?.has('shader-f16')) features.push('shader-f16'); } catch { /* older impls */ }
+		// WebGPU Subgroups (réductions intra-warp sans barrière) : opt-in si disponible
+		try { if (adapter.features?.has('subgroups')) features.push('subgroups'); } catch { /* older impls */ }
 		// timestamp-query UNIQUEMENT sous ?gpuprofile=1 : la demander toujours changerait la création
 		// du device de toutes les sessions pour un outil de diagnostic. Elle reste optionnelle — un
 		// adapter qui ne l'offre pas laisse simplement `profiler` à null (message explicite plus bas).
@@ -265,6 +273,7 @@ export class WebGpuEngine {
 		}
 		this.maxStorageBufferBindingSize = this.device.limits?.maxStorageBufferBindingSize ?? 134217728;
 		this.hasF16 = !!this.device.features?.has?.('shader-f16');
+		this.hasSubgroups = !!this.device.features?.has?.('subgroups');
 		if (WebGpuEngine.profileOn) {
 			if (this.device.features?.has?.('timestamp-query')) {
 				this.profiler = new GpuProfiler(this.device);
@@ -312,6 +321,14 @@ export class WebGpuEngine {
 			if (urlFlag('lfm2batch') === '0') {
 				this.lfm2BatchOk = false;
 				console.warn('[webgpu] prefill LFM2 batché COUPÉ par ?lfm2batch=0 : token par token');
+			}
+			if (urlFlag('convs2') === '0') {
+				this.convS2Ok = false;
+				console.warn('[webgpu] conv2d 3×3 stride-2 tuilé COUPÉ par ?convs2=0 : repli sur direct');
+			}
+			if (urlFlag('subgroups') === '0') {
+				this.subgroupsOk = false;
+				console.warn('[webgpu] subgroups COUPÉ par ?subgroups=0 : repli sur shared memory');
 			}
 			if (urlFlag('swa') === '0') {
 				this.swaOk = false;
@@ -609,7 +626,10 @@ export class WebGpuEngine {
 
 	// RMSNorm parallèle par ligne avec readback — pour selfValidate (le chemin chaud passe par
 	// recRmsnorm, qui enregistre la passe sans readback).
-	async rmsnormVec(x: Float32Array, w: Float32Array, rows: number, dim: number, eps = 1e-5, onePlus = false): Promise<Float32Array> {
+	// `shader` : 'rmsnorm_vec' (référence, réduction en mémoire partagée) ou 'rmsnorm_vec_subgroup'
+	// — selfValidate compare les deux sur CE GPU, la taille de sous-groupe n'étant connue qu'à
+	// l'exécution.
+	async rmsnormVec(x: Float32Array, w: Float32Array, rows: number, dim: number, eps = 1e-5, onePlus = false, shader = 'rmsnorm_vec'): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const p = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
@@ -617,7 +637,7 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 8, new Float32Array([eps]));
 		this.device.queue.writeBuffer(p, 12, new Uint32Array([onePlus ? 1 : 0]));
 		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
-		return this.run('rmsnorm_vec', [p, this.buf(x, ST), this.buf(w, ST), out], [rows, 1, 1], out, x.byteLength);
+		return this.run(shader, [p, this.buf(x, ST), this.buf(w, ST), out], [rows, 1, 1], out, x.byteLength);
 	}
 
 	private async binary(name: string, a: Float32Array, b: Float32Array): Promise<Float32Array> {
@@ -641,14 +661,14 @@ export class WebGpuEngine {
 	}
 
 	// GroupNorm over one image x=[C,HW] with `groups` groups + per-channel affine (gamma,beta length C).
-	async groupNorm(x: Float32Array, gamma: Float32Array, beta: Float32Array, C: number, HW: number, groups: number, eps = 1e-5): Promise<Float32Array> {
+	async groupNorm(x: Float32Array, gamma: Float32Array, beta: Float32Array, C: number, HW: number, groups: number, eps = 1e-5, shader = 'group_norm'): Promise<Float32Array> {
 		const G = globalThis as any;
 		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
 		const p = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([C, HW, groups]));
 		this.device.queue.writeBuffer(p, 12, new Float32Array([eps]));
 		const out = this.device.createBuffer({ size: x.byteLength, usage: ST | G.GPUBufferUsage.COPY_SRC });
-		return this.run('group_norm', [p, this.buf(x, ST), this.buf(gamma, ST), this.buf(beta, ST), out], [groups, 1, 1], out, x.byteLength);
+		return this.run(shader, [p, this.buf(x, ST), this.buf(gamma, ST), this.buf(beta, ST), out], [groups, 1, 1], out, x.byteLength);
 	}
 
 	// conv2d on ONE image (NCHW): input [Cin,H,W], weight [Cout,Cin,kh,kw] row-major, optional bias
@@ -734,6 +754,17 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([C, H, W, scale]));
 		const out = this.device.createBuffer({ size: n * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
 		return this.run('upsample_nearest', [p, this.buf(x, ST), out], this.grid1D(n), out, n * 4);
+	}
+
+	// Upscale 2× haute fidélité résidente sur GPU avec rehaussement de netteté adaptatif.
+	async upscale2x(imgF32: Float32Array, C: number, H: number, W: number, sharpness = 0.5): Promise<Float32Array> {
+		const outH = H * 2, outW = W * 2;
+		const s = this.recordingSession();
+		const inBuf = this.uploadGpu(imgF32);
+		const outBuf = s.upscale2x(inBuf, C, H, W, sharpness);
+		const res = await s.finish(outBuf, C * outH * outW);
+		this.releaseGpu([inBuf]);
+		return res;
 	}
 
 	// RoPE over x viewed as [rows, headDim], rows = seq * nHeads.
@@ -1492,6 +1523,13 @@ export class WebGpuEngine {
 			trash.push(p, out1);
 			return out1;
 		}
+		// Descentes du UNet (3×3, stride 2, pad 1) : kernel tuilé stride-2 avec blocage 8 canaux
+		if (kh === 3 && kw === 3 && stride === 2 && pad === 1 && this.convTiledQOk && this.convS2Ok) {
+			const outS2 = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_3x3_s2_tiled_q8', [p, inp, q8.codes, q8.sc, bias, outS2], [Math.ceil(OW / 16), Math.ceil(OH / 8), Math.ceil(Cout / 8)]);
+			trash.push(p, outS2);
+			return outS2;
+		}
 		const out = this.storage(n * 4);
 		this.recordPass(enc, 'conv2d_direct_q8', [p, inp, q8.codes, q8.sc, bias, out], this.grid1D(n));
 		trash.push(p, out);
@@ -1516,6 +1554,12 @@ export class WebGpuEngine {
 			trash.push(p, out1);
 			return out1;
 		}
+		if (kh === 3 && kw === 3 && stride === 2 && pad === 1 && this.convTiledQOk && this.convS2Ok) {
+			const outS2 = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_3x3_s2_tiled_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, outS2], [Math.ceil(OW / 16), Math.ceil(OH / 8), Math.ceil(Cout / 8)]);
+			trash.push(p, outS2);
+			return outS2;
+		}
 		const out = this.storage(n * 4);
 		this.recordPass(enc, 'conv2d_direct_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, out], this.grid1D(n));
 		trash.push(p, out);
@@ -1524,7 +1568,8 @@ export class WebGpuEngine {
 	private recGroupNorm(enc: GPUAny, trash: GPUAny[], x: GPUAny, gamma: GPUAny, beta: GPUAny, C: number, HW: number, groups: number, eps: number): GPUAny {
 		const p = this.uniform([C, HW, groups], { offset: 12, value: eps });
 		const out = this.storage(C * HW * 4);
-		this.recordPass(enc, 'group_norm', [p, x, gamma, beta, out], [groups, 1, 1]);
+		const shader = (this.hasSubgroups && this.subgroupsOk) ? 'group_norm_subgroup' : 'group_norm';
+		this.recordPass(enc, shader, [p, x, gamma, beta, out], [groups, 1, 1]);
 		trash.push(p, out);
 		return out;
 	}
@@ -1589,6 +1634,14 @@ export class WebGpuEngine {
 		const p = this.uniform([rows, F]);
 		const out = this.storage(rows * F * 4);
 		this.recordPass(enc, 'geglu_split', [p, proj, out], this.grid1D(rows * F));
+		trash.push(p, out);
+		return out;
+	}
+	private recUpscale2x(enc: GPUAny, trash: GPUAny[], x: GPUAny, C: number, H: number, W: number, sharpness = 0.5): GPUAny {
+		const p = this.uniform([C, H, W], { offset: 12, value: sharpness });
+		const outW = W * 2, outH = H * 2;
+		const out = this.storage(C * outH * outW * 4);
+		this.recordPass(enc, 'upscale2x_enhanced', [p, x, out], [Math.ceil(outW / 16), Math.ceil(outH / 16), C]);
 		trash.push(p, out);
 		return out;
 	}
@@ -1658,6 +1711,7 @@ export class WebGpuEngine {
 			// CAUSAL attention (mask j ≤ pastLen+t) — CLIP's text encoder recorded in-session.
 			attention: (q: GPUAny, k: GPUAny, v: GPUAny, nT: number, nH: number, nKv: number, hd: number, kvLen: number, pastLen: number) => this.recAttention(enc, trash, up(q), up(k), up(v), nT, nH, nKv, hd, kvLen, pastLen),
 			upsample: (x: GPUAny, C: number, H: number, W: number, s: number) => this.recUpsample(enc, trash, up(x), C, H, W, s),
+			upscale2x: (x: GPUAny, C: number, H: number, W: number, sharpness = 0.5) => this.recUpscale2x(enc, trash, up(x), C, H, W, sharpness),
 			layernorm: (x: GPUAny, g: GPUAny, b: GPUAny, rows: number, dim: number, eps: number) => this.recLayernorm(enc, trash, up(x), up(g), up(b), rows, dim, eps),
 			concat: (a: GPUAny, b: GPUAny, Ca: number, Cb: number, HW: number) => this.recConcat(enc, trash, up(a), up(b), Ca, Cb, HW),
 			transpose: (x: GPUAny, rows: number, cols: number) => this.recTranspose(enc, trash, up(x), rows, cols),
@@ -1916,7 +1970,8 @@ export class WebGpuEngine {
 		// garde à 65 535 (limite de workgroups par dimension) — au-delà, retour au kernel par lignes,
 		// qui est justement bon dans ce régime (beaucoup de lignes, donc beaucoup de threads utiles).
 		if (this.rmsVecOk && rows <= 65535) {
-			this.recordPass(enc, 'rmsnorm_vec', [p, x, w, out], [rows, 1, 1]);
+			const shader = (this.hasSubgroups && this.subgroupsOk) ? 'rmsnorm_vec_subgroup' : 'rmsnorm_vec';
+			this.recordPass(enc, shader, [p, x, w, out], [rows, 1, 1]);
 		} else {
 			this.recordPass(enc, 'rmsnorm', [p, x, w, out], [Math.ceil(rows / WG), 1, 1]);
 		}
@@ -4135,6 +4190,67 @@ export class WebGpuEngine {
 				}
 			}
 			this.convTiledQOk = this.convTiledQOk && savedQT;
+		}
+
+		// conv2d_3x3_s2_tiled_q8 / _q4 vs direct (descentes spatiales du UNet)
+		{
+			const tCin = 8, tH = 20, tW = 20, tCout = 4;
+			const tx = rand(tCin * tH * tW), tw = rand(tCout * tCin * 9), tb = rand(tCout);
+			const savedS2 = this.convS2Ok;
+			const tOH = Math.floor((tH + 2 * 1 - 3) / 2) + 1, tOW = Math.floor((tW + 2 * 1 - 3) / 2) + 1;
+			for (const prec of ['q8', 'q4'] as const) {
+				const packed = prec === 'q8'
+					? (() => { const q = quantizeQ8(tw); return { deq: dequantizeQ8(q), gpu: {
+						codes: this.uploadGpuRaw(new Uint8Array(q.codes.buffer, q.codes.byteOffset, q.codes.byteLength)),
+						sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)) } }; })()
+					: (() => { const q = quantizeQ4(tw); return { deq: dequantizeQ4(q), gpu: {
+						nib: this.uploadGpuRaw(q.nibbles),
+						sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)),
+						mn: this.uploadGpuRaw(new Uint8Array(q.mins.buffer, q.mins.byteOffset, q.mins.byteLength)) } }; })();
+				const ref = await this.conv2dDirect(tx, packed.deq, tb, tCin, tH, tW, tCout, 3, 3, 2, 1);
+				this.convS2Ok = true;
+				const ss = this.recordingSession();
+				const got = await ss.finish(ss.conv2d(tx, packed.gpu as never, tb, tCin, tH, tW, tCout, 3, 3, 2, 1), tCout * tOH * tOW);
+				this.releaseGpu(Object.values(packed.gpu));
+				if (!closeRel(got, ref)) {
+					if (savedS2) console.warn(`[selfValidate] conv2d_3x3_s2_tiled_${prec} KO sur ce GPU : repli sur direct.`);
+					this.convS2Ok = false;
+					break;
+				}
+			}
+			this.convS2Ok = this.convS2Ok && savedS2;
+		}
+
+		// Réductions par SUBGROUPS (rmsnorm_vec_subgroup / group_norm_subgroup) vs les mêmes calculs
+		// en mémoire partagée. Ces kernels dépendent de `subgroup_size`, qui n'existe qu'à l'exécution
+		// et vaut 4 à 128 selon le GPU (8/16 sur iGPU Intel, 4/16 sur Mali, 32 ailleurs) : aucune
+		// relecture de code ne peut les valider, seule la machine répond. D'où ce gate NON BLOQUANT —
+		// à l'identique de convS2Ok juste au-dessus — sinon un GPU en SIMD8 sortait des normalisations
+		// fausses sur TOUT le modèle, sans erreur ni log. Un shader qui ne compile pas rend des zéros
+		// (les erreurs WebGPU sont asynchrones) : la comparaison le rattrape aussi.
+		if (this.hasSubgroups && this.subgroupsOk) {
+			try {
+				const sgRows = 5, sgDim = 300;   // dim non multiple de 256 → dernière tranche partielle
+				const sx = rand(sgRows * sgDim), sw = rand(sgDim);
+				const okRms = closeRel(
+					await this.rmsnormVec(sx, sw, sgRows, sgDim, 1e-5, false, 'rmsnorm_vec_subgroup'),
+					await this.rmsnormVec(sx, sw, sgRows, sgDim, 1e-5, false),
+				);
+				const gC = 8, gHW = 130, gG = 4;  // HW non multiple de 256, plusieurs canaux par groupe
+				const gx = rand(gC * gHW), gg = rand(gC), gb = rand(gC);
+				const okGn = closeRel(
+					await this.groupNorm(gx, gg, gb, gC, gHW, gG, 1e-5, 'group_norm_subgroup'),
+					await this.groupNorm(gx, gg, gb, gC, gHW, gG),
+				);
+				if (!okRms || !okGn) {
+					const quoi = [!okRms && 'rmsnorm_vec_subgroup', !okGn && 'group_norm_subgroup'].filter(Boolean).join(' + ');
+					console.warn(`[selfValidate] ${quoi} KO sur ce GPU : repli sur la réduction en mémoire partagée.`);
+					this.subgroupsOk = false;
+				}
+			} catch (e) {
+				console.warn('[selfValidate] subgroups indisponibles à l\'exécution : repli sur la mémoire partagée.', e);
+				this.subgroupsOk = false;
+			}
 		}
 
 		// f16_to_f32 (bulk GPU conversion for safetensors F16 weights): round-trip random values

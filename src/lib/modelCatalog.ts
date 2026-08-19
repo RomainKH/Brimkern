@@ -19,6 +19,22 @@ export const QWEN_MOBILE_BRIK_URL = 'https://huggingface.co/romainkh14/Qwen2.5-0
 // affiché sur les tuiles mobiles ; le préchargement d'arrière-plan vise ce défaut.
 export const MOBILE_BRIK_URL = 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik';
 
+// ── Poids de TIERS, épinglés à une RÉVISION ───────────────────────────────────────────────────
+// `resolve/main` est un pointeur mutable : le propriétaire d'un dépôt (ou quiconque prend son
+// compte) peut remplacer le fichier, et nos visiteurs chargeraient le nouveau au prochain défaut de
+// cache. Pour des poids que NOUS choisissons et que nous ne mettons jamais à jour, le pointeur
+// mutable n'apporte rien et coûte cette exposition — d'où l'épinglage au sha du commit. Un
+// changement de version devient alors un acte explicite, relu dans un diff.
+// Nos propres BRIK, eux, restent en `resolve/main` (on les téléverse) et sont couverts par
+// l'empreinte de leur manifeste — cf. src/lib/brik/integrity.ts.
+// Révisions relevées le 2026-08-19 (Range + CORS vérifiés sur chaque fichier).
+export const TAESD_REV = 'https://huggingface.co/madebyollin/taesd/resolve/614f76814bbe30edbe2e627ace1c2234c81a2c0e';
+export const TAESD_DECODER = `${TAESD_REV}/taesd_decoder.safetensors`;
+// L'encodeur (img2img) est déduit du décodeur par remplacement de nom dans loadSdTurbo : garder les
+// deux fichiers sur LA MÊME révision est donc automatique, mais autant le dire.
+export const SD_TURBO_REV = 'https://huggingface.co/stabilityai/sd-turbo/resolve/b261bac6fd2cf515557d5d0707481eafa0485ec2';
+export const QWEN2VL_REV = 'https://huggingface.co/bartowski/Qwen2-VL-2B-Instruct-GGUF/resolve/2160e265f926e84e84dbb1c73e623b5324b23707';
+
 // BRIK image pré-quantifiés (scripts/build-image-brik.cjs) — hébergés sur HF comme le BRIK mobile.
 // ⚠️ Romain doit créer le repo et uploader public/models/*.brik ; en attendant, le chargeur image
 // retombe automatiquement sur les safetensors fp16 d'origine (2,4 Go) si le BRIK répond 404.
@@ -31,14 +47,24 @@ export const VIDEO_BRIK = {
 	unet: `${VIDEO_BRIK_BASE}/video-unet-q8.brik`,
 	motion: `${VIDEO_BRIK_BASE}/video-motion-q8.brik`,
 	clip: `${VIDEO_BRIK_BASE}/video-clip-q8.brik`,
-	taesd: 'https://huggingface.co/madebyollin/taesd/resolve/main/taesd_decoder.safetensors',
+	taesd: TAESD_DECODER,
 };
 export const IMAGE_BRIK = {
   sdturbo: { unet: `${IMAGE_BRIK_BASE}/sd-turbo-unet-q8.brik`, clip: `${IMAGE_BRIK_BASE}/sd-turbo-clip-q8.brik` },
   // SDXS-512 mobile : UNet light (int4, 205 Mo) + CLIP allégé (int4, 235 Mo) = ~445 Mo tout compris.
-  // Validé visuellement le 2026-07-16 (harnais Chrome : image quasi identique au stack q8 716 Mo,
-  // écart eps moyen ~2 %). Le q8 reste dispo via ?imgtier=q8 si un GPU mobile bronche.
   sdxs: { unet: `${IMAGE_BRIK_BASE}/sdxs-unet-light.brik`, clip: `${IMAGE_BRIK_BASE}/sd-turbo-clip-mixed.brik` },
+  // ⚠️ RealVisXL Turbo — PAS ENCORE UTILISABLE, gardé ici comme cible de portage. Deux blocages :
+  // (1) ces quatre fichiers ne sont pas hébergés (404 vérifié le 2026-08-19) ; (2) le moteur n'a
+  // AUCUN chemin SDXL — un seul encodeur CLIP (ctxDim 1024), pas de conditionnement additionnel
+  // (pooled + time_ids), et mult [1,2,4,4] au lieu de [1,2,4]. Le brancher comme défaut desktop
+  // envoyait le repli safetensors chercher 10,27 Go de fp32 pour une topologie illisible.
+  // Ne pas recâbler avant d'avoir : le double encodeur, add_embedding, et les BRIK en ligne.
+  realvisxl: {
+    unet: `${IMAGE_BRIK_BASE}/realvisxl-unet-mixed.brik`,
+    clip: `${IMAGE_BRIK_BASE}/realvisxl-clip2-q8.brik`,
+    clip1: `${IMAGE_BRIK_BASE}/realvisxl-clip1-q8.brik`,
+    vae: `${IMAGE_BRIK_BASE}/realvisxl-vae-q8.brik`,
+  },
 };
 
 // Normalize a model name/filename for loose matching (the active model name loses its .gguf and gets
@@ -48,11 +74,183 @@ export const normModelName = (s: string) => (s || '').toLowerCase().replace(/\.(
 // Roadmap teasers shown (greyed, non-clickable) in the browse grid — known models across modalities,
 // to signal where Brimkern is heading. `modality` drives the colored pill.
 export type Modality = 'text' | 'text2img' | 'vision';
-export const COMING_SOON: { vendor: string; name: string; params: string; modality: Modality; desc: string; tags: string[] }[] = [
-  { vendor: 'Microsoft', name: 'Phi-3.5-mini', params: '~3.8B', modality: 'text', desc: 'Compact et excellent en raisonnement. Adaptation en cours (QKV/FFN fusionnés).', tags: ['raisonnement', 'compact'] },
-  { vendor: 'Mistral AI', name: 'Mistral 7B Instruct', params: '~7B', modality: 'text', desc: 'Le best-seller open-weight, base d’une grande partie de l’écosystème.', tags: ['polyvalent', 'sliding-window'] },
-  { vendor: 'Stability AI', name: 'Stable Diffusion Turbo', params: 'SD', modality: 'text2img', desc: 'Texte vers image, en 512px natif sur GPU capable (256px sur mobile et petits GPU). Poids BRIK pré-quantifiés streamés : ~1,3 Go au lieu de 2,4. Mobile : SDXS-512 distillé, ~720 Mo.', tags: ['diffusion', 'BRIK q8'] },
-  { vendor: 'Alibaba', name: 'Qwen2-VL 2B', params: '~2B', modality: 'vision', desc: 'Décrit / interroge une image (image + texte → texte). Encodeur visuel à porter.', tags: ['multimodal', 'OCR'] },
+export interface ComingSoonModel {
+  vendor: string;
+  name: string;
+  params: { en: string; fr: string } | string;
+  modality: Modality;
+  badge?: { en: string; fr: string; color?: string; bg?: string };
+  useCase?: { en: string; fr: string };
+  desc: { en: string; fr: string };
+  tags: { en: string; fr: string }[];
+}
+
+export const COMING_SOON: ComingSoonModel[] = [
+  {
+    vendor: 'Microsoft',
+    name: 'Phi-3.5-mini',
+    params: '~3.8B',
+    modality: 'text',
+    useCase: { en: 'Reasoning & math', fr: 'Raisonnement & maths' },
+    desc: {
+      en: 'Compact with strong reasoning capabilities. Port in progress (fused QKV/FFN).',
+      fr: 'Compact et excellent en raisonnement. Adaptation en cours (QKV/FFN fusionnés).'
+    },
+    tags: [
+      { en: 'reasoning', fr: 'raisonnement' },
+      { en: 'compact', fr: 'compact' },
+    ]
+  },
+  {
+    vendor: 'SG161222 / Stability',
+    name: 'RealVisXL Turbo',
+    params: { en: '1024px photoreal', fr: '1024px photoréaliste' },
+    modality: 'text2img',
+    badge: { en: '💎 Ultra-HD Photoreal', fr: '💎 Photoréalisme Ultra-HD', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+    useCase: { en: 'Cinematic 1024px studio photography', fr: 'Photo studio 1024px & cinéma' },
+    desc: {
+      en: 'SDXL photorealistic heavyweight: natural skin pores, high dynamic range, and studio lighting.',
+      fr: 'Modèle SDXL photoréaliste de référence : pores naturels, dynamique élevée et rendu studio.'
+    },
+    tags: [
+      { en: '1024px', fr: '1024px' },
+      { en: 'SDXL', fr: 'SDXL' },
+      { en: 'photoreal', fr: 'photoréaliste' },
+    ]
+  },
+  {
+    vendor: 'Stability AI',
+    name: 'Stable Diffusion Turbo',
+    params: { en: 'SD 512px · ~1.3 GB', fr: 'SD 512px · ~1,3 Go' },
+    modality: 'text2img',
+    badge: { en: '★ Best Quality', fr: '★ Meilleure qualité', color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+    useCase: { en: 'High detail & standard 512px', fr: 'Détails élevés & standard 512px' },
+    desc: {
+      en: 'Text to image in native 512px on capable GPUs. Streamed pre-quantized BRIK weights (~1.3 GB).',
+      fr: 'Texte vers image, en 512px natif sur GPU capable. Poids BRIK pré-quantifiés streamés : ~1,3 Go.'
+    },
+    tags: [
+      { en: 'diffusion', fr: 'diffusion' },
+      { en: 'BRIK q8', fr: 'BRIK q8' },
+      { en: '512px', fr: '512px' },
+    ]
+  },
+  {
+    vendor: 'IDM-Lab',
+    name: 'SDXS-512',
+    params: { en: '1-step · ~330 MB', fr: '1-step · ~330 Mo' },
+    modality: 'text2img',
+    badge: { en: '⚡ Ultra-fast (1-step)', fr: '⚡ Ultra-rapide (1-step)', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+    useCase: { en: 'Fast drafting & low memory', fr: 'Brouillons rapides & poids plume' },
+    desc: {
+      en: 'Ultra-fast distilled 1-step UNet without mid-block (~330 MB): cuts generation time in half.',
+      fr: 'UNet distillé ultra-rapide 1-step sans bloc central (~330 Mo) : divise par ~2 le temps de génération.'
+    },
+    tags: [
+      { en: 'distilled', fr: 'distillé' },
+      { en: 'ultra-fast', fr: 'ultra-rapide' },
+      { en: 'BRIK light', fr: 'BRIK light' },
+    ]
+  },
+  {
+    vendor: 'SG161222',
+    name: 'Realistic Vision Turbo',
+    params: { en: 'SD 512px · ~1.3 GB', fr: 'SD 512px · ~1,3 Go' },
+    modality: 'text2img',
+    badge: { en: '📸 Photorealism & Portraits', fr: '📸 Photoréalisme & Portraits', color: '#06b6d4', bg: 'rgba(6,182,212,0.12)' },
+    useCase: { en: 'Human portraits & realistic textures', fr: 'Portraits humains & textures réelles' },
+    desc: {
+      en: 'Photorealistic fine-tune specialized in realistic lighting, skin texture, and real-world photography.',
+      fr: 'Modèle spécialisé dans l’éclairage naturel, le grain de peau et la photographie réaliste.'
+    },
+    tags: [
+      { en: 'photoreal', fr: 'photoréalisme' },
+      { en: 'portraits', fr: 'portraits' },
+      { en: 'photography', fr: 'photo' },
+    ]
+  },
+  {
+    vendor: 'Black Forest Labs',
+    name: 'FLUX.1-schnell',
+    params: { en: 'DiT 12B · 1-4 steps', fr: 'DiT 12B · 1-4 steps' },
+    modality: 'text2img',
+    badge: { en: '🔥 Studio Quality (DiT)', fr: '🔥 Qualité Studio (DiT)', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+    useCase: { en: 'State-of-the-art anatomy & typography', fr: 'Anatomie parfaite & typographie' },
+    desc: {
+      en: 'State-of-the-art 12B rectified flow transformer for ultra-realistic photorealism, hands, and scene composition.',
+      fr: 'Transformeur de diffusion 12B pour un rendu photoréaliste de pointe, mains parfaites et composition avancée.'
+    },
+    tags: [
+      { en: 'rectified-flow', fr: 'rectified-flow' },
+      { en: '12B', fr: '12B' },
+      { en: 'next-gen', fr: 'next-gen' },
+    ]
+  },
+  {
+    vendor: 'Lykon',
+    name: 'DreamShaper Turbo',
+    params: { en: 'SD 512px · ~1.3 GB', fr: 'SD 512px · ~1,3 Go' },
+    modality: 'text2img',
+    badge: { en: '🎬 Cinematic & Concept Art', fr: '🎬 Cinématographique & Art', color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+    useCase: { en: 'Cinematic lighting & fantasy art', fr: 'Éclairage cinéma & art fantastique' },
+    desc: {
+      en: 'Popular artistic and photorealistic blend for cinematic shots, architecture, and dynamic lighting.',
+      fr: 'Modèle polyvalent et immersif pour plans de cinéma, architecture et éclairages dynamiques.'
+    },
+    tags: [
+      { en: 'cinematic', fr: 'cinéma' },
+      { en: 'concept-art', fr: 'concept-art' },
+    ]
+  },
+  {
+    vendor: 'Alibaba',
+    name: 'Qwen2-VL 2B',
+    params: '~2.6 GB VRAM',
+    modality: 'vision',
+    badge: { en: '👁️ Visual Analysis', fr: '👁️ Analyse Visuelle', color: '#0ea5e9', bg: 'rgba(14,165,233,0.12)' },
+    useCase: { en: 'Visual Q&A & OCR', fr: 'Questions visuelles & OCR' },
+    desc: {
+      en: 'Describe and query images (image + text → text). Native visual encoder.',
+      fr: 'Décrit / interroge une image (image + texte → texte). Encodeur visuel natif.'
+    },
+    tags: [
+      { en: 'multimodal', fr: 'multimodal' },
+      { en: 'OCR', fr: 'OCR' },
+    ]
+  },
+  {
+    vendor: 'Stability AI / PixArt',
+    name: 'SDXL-Turbo / PixArt-Sigma',
+    params: { en: '1024px native', fr: '1024px natif' },
+    modality: 'text2img',
+    badge: { en: '✨ 1024px Native', fr: '✨ 1024px Natif', color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
+    useCase: { en: 'High-res & 2× GPU upscaler', fr: 'Haute résolution & 2× GPU upscaler' },
+    desc: {
+      en: 'Native high-fidelity 1024px generation or real-time 2× GPU upscaler.',
+      fr: 'Génération native haute fidélité en 1024px ou upscaler 2× GPU temps réel.'
+    },
+    tags: [
+      { en: '1024px', fr: '1024px' },
+      { en: 'SDXL', fr: 'SDXL' },
+      { en: 'PixArt', fr: 'PixArt' },
+      { en: 'upscaler', fr: 'upscaler' },
+    ]
+  },
+  {
+    vendor: 'Mistral AI',
+    name: 'Mistral 7B Instruct',
+    params: '~7B',
+    modality: 'text',
+    useCase: { en: 'General text & instruction', fr: 'Texte général & instruction' },
+    desc: {
+      en: 'The industry-standard open-weight model, foundation of much of the open ecosystem.',
+      fr: 'Le best-seller open-weight, base d’une grande partie de l’écosystème.'
+    },
+    tags: [
+      { en: 'versatile', fr: 'polyvalent' },
+      { en: 'sliding-window', fr: 'sliding-window' },
+    ]
+  },
 ];
 export const MODALITY_PILL: Record<Modality, { label: { en: string; fr: string }; bg: string; fg: string }> = {
   text: { label: { en: 'Text', fr: 'Texte' }, bg: 'var(--accent-bg-rgba)', fg: 'var(--accent)' },

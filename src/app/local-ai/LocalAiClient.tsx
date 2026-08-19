@@ -156,31 +156,36 @@ export default function LocalAiClient() {
         ))}
       </div>
 
-      {/* Embarquer — le SDK v0 est livré : snippet réel + lien démo */}
+      {/* Embarquer — le SDK est disponible : snippet réel + lien démo */}
       <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)' }}>
-        {t('Embed it on your site: SDK v0', 'Embarquez-la sur votre site : SDK v0')}
+        {t('Embed it on your site: Brimkern SDK', 'Embarquez-la sur votre site : SDK Brimkern')}
       </h2>
       <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: '0 0 14px', maxWidth: 680 }}>
-        {t('The SDK is live. One script tag mounts the assistant; a prompt shapes it. The model only downloads when a visitor opens the widget: your page score is untouched.',
-          'Le SDK est disponible. Une balise script monte l’assistant ; un prompt le façonne. Le modèle ne se télécharge que quand un visiteur ouvre le widget : le score de votre page reste intact.')}
+        {t('The SDK is live. One script tag mounts the assistant; a prompt and your knowledge base shape it. The model only downloads when a visitor opens the widget: your page score is untouched.',
+          'Le SDK est disponible. Une balise script monte l’assistant ; un prompt et votre base de connaissances le façonnent. Le modèle ne se télécharge que quand un visiteur ouvre le widget : le score de votre page reste intact.')}
       </p>
-      {/* tabIndex/role : une zone qui DÉFILE doit être atteignable au clavier (axe
-          scrollable-region-focusable) — sinon le snippet est illisible sans souris sur mobile. */}
       <pre tabIndex={0} role="group" aria-label={t('SDK integration snippet', "Extrait de code d'intégration du SDK")} className="card" style={{ padding: 18, margin: 0, overflowX: 'auto', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, color: 'var(--text-primary)' }}>
 {`<script src="https://brimkern.com/sdk.js"></script>
 <script>
   Brimkern.embed({
-    system: ${locale === 'fr' ? "'Tu es l’assistant de support d’Acme, amical et concis.'" : "'You are a friendly, concise support assistant for Acme.'"},
+    title: "${locale === 'fr' ? 'Conseiller Boutique' : 'Store Assistant'}",
+    system: "${locale === 'fr' ? 'Tu es le conseiller officiel. Réponds aux questions sur les tailles, livraisons et retours.' : 'You are the official store assistant. Help with sizing, shipping, and returns.'}",
+    knowledge: [
+      { title: "${locale === 'fr' ? 'Guide des tailles' : 'Sizing Guide'}", text: "${locale === 'fr' ? 'Baskets : taille normale. Running : +0.5 taille. EU 42 = 27cm.' : 'Sneakers fit true to size. Running shoes: order 0.5 size up. EU 42 = 27cm.'}" },
+      { title: "${locale === 'fr' ? 'Retours' : 'Returns'}", text: "${locale === 'fr' ? 'Retours 100% gratuits sous 30 jours. Remboursement sous 5j.' : '100% free returns within 30 days. Refunds within 5 days.'}" },
+      { title: "${locale === 'fr' ? 'Livraison' : 'Shipping'}", text: "${locale === 'fr' ? 'Livraison offerte dès 50€ (2-4 jours). Express 24h disponible.' : 'Free shipping over $50 (2-4 days). Express 24h available.'}" }
+    ],
+    knowledgeBudget: 1200
   });
 </script>`}
       </pre>
       <p style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 0', flexWrap: 'wrap' }}>
-        <a href="/sdk-demo" target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
-          {t('See a live integration', 'Voir une intégration live')} <ArrowRight size={15} />
+        <a href="/sdk-demo" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
+          {t('Try live demo with knowledge base', 'Tester la démo live avec base de connaissances')} <ArrowRight size={15} />
         </a>
         <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
-          {t('v0: chat widget, LFM2 .brik model URL, colors & wording, few-shot examples, and knowledge documents (answers from YOUR content, selected locally, nothing sent anywhere). Tools are next. On the default 230M model, keep notes short and factual: it quotes them well, but it can mix up two numbers sitting in the same paragraph.',
-            'v0 : widget de chat, URL de modèle LFM2 .brik, couleurs & libellés, exemples few-shot, et documents de connaissance (il répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). Les outils arrivent ensuite. Sur le modèle 230M par défaut, gardez des notes courtes et factuelles : il les cite bien, mais il peut confondre deux nombres présents dans le même paragraphe.')}
+          {t('Features: embeddable chat widget, headless sessions, custom system prompt, few-shot examples, and local knowledge base (RAG: answers from YOUR content, selected locally, nothing sent anywhere). Fully private and runs on the visitor’s GPU.',
+            'Fonctionnalités : widget de chat intégrable, sessions headless, prompt système sur mesure, exemples few-shot, et base de connaissances locale (RAG : répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). 100 % privé sur le GPU du visiteur.')}
         </span>
       </p>
 
@@ -206,8 +211,8 @@ export default function LocalAiClient() {
       </p>
 
       <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 28 }}>
-        {t('Brimkern: local WebGPU inference. The embeddable SDK (v0) is live and free: the engine is open source (MIT).',
-          "Brimkern : inférence WebGPU locale. Le SDK embarquable (v0) est disponible et gratuit : le moteur est open source (MIT).")}
+        {t('Brimkern: local WebGPU inference. The embeddable SDK is live and free: the engine is open source (MIT).',
+          "Brimkern : inférence WebGPU locale. Le SDK embarquable est disponible et gratuit : le moteur est open source (MIT).")}
       </p>
       <ByLine />
     </main>

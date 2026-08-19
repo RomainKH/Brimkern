@@ -17,7 +17,7 @@ import { TaesdDecoder, TaesdEncoder, chwToRGBA } from '../taesd';
 import { ClipTextEncoder, validateClip, type ClipWeights, type ClipConfig, type ClipLayerWeights } from './clip';
 import { unetForward, unetBlockCount, validateUnet, type UnetWeights, type UnetCfg, type UnetPace, type ResBlockWeights, type TransformerWeights, type UnetLevel } from './unet';
 import { makeEulerScheduler, randnSeeded } from './scheduler';
-import type { ImageGenerator, ImageResult } from './imageGen';
+import { thumbSize, type ImageGenerator, type ImageResult } from './imageGen';
 import { EN_ONLY, type OnProgress, type Tr } from '../progress';
 import { VaeDecoder } from './vae';
 
@@ -261,8 +261,9 @@ async function toResult(img: { data: Float32Array; C: number; H: number; W: numb
   canvas.width = img.W; canvas.height = img.H;
   const ctx = canvas.getContext('2d')!;
   const id = ctx.createImageData(img.W, img.H); id.data.set(chwToRGBA(img)); ctx.putImageData(id, 0, 0);
-  const TS = 48, tc = document.createElement('canvas'); tc.width = TS; tc.height = TS;
-  tc.getContext('2d')!.drawImage(canvas, 0, 0, TS, TS);
+  const { tw, th } = thumbSize(img.W, img.H);
+  const tc = document.createElement('canvas'); tc.width = tw; tc.height = th;
+  tc.getContext('2d')!.drawImage(canvas, 0, 0, tw, th);
   if (keepFull) {
     const full = canvas.toDataURL('image/png');
     return { url: full, w: img.W, h: img.H, thumb: tc.toDataURL('image/png'), seed, full };
@@ -273,13 +274,21 @@ async function toResult(img: { data: Float32Array; C: number; H: number; W: numb
 
 // blob/data URL → [3,H,W] floats en [0,1] (l'entrée du TAESD encodeur). URLs même-origine
 // uniquement (blobs/data générés par nous) — pas de souci CORS sur le canvas.
-async function urlToCHW(url: string): Promise<{ data: Float32Array; H: number; W: number }> {
+async function urlToCHW(url: string, maxDim = 512): Promise<{ data: Float32Array; H: number; W: number }> {
   const img = new Image();
   await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error('image source illisible')); img.src = url; });
-  const W = img.naturalWidth, H = img.naturalHeight;
+  let W = img.naturalWidth, H = img.naturalHeight;
+  if (Math.max(W, H) > maxDim) {
+    const scale = maxDim / Math.max(W, H);
+    W = Math.max(64, Math.round((W * scale) / 8) * 8);
+    H = Math.max(64, Math.round((H * scale) / 8) * 8);
+  } else {
+    W = Math.max(64, Math.round(W / 8) * 8);
+    H = Math.max(64, Math.round(H / 8) * 8);
+  }
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d')!;
-  ctx.drawImage(img, 0, 0);
+  ctx.drawImage(img, 0, 0, W, H);
   const d = ctx.getImageData(0, 0, W, H).data;
   const HW = H * W;
   const out = new Float32Array(3 * HW);
@@ -328,10 +337,10 @@ export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: 
   return { map, unetCfg: manifest.image?.unetCfg };
 }
 
-interface SdTurboParts { engine: WebGpuEngine; clip: ClipTextEncoder; unetW: UnetWeights<any>; unetCfg: UnetCfg; taesd: TaesdDecoder; vae?: VaeDecoder; steps: number; size: number; pace: UnetPace; tokenize: (p: string) => Promise<number[]>; getEncoder: () => Promise<TaesdEncoder>; tr: Tr; }
+interface SdTurboParts { name?: string; engine: WebGpuEngine; clip: ClipTextEncoder; unetW: UnetWeights<any>; unetCfg: UnetCfg; taesd: TaesdDecoder; vae?: VaeDecoder; steps: number; size: number; pace: UnetPace; tokenize: (p: string) => Promise<number[]>; getEncoder: () => Promise<TaesdEncoder>; tr: Tr; }
 
 function makeGenerator(parts: SdTurboParts): ImageGenerator {
-  const { engine, clip, unetW, unetCfg, taesd, vae, steps, size, pace, tokenize, getEncoder, tr } = parts;
+  const { name, engine, clip, unetW, unetCfg, taesd, vae, steps, size, pace, tokenize, getEncoder, tr } = parts;
   const blocksTotal = unetBlockCount(unetCfg);
 
   // Prompt → contexte CLIP [77, 1024] (partagé txt2img / img2img).
@@ -382,15 +391,27 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
     seed ?? (Array.from(prompt).reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261) >>> 0);
 
   return {
-    // Le nom suit la topologie réellement chargée (le BRIK SDXS est auto-descripteur : noMid).
-    name: unetCfg.noMid ? 'SDXS-512 (rapide)' : 'Stable Diffusion Turbo',
+    // Le nom suit le modèle choisi ou la topologie réellement chargée.
+    name: name ?? (unetCfg.noMid ? 'SDXS-512' : 'Stable Diffusion Turbo'),
     placeholder: false,
     engine,
     dispose: () => engine.destroy(), // frees the whole pipeline's VRAM (weights + pools) in one shot
     generate: async (prompt, onProgress, seed, latentSize, duty) => {
       const usedSeed = seedOf(prompt, seed);
       const ctx = await encodePrompt(prompt, onProgress);
-      const H = latentSize ?? size, W = H;
+      let H = size, W = size;
+      if (typeof latentSize === 'number') {
+        H = latentSize;
+        W = latentSize;
+      } else if (latentSize && typeof latentSize === 'object') {
+        H = latentSize.h;
+        W = latentSize.w;
+      }
+      // Garde-fou de dernier recours (l'appelant doit passer par planImage) : le UNet descend trois
+      // fois en ceil(H/2) et remonte en ×2 — un côté de latent non multiple de 8 fait retomber la
+      // remontée à côté du skip, et le concat lit hors du buffer. WebGPU clampe : pas d'erreur, une
+      // image silencieusement dégradée. Mieux vaut refuser bruyamment.
+      if (H % 8 || W % 8) throw new Error(`latent ${W}×${H} : les deux côtés doivent être multiples de 8 (3 descentes stride 2 dans le UNet)`);
       const sched = makeEulerScheduler(steps);
       const latent = randnSeeded(4 * H * W, usedSeed);
       for (let i = 0; i < latent.length; i++) latent[i] *= sched.initNoiseSigma;
@@ -435,7 +456,7 @@ function makeGenerator(parts: SdTurboParts): ImageGenerator {
 // blocks then sleep proportionally to the busy time (`duty` = target GPU duty cycle). Internal
 // default 0.6: generation ~1.7× slower than full throttle, average GPU power ~-40% — deliberately
 // NOT exposed in the UI (one less knob); dev override via `?duty=` in the URL.
-export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: string; taesdEncoder?: string; vae?: string }, opts: { steps?: number; size?: number; finalLN?: boolean; pace?: UnetPace; onLost?: () => void; t?: Tr } = {}, onProgress?: OnProgress): Promise<ImageGenerator> {
+export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: string; taesdEncoder?: string; vae?: string }, opts: { name?: string; steps?: number; size?: number; finalLN?: boolean; pace?: UnetPace; onLost?: () => void; t?: Tr } = {}, onProgress?: OnProgress): Promise<ImageGenerator> {
   const clipCfg: ClipConfig = { ...SD_TURBO_CLIP, finalLN: opts.finalLN ?? SD_TURBO_CLIP.finalLN };
   const pace: UnetPace = { waitEvery: opts.pace?.waitEvery ?? 1, pauseMs: opts.pace?.pauseMs ?? 0, duty: opts.pace?.duty ?? 0.6 };
   const tr: Tr = opts.t ?? EN_ONLY;
@@ -563,5 +584,5 @@ export async function loadSdTurbo(urls: { unet: string; clip: string; taesd: str
     console.log('[sdturbo] tokens', ids.slice(0, ids.indexOf(0) === -1 ? 12 : ids.indexOf(0) + 2).join(','), `(len utile=${ids.indexOf(0) === -1 ? 77 : ids.indexOf(0)})`);
     return ids;
   };
-  return makeGenerator({ engine, clip, unetW, unetCfg, taesd, vae, steps: opts.steps ?? 1, size: opts.size ?? 64, pace, tokenize, getEncoder, tr });
+  return makeGenerator({ name: opts.name, engine, clip, unetW, unetCfg, taesd, vae, steps: opts.steps ?? 1, size: opts.size ?? 64, pace, tokenize, getEncoder, tr });
 }
