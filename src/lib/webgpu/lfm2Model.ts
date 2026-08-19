@@ -9,6 +9,7 @@
 import type { WebGpuEngine, Lfm2LayerGpu, Lfm2Cfg } from './kernels';
 import type { BrikManifest } from '../brik/format';
 import { unpackQ4, dequantizeQ4 } from '../brik/q4web';
+import { unpackQ3, dequantizeQ3 } from '../brik/q3web';
 import { unpackQ8, dequantizeQ8 } from '../brik/q8web';
 import { f16BitsToF32 } from '../brik/f16';
 
@@ -24,6 +25,12 @@ function decodeF32(b: Uint8Array, n: number): Float32Array { const dv = new Data
 function rmsnorm(x: Float32Array, w: Float32Array, D: number, eps: number): Float32Array { let ss = 0; for (let i = 0; i < D; i++) ss += x[i] * x[i]; const s = 1 / Math.sqrt(ss / D + eps); const o = new Float32Array(D); for (let i = 0; i < D; i++) o[i] = x[i] * s * w[i]; return o; }
 const silu = (v: number) => v / (1 + Math.exp(-v));
 
+// `q3: true` = drapeau de dispatch de recMM (chemin résident) ; matmulQ3 lit les plans lo/hi.
+// Le tier q3 existait, son kernel était écrit et validé, le port RWKV s'en servait — mais LFM2
+// n'avait jamais été câblé. Le pire n'était pas l'absence : l'aiguillage de dtype ci-dessous
+// retombait SILENCIEUSEMENT sur unpackQ4, qui lit 5n/8 octets là où un q3 n'en fournit que n/2 —
+// d'où « Offset is outside the bounds of the DataView » au chargement, sans un mot sur le dtype.
+interface Q3W { kind: 'q3'; q3: true; lo: GPUAny; hi: GPUAny; sc: GPUAny; mn: GPUAny; IN: number; OUT: number; }
 interface Q4W { kind: 'q4'; nib: GPUAny; sc: GPUAny; mn: GPUAny; IN: number; OUT: number; }
 interface Q8W { kind: 'q8'; codes: GPUAny; sc: GPUAny; IN: number; OUT: number; }
 
@@ -32,7 +39,7 @@ export class Lfm2Model {
 	private EPS!: number; private THETA!: number; private LC!: number;
 	private convLayer!: boolean[];
 	private w = new Map<string, Float32Array>();      // petites matrices (conv, normes) en JS
-	private g = new Map<string, Q4W | Q8W>();          // grosses projections résidentes GPU
+	private g = new Map<string, Q3W | Q4W | Q8W>();    // grosses projections résidentes GPU
 	private embedBytes!: Uint8Array; private embedDtype!: string;
 	private tok!: Lfm2Tokenizer;
 	private stops!: Set<number>;
@@ -66,16 +73,21 @@ export class Lfm2Model {
 				this.embedBytes = await this.raw(name); this.embedDtype = t.dtype;
 				if (t.dtype === 'q4') { const q = unpackQ4(this.embedBytes, t.nElems); this.g.set('head', { kind: 'q4', nib: this.engine.uploadGpuRaw(q.nibbles), sc: this.up(q.scales), mn: this.up(q.mins), IN: this.D, OUT: this.vocab }); }
 				else if (t.dtype === 'q8') { const q = unpackQ8(this.embedBytes, t.nElems); this.g.set('head', { kind: 'q8', codes: this.upI8(q.codes), sc: this.up(q.scales), IN: this.D, OUT: this.vocab }); }
-				// f16/f32 : repli CPU dans gemm('head')
+				// f16/f32 : repli CPU dans gemm('head'). q3 : `chooseDType` maintient un plancher q4 sur
+				// la tête liée, donc ce cas ne devrait pas exister — s'il apparaît, le dire ici plutôt
+				// que d'échouer plus loin dans un gather de lignes sur un layout inattendu.
+				else if (t.dtype === 'q3') throw new Error('LFM2 : tête liée en q3 non supportée (le convertisseur garde un plancher q4)');
 				continue;
 			}
 			const bytes = await this.raw(name);
-			if (this.isBigProj(name) && (t.dtype === 'q4' || t.dtype === 'q8')) {
+			if (this.isBigProj(name) && (t.dtype === 'q3' || t.dtype === 'q4' || t.dtype === 'q8')) {
 				const IN = t.shape[0], OUT = t.nElems / IN; // ne[0]=IN contigu
 				if (t.dtype === 'q8') { const q = unpackQ8(bytes, t.nElems); this.g.set(name, { kind: 'q8', codes: this.upI8(q.codes), sc: this.up(q.scales), IN, OUT }); }
+				else if (t.dtype === 'q3') { const q = unpackQ3(bytes, t.nElems); this.g.set(name, { kind: 'q3', q3: true, lo: this.up32(q.lo), hi: this.up32(q.hi), sc: this.up(q.scales), mn: this.up(q.mins), IN, OUT }); }
 				else { const q = unpackQ4(bytes, t.nElems); this.g.set(name, { kind: 'q4', nib: this.engine.uploadGpuRaw(q.nibbles), sc: this.up(q.scales), mn: this.up(q.mins), IN, OUT }); }
 			} else { // petites : conv (f32), normes (f32), replis f16/q décodés en JS
-				this.w.set(name, t.dtype === 'f32' ? decodeF32(bytes, t.nElems) : t.dtype === 'f16' ? decodeF16(bytes, t.nElems) : t.dtype === 'q8' ? dequantizeQ8(unpackQ8(bytes, t.nElems)) : dequantizeQ4(unpackQ4(bytes, t.nElems)));
+				// Aiguillage EXHAUSTIF : un dtype inconnu lève au lieu d'être lu comme du q4 (cf. Q3W).
+				this.w.set(name, this.decodePetit(name, bytes, t));
 			}
 		}
 		this.buildResidentLayers();
@@ -131,7 +143,22 @@ export class Lfm2Model {
 		await this.engine.lfm2PrefillGpu(this.embedsFor(tokenIds), tokenIds.length, this.cfg(), this.rLayers, this.tokNormGpu, pastLen, sessionId);
 	}
 
+	// Décodage CPU d'un petit tenseur (normes, conv, replis). Écrit en `switch` exhaustif : la chaîne
+	// de ternaires qu'il remplace terminait par un `: dequantizeQ4(...)` attrape-tout, donc TOUT dtype
+	// non prévu était interprété comme du q4 — et échouait au fond de la lecture d'octets.
+	private decodePetit(name: string, bytes: Uint8Array, t: { dtype: string; nElems: number }): Float32Array {
+		switch (t.dtype) {
+			case 'f32': return decodeF32(bytes, t.nElems);
+			case 'f16': return decodeF16(bytes, t.nElems);
+			case 'q8': return dequantizeQ8(unpackQ8(bytes, t.nElems));
+			case 'q4': return dequantizeQ4(unpackQ4(bytes, t.nElems));
+			case 'q3': return dequantizeQ3(unpackQ3(bytes, t.nElems));
+			default: throw new Error(`LFM2 : dtype « ${t.dtype} » non supporté pour ${name}`);
+		}
+	}
+
 	private up(a: Uint16Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
+	private up32(a: Uint32Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
 	private upI8(a: Int8Array): GPUAny { return this.engine.uploadGpuRaw(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)); }
 
 	// Libère les buffers GPU résidents (changement de modèle dans le chat).
@@ -159,6 +186,7 @@ export class Lfm2Model {
 			return y;
 		}
 		if (W.kind === 'q8') return this.engine.matmulQ8(x, W.codes, W.sc, 1, W.IN, W.OUT);
+		if (W.kind === 'q3') return this.engine.matmulQ3(x, W.lo, W.hi, W.sc, W.mn, 1, W.IN, W.OUT);
 		return this.engine.matmulQ4(x, W.nib, W.sc, W.mn, 1, W.IN, W.OUT);
 	}
 

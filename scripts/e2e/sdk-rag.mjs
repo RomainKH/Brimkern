@@ -15,7 +15,11 @@
 import { chromium } from 'playwright-core';
 import { CHROME as EXE } from './chrome.mjs';
 
-const TOURS = Number(process.argv[2] ?? 1);
+const TOURS = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 1);
+// `--model=<url .brik>` remplace le modèle de la page de démo SANS la modifier : on intercepte
+// l'affectation de window.Brimkern avant que le script en ligne appelle embed(). C'est ce qui permet
+// de comparer deux modèles sur exactement les mêmes six cas, la même base de fiches et le même prompt.
+const MODELE = (process.argv.find((a) => a.startsWith('--model=')) || '').slice(8) || null;
 
 // `attendu` : la réponse doit matcher. `interdit` : elle ne doit PAS matcher (confusion typique).
 const CAS = [
@@ -40,13 +44,37 @@ const ctx = await chromium.launchPersistentContext(
 const page = ctx.pages()[0] ?? await ctx.newPage();
 page.on('console', (m) => { const t = m.text(); if (/Erreur|error/i.test(t) && !/favicon|insights/.test(t)) console.log('    ·', t.slice(0, 140)); });
 
+if (MODELE) {
+  await page.addInitScript((url) => {
+    let vrai;
+    Object.defineProperty(window, 'Brimkern', {
+      configurable: true,
+      get: () => vrai,
+      set: (api) => {
+        vrai = api && typeof api.embed === 'function'
+          ? { ...api, embed: (cfg) => api.embed({ ...cfg, model: url }) }
+          : api;
+      },
+    });
+  }, MODELE);
+}
+console.log(MODELE ? `modèle forcé : ${MODELE}` : 'modèle : celui de la page (défaut hébergé)');
 await page.goto(`http://localhost:3618/sdk-demo?v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
 // Ouvrir le widget déclenche le chargement du modèle (partagé, ~149 Mo, servi du cache ensuite).
 await page.click('.bk-fab');
-await page.waitForFunction(() => {
+// Attendre la DISPARITION de la bulle de statut… ou son passage en erreur. Sans le second cas, un
+// modèle qui refuse de charger faisait patienter le banc jusqu'au bout du délai (900 s) au lieu de
+// dire pourquoi — la bulle reste affichée, elle contient juste « Erreur : … ».
+const issue = await page.waitForFunction(() => {
   const s = document.querySelector('.bk-status');
-  return !s && !!document.querySelector('.bk-in');
-}, null, { timeout: 900_000, polling: 1000 });
+  if (s && /erreur|error/i.test(s.textContent || '')) return { erreur: s.textContent.slice(0, 300) };
+  return (!s && !!document.querySelector('.bk-in')) ? { pret: true } : null;
+}, null, { timeout: 900_000, polling: 1000 }).then((h) => h.jsonValue());
+if (issue.erreur) {
+  console.log(`ÉCHEC de chargement : ${issue.erreur}`);
+  await ctx.close();
+  process.exit(2);
+}
 console.log('modèle prêt.\n');
 
 async function demander(q) {
