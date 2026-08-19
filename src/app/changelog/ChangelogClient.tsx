@@ -40,6 +40,17 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Images generate three times faster', fr: 'Les images se génèrent trois fois plus vite' },
+        items: [
+          { en: 'The convolutions, which carry two thirds of a generation, were computing one output channel per group of GPU threads. The input patch was therefore re-read from memory once per output channel, and each thread did nine multiplications for eighteen reads. Computing eight channels at once from the same patch turns that into seventy-two multiplications for the same eighteen reads.',
+            fr: 'Les convolutions, qui portent deux tiers d’une génération, calculaient un canal de sortie par groupe de threads GPU. Le morceau d’image en entrée était donc relu depuis la mémoire une fois par canal de sortie, et chaque thread faisait neuf multiplications pour dix-huit lectures. En calculant huit canaux d’un coup depuis le même morceau, cela devient soixante-douze multiplications pour les mêmes dix-huit lectures.',
+          },
+          { en: 'Measured end to end at 512px: a generation drops from 17.0 to 5.6 seconds, ×3.05. Generating at full native resolution now costs what half resolution used to. Video generation shares the same network and benefits too. The structure was chosen by measurement before a line of the kernel was written: one channel per group reached 300 GFLOP/s, four reached ×2.3, eight ×2.8, and beyond that the returns fade.',
+            fr: 'Mesuré de bout en bout en 512px : une génération passe de 17,0 à 5,6 secondes, ×3,05. Générer en pleine résolution native coûte désormais ce que coûtait la demi-résolution. La génération vidéo partage le même réseau et en profite aussi. La structure a été choisie par la mesure avant d’écrire une ligne du kernel : un canal par groupe atteignait 300 GFLOP/s, quatre canaux ×2,3, huit ×2,8, et au-delà le rendement s’efface.',
+          },
+        ],
+      },
+      {
         title: { en: 'Image generation grows up', fr: 'La génération d’image passe à l’âge adulte' },
         items: [
           { en: 'Images are now generated at 512px by default on a capable GPU. This is not a comfort setting: the model is trained at 512, and below that it stops composing. On the same prompt and the same seed, 256px returned a cropped fragment of a face where 512px returned the whole portrait. Phones and smaller GPUs stay at 256px, where memory decides rather than taste.',

@@ -47,7 +47,10 @@ for (let essai = 0; essai < 40 && clique !== 'ok'; essai++) {
   });
   await page.waitForTimeout(1000);
   clique = await page.evaluate(() => {
-    const b = [...document.querySelectorAll('button')].find((x) => /Load \(preview\)|Charger \(aperçu\)/i.test(x.textContent || ''));
+    // La CARTE image, pas le libellé : « Charger » est commun à tous les presets depuis la sortie
+    // de bêta de l'image (2026-08-19).
+    const carte = [...document.querySelectorAll('.model-card')].find((c) => /Stable Diffusion Turbo/.test(c.textContent || ''));
+    const b = carte?.querySelector('button');
     if (!b || b.disabled) return 'bouton introuvable';
     b.click();
     return 'ok';

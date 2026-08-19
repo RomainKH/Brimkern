@@ -41,8 +41,11 @@ async function chargerImage(flag) {
       b?.click();
     });
     await page.waitForTimeout(1000);
+    // On cible la CARTE image (celle qui nomme le modèle) : depuis la sortie de bêta son bouton
+    // s'appelle « Charger » comme celui de tous les presets texte, le libellé ne suffit plus.
     ok = await page.evaluate(() => {
-      const b = [...document.querySelectorAll('button')].find((x) => /Load \(preview\)|Charger \(aperçu\)/i.test(x.textContent || ''));
+      const carte = [...document.querySelectorAll('.model-card')].find((c) => /Stable Diffusion Turbo/.test(c.textContent || ''));
+      const b = carte?.querySelector('button');
       if (!b || b.disabled) return false;
       b.click();
       return true;

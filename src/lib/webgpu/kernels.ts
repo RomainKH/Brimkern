@@ -1481,7 +1481,7 @@ export class WebGpuEngine {
 		// de 256. Mesuré sur une génération 256px : conv2d_direct_q8 pesait 70,2 % du GPU.
 		if (kh === 3 && kw === 3 && stride === 1 && pad === 1 && this.convTiledQOk) {
 			const outT = this.storage(n * 4);
-			this.recordPass(enc, 'conv2d_3x3_tiled_q8', [p, inp, q8.codes, q8.sc, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Cout]);
+			this.recordPass(enc, 'conv2d_3x3_tiled_q8', [p, inp, q8.codes, q8.sc, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Math.ceil(Cout / 8)]);
 			trash.push(p, outT);
 			return outT;
 		}
@@ -1499,7 +1499,7 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([Cin, H, W, Cout, kh, kw, stride, pad, OH, OW]));
 		if (kh === 3 && kw === 3 && stride === 1 && pad === 1 && this.convTiledQOk) {
 			const outT = this.storage(n * 4);
-			this.recordPass(enc, 'conv2d_3x3_tiled_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Cout]);
+			this.recordPass(enc, 'conv2d_3x3_tiled_q4', [p, inp, q4.nib, q4.sc, q4.mn, bias, outT], [Math.ceil(OW / 16), Math.ceil(OH / 16), Math.ceil(Cout / 8)]);
 			trash.push(p, outT);
 			return outT;
 		}

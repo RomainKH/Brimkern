@@ -2022,12 +2022,14 @@ export const SHADERS = {
 	// contre 3,2 ms pour le tuilé f32 de TAESD. Exactement l'asymétrie déjà payée sur les GEMM f16
 	// (§ 1 de la roadmap) : le kernel lent était celui du chemin par défaut.
 	//
-	// La structure est celle du tuilé f32, à l'identique (patch 18×18 en mémoire partagée = 16 sorties
-	// + 1 px de halo, chargement coopératif, 9 poids par (co,ci) en mémoire partagée) ; seule change
-	// la LECTURE des poids, déquantifiée à la volée par les 9 premiers threads. Le gain vient du même
-	// endroit : chaque pixel d'entrée lu UNE fois par workgroup au lieu de 9, chaque poids déquantifié
-	// UNE fois au lieu de 256 — c'est cette seconde économie qui compte le plus ici, la déquantif
-	// étant plus chère qu'une simple lecture.
+	// Patch 18×18 en mémoire partagée (16 sorties + 1 px de halo) chargé coopérativement, et BLOC DE
+	// 8 CANAUX DE SORTIE par workgroup — c'est le point décisif, corrigé le 2026-08-19. La première
+	// version calculait UN canal par workgroup : le patch d'entrée était donc rechargé depuis la
+	// mémoire globale pour CHAQUE canal de sortie (trafic × Cout), et chaque thread ne faisait que
+	// 9 FMA pour 18 lectures partagées. Avec le bloc, le patch est lu une fois pour 8 canaux et le
+	// rapport passe à 72 FMA pour 18 lectures.
+	// Mesuré AVANT d'écrire (scripts/e2e/conv.mjs, 5 formes réelles VAE et UNet) : 1 canal = ~300
+	// GFLOP/s, 4 canaux = ×2,3, 8 canaux = ×2,8. Au-delà, le rendement décroît comme sur les GEMM.
 	conv2d_3x3_tiled_q8: `
 		struct P { Cin: u32, H: u32, W: u32, Cout: u32, kh: u32, kw: u32, stride: u32, pad: u32, OH: u32, OW: u32 };
 		@group(0) @binding(0) var<uniform> p: P;
@@ -2049,19 +2051,22 @@ export const SHADERS = {
 			return q * f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u));
 		}
 		var<workgroup> tile: array<f32, 324>;
-		var<workgroup> wloc: array<f32, 9>;
+		var<workgroup> wloc: array<f32, 72>;   // 8 canaux de sortie × 9 poids
 		@compute @workgroup_size(16, 16)
 		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-			let co = wid.z;
+			let co0 = wid.z * 8u;
 			let oy0 = wid.y * 16u;
 			let ox0 = wid.x * 16u;
 			let oy = oy0 + lid.y;
 			let ox = ox0 + lid.x;
 			let inBounds = oy < p.OH && ox < p.OW;
 			let tid = lid.y * 16u + lid.x;
-			var acc = 0.0;
+			var acc: array<f32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
 			for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
 				let base = ci * p.H * p.W;
+				// Le patch d'entrée : chargé UNE fois pour les 8 canaux de sortie (c'est tout l'objet
+				// du bloc). Branche gardée, pas select() : un indice hors bornes lirait n'importe quoi.
 				for (var t = tid; t < 324u; t = t + 256u) {
 					let iy = i32(oy0 + t / 18u) - 1;
 					let ix = i32(ox0 + t % 18u) - 1;
@@ -2069,18 +2074,37 @@ export const SHADERS = {
 					if (iy >= 0 && iy < i32(p.H) && ix >= 0 && ix < i32(p.W)) { v = inp[base + u32(iy) * p.W + u32(ix)]; }
 					tile[t] = v;
 				}
-				if (tid < 9u) { wloc[tid] = wq8((co * p.Cin + ci) * 9u + tid); }
+				// Les 72 poids du bloc, déquantifiés une seule fois par les 72 premiers threads.
+				if (tid < 72u) {
+					let j = tid / 9u;
+					let co = co0 + j;
+					if (co < p.Cout) { wloc[tid] = wq8((co * p.Cin + ci) * 9u + (tid % 9u)); }
+					else { wloc[tid] = 0.0; }
+				}
 				workgroupBarrier();
 				if (inBounds) {
 					let r0 = lid.y * 18u + lid.x;
-					acc = acc
-						+ tile[r0]       * wloc[0u] + tile[r0 + 1u]  * wloc[1u] + tile[r0 + 2u]  * wloc[2u]
-						+ tile[r0 + 18u] * wloc[3u] + tile[r0 + 19u] * wloc[4u] + tile[r0 + 20u] * wloc[5u]
-						+ tile[r0 + 36u] * wloc[6u] + tile[r0 + 37u] * wloc[7u] + tile[r0 + 38u] * wloc[8u];
+					// Les 9 valeurs du patch sont lues UNE fois puis réutilisées pour les 8 canaux :
+					// 72 FMA pour 18 lectures partagées, contre 9 pour 18 dans la version d'avant.
+					let v0 = tile[r0];       let v1 = tile[r0 + 1u];  let v2 = tile[r0 + 2u];
+					let v3 = tile[r0 + 18u]; let v4 = tile[r0 + 19u]; let v5 = tile[r0 + 20u];
+					let v6 = tile[r0 + 36u]; let v7 = tile[r0 + 37u]; let v8 = tile[r0 + 38u];
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let b = j * 9u;
+						acc[j] = acc[j]
+							+ v0 * wloc[b]      + v1 * wloc[b + 1u] + v2 * wloc[b + 2u]
+							+ v3 * wloc[b + 3u] + v4 * wloc[b + 4u] + v5 * wloc[b + 5u]
+							+ v6 * wloc[b + 6u] + v7 * wloc[b + 7u] + v8 * wloc[b + 8u];
+					}
 				}
 				workgroupBarrier();
 			}
-			if (inBounds) { o[(co * p.OH + oy) * p.OW + ox] = acc + bias[co]; }
+			if (inBounds) {
+				for (var j = 0u; j < 8u; j = j + 1u) {
+					let co = co0 + j;
+					if (co < p.Cout) { o[(co * p.OH + oy) * p.OW + ox] = acc[j] + bias[co]; }
+				}
+			}
 		}`,
 
 	// Idem en int4 (tier « light » des BRIK image) : même structure, déquantification asymétrique
@@ -2109,19 +2133,22 @@ export const SHADERS = {
 			return q * s + m;
 		}
 		var<workgroup> tile: array<f32, 324>;
-		var<workgroup> wloc: array<f32, 9>;
+		var<workgroup> wloc: array<f32, 72>;   // 8 canaux de sortie × 9 poids
 		@compute @workgroup_size(16, 16)
 		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-			let co = wid.z;
+			let co0 = wid.z * 8u;
 			let oy0 = wid.y * 16u;
 			let ox0 = wid.x * 16u;
 			let oy = oy0 + lid.y;
 			let ox = ox0 + lid.x;
 			let inBounds = oy < p.OH && ox < p.OW;
 			let tid = lid.y * 16u + lid.x;
-			var acc = 0.0;
+			var acc: array<f32, 8>;
+			for (var j = 0u; j < 8u; j = j + 1u) { acc[j] = 0.0; }
 			for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
 				let base = ci * p.H * p.W;
+				// Le patch d'entrée : chargé UNE fois pour les 8 canaux de sortie (c'est tout l'objet
+				// du bloc). Branche gardée, pas select() : un indice hors bornes lirait n'importe quoi.
 				for (var t = tid; t < 324u; t = t + 256u) {
 					let iy = i32(oy0 + t / 18u) - 1;
 					let ix = i32(ox0 + t % 18u) - 1;
@@ -2129,18 +2156,37 @@ export const SHADERS = {
 					if (iy >= 0 && iy < i32(p.H) && ix >= 0 && ix < i32(p.W)) { v = inp[base + u32(iy) * p.W + u32(ix)]; }
 					tile[t] = v;
 				}
-				if (tid < 9u) { wloc[tid] = wq4((co * p.Cin + ci) * 9u + tid); }
+				// Les 72 poids du bloc, déquantifiés une seule fois par les 72 premiers threads.
+				if (tid < 72u) {
+					let j = tid / 9u;
+					let co = co0 + j;
+					if (co < p.Cout) { wloc[tid] = wq4((co * p.Cin + ci) * 9u + (tid % 9u)); }
+					else { wloc[tid] = 0.0; }
+				}
 				workgroupBarrier();
 				if (inBounds) {
 					let r0 = lid.y * 18u + lid.x;
-					acc = acc
-						+ tile[r0]       * wloc[0u] + tile[r0 + 1u]  * wloc[1u] + tile[r0 + 2u]  * wloc[2u]
-						+ tile[r0 + 18u] * wloc[3u] + tile[r0 + 19u] * wloc[4u] + tile[r0 + 20u] * wloc[5u]
-						+ tile[r0 + 36u] * wloc[6u] + tile[r0 + 37u] * wloc[7u] + tile[r0 + 38u] * wloc[8u];
+					// Les 9 valeurs du patch sont lues UNE fois puis réutilisées pour les 8 canaux :
+					// 72 FMA pour 18 lectures partagées, contre 9 pour 18 dans la version d'avant.
+					let v0 = tile[r0];       let v1 = tile[r0 + 1u];  let v2 = tile[r0 + 2u];
+					let v3 = tile[r0 + 18u]; let v4 = tile[r0 + 19u]; let v5 = tile[r0 + 20u];
+					let v6 = tile[r0 + 36u]; let v7 = tile[r0 + 37u]; let v8 = tile[r0 + 38u];
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let b = j * 9u;
+						acc[j] = acc[j]
+							+ v0 * wloc[b]      + v1 * wloc[b + 1u] + v2 * wloc[b + 2u]
+							+ v3 * wloc[b + 3u] + v4 * wloc[b + 4u] + v5 * wloc[b + 5u]
+							+ v6 * wloc[b + 6u] + v7 * wloc[b + 7u] + v8 * wloc[b + 8u];
+					}
 				}
 				workgroupBarrier();
 			}
-			if (inBounds) { o[(co * p.OH + oy) * p.OW + ox] = acc + bias[co]; }
+			if (inBounds) {
+				for (var j = 0u; j < 8u; j = j + 1u) {
+					let co = co0 + j;
+					if (co < p.Cout) { o[(co * p.OH + oy) * p.OW + ox] = acc[j] + bias[co]; }
+				}
+			}
 		}`,
 
 	// Direct conv2d (NO im2col): one invocation per output element accumulates over the patch. Same
