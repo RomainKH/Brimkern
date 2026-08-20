@@ -180,12 +180,14 @@ export default function LocalAiClient() {
 </script>`}
       </pre>
       <p style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 0', flexWrap: 'wrap' }}>
-        <a href="/sdk-demo" target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
+        {/* La démo est bilingue et suit la convention d'URL du site (/sdk-demo = anglais,
+            /fr/sdk-demo = français) : href() garde le visiteur dans sa langue. */}
+        <a href={href('/sdk-demo')} target="_blank" rel="noopener noreferrer" className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 14, padding: '9px 16px' }}>
           {t('Try live demo with knowledge base', 'Tester la démo live avec base de connaissances')} <ArrowRight size={15} />
         </a>
         <span style={{ color: 'var(--text-muted)', fontSize: 12.5 }}>
-          {t('Features: embeddable chat widget, headless sessions, custom system prompt, few-shot examples, and local knowledge base (RAG: answers from YOUR content, selected locally, nothing sent anywhere). Fully private and runs on the visitor’s GPU.',
-            'Fonctionnalités : widget de chat intégrable, sessions headless, prompt système sur mesure, exemples few-shot, et base de connaissances locale (RAG : répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). 100 % privé sur le GPU du visiteur.')}
+          {t('Features: embeddable chat widget, headless sessions, custom system prompt, few-shot examples, and local knowledge base (RAG: answers from YOUR content, selected locally, nothing sent anywhere). embed() returns a handle — drive it, unmount it, subscribe to its events — and every answer can name the notes it came from. Fully private and runs on the visitor’s GPU.',
+            'Fonctionnalités : widget de chat intégrable, sessions headless, prompt système sur mesure, exemples few-shot, et base de connaissances locale (RAG : répond sur VOTRE contenu, sélectionné en local, rien n’est envoyé nulle part). embed() rend une poignée — pilotez-le, démontez-le, abonnez-vous à ses événements — et chaque réponse peut nommer les fiches dont elle vient. 100 % privé sur le GPU du visiteur.')}
         </span>
       </p>
 

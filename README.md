@@ -169,22 +169,35 @@ npm i brimkern
 import { embed, createSession } from 'brimkern';
 ```
 
-It answers from **your** content, ranked in the browser. Nothing is sent anywhere:
+It answers from **your** content, ranked in the browser. Nothing is sent anywhere — and you can see
+which passages produced each answer, which is how you tell a bad note from a bad reading of a good
+one:
 
 ```js
-embed({
+const widget = embed({
   system: 'You are the assistant of the Ferblanc store.',
   knowledge: [{ title: 'Shipping', text: 'Free in France from 60 euros. Switzerland: flat 8 euros.' }],
+  showSources: true,                       // the cards behind each answer, under the bubble
 });
+
+widget.on('message', ({ role, content, sources }) => log(role, content, sources));
+widget.on('error', (err) => report(err));  // e.g. this visitor's browser has no WebGPU
+await widget.ask('Do you ship to Canada?');
+widget.destroy();                          // and the engine stays loaded for the next one
 ```
 
+`embed()` returns a handle — `open/close/toggle`, `ask()`, `setHistory()`, `setKnowledge()`, `on()`,
+`destroy()` — so the widget fits an app with client-side routing (a React effect's cleanup calls
+`destroy()`), and a visitor's conversation survives a reload if you store `widget.history` and hand
+it back as `history`. Sessions carry the same surface plus `lastSources`.
+
 The model downloads only when a visitor actually opens the widget, so your page speed is untouched.
-Pin a version with `https://brimkern.com/sdk-0.1.2.js` if you don't want the widget changing under
+Pin a version with `https://brimkern.com/sdk-0.1.3.js` if you don't want the widget changing under
 your feet. Live pitch page and working demo at
 [brimkern.com/local-ai](https://brimkern.com/local-ai).
-*(SDK v0: widget, LFM2 `.brik` model URL, colours & wording, few-shot examples, knowledge
-documents. Tools are next. Write short factual notes: the default 230M quotes them well, but it can
-mix up two numbers sharing a paragraph.)*
+*(SDK v0: widget and handle, LFM2 `.brik` model URL, colours & wording, few-shot examples, knowledge
+documents with traceable sources, events. Tools are next. Write short factual notes: the default
+230M quotes them well, but it can mix up two numbers sharing a paragraph.)*
 
 ---
 
