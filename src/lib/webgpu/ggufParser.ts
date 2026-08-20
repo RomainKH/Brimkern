@@ -142,9 +142,16 @@ class BinaryReader {
   }
 }
 
+// Énumération ggml complète : au-delà de Q8_K viennent les quants « IQ » (à table de codes) et les
+// types entiers/BF16. On ne sait en déquantifier aucun — mais les NOMMER change le message d'erreur
+// (« IQ4_XS non supporté » plutôt que « type 23 »), et ces fichiers-là existent en vrai : le dépôt
+// unsloth de LFM2.5 publie IQ4_XS, IQ4_NL, UD-IQ2_M et UD-IQ3_XXS à côté des K-quants.
 const GGML_TYPE_NAMES = [
   "F32", "F16", "Q4_0", "Q4_1", "Q4_2", "Q4_3", "Q5_0", "Q5_1",
-  "Q8_0", "Q8_1", "Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_K"
+  "Q8_0", "Q8_1", "Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_K",
+  "IQ2_XXS", "IQ2_XS", "IQ3_XXS", "IQ1_S", "IQ4_NL", "IQ3_S", "IQ2_S", "IQ4_XS",
+  "I8", "I16", "I32", "I64", "F64", "IQ1_M", "BF16", "Q4_0_4_4", "Q4_0_4_8", "Q4_0_8_8",
+  "TQ1_0", "TQ2_0"
 ];
 
 // Returns size in bytes of a block, and elements in a block
@@ -158,12 +165,16 @@ const getGgmlBlockInfo = (typeStr: string) => {
     case "Q5_1": return { block: 32, size: 24 };
     case "Q8_0": return { block: 32, size: 34 };
     case "Q2_K": return { block: 256, size: 66 };
-    case "Q3_K": return { block: 256, size: 110 }; // approx
+    case "Q3_K": return { block: 256, size: 110 }; // hmask[32] + qs[64] + scales[12] + d f16
     case "Q4_K": return { block: 256, size: 144 };
     case "Q5_K": return { block: 256, size: 176 };
     case "Q6_K": return { block: 256, size: 210 };
     case "Q8_K": return { block: 256, size: 288 };
-    default: return { block: 1, size: 4 }; // fallback
+    // Pas de repli silencieux : un type inconnu renvoyait { block: 1, size: 4 }, donc des tailles de
+    // tenseurs FAUSSES (un IQ4_XS annoncé 4 o/élément au lieu de 0,53) — le fichier se chargeait puis
+    // échouait beaucoup plus loin, sur une lecture hors bornes sans rapport apparent. Le moteur ne
+    // sait déquantifier aucun IQ : le dire ici, à la seule place où l'information est encore lisible.
+    default: throw new Error(`Type GGML non supporté : ${typeStr}. Types lus : F32, F16, Q4_0/1, Q5_0/1, Q8_0, Q2_K…Q8_K.`);
   }
 };
 

@@ -189,6 +189,12 @@ export interface ConvertProfile {
 	// Precision tier for the big layer matrices: 'f16' (default, v1), 'q8' (~half the download/VRAM,
 	// near-f16 quality), or 'q4' (~quarter, int4). Embeddings/head/norms ignore this (always f16/f32).
 	weightDType?: WeightDType;
+	// Surcharge par tenseur du tier choisi par chooseDType. Sert aux tiers MIXTES pilotés par une
+	// source externe : un GGUF quantifié par imatrix (unsloth & co) alloue déjà ses bits tenseur par
+	// tenseur (3 bits sur q/k/gate/up, 4 sur ffn_down/attn_output, 5 sur attn_v) — cette carte-là est
+	// une mesure, pas une intuition, et ce hook permet de la rejouer sans coder un tier de plus.
+	// Retourner undefined = laisser chooseDType décider.
+	dtypeFor?: (name: string, shape: number[], nElems: number) => BrikDType | undefined;
 }
 
 // Pull every GGUF tensor through the engine's dequant, pick a web dtype (f16 for 2-D matrices,
@@ -228,7 +234,8 @@ export async function convertModelToBrik(
 		const toPack: TensorToPack[] = [];
 		for (const name of byKey.get(orderedKeys[shardId])!) {
 			const t = gguf.tensors[name];
-			const dtype = chooseDType(name, t.shape, t.nElems, weight, gguf.arch);
+			const dtype = profile.dtypeFor?.(name, t.shape, t.nElems)
+				?? chooseDType(name, t.shape, t.nElems, weight, gguf.arch);
 			const raw = await readRaw(t.offset, t.bytes);
 			if ((dtype === 'q8' || dtype === 'q4') && encodeQuant) {
 				// Quantize on the GPU → packed bytes directly (no CPU dequant→f32 readback + quantize loop).

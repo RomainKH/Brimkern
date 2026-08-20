@@ -3,9 +3,19 @@
 // (tête liée) q4/q8. Tokenizer EMBARQUÉ : tokenizer.json + tokenizer_config.json HF (transformers.js
 // sait les charger depuis le manifest → BRIK self-contained, zéro fetch HF au runtime).
 //
+// Tiers MIXTES (2026-08-20) : le tier ne dit plus un seul dtype pour tout le corps.
+//   • q3mix — corps 3 bits SAUF ffn_down / attn_output / attn_v qui restent q4. Cette frontière
+//     n'est pas une intuition : c'est celle que llama.cpp/unsloth retiennent pour Q3_K_M après
+//     calibration par matrice d'importance (voir la carte du GGUF Q3_K_M d'unsloth). Notre q3 « à
+//     plat » du 2026-08-19 mettait ffn_down à 3 bits aussi, et échouait la lecture de tableau.
+//   • source — rejoue l'allocation du GGUF SOURCE tenseur par tenseur (Q3_K→q3, Q4_K→q4, Q5_K/Q6_K/
+//     Q8_0→q8). ⚠️ Depuis un GGUF déjà quantifié c'est un DOUBLE quant : mesuré 20,9 % d'erreur RMS
+//     sur ffn_gate contre 16,9 % pour un q3 direct depuis le F16. À réserver au cas où on n'a QUE le
+//     GGUF quantifié ; sinon builder q3mix depuis le F16.
+//
 // Usage : node scripts/build-lfm2-brik.cjs  (ou npm run build:lfm2-brik)
-// Env : LFM2_SRC (GGUF F16), LFM2_TIER (q4|q8|mixed|f16, défaut q4), LFM2_OUT, LFM2_NAME,
-//       LFM2_TOKENIZER_DIR (dossier contenant tokenizer.json + tokenizer_config.json).
+// Env : LFM2_SRC (GGUF F16 ou quantifié), LFM2_TIER (q4|q8|q3|mixed|q3mix|source|f16, défaut q4),
+//       LFM2_OUT, LFM2_NAME, LFM2_TOKENIZER_DIR (tokenizer.json + tokenizer_config.json).
 const fs = require('fs');
 const path = require('path');
 const { parseGguf } = require('../.brik-build/webgpu/ggufParser.js');
@@ -14,20 +24,46 @@ const { serializeBrik, parseBrik } = require('../.brik-build/brik/container.js')
 const { computeShardBases } = require('../.brik-build/brik/loader.js');
 const { decodeTensor } = require('../.brik-build/brik/codec.js');
 const { f16BitsToF32 } = require('../.brik-build/brik/f16.js');
+const { dequantGgml } = require('./lib/ggml-dequant.cjs');
 
 const GGUF = process.env.LFM2_SRC || path.join(__dirname, '..', '.brik-build', 'lfm25-230m-f16.gguf');
 const TIER = process.env.LFM2_TIER || 'q4';
 const OUT = process.env.LFM2_OUT || path.join(__dirname, '..', 'public', 'models', `lfm25-230m-${TIER}.brik`);
 const TOKDIR = process.env.LFM2_TOKENIZER_DIR || path.join(__dirname, '..', '.brik-build', 'lfm25-tokenizer');
 
-const cpuDequant = async (type, bytes, nElems) => {
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out = new Float32Array(nElems);
-  if (type === 'F32') for (let i = 0; i < nElems; i++) out[i] = dv.getFloat32(i * 4, true);
-  else if (type === 'F16') for (let i = 0; i < nElems; i++) out[i] = f16BitsToF32(dv.getUint16(i * 2, true));
-  else throw new Error(`type CPU non géré: ${type} (LFM2 GGUF attendu en F16/F32)`);
-  return out;
-};
+// F16/F32 + K-quants (Q3_K/Q4_K/Q5_K/Q6_K/Q8_0/Q4_0/Q5_0) : un GGUF déjà quantifié est une source
+// valide. Les formules sont celles de llama.cpp, cf. scripts/lib/ggml-dequant.cjs.
+const cpuDequant = async (type, bytes, nElems) => dequantGgml(type, bytes, nElems);
+
+// Le corps 2-D quantifiable ; le reste (normes 1-D, shortconv.conv) est laissé à chooseDType.
+const CORPS = /\.(shortconv\.(in|out)_proj|attn_q|attn_k|attn_v|attn_output|ffn_gate|ffn_up|ffn_down)\.weight$/;
+// Tenseurs sensibles que Q3_K_M garde AU-DESSUS de 3 bits (mesure imatrix llama.cpp/unsloth).
+const SENSIBLES = /\.(ffn_down|attn_output|attn_v)\.weight$/;
+const GGML_VERS_TIER = { Q3_K: 'q3', Q4_K: 'q4', Q4_0: 'q4', Q5_K: 'q8', Q6_K: 'q8', Q8_0: 'q8' };
+
+// Carte par tenseur pour les tiers mixtes (undefined = chooseDType tranche : normes f32, conv f32).
+// `sonde` : SONDE DE QUALITÉ, pas un tier de livraison. Elle prend les valeurs d'un GGUF déjà
+// quantifié et les réencode en q8 (+0,02 point d'erreur RMS, mesuré : 14,67 % contre 14,65 % pour le
+// Q3_K d'origine sur ffn_gate). Le .brik pèse ~220 Mo et n'a aucun intérêt produit — il répond à UNE
+// question : « les valeurs 3 bits calibrées par imatrix sont-elles assez bonnes pour ce modèle ? »
+// Si la sonde échoue, écrire un kernel matmul Q3_K natif pour les livrer à 3,44 bits ne servirait à
+// rien. Si elle passe, ce kernel vaut ~123 Mo à qualité tenue.
+function carteMixte(tier, gguf) {
+  if (tier === 'sonde') return (name, shape, nElems) => {
+    if (shape.length < 2 || nElems % 32 !== 0) return undefined;
+    if (name === 'token_embd.weight') return 'q4';
+    return CORPS.test(name) ? 'q8' : undefined;
+  };
+  if (tier !== 'q3mix' && tier !== 'source') return undefined;
+  return (name, shape, nElems) => {
+    if (shape.length < 2 || nElems % 32 !== 0) return undefined;
+    // Embeddings = tête liée : le runtime ne sait faire le gather par lignes qu'en q4 → plancher q4.
+    if (name === 'token_embd.weight') return 'q4';
+    if (!CORPS.test(name)) return undefined;
+    if (tier === 'q3mix') return SENSIBLES.test(name) ? 'q4' : 'q3';
+    return GGML_VERS_TIER[gguf.tensors[name]?.type] ?? 'q4';
+  };
+}
 
 function writeChunked(file, bytes) {
   const fd = fs.openSync(file, 'w'), CH = 1 << 30;
@@ -55,7 +91,8 @@ async function main() {
     modelName: process.env.LFM2_NAME || 'LFM2.5 230M', quantSource: 'F16', uiArch: 'lfm2',
     tokenizer: { kind: 'embedded', id: 'LiquidAI/LFM2.5-230M', json: fs.readFileSync(tokJson, 'utf8'), config: fs.readFileSync(tokCfg, 'utf8') },
     chat: { template: 'chatml', stopTokenIds: [eosId] },
-    weightDType: TIER,
+    weightDType: TIER === 'q3mix' || TIER === 'source' || TIER === 'sonde' ? 'q3' : TIER,
+    dtypeFor: carteMixte(TIER, gguf),
   });
   const dcount = {}; for (const t of Object.values(out.manifest.tensors)) dcount[t.dtype] = (dcount[t.dtype] || 0) + 1;
   console.log('dtypes émis:', JSON.stringify(dcount));
