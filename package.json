@@ -25,7 +25,8 @@
     "test:imagedims": "node scripts/test-image-dims.cjs",
     "brik:digest": "node scripts/brik-digest.cjs",
     "test:sdkfresh": "node scripts/test-sdk-fresh.cjs",
-    "test:sdkapi": "node scripts/e2e/sdk-api.mjs"
+    "test:sdkapi": "node scripts/e2e/sdk-api.mjs",
+    "test:docstoc": "node scripts/e2e/docs-toc.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
