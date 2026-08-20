@@ -26,6 +26,12 @@ export interface Chunk {
 	doc: number;
 }
 
+/** Un passage retenu et le score qui l'a fait retenir (cf. `selectScored`). */
+export interface ScoredChunk {
+	chunk: Chunk;
+	score: number;
+}
+
 // Mots trop fréquents pour discriminer quoi que ce soit (FR + EN).
 const STOP = new Set([
 	'avec', 'pour', 'dans', 'les', 'des', 'une', 'est', 'sur', 'par', 'que', 'qui', 'quoi', 'comment',
@@ -207,6 +213,17 @@ export function buildIdf(chunks: Chunk[]): Map<string, number> {
  * souvent), et n'accepte QUE ce qui dépasse un seuil : mieux vaut zéro passage qu'un hors sujet.
  */
 export function selectChunks(question: string, chunks: Chunk[], maxChars = 1200, maxChunks = 3, seuil = 0.22, relatif = 0.5): Chunk[] {
+	return selectScored(question, chunks, maxChars, maxChunks, seuil, relatif).map((x) => x.chunk);
+}
+
+/**
+ * La MÊME sélection, score compris. C'est la forme interne — `selectChunks` n'en est qu'une
+ * projection — parce que le score est ce que l'API publique expose à l'intégrateur (`onSources`,
+ * `session.lastSources`) : sans lui, « pourquoi a-t-il répondu ça ? » n'a pas de réponse, et une
+ * base de fiches ne se débogue qu'à l'aveugle. L'ORDRE est celui de l'injection dans le prompt
+ * ([1], [2], …) : ce que l'intégrateur affiche correspond à ce que le modèle a lu.
+ */
+export function selectScored(question: string, chunks: Chunk[], maxChars = 1200, maxChunks = 3, seuil = 0.22, relatif = 0.5): ScoredChunk[] {
 	const q = terms(question);
 	if (!q.length || !chunks.length) return [];
 	const idf = buildIdf(chunks);
@@ -222,20 +239,20 @@ export function selectChunks(question: string, chunks: Chunk[], maxChars = 1200,
 	// seulement quand elles sont vraiment comparables, ce que ce rapport exprime directement.
 	const plancher = bruts.length ? bruts[0].s * relatif : 0;
 	const notes = bruts.filter((x) => x.s >= plancher);
-	const pris: Chunk[] = [];
+	const pris: ScoredChunk[] = [];
 	const docsVus = new Set<number>();
 	let budget = maxChars;
 	// Premier passage : un extrait par document, par ordre de score.
-	for (const { c } of notes) {
+	for (const { c, s } of notes) {
 		if (pris.length >= maxChunks || c.text.length > budget) continue;
 		if (docsVus.has(c.doc)) continue;
-		pris.push(c); docsVus.add(c.doc); budget -= c.text.length;
+		pris.push({ chunk: c, score: s }); docsVus.add(c.doc); budget -= c.text.length;
 	}
 	// Second passage : on complète avec les meilleurs restants si le budget le permet.
-	for (const { c } of notes) {
+	for (const { c, s } of notes) {
 		if (pris.length >= maxChunks) break;
-		if (pris.includes(c) || c.text.length > budget) continue;
-		pris.push(c); budget -= c.text.length;
+		if (pris.some((x) => x.chunk === c) || c.text.length > budget) continue;
+		pris.push({ chunk: c, score: s }); budget -= c.text.length;
 	}
 	return pris;
 }
@@ -269,7 +286,7 @@ export function buildKnowledgeBlock(chunks: Chunk[], query?: string, fr = false)
 		.join('\n\n');
 	const consigne = fr
 		? 'Réponds UNIQUEMENT à partir des fiches ci-dessous, en français. Reprends leurs chiffres exactement. Si la réponse n’y est pas, dis que tu n’as pas cette information : n’invente jamais pour combler.'
-		: 'Answer using ONLY the reference notes below. If the answer is not in them, say you do not have that information: never fill the gap with what you assume.';
+		: 'Answer using ONLY the reference notes below. Copy their figures exactly. If the answer is not in them, say you do not have that information: never fill the gap with what you assume.';
 	return `\n\n${consigne}\n\n--- NOTES ---\n${notes}\n--- END OF NOTES ---`;
 }
 

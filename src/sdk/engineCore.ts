@@ -28,10 +28,20 @@ export type Msg = { role: 'user' | 'assistant'; content: string };
 
 export interface LoadProgress { loaded: number; total: number }
 
+// ── PHASES DE CHARGEMENT ────────────────────────────────────────────────────────────────────────
+// Des CLÉS stables, pas des phrases : elles s'affichent dans la bulle de statut du widget, qui doit
+// pouvoir les rendre dans la langue de la page (elles étaient écrites en français ici, donc un
+// widget anglais annonçait « téléchargement du modèle… »). Un intégrateur qui affiche `status` brut
+// via preload({ onProgress }) reçoit la clé et la traduit chez lui.
+export type LoadPhase = 'init' | 'download' | 'tokenizer' | 'gpu';
+
 // ── Chargement du modèle LFM2 (même recette que l'app : BRIK streamé + tokenizer embarqué) ──
-async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress) => void) {
+async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgress) => void) {
   const engine = new WebGpuEngine();
-  if (!(await engine.init())) throw new Error('WebGPU indisponible sur ce navigateur.');
+  // `code` porte la CAUSE, indépendamment de la langue du message : c'est le seul échec que le
+  // visiteur peut provoquer sans rien faire de mal (navigateur sans WebGPU), donc le seul que le
+  // widget doit pouvoir formuler dans la langue de la page (cf. LIBELLES dans index.ts).
+  if (!(await engine.init())) throw Object.assign(new Error('WebGPU is not available in this browser.'), { code: 'no-webgpu' });
   // Perte du device (TDR, mémoire reprise par l'OS, process GPU du navigateur qui tombe) : le
   // singleton est invalidé pour que le PROCHAIN appel reconstruise un moteur neuf. Sans ça, toutes
   // les générations suivantes échouaient définitivement (« WebGPU indisponible » jusqu'au
@@ -41,7 +51,7 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
     models.delete(url);
   };
   await engine.selfValidate();
-  onProgress('téléchargement du modèle…');
+  onProgress('download');
   const loadable: any = await loadBrikStream(url);
   const m = loadable.manifest;
   // Garde EXPLICITE avant de construire quoi que ce soit. Sans elle, l'erreur venait du fond du
@@ -81,10 +91,10 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
     const tt = m.tensors[name]; if (!tt) throw new Error(`tenseur absent : ${name}`);
     const bytes = await readSpan(name);
     loadedBytes += tt.bytes;
-    onProgress('téléchargement du modèle…', { loaded: loadedBytes, total: totalBytes });
+    onProgress('download', { loaded: loadedBytes, total: totalBytes });
     return bytes;
   };
-  onProgress('tokenizer…');
+  onProgress('tokenizer');
   // Tokenizer BUNDLÉ (BpeTokenizer, token-exact vs transformers.js) ; CDN en repli si la config
   // n'est pas couverte (modèle non-BPE) — jamais sur le chemin nominal LFM2.5.
   let tok: { encode(s: string): number[]; decode(ids: number[]): string };
@@ -101,7 +111,7 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
     };
   }
   const core = new Lfm2Model(engine, bm, rawTensor);
-  onProgress('poids sur le GPU…');
+  onProgress('gpu');
   await core.load(tok);
   return { core, engine };
 }
@@ -110,10 +120,10 @@ async function buildModel(url: string, onProgress: (s: string, p?: LoadProgress)
 type Loaded = { core: Lfm2Model; engine: WebGpuEngine };
 type ModelEntry = {
   promise: Promise<Loaded>;
-  status: string;                       // dernière phase de progression
+  status: LoadPhase;                    // dernière phase de progression
   progress?: LoadProgress;              // octets téléchargés / total (phase modèle)
   state: 'loading' | 'ready' | 'error';
-  listeners: Set<(s: string, p?: LoadProgress) => void>;
+  listeners: Set<(s: LoadPhase, p?: LoadProgress) => void>;
 };
 export const models = new Map<string, ModelEntry>();
 
@@ -124,10 +134,10 @@ export function resolveModelUrl(model?: string): string {
   return isUrl ? model! : MODELS[model || 'lfm2.5-230m'] || MODELS['lfm2.5-230m'];
 }
 
-export function getModel(url: string, onProgress?: (s: string, p?: LoadProgress) => void): Promise<Loaded> {
+export function getModel(url: string, onProgress?: (s: LoadPhase, p?: LoadProgress) => void): Promise<Loaded> {
   let e = models.get(url);
   if (!e) {
-    const entry: ModelEntry = { status: 'initialisation…', state: 'loading', listeners: new Set(), promise: null! };
+    const entry: ModelEntry = { status: 'init', state: 'loading', listeners: new Set(), promise: null! };
     entry.promise = buildModel(url, (s, p) => { entry.status = s; entry.progress = p; entry.listeners.forEach((f) => f(s, p)); })
       .then((c) => { entry.state = 'ready'; return c; })
       .catch((err) => { entry.state = 'error'; models.delete(url); throw err; });
@@ -176,6 +186,12 @@ export async function withDeviceRetry<T>(url: string, fn: (core: Lfm2Model) => P
 // rend '' côté API). Dans ce cas on garde le texte tel quel.
 function cleanOutput(s: string, greeted: boolean): string {
   let out = s.replace(/<\|[a-z_]+\|>/g, '');
+  // Le modèle recopie parfois le marqueur de FIN de nos fiches : « … sous 5 jours ouvrés. --- END
+  // OF NOTES » (vu sur le banc RAG, cas 2 en français). Ce texte est le NÔTRE, pas le sien — il
+  // délimite le bloc de connaissance dans le prompt — et il n'a rien à faire dans une bulle de chat.
+  // Le strip est ancré en FIN et borné à nos deux marqueurs : il coupe aussi les formes tronquées
+  // (« --- END OF »), ce qui évite au passage de les faire clignoter pendant le streaming.
+  out = out.replace(/\s*-{2,}\s*(?:E(?:N(?:D(?:\s*O(?:F(?:\s*N(?:O(?:T(?:E(?:S)?)?)?)?)?)?)?)?)?|N(?:O(?:T(?:E(?:S)?)?)?)?)\s*-*\s*$/i, '');
   if (greeted) {
     const stripped = out.replace(/^\s*(hello|hi|hey|bonjour|salut)\s*[!,.]\s*/i, '');
     if (stripped.trim()) out = stripped;
