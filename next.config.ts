@@ -8,11 +8,24 @@ const nextConfig: NextConfig = {
   // s'ouvrir sur /sdk-demo, sans extension. Une réécriture sert le fichier tel quel (rien à
   // dupliquer en route React), et /sdk-demo.html redirige en 308 vers l'URL canonique pour que les
   // liens déjà publiés continuent de marcher sans créer deux URL pour la même page (SEO).
+  //
+  // La démo est BILINGUE et suit la convention du site (cf. src/lib/i18n.tsx) : `/sdk-demo` sert
+  // l'anglais canonique, `/fr/sdk-demo` le français. Comme le fichier est statique, il ne peut pas
+  // hériter du segment `/fr` d'une route React : les deux URL pointent sur LE MÊME fichier, qui
+  // choisit sa langue depuis son URL (chemin `/fr`, ou `?lang=` en surcharge explicite). Le tableau
+  // retourné est vérifié APRÈS le système de fichiers (« afterFiles »), donc aucune route de
+  // src/app/fr n'est masquée par cette entrée.
   async rewrites() {
-    return [{ source: '/sdk-demo', destination: '/sdk-demo.html' }];
+    return [
+      { source: '/sdk-demo', destination: '/sdk-demo.html' },
+      { source: '/fr/sdk-demo', destination: '/sdk-demo.html' },
+    ];
   },
   async redirects() {
-    return [{ source: '/sdk-demo.html', destination: '/sdk-demo', permanent: true }];
+    return [
+      { source: '/sdk-demo.html', destination: '/sdk-demo', permanent: true },
+      { source: '/fr/sdk-demo.html', destination: '/fr/sdk-demo', permanent: true },
+    ];
   },
   async headers() {
     // CORS ouvert (*) réservé aux assets faits pour être consommés par d'autres origines

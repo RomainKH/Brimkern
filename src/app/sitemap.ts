@@ -14,6 +14,10 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   { path: '/docs/sdk', freq: 'monthly', prio: 0.8 },     // référence API du paquet npm
   { path: '/docs/diagnostics', freq: 'monthly', prio: 0.4 }, // commutateurs de repli
   { path: '/local-ai', freq: 'monthly', prio: 0.8 }, // SDK / offre pro
+  // La démo live du SDK : un fichier statique, mais désormais BILINGUE et sur deux URL (/sdk-demo et
+  // /fr/sdk-demo, cf. next.config.ts). Elle était absente tant qu'elle n'existait qu'en français ;
+  // elle déclare maintenant ses alternates comme les autres pages produit.
+  { path: '/sdk-demo', freq: 'monthly', prio: 0.7 },
   { path: '/vs-webllm', freq: 'monthly', prio: 0.8 }, // comparaison mesurée (porte d'entrée SEO)
   { path: '/convert', freq: 'monthly', prio: 0.6 },  // convertisseur GGUF→BRIK
   { path: '/changelog', freq: 'weekly', prio: 0.5 },

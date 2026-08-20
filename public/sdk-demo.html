@@ -1,9 +1,29 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Brimkern SDK — Démo Interactive & RAG Local</title>
+  <title>Brimkern SDK — Interactive demo &amp; local RAG</title>
+  <!-- Même convention i18n que le reste du site (cf. src/lib/i18n.tsx) : l'ANGLAIS est la version
+       canonique à /sdk-demo, le français vit sous /fr/sdk-demo (réécriture dans next.config.ts vers
+       ce même fichier). `?lang=fr` reste accepté comme surcharge explicite : c'est ce que le banc
+       scripts/e2e/sdk-rag.mjs utilise pour mesurer le chemin RAG français sans dépendre du routage. -->
+  <link rel="alternate" hreflang="en" href="https://brimkern.com/sdk-demo" />
+  <link rel="alternate" hreflang="fr" href="https://brimkern.com/fr/sdk-demo" />
+  <link rel="alternate" hreflang="x-default" href="https://brimkern.com/sdk-demo" />
+  <script>
+    // La langue est résolue AVANT le rendu du corps : les deux versions sont dans le HTML (donc
+    // indexables toutes les deux), et le CSS masque celle qu'on ne sert pas. Une bascule faite après
+    // coup en JS ferait clignoter l'anglais sur la page française.
+    (function () {
+      var q = (location.search.match(/[?&]lang=(en|fr)\b/) || [])[1];
+      var lang = q || (/(^|\/)fr(\/|$)/.test(location.pathname) ? 'fr' : 'en');
+      var d = document.documentElement;
+      d.lang = lang;
+      d.setAttribute('data-lang', lang);
+      window.__BK_LANG = lang;
+    })();
+  </script>
   <style>
     :root {
       --bg: #f2efe8;
@@ -94,51 +114,155 @@
       overflow-x: auto;
       font-size: 12.5px;
     }
+    /* Bascule de langue : deux liens, chacun vers l'URL de sa langue (naviguer, pas muter un état —
+       même règle que le site : une langue, une URL). */
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .lang-switch a {
+      color: var(--text-muted);
+      text-decoration: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 9px;
+    }
+    .lang-switch a:hover { border-color: var(--accent); color: var(--accent); }
+    html[data-lang="en"] .lang-switch a[hreflang="en"],
+    html[data-lang="fr"] .lang-switch a[hreflang="fr"] {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+    /* Une seule des deux versions est affichée ; l'autre reste dans le document (SEO) et sort du
+       flux comme de l'arbre d'accessibilité. */
+    [data-l] { display: none; }
+    html[data-lang="en"] [data-l="en"],
+    html[data-lang="fr"] [data-l="fr"] { display: block; }
   </style>
 </head>
 <body>
-  <div class="badge">⚡ 100% WebGPU Local · 0 Coût Serveur · Données Privées</div>
-  <h1>Brimkern SDK — Démo E-Commerce & RAG Local</h1>
-  <p>
-    Cette page illustre l'intégration d'un assistant intelligent pour site e-commerce.
-    Le modèle tourne <strong>directement sur le GPU de votre navigateur</strong> et dispose d'une base de connaissances locale (guide des tailles, retours, livraisons).
-  </p>
+  <nav class="lang-switch" aria-label="Language">
+    <a hreflang="en" href="/sdk-demo">EN</a>
+    <a hreflang="fr" href="/fr/sdk-demo">FR</a>
+  </nav>
 
-  <div class="card">
-    <h3 style="margin-top:0;">📚 Base de connaissances injectée (RAG Local)</h3>
-    <p style="font-size: 13.5px; color: var(--text-muted);">
-      L'assistant ci-dessous a été configuré avec les règles métier réelles du magasin. Essayez de lui poser des questions via le widget en bas à droite :
+  <!-- ── ANGLAIS (version canonique) ─────────────────────────────────────────────────────────── -->
+  <div data-l="en">
+    <div class="badge">⚡ 100% WebGPU local · zero server cost · private by design</div>
+    <h1>Brimkern SDK — e-commerce &amp; local RAG demo</h1>
+    <p>
+      This page shows a smart assistant embedded in an online store.
+      The model runs <strong>directly on your browser's GPU</strong> and has a local knowledge base (size guide, returns, shipping).
     </p>
-    <div class="grid">
-      <div class="feature-item">
-        <div class="feature-title">👟 Guide des Tailles</div>
-        <div>Correspondances EU/US/CM, recommandation +1/2 pointure pour le running.</div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">📚 Injected knowledge base (local RAG)</h3>
+      <p style="font-size: 13.5px; color: var(--text-muted);">
+        The assistant below was configured with the store's real business rules. Try asking it questions through the widget in the bottom-right corner:
+      </p>
+      <div class="grid">
+        <div class="feature-item">
+          <div class="feature-title">👟 Size guide</div>
+          <div>EU/US/cm conversions, half a size up for running shoes.</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-title">📦 Returns &amp; exchanges</div>
+          <div>100% free within 30 days, refunded within 5 working days.</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-title">🚚 Shipping</div>
+          <div>Free from €50 (2–4 days), 24h express available.</div>
+        </div>
       </div>
-      <div class="feature-item">
-        <div class="feature-title">📦 Retours & Échanges</div>
-        <div>100% gratuits sous 30 jours, remboursement sous 5 jours.</div>
-      </div>
-      <div class="feature-item">
-        <div class="feature-title">🚚 Expédition</div>
-        <div>Gratuite dès 50€ (2-4 jours), Express 24h disponible.</div>
+
+      <div style="margin-top: 18px;">
+        <strong>💡 Questions to try:</strong><br />
+        <span class="prompt-chip" onclick="openAndAsk('How do running shoes fit?')">“How do running shoes fit?”</span>
+        <span class="prompt-chip" onclick="openAndAsk('I wear a 42, what is that in cm?')">“I wear a 42, what is that in cm?”</span>
+        <span class="prompt-chip" onclick="openAndAsk('How long do I have to return an item?')">“How long do I have to return an item?”</span>
+        <span class="prompt-chip" onclick="openAndAsk('Are returns free?')">“Are returns free?”</span>
       </div>
     </div>
 
-    <div style="margin-top: 18px;">
-      <strong>💡 Exemples de questions à tester :</strong><br />
-      <span class="prompt-chip" onclick="openAndAsk('Comment taillent les chaussures de running ?')">« Comment taillent les chaussures de running ? »</span>
-      <span class="prompt-chip" onclick="openAndAsk('Je fais du 42, quelle taille en cm ?')">« Je fais du 42, quelle taille en cm ? »</span>
-      <span class="prompt-chip" onclick="openAndAsk('Combien de temps pour retourner un article ?')">« Combien de temps pour retourner un article ? »</span>
-      <span class="prompt-chip" onclick="openAndAsk('Les retours sont-ils gratuits ?')">« Les retours sont-ils gratuits ? »</span>
+    <div class="card">
+      <h3 style="margin-top:0;">💻 The integration code used on this page</h3>
+      <pre><code>&lt;script src="/sdk.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  Brimkern.embed({
+    title: "Store Assistant",
+    lang: "en",
+    system: "You are the official store assistant. Answer questions about sizing, shipping and returns precisely, from the reference notes.",
+    knowledge: [
+      {
+        title: "Shoe size guide",
+        text: "Sneakers fit true to size. Running shoes and studded boots: order half a size up. EU 40 = 25.5cm, EU 41 = 26cm, EU 42 = 27cm, EU 43 = 27.5cm, EU 44 = 28.5cm."
+      },
+      {
+        title: "Returns policy",
+        text: "Returns are 100% free within 30 days in the original box. Refunds are issued within 5 working days."
+      },
+      {
+        title: "Shipping",
+        text: "Standard delivery is free from €50 (2 to 4 days). 24h express costs €7.90."
+      }
+    ],
+    knowledgeBudget: 1200,
+    showSources: true
+  });
+&lt;/script&gt;</code></pre>
     </div>
   </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">💻 Code d'intégration utilisé sur cette page</h3>
-    <pre><code>&lt;script src="/sdk.js"&gt;&lt;/script&gt;
+  <!-- ── FRANÇAIS ────────────────────────────────────────────────────────────────────────────── -->
+  <div data-l="fr">
+    <div class="badge">⚡ 100% WebGPU Local · 0 Coût Serveur · Données Privées</div>
+    <h1>Brimkern SDK — Démo E-Commerce &amp; RAG Local</h1>
+    <p>
+      Cette page illustre l'intégration d'un assistant intelligent pour site e-commerce.
+      Le modèle tourne <strong>directement sur le GPU de votre navigateur</strong> et dispose d'une base de connaissances locale (guide des tailles, retours, livraisons).
+    </p>
+
+    <div class="card">
+      <h3 style="margin-top:0;">📚 Base de connaissances injectée (RAG Local)</h3>
+      <p style="font-size: 13.5px; color: var(--text-muted);">
+        L'assistant ci-dessous a été configuré avec les règles métier réelles du magasin. Essayez de lui poser des questions via le widget en bas à droite :
+      </p>
+      <div class="grid">
+        <div class="feature-item">
+          <div class="feature-title">👟 Guide des Tailles</div>
+          <div>Correspondances EU/US/CM, recommandation +1/2 pointure pour le running.</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-title">📦 Retours &amp; Échanges</div>
+          <div>100% gratuits sous 30 jours, remboursement sous 5 jours.</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-title">🚚 Expédition</div>
+          <div>Gratuite dès 50€ (2-4 jours), Express 24h disponible.</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 18px;">
+        <strong>💡 Exemples de questions à tester :</strong><br />
+        <span class="prompt-chip" onclick="openAndAsk('Comment taillent les chaussures de running ?')">« Comment taillent les chaussures de running ? »</span>
+        <span class="prompt-chip" onclick="openAndAsk('Je fais du 42, quelle taille en cm ?')">« Je fais du 42, quelle taille en cm ? »</span>
+        <span class="prompt-chip" onclick="openAndAsk('Combien de temps pour retourner un article ?')">« Combien de temps pour retourner un article ? »</span>
+        <span class="prompt-chip" onclick="openAndAsk('Les retours sont-ils gratuits ?')">« Les retours sont-ils gratuits ? »</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">💻 Code d'intégration utilisé sur cette page</h3>
+      <pre><code>&lt;script src="/sdk.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   Brimkern.embed({
     title: "Conseiller Boutique",
+    lang: "fr",
     system: "Tu es le conseiller officiel. Réponds précisément aux questions sur les tailles, livraisons et retours à partir des fiches.",
     knowledge: [
       {
@@ -154,58 +278,115 @@
         text: "Livraison standard gratuite dès 50€ d'achat (délai 2 à 4 jours). Express 24h à 7,90€."
       }
     ],
-    knowledgeBudget: 1200
+    knowledgeBudget: 1200,
+    showSources: true
   });
 &lt;/script&gt;</code></pre>
+    </div>
   </div>
 
   <script src="/sdk.js"></script>
   <script>
-    Brimkern.embed({
-      model: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
-      title: 'Conseiller Boutique',
-      system: 'Tu es le conseiller officiel de la boutique. Réponds précisément et poliment aux questions sur les tailles de chaussures, les retours et les livraisons en utilisant les fiches de référence fournies.',
-      greeting: 'Bonjour ! Je suis votre conseiller en ligne 100% local. Une question sur votre pointure, les retours ou la livraison ?',
-      knowledge: [
-        {
-          title: 'Guide des Tailles et Pointures',
-          text: `Tableau des correspondances officielles :
+    // Les deux boutiques sont la MÊME : mêmes règles, mêmes chiffres, deux langues. Les fiches
+    // françaises sont reprises au caractère près du jeu mesuré 6/6 par scripts/e2e/sdk-rag.mjs :
+    // à 230 M de paramètres, la formulation des fiches fait partie du résultat, pas de la décoration.
+    const CONFIGS = {
+      en: {
+        title: 'Store Assistant',
+        system: 'You are the official store assistant. Answer questions about shoe sizing, returns and shipping precisely and politely, using the reference notes provided.',
+        greeting: 'Hello! I am your 100% local shopping assistant. A question about your size, returns or shipping?',
+        knowledge: [
+          {
+            title: 'Shoe Size Guide',
+            // Pas de colonne US dans ce tableau, et c'est mesuré : avec elle, « I wear a 42, what is
+            // that in cm? » passait 4 fois sur 10 ; sans elle, 7 fois sur 10 (20 tirs sur le widget).
+            // En anglais le modèle arrive avec une opinion très arrêtée sur les pointures (« EU 42 ≈
+            // 27.5 cm ») et une colonne parasite suffit à l'y ramener. La fiche FRANÇAISE garde la
+            // sienne : elle est notée 6/6 par scripts/e2e/sdk-rag.mjs, on ne touche pas à un jeu mesuré.
+            text: `Official conversion table:
+- Size EU 40: 25.5 cm
+- Size EU 41: 26.0 cm
+- Size EU 42: 27.0 cm
+- Size EU 43: 27.5 cm
+- Size EU 44: 28.5 cm
+
+Fit advice: sneakers fit true to size. For running shoes and studded sports boots, order half a size up (+0.5).`,
+          },
+          {
+            title: 'Returns and Refunds Policy',
+            text: 'Returns are 100% free within 30 days on every item. You have 30 days to return or send back an unworn item in its original box. Refunds are issued within 5 working days.',
+          },
+          {
+            title: 'Shipping Times and Costs',
+            text: 'Standard home delivery is free from €50 of purchase (2 to 4 working days). 24h express shipping costs €7.90 for any order placed before 2pm.',
+          },
+        ],
+      },
+      fr: {
+        title: 'Conseiller Boutique',
+        system: 'Tu es le conseiller officiel de la boutique. Réponds précisément et poliment aux questions sur les tailles de chaussures, les retours et les livraisons en utilisant les fiches de référence fournies.',
+        greeting: 'Bonjour ! Je suis votre conseiller en ligne 100% local. Une question sur votre pointure, les retours ou la livraison ?',
+        knowledge: [
+          {
+            title: 'Guide des Tailles et Pointures',
+            text: `Tableau des correspondances officielles :
 - Pointure EU 40 : 25.5 cm (US 7.5)
 - Pointure EU 41 : 26.0 cm (US 8.0)
 - Pointure EU 42 : 27.0 cm (US 9.0)
 - Pointure EU 43 : 27.5 cm (US 9.5)
 - Pointure EU 44 : 28.5 cm (US 10.5)
 
-Conseil pointure : Les baskets taillent normalement. Pour les chaussures de running et crampons de sport, prenez une demi-pointure au-dessus (+0.5).`
-        },
-        {
-          title: 'Politique de Retour et Remboursement',
-          text: 'Les retours sont 100% gratuits sous 30 jours pour tout article. Vous disposez de 30 jours pour retourner ou renvoyer un article non porté dans sa boîte d’origine. Le remboursement est effectué sous 5 jours ouvrés.'
-        },
-        {
-          title: 'Délais et Frais de Livraison',
-          text: 'La livraison standard à domicile est offerte dès 50 € d’achat (délai de 2 à 4 jours ouvrés). L’expédition Express 24h est proposée à 7,90 € pour toute commande passée avant 14h.'
-        }
-      ],
+Conseil pointure : Les baskets taillent normalement. Pour les chaussures de running et crampons de sport, prenez une demi-pointure au-dessus (+0.5).`,
+          },
+          {
+            title: 'Politique de Retour et Remboursement',
+            text: 'Les retours sont 100% gratuits sous 30 jours pour tout article. Vous disposez de 30 jours pour retourner ou renvoyer un article non porté dans sa boîte d’origine. Le remboursement est effectué sous 5 jours ouvrés.',
+          },
+          {
+            title: 'Délais et Frais de Livraison',
+            text: 'La livraison standard à domicile est offerte dès 50 € d’achat (délai de 2 à 4 jours ouvrés). L’expédition Express 24h est proposée à 7,90 € pour toute commande passée avant 14h.',
+          },
+        ],
+      },
+    };
+
+    const LANG = window.__BK_LANG === 'fr' ? 'fr' : 'en';
+    document.title = LANG === 'fr'
+      ? 'Brimkern SDK — Démo interactive & RAG local'
+      : 'Brimkern SDK — Interactive demo & local RAG';
+    // La bascule pointe normalement les URL canoniques (/sdk-demo et /fr/sdk-demo). Elles n'existent
+    // que servies par l'app : ouvert en fichier local, ou servi sans la réécriture (donc sous
+    // .../sdk-demo.html), on retombe sur `?lang=` — le seul mécanisme qui marche partout.
+    if (location.protocol === 'file:' || /\.html$/.test(location.pathname)) {
+      for (const a of document.querySelectorAll('.lang-switch a')) {
+        a.href = location.pathname + '?lang=' + a.getAttribute('hreflang');
+      }
+    }
+
+    // `lang` est déclaré EXPLICITEMENT : sans lui, la langue des consignes est devinée depuis le
+    // prompt système — ce qui marche, mais une démo ne doit rien laisser à une heuristique.
+    // La POIGNÉE est gardée : c'est elle qui pilote le widget depuis les puces de suggestion
+    // ci-dessous (cf. openAndAsk). `showSources` affiche, sous chaque réponse, la ou les fiches qui
+    // l'ont produite — sur un modèle de 230 M, une réponse vérifiable vaut mieux qu'une réponse
+    // affirmée.
+    const widget = Brimkern.embed({
+      model: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
+      lang: LANG,
+      title: CONFIGS[LANG].title,
+      system: CONFIGS[LANG].system,
+      greeting: CONFIGS[LANG].greeting,
+      knowledge: CONFIGS[LANG].knowledge,
       knowledgeBudget: 1200,
+      showSources: true,
     });
 
+    // Cette fonction est l'exemple même du trou que le SDK 0.1.3 comble. Avant, embed() ne rendait
+    // rien : pour lancer une question depuis la PAGE, il fallait deviner les classes internes du
+    // widget (.bk-fab, .bk-panel), cliquer sur le bouton, attendre 80 ms au hasard, puis écrire dans
+    // le champ — et encore, ça ne faisait que le REMPLIR, le visiteur devait valider lui-même.
+    // Avec la poignée, c'est une ligne, et la question part vraiment.
     function openAndAsk(text) {
-      const panel = document.querySelector('.bk-panel');
-      const isOpen = panel && panel.classList.contains('bk-open');
-      const fab = document.querySelector('.bk-fab, button[aria-label*="chat"], .brimkern-launcher');
-      
-      if (!isOpen && fab) {
-        fab.click();
-      }
-      
-      setTimeout(() => {
-        const input = document.querySelector('.bk-input, textarea, input[type="text"]');
-        if (input) {
-          input.value = text;
-          input.focus();
-        }
-      }, 80);
+      widget.ask(text).catch((e) => console.warn('[demo]', e.message));
     }
   </script>
 </body>
