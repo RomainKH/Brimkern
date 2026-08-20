@@ -178,8 +178,18 @@ export function ModelBrowserModal({
     ? userModels.filter((m) => `${m.name} ${m.url ?? ''} ${m.kind}`.toLowerCase().includes(modelQ))
     : userModels;
 
-  const filteredModels = (categoryFilter === 'all' || categoryFilter === 'text') ? shownModels : [];
-  const filteredUserModels = (categoryFilter === 'all' || categoryFilter === 'text') ? shownUserModels : [];
+  // CE QUI EST DÉJÀ TÉLÉCHARGÉ PASSE DEVANT. Le catalogue s'affichait dans son ordre de rédaction,
+  // donc un modèle qu'on a déjà sur son disque — le seul qui démarre sans réseau et sans attente —
+  // pouvait se trouver en bas de grille, sous une demi-douzaine de modèles à télécharger. Le tri est
+  // STABLE (Array.prototype.sort l'est depuis ES2019) : à l'intérieur de chaque groupe, l'ordre du
+  // catalogue est conservé au lieu d'être remplacé par un ordre arbitraire. Et il ne se voit que
+  // s'il y a au moins un modèle en cache — sinon la fonction de comparaison rend 0 partout et la
+  // grille est identique à avant.
+  const enCacheDabord = <T extends { url?: string }>(liste: T[]): T[] =>
+    [...liste].sort((a, b) => Number(isCached(b.url)) - Number(isCached(a.url)));
+
+  const filteredModels = (categoryFilter === 'all' || categoryFilter === 'text') ? enCacheDabord(shownModels) : [];
+  const filteredUserModels = (categoryFilter === 'all' || categoryFilter === 'text') ? enCacheDabord(shownUserModels) : [];
   const filteredComingSoon = categoryFilter === 'all'
     ? shownComingSoon
     : categoryFilter === 'text'
@@ -449,7 +459,7 @@ export function ModelBrowserModal({
                     </div>
                   )}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '10px' }}>
-                  {filteredModels.map((model, idx) => {
+                  {filteredModels.map((model) => {
                     const isCurrentlyLoaded = !!loadedModelName && modelState !== 'initializing' && normModelName(loadedModelName) === normModelName(model.url.split('/').pop() || '');
                     const paramsB = parseParamsB(model.name);
                     const cached = isCached(model.url);
@@ -466,7 +476,7 @@ export function ModelBrowserModal({
                       // alimente la RECHERCHE (`shownModels`) et sert d'infobulle native ici — avant,
                       // le champ n'était plus lu par rien après avoir été traduit.
                       <div
-                        key={idx}
+                        key={model.url}
                         className="model-card"
                         title={t(model.desc.en, model.desc.fr)}
                         style={{
