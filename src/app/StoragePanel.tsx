@@ -178,14 +178,29 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
           <button onClick={onClose} className="circle-btn" style={{ width: 30, height: 30 }} title={t('Close', 'Fermer')}><X size={16} /></button>
         </div>
 
-        {/* Total Brimkern (somme des rows) + jauge HONNÊTE contre le VRAI quota du navigateur
+        {/* Total Brimkern (somme des rows) + jauge contre le VRAI quota du navigateur
             (navigator.storage.estimate). C'est le navigateur qui fixe ce plafond, pas l'app — on ne
             peut pas le relever depuis le code ; persist() (« Garder sur l'appareil ») évite juste
-            l'éviction. On alerte quand on approche du quota (un gros modèle n'y rentrera pas). */}
+            l'éviction. On alerte quand on approche du quota (un gros modèle n'y rentrera pas).
+
+            LA BARRE EST EN DEUX SEGMENTS, et c'est le correctif du signalement « j'ai tout supprimé
+            et la barre reste pleine à 2,3 Go / 2 Go ». Elle était tirée du SEUL `estimate.usage` :
+            le total que le navigateur compte pour l'origine, cache HTTP compris. Elle contredisait
+            donc le chiffre écrit juste au-dessus (« Données Brimkern », qui tombait bien à 0) — une
+            jauge et un total qui ne mesurent pas la même chose dans le même bloc. Deux segments :
+            NOTRE part, et ce que le navigateur compte en plus et que personne ne peut purger depuis
+            une page. Tout supprimer vide maintenant la part accentuée, visiblement, et ce qui reste
+            est étiqueté comme n'étant pas à nous. */}
         {(() => {
           const quota = estimate?.quota ?? 0;
           const usage = estimate?.usage ?? brikkernTotal;
-          const pct = quota > 0 ? Math.min(100, Math.max(usage > 0 ? 2 : 0, (usage / quota) * 100)) : 0;
+          // `usage` vient du navigateur, `brikkernTotal` de notre propre somme : les deux peuvent se
+          // croiser (estimation arrondie, retard après suppression). On borne pour que les segments
+          // restent cohérents plutôt que d'afficher une part « à nous » plus grande que le total.
+          const nous = Math.max(0, Math.min(brikkernTotal, usage));
+          const autres = Math.max(0, usage - nous);
+          const pctNous = quota > 0 ? Math.min(100, Math.max(nous > 0 ? 2 : 0, (nous / quota) * 100)) : 0;
+          const pctAutres = quota > 0 ? Math.min(100 - pctNous, (autres / quota) * 100) : 0;
           const near = quota > 0 && usage / quota > 0.85;
           return (
             <>
@@ -195,12 +210,26 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
               </div>
               {quota > 0 && (
                 <>
-                  <div style={{ height: 6, borderRadius: 999, background: 'var(--bg-card-hover, rgba(127,127,127,0.15))', overflow: 'hidden', margin: '6px 0 4px' }}>
-                    <div style={{ height: '100%', width: `${pct.toFixed(1)}%`, background: near ? 'var(--warning, #f59e0b)' : 'var(--accent)', borderRadius: 999 }} />
+                  <div style={{ display: 'flex', height: 6, borderRadius: 999, background: 'var(--bg-card-hover, rgba(127,127,127,0.15))', overflow: 'hidden', margin: '6px 0 4px' }}>
+                    <div style={{ width: `${pctNous.toFixed(1)}%`, background: near ? 'var(--warning, #f59e0b)' : 'var(--accent)' }} />
+                    <div style={{ width: `${pctAutres.toFixed(1)}%`, background: 'var(--text-muted)', opacity: 0.35 }} />
                   </div>
+                  {/* La légende n'est pas décorative : sans elle, deux segments valent moins qu'un. */}
+                  {autres > 4_000_000 && (
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 10.5, color: 'var(--text-muted)', marginBottom: 3 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: near ? 'var(--warning, #f59e0b)' : 'var(--accent)' }} />
+                        {t('Brimkern', 'Brimkern')} {fmt(nous)}
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--text-muted)', opacity: 0.35 }} />
+                        {t('browser’s own cache', 'cache propre du navigateur')} {fmt(autres)}
+                      </span>
+                    </div>
+                  )}
                   <div style={{ fontSize: 10.5, color: near ? 'var(--warning, #f59e0b)' : 'var(--text-muted)', lineHeight: 1.4, marginBottom: 4 }}>
                     {t('Browser quota for this site: ', 'Quota du navigateur pour ce site : ')}<strong>{fmt(usage)} / {fmt(quota)}</strong>{': '}
-                    {t('the browser sets this limit (not Brimkern). A model larger than the free space won’t cache.', 'c’est le navigateur qui fixe cette limite (pas Brimkern). Un modèle plus gros que l’espace libre ne pourra pas être mis en cache.')}
+                    {t('the browser sets this limit (not Brimkern), and it counts everything this site occupies, not only Brimkern data. A model larger than the free space won’t cache.', 'c’est le navigateur qui fixe cette limite (pas Brimkern), et il compte tout ce que ce site occupe, pas seulement les données Brimkern. Un modèle plus gros que l’espace libre ne pourra pas être mis en cache.')}
                     {near ? ' ' + t('Nearly full: clear a few models below.', 'Presque plein : vide quelques modèles ci-dessous.') : ''}
                   </div>
                   {/* Le cas qui faisait croire à un échec de « Tout supprimer » : nos buckets sont
@@ -251,6 +280,14 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
             <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.4 }}>
               {t('Weights only: conversations and locally converted .brik are never touched.',
                  'Les poids seulement : conversations et .brik convertis en local ne sont jamais touchés.')}
+              {' '}
+              {/* Le bouton ne veut RIEN dire tout seul : il applique la règle du menu d'à côté, tout
+                  de suite au lieu d'attendre. C'était la question posée — « je ne comprends pas le
+                  bouton ». On l'écrit, et le libellé du délai choisi entre dans la phrase. */}
+              {evictDays > 0
+                ? t(`“Clean now” applies that rule immediately: it deletes the weights of models not used for ${evictDays} days.`,
+                    `« Nettoyer maintenant » applique cette règle tout de suite : supprime les poids des modèles non utilisés depuis ${evictDays} jours.`)
+                : t('Set a delay to enable “Clean now”.', 'Choisissez un délai pour activer « Nettoyer maintenant ».')}
             </div>
           </div>
           <select
@@ -270,16 +307,21 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
             style={{ fontSize: 11, padding: '5px 10px', flexShrink: 0 }}
             disabled={busy !== null || evictDays === 0}
             onClick={() => run('evict', async () => {
-              const r = await evictStaleModels([]);
-              setEvictReport(r.models.length ? r : getLastEvictReport());
+              // On garde le bilan FRAIS, même vide. Avant, un nettoyage sans rien à supprimer
+              // retombait sur `getLastEvictReport()` : le panneau réaffichait un ANCIEN nettoyage
+              // comme s'il venait d'avoir lieu, ou n'affichait rien du tout — dans les deux cas le
+              // clic semblait ne pas marcher. Un bouton qui ne trouve rien doit le dire.
+              setEvictReport(await evictStaleModels([]));
               setUsage(getUsageMap());
             })}
           >
             {busy === 'evict' ? <Loader2 size={12} className="spin" /> : t('Clean now', 'Nettoyer maintenant')}
           </button>
-          {evictReport && evictReport.models.length > 0 && (
+          {evictReport && (
             <div style={{ flexBasis: '100%', fontSize: 10.5, color: 'var(--text-muted)' }}>
-              {t('Last clean:', 'Dernier nettoyage :')} {new Date(evictReport.at).toLocaleDateString()} — {fmt(evictReport.freedBytes)} ({evictReport.models.join(', ')})
+              {evictReport.models.length > 0
+                ? `${t('Last clean:', 'Dernier nettoyage :')} ${new Date(evictReport.at).toLocaleDateString()} — ${fmt(evictReport.freedBytes)} (${evictReport.models.join(', ')})`
+                : t('Nothing to clean: no cached model has been unused that long.', 'Rien à nettoyer : aucun modèle en cache n’est resté inutilisé aussi longtemps.')}
             </div>
           )}
         </div>
