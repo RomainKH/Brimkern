@@ -17,7 +17,7 @@
 // un seul jeu de poids en VRAM (les embed() multiples ré-initialisaient tout — cause de
 // saturations GPU constatées en prod, 2026-07-29).
 
-import { chunkDocuments, selectScored, buildKnowledgeBlock, normalizeDocs, type Chunk } from './knowledge';
+import { chunkDocuments, selectScored, buildKnowledgeBlock, normalizeDocs, looksLikeFactQuestion, looksLikeRefusal, type Chunk } from './knowledge';
 // Le moteur vit dans ./engineCore (aucun DOM) et tourne, par défaut, dans un Web Worker
 // (./workerBackend). index.ts ne garde que le widget, la composition de prompt et l'API publique.
 import { resolveModelUrl, type Msg, type LoadProgress } from './engineCore';
@@ -268,6 +268,9 @@ const LIBELLES = {
 		note: 'Local AI — runs on your GPU, nothing is sent anywhere.',
 		erreur: 'Error: ',
 		vide: 'Sorry, I can only answer in plain text here: could you rephrase?',
+		// Le filet : ce qu'on affiche quand le modèle refuse de renseigner alors qu'on lui a dit
+		// qu'aucune fiche n'était nécessaire (cf. looksLikeRefusal).
+		aide: 'I’m here to help — what would you like to know?',
 		mo: 'MB',
 		sources: 'Sources:',
 		// Les clés de phase viennent du moteur (cf. LoadPhase dans engineCore).
@@ -281,6 +284,7 @@ const LIBELLES = {
 		note: 'IA locale — tourne sur votre GPU, aucune donnée envoyée.',
 		erreur: 'Erreur : ',
 		vide: 'Désolé, je ne peux répondre qu’en texte simple ici : pouvez-vous reformuler ?',
+		aide: 'Je suis là pour vous aider — que voulez-vous savoir ?',
 		mo: 'Mo',
 		sources: 'Sources :',
 		phases: { init: 'initialisation…', download: 'téléchargement du modèle…', tokenizer: 'tokenizer…', gpu: 'poids sur le GPU…' },
@@ -307,14 +311,17 @@ function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'kn
 	 * Les deux sortent du MÊME appel : une seconde sélection « pour les sources » pourrait diverger
 	 * de celle qui a nourri le prompt, et une traçabilité approximative ne trace rien.
 	 */
-	userTurn: (q: string) => { text: string; sources: Source[] };
+	userTurn: (q: string) => { text: string; sources: Source[]; conversationnel: boolean };
 	/** Tours de démonstration épinglés en tête du prompt (jamais élagués). */
 	pinned: Msg[];
 } {
 	const base = (cfg.system || 'You are a helpful assistant.') + GUARDRAILS;
 	const epingler = (ex: { user: string; assistant: string }[]): Msg[] =>
 		ex.flatMap((e) => [{ role: 'user' as const, content: e.user }, { role: 'assistant' as const, content: e.assistant }]);
-	if (!cfg.knowledge) return { system: () => base, userTurn: (q) => ({ text: q, sources: [] }), pinned: epingler(cfg.examples || []) };
+	// Sans documents, il n'y a ni fiche ni consigne de refus : rien à rattraper, `conversationnel` est
+	// faux et le filet ne s'arme pas. Un assistant sans base de connaissance a le droit de dire
+	// qu'il ne sait pas — c'est même tout ce qu'il peut faire.
+	if (!cfg.knowledge) return { system: () => base, userTurn: (q) => ({ text: q, sources: [], conversationnel: false }), pinned: epingler(cfg.examples || []) };
 	const chunks: Chunk[] = chunkDocuments(normalizeDocs(cfg.knowledge));
 	const budget = cfg.knowledgeBudget ?? 1200;
 	const isFr = estFr(cfg);
@@ -331,6 +338,10 @@ function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'kn
 			return {
 				text: b ? `${b}\n\nQuestion: ${q}` : q,
 				sources: b ? retenus.map(({ chunk, score }) => ({ title: chunk.title, text: chunk.text, score, doc: chunk.doc })) : [],
+				// Le tour est CONVERSATIONNEL quand aucun passage n'a été retenu et que le message n'est
+				// pas une demande d'information : c'est le seul cas où un refus est certainement faux,
+				// puisque la consigne envoyée disait justement qu'aucune fiche n'était nécessaire.
+				conversationnel: !retenus.length && !looksLikeFactQuestion(q),
 			};
 		},
 		pinned: epingler([...knowledgeExamples(isFr), ...(cfg.examples || [])]),
@@ -350,6 +361,11 @@ function knowledgeExamples(fr = false): { user: string; assistant: string }[] {
 	// impossible : changer le format du bloc met les exemples à jour du même geste.
 	const note = (title: string, text: string): Chunk => ({ title, text, doc: 0 });
 	const tour = (notes: Chunk[], q: string) => `${buildKnowledgeBlock(notes, undefined, fr).trim()}\n\nQuestion: ${q}`;
+	// Variante qui PASSE la question au builder. Sans fiche, le bloc n'est plus unique : une demande
+	// d'information hors fiches reçoit un refus, un message de conversation reçoit une consigne de
+	// conversation (cf. looksLikeFactQuestion). Un exemple doit donc montrer la consigne QU'IL
+	// accompagne vraiment — sinon on démontre une forme que le modèle ne verra jamais.
+	const tourAvecQuestion = (notes: Chunk[], q: string) => `${buildKnowledgeBlock(notes, q, fr).trim()}\n\nQuestion: ${q}`;
 
 	// Les VALEURS des exemples sont volontairement différentes de celles d'une vraie base : on montre
 	// l'OPÉRATION (aller chercher la bonne ligne, choisir le bon nombre), pas une réponse à recopier.
@@ -377,6 +393,16 @@ function knowledgeExamples(fr = false): { user: string; assistant: string }[] {
 				user: tour([], 'Qui a gagné la Coupe du Monde 1998 ?'),
 				assistant: 'Je n’ai pas cette information dans mes fiches.',
 			},
+			// Et le pendant, qui manquait : un message qui n'appelle aucune fiche et qui n'est pas une
+			// demande d'information. Sans cet exemple, le modèle n'avait sous les yeux qu'UNE façon de
+			// répondre sans fiche — le refus — et il la recopiait sur « AIDEZ-MOI » comme sur « ça va ? »
+			// (banc sdk-dialogue.mjs : 3/11, puis 9/11 avec la seule consigne, les deux échecs restants
+			// étant de la mimétique pure). La question de l'exemple est volontairement DIFFÉRENTE de
+			// celles du banc : on démontre la forme, on ne fait pas apprendre une réponse.
+			{
+				user: tourAvecQuestion([], 'Tu es un robot ?'),
+				assistant: 'Je suis un assistant automatique, oui. Comment puis-je vous aider ?',
+			},
 		];
 	}
 	return [
@@ -392,6 +418,10 @@ function knowledgeExamples(fr = false): { user: string; assistant: string }[] {
 		{
 			user: tour([], 'Who won the 1998 World Cup?'),
 			assistant: 'I do not have that information in my notes.',
+		},
+		{
+			user: tourAvecQuestion([], 'Are you a robot?'),
+			assistant: 'I am an automated assistant, yes. How can I help?',
 		},
 	];
 }
@@ -428,6 +458,9 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
   // chaque question) ; la sélection, elle, dépend de la question. `let` depuis setKnowledge().
   let knowledge = cfg.knowledge;
   let promptOf = makeSystemBuilder(cfg);
+  // La langue sert au filet anti-refus (motifs et phrase de repli) : même règle que le widget, une
+  // seule surface de comportement. Elle suit `lang`, ou l'heuristique à défaut.
+  const fr = estFr(cfg);
   let history: Msg[] = sanitizeHistory(cfg.history);
   let lastSources: Source[] = [];
   const bus = createEmitter();
@@ -454,7 +487,7 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
       try {
         // Le dernier tour part AUGMENTÉ des notes ; `history` (affiché, et réutilisé aux tours
         // suivants) garde la question seule — sinon les notes s'accumuleraient dans le contexte.
-        const { text: augmente, sources } = promptOf.userTurn(text);
+        const { text: augmente, sources, conversationnel } = promptOf.userTurn(text);
         lastSources = sources;
         opts.onSources?.(sources);
         const envoye = [...history.slice(0, -1), { role: 'user' as const, content: augmente }];
@@ -465,8 +498,14 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
         await b.preload(url, (phase, pr) => bus.emit('progress', phase, pr));
         if (!annonce) { annonce = true; bus.emit('ready'); }
         const req: TurnRequest = { url, history: envoye, system: promptOf.system(text), maxTokens, temperature: temperature(), pinned: promptOf.pinned };
-        const acc = await b.turn(req, opts.onToken, opts.signal);
+        let acc = await b.turn(req, opts.onToken, opts.signal);
         if (opts.signal?.aborted) { history.pop(); return ''; } // tour annulé : l'historique reste propre
+        // LE FILET. Sur un tour conversationnel, la consigne envoyée disait qu'aucune fiche n'était
+        // nécessaire : un refus de renseigner est donc certainement faux, et il n'a pas à atteindre
+        // l'appelant. Le widget et la session appliquent la MÊME règle — deux surfaces qui se
+        // conduisent différemment sur le même prompt, c'est le défaut qu'on vient de corriger sur la
+        // température. Cf. looksLikeRefusal pour la mesure qui justifie ce traitement déterministe.
+        if (conversationnel && looksLikeRefusal(acc, fr)) acc = LIBELLES[fr ? 'fr' : 'en'].aide;
         history.push({ role: 'assistant', content: acc });
         bus.emit('message', { role: 'assistant', content: acc, sources });
         return acc;
@@ -556,7 +595,8 @@ interface MountedWidget {
 function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
   let knowledge = cfg.knowledge;
   let promptOf = makeSystemBuilder(cfg);
-  const L = LIBELLES[estFr(cfg) ? 'fr' : 'en'];
+  const fr = estFr(cfg);
+  const L = LIBELLES[fr ? 'fr' : 'en'];
   const accent = safeAccent(cfg.accent);
   const title = cfg.title || 'Assistant';
   const maxTokens = cfg.maxTokens || 220;
@@ -651,7 +691,7 @@ function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
     const bubble = addBubble('assistant', '…');
     try {
       await ensureModel();
-      const { text: augmente, sources } = promptOf.userTurn(text);
+      const { text: augmente, sources, conversationnel } = promptOf.userTurn(text);
       const envoye = [...history.slice(0, -1), { role: 'user' as const, content: augmente }];
       // Température : 0,55 pour du bavardage, 0,25 dès qu'il y a des fiches. Un assistant qui doit
       // RECOPIER un chiffre d'une note n'a rien à gagner à échantillonner large — et beaucoup à
@@ -664,6 +704,8 @@ function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
       if (detruit) return '';
       // Réponse vide (ultra-rare : stop en 1er token) → repli poli plutôt qu'une bulle « (vide) ».
       if (!acc) acc = L.vide;
+      // Le filet anti-refus, cf. la session ci-dessus : même règle, même phrase de repli.
+      else if (conversationnel && looksLikeRefusal(acc, fr)) acc = L.aide;
       bubble.textContent = acc;
       history.push({ role: 'assistant', content: acc });
       addSources(sources);

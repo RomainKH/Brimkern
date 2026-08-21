@@ -257,6 +257,58 @@ export function selectScored(question: string, chunks: Chunk[], maxChars = 1200,
 	return pris;
 }
 
+/**
+ * Le message a-t-il la forme d'une DEMANDE D'INFORMATION ? C'est ce qui décide, quand aucune fiche
+ * ne correspond, entre un refus (« je n'ai pas cette information ») et une réponse de conversation.
+ *
+ * Pourquoi ce tri existe. La consigne de refus était injectée dès que la sélection ne retenait rien,
+ * sauf salutation reconnue. Résultat mesuré sur /sdk-demo (banc sdk-dialogue.mjs, 3/11) : « are you
+ * ok ? », « ALLO ? », « PLEASE », « HELP ME », « I DIE » recevaient tous « I do not have that
+ * information », et comme un modèle de 230 M recopie ce qu'il vient d'écrire, la conversation ne
+ * s'en relevait plus. Le refus est JUSTE pour « Who won the 1998 World Cup ? » — il faut le garder,
+ * c'est la promesse du produit — et absurde pour tout le reste.
+ *
+ * La règle : au moins deux termes de contenu ET une forme interrogative (un « ? » final, ou un mot
+ * de question en tête). Deux termes parce qu'un message d'un seul terme utile — « stop », « please »,
+ * « useless » — n'est jamais une demande de fait. La forme interrogative parce que « thanks a lot »
+ * et « je comprends rien » en ont deux et ne demandent rien. Vérifié terme par terme sur la
+ * transcription signalée : les onze messages se rangent du bon côté.
+ *
+ * Ce tri est fait EN CODE, pas confié au modèle : à 230 M, une consigne qui dit « refuse si c'est
+ * une question de fait, sinon bavarde » est deux règles, et deux règles se brouillent (cf. le
+ * cadrage volontairement court dans index.ts). Une décision déterministe, une seule consigne.
+ */
+export function looksLikeFactQuestion(q: string): boolean {
+	if (terms(q).length < 2) return false;
+	const s = q.trim().toLowerCase();
+	if (/\?\s*$/.test(s)) return true;
+	return /^(?:who|what|when|where|why|how|which|whose|is|are|was|were|do|does|did|can|could|will|would|should|may|have|has|qui|que|quoi|quand|où|pourquoi|comment|combien|quel|quelles?|quels|est|sont|était|avez|peux|pouvez|puis|vous|y a-t-il|est-ce)\b/.test(s);
+}
+
+/**
+ * La réponse est-elle un REFUS DE RENSEIGNER ? Sert de filet : quand on a explicitement dit au
+ * modèle qu'aucune fiche n'était nécessaire et qu'il refuse quand même, on ne laisse pas le mur
+ * atteindre le visiteur (cf. l'usage dans index.ts).
+ *
+ * Pourquoi un filet et pas seulement une consigne : mesuré sur trois tours du banc de dialogue,
+ * la consigne seule passe de 3/11 à 25/33 — le disque rayé est cassé (« hello », « ça va ? »,
+ * « ALLO ? » : 3/3), mais les interjections d'un mot (« PLEASE », « I DIE ») et le tour qui suit un
+ * refus LÉGITIME retombent encore dans le refus une fois sur trois. C'est la limite d'un 230 M, et
+ * c'est le même constat qui a produit le strip mécanique de la re-salutation dans engineCore : à
+ * cette taille, ce qu'une consigne n'obtient pas, un traitement déterministe l'obtient.
+ *
+ * Le motif décrit un refus de RENSEIGNER — un verbe d'information — et pas toute tournure négative :
+ * « I am not able to stop. » est une réponse acceptable à un « stop » sec et ne doit pas être
+ * remplacée.
+ */
+export function looksLikeRefusal(reply: string, fr = false): boolean {
+	const s = reply.trim();
+	if (!s) return false;
+	return fr
+		? /pas cette information|n[’']ai pas (?:cette|ces|d[’']information)|ne (?:sais|dispose) pas|pas en mesure de (?:vous )?(?:aider|répondre|renseigner|fournir)|ne peux pas (?:vous )?(?:aider|fournir|renseigner|répondre)/i.test(s)
+		: /do not have (?:that|this|any) information|don[’']t have (?:that|this|any) information|no information (?:about|on)|(?:can[’']t|cannot|not able to|unable to) (?:assist|provide|answer|access|help you with that)/i.test(s);
+}
+
 /** Détecte les salutations ou formules de politesse courantes qui ne doivent pas être bloquées par un refus de notes. */
 export function isGreetingOrChitchat(q: string): boolean {
 	const clean = q.trim().toLowerCase().replace(/[!?.,;:\-_]/g, '').trim();
@@ -277,6 +329,21 @@ export function buildKnowledgeBlock(chunks: Chunk[], query?: string, fr = false)
 	// question française (mesuré sur /sdk-demo le 2026-08-19). À cette taille, la langue de la
 	// dernière instruction lue pèse plus que celle de la question.
 	if (!chunks.length) {
+		// Aucune fiche — et deux situations à ne pas confondre. Une DEMANDE D'INFORMATION hors fiches
+		// doit être refusée : c'est la promesse du produit, et le banc RAG la vérifie (« Qui a gagné la
+		// Coupe du monde 1998 ? »). Tout le reste — « ça va ? », « AIDEZ-MOI », « stop » — n'est pas
+		// une demande de fait, et lui servir un refus transforme le widget en mur (cf.
+		// looksLikeFactQuestion et scripts/e2e/sdk-dialogue.mjs).
+		if (query && !looksLikeFactQuestion(query)) {
+			// La consigne est COURTE, et une clause de plus a été retirée après mesure : « N'énonce aucun
+			// chiffre ni fait sur la boutique » se faisait recracher telle quelle (« I am not able to
+			// provide information about the store. »), ce qui est encore un mur. Un 230 M paraphrase la
+			// dernière instruction lue ; on ne lui donne donc à paraphraser que ce qu'on veut entendre.
+			// L'interdiction d'inventer, elle, est déjà dans le cadrage du prompt système (GUARDRAILS).
+			return fr
+				? '\n\nCe message n’appelle aucune fiche : réponds en une phrase courte et aimable.'
+				: '\n\nThis message needs no reference note: reply in one short, friendly sentence.';
+		}
 		return fr
 			? '\n\nAucune fiche de référence ne correspond à cette question. Dis que tu n’as pas cette information : ne devine pas.'
 			: '\n\nNo reference note matches this question. Say that you do not have this information: do not guess.';
