@@ -234,8 +234,12 @@ session.lastSources  // [{ title, text, score, doc }]
 embed({ knowledge: docs, showSources: true });          // ${t('in the widget, under each answer', 'dans le widget, sous chaque réponse')}
 widget.on('message', ({ sources }) => trace(sources));  // ${t('or without displaying anything', 'ou sans rien afficher')}`}</Code>
         <P>
-          {t('score is the lexical proximity to the question, doc the index of the document in your knowledge array, and the order is the order the passages were given to the model. An empty array is meaningful: no passage passed the relevance bar, so the model was told to say it does not know.',
-             "score est la proximité lexicale avec la question, doc l'index du document dans votre tableau knowledge, et l'ordre est celui dans lequel les passages ont été donnés au modèle. Un tableau vide a un sens : aucun passage n'a passé la barre de pertinence, le modèle a donc reçu la consigne de dire qu'il ne sait pas.")}
+          {t('score is the lexical proximity to the question, doc the index of the document in your knowledge array, and the order is the order the passages were given to the model. An empty array is meaningful: no passage matched.',
+             "score est la proximité lexicale avec la question, doc l'index du document dans votre tableau knowledge, et l'ordre est celui dans lequel les passages ont été donnés au modèle. Un tableau vide a un sens : aucun passage ne correspondait.")}
+        </P>
+        <P>
+          {t('And what happens then depends on the message, because two situations must not be confused. A question asking for information gets the honest answer — “I do not have that information” — and that is the promise of the product. Anything else does not: “Are you ok?”, “PLEASE”, “hello” get a short, friendly reply. An assistant that stonewalls everything outside its notes is one visitors close, and it only takes a few such answers in a row for a small model to keep repeating them.',
+             "Et ce qui se passe alors dépend du message, parce que deux situations ne doivent pas être confondues. Une question qui demande une information reçoit la réponse honnête — « je n’ai pas cette information » — et c’est la promesse du produit. Le reste, non : « ça va ? », « AIDEZ-MOI », « bonjour » reçoivent une réponse courte et aimable. Un assistant qui oppose un mur à tout ce qui sort de ses fiches est un assistant qu’on ferme, et il suffit de quelques réponses de ce genre d’affilée pour qu’un petit modèle ne fasse plus que les répéter.")}
         </P>
       </Section>
 
@@ -269,11 +273,11 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
           {t('Pin a version if you would rather the widget did not change under your feet:',
              'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds :')}
         </P>
-        <Code lang="url">{`${SITE_URL}/sdk-0.1.3.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
+        <Code lang="url">{`${SITE_URL}/sdk-0.1.4.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
 
 <!-- ${t('or from the npm CDNs', 'ou depuis les CDN npm')} -->
-https://unpkg.com/brimkern@0.1.3/dist/brimkern.iife.js
-https://cdn.jsdelivr.net/npm/brimkern@0.1.3/dist/brimkern.iife.js`}</Code>
+https://unpkg.com/brimkern@0.1.4/dist/brimkern.iife.js
+https://cdn.jsdelivr.net/npm/brimkern@0.1.4/dist/brimkern.iife.js`}</Code>
       </Section>
 
       <Section id="server" title={t('Servers, licence, links', 'Serveur, licence, liens')}>
