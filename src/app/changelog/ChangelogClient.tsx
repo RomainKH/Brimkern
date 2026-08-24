@@ -22,6 +22,33 @@ const RELEASES: Release[] = [
   {
     date: { en: 'August 24, 2026', fr: '24 août 2026' },
     tagline: {
+      en: 'SDK 0.2.1: classification and one-shot generation join the resident GPU path — ×20 measured on the /local-ai demo, and video prompt enrichment rides along. Plus a lock on the shared GPU state: two widgets on one page can no longer silently corrupt each other’s answer.',
+      fr: 'SDK 0.2.1 : la classification et la génération one-shot rejoignent le chemin GPU résident — ×20 mesuré sur la démo /local-ai, et l’enrichissement de prompt vidéo en profite au passage. Plus un verrou sur l’état GPU partagé : deux widgets d’une même page ne peuvent plus se corrompre mutuellement la réponse en silence.',
+    },
+    groups: [
+      {
+        title: { en: 'The pure class joins the resident path', fr: 'La classe pure rejoint le chemin résident' },
+        items: [
+          { en: 'The widget’s chat has run on the resident path since 0.1.x — chunked prefill on the GPU, one ~512-byte readback per token. But classify() and the direct callers of generate() (the /local-ai demo, the video prompt enricher) still paid the historical JS forward: about ten GPU submissions and a full-vocabulary readback PER TOKEN OF PROMPT. Classification is 100% prompt reading, which made it the single worst case of the whole engine.',
+            fr: 'Le chat du widget tourne sur le chemin résident depuis la 0.1.x — prefill par tranches sur le GPU, un readback de ~512 octets par token. Mais classify() et les appelants directs de generate() (la démo /local-ai, l’enrichissement de prompt vidéo) payaient encore le forward JS historique : une dizaine de soumissions GPU et un readback du vocabulaire entier PAR TOKEN DE PROMPT. La classification est à 100 % de la lecture de prompt : c’était donc le pire cas du moteur entier.' },
+          { en: 'Measured with a new benchmark (alternating arms on the same page, the JS path as its own control via a kill-switch, and the OUTPUT checked on every shot — a speedup that changes the answer is not a speedup): classification 4.2 s → under 0.2 s (×20), extraction 2.8 s → under 0.2 s (×14). “Under 0.2 s” is the measurement floor of the harness itself, so both ratios are lower bounds. The answers are identical in both arms.',
+            fr: 'Mesuré avec un banc neuf (bras alternés sur la même page, le chemin JS comme témoin via un kill-switch, et la SORTIE vérifiée à chaque tir — une accélération qui change la réponse n’est pas une accélération) : classification 4,2 s → moins de 0,2 s (×20), extraction 2,8 s → moins de 0,2 s (×14). « Moins de 0,2 s » est le plancher de résolution du harnais lui-même : les deux ratios sont des minorants. Les réponses sont identiques dans les deux bras.' },
+          { en: 'Nothing changes for integrators: same API, same answers, and the JS path remains as an automatic fallback wherever the resident path is unavailable. The existing benchmarks: RAG 24/24 (two rounds, both languages), dialogue 33/33, API surface 50/50. Tools measured 14/15 with a failure that moves from round to round — and the frozen 0.2.0 bundle, untouched by this change, fails the same case the same way: sampling variance of a 230M that ignores its injected fact one draw out of several, not a regression of the port.',
+            fr: 'Rien ne change pour les intégrateurs : même API, mêmes réponses, et le chemin JS reste en repli automatique partout où le résident n’est pas disponible. Les bancs existants : RAG 24/24 (deux tours, deux langues), dialogue 33/33, surface d’API 50/50. Les outils ont mesuré 14/15 avec un échec qui change de tour en tour — et le bundle 0.2.0 figé, étranger à ce changement, échoue le même cas de la même façon : variance d’échantillonnage d’un 230 M qui ignore son fait injecté un tirage sur quelques-uns, pas une régression du portage.' },
+        ],
+      },
+      {
+        title: { en: 'A lock on the shared GPU state', fr: 'Un verrou sur l’état GPU partagé' },
+        items: [
+          { en: 'The recurrent GPU state (attention K/V, conv state) is a single slot per engine — and the engine is a singleton per model URL, shared by every widget and session on the page. Two generations running at once would silently steal that slot from each other and both produce invalid output. Resident entry points are now serialized per model: the second caller waits its turn instead of corrupting the first. Nothing prevented this before; it simply had not happened yet on a page with one widget.',
+            fr: 'L’état GPU récurrent (K/V d’attention, état conv) est un slot unique par moteur — et le moteur est un singleton par URL de modèle, partagé par tous les widgets et sessions de la page. Deux générations simultanées se volaient silencieusement ce slot et produisaient toutes deux une sortie invalide. Les entrées résidentes sont désormais sérialisées par modèle : le second appelant attend son tour au lieu de corrompre le premier. Rien ne l’empêchait avant ; ça n’était simplement pas encore arrivé sur une page à un seul widget.' },
+        ],
+      },
+    ],
+  },
+  {
+    date: { en: 'August 24, 2026', fr: '24 août 2026' },
+    tagline: {
       en: 'SDK 0.2.0: the widget gets tools — arithmetic, today’s date, your own functions — and stops imposing its look: theme (light, dark, or following the visitor’s system), corner, size, and every label can now be yours. The README had been promising “Tools are next” since 0.1.4; here they are, designed the only way that measurably works at this model size.',
       fr: 'SDK 0.2.0 : le widget gagne des outils — l’arithmétique, la date du jour, vos propres fonctions — et cesse d’imposer son aspect : thème (clair, sombre, ou celui du système du visiteur), coin, taille, et chaque libellé peuvent désormais être les vôtres. Le README promettait « Tools are next » depuis la 0.1.4 ; les voici, conçus de la seule façon qui marche de façon mesurable à cette taille de modèle.',
     },

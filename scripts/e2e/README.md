@@ -112,6 +112,22 @@ node scripts/e2e/rope-family.mjs ''             # le défaut du build
 node scripts/e2e/rope-family.mjs '&ropenorm=0'  # l'ancien chemin, pour l'A/B
 ```
 
+### `bench-classify.mjs` — classify()/generate() de la classe pure (résident vs JS)
+
+Le premier banc de perf des API « classe pure » (`Lfm2Model.classify`/`generateResident`), mesuré
+sur la démo `/local-ai` : bras ALTERNÉS par rechargement de page, `?lfm2resident=0` en témoin, et la
+SORTIE vérifiée à chaque tir (« Positive » au sentiment, l'email exact à l'extraction) — une
+accélération qui change la réponse n'est pas une accélération, et le banc échoue sur une sortie
+fausse, pas sur un ratio décevant.
+
+```bash
+node scripts/e2e/bench-classify.mjs 3 --rounds=2   # 3 tirs mesurés par cas, 2 rounds par bras
+```
+
+⚠️ Sa résolution est le pas de sondage (200 ms) : un chemin plus rapide que ça rend « ≤0,2 s », et
+le ratio affiché est un MINORANT. Relevé du 2026-08-24 (LFM2.5 230M q4) : classify 4,2 s → ≤0,2 s
+(×20,6), extraction 2,8 s → ≤0,2 s (×13,8).
+
 ## Écrire un banc : ce que ces trois-là ont appris
 
 - **Viser le bon dialogue.** Le panneau Stockage ET la confirmation portent tous deux

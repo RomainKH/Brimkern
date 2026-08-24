@@ -33,7 +33,7 @@ API is present. Call `embed()` from a client effect.
 Prefer the script tag? Pin a version so your widget never changes under your feet:
 
 ```html
-<script src="https://brimkern.com/sdk-0.2.0.js"></script>  <!-- pinned -->
+<script src="https://brimkern.com/sdk-0.2.1.js"></script>  <!-- pinned -->
 <script src="https://brimkern.com/sdk.js"></script>        <!-- always latest -->
 ```
 
