@@ -62,8 +62,10 @@ export default function LocalAiDemo() {
   const [progress, setProgress] = useState(0);
   const [output, setOutput] = useState('');
   const [err, setErr] = useState('');
+  // generateResident : prefill par tranches + décodage top-K GPU (repli forwardToken JS intégré si
+  // le gate résident est coupé — ?lfm2resident=0, c'est le bras témoin du banc bench-classify.mjs).
   const modelRef = useRef<{
-    generate: (p: string, n: number, onTok?: (s: string) => void, stop?: () => boolean, opts?: { sample?: boolean }) => Promise<string>;
+    generateResident: (p: string, n: number, onTok?: (s: string) => void, stop?: () => boolean, opts?: { sample?: boolean }) => Promise<string>;
     classify: (p: string, labels: string[]) => Promise<{ label: string; scores: { label: string; logit: number }[] }>;
   } | null>(null);
 
@@ -124,7 +126,7 @@ export default function LocalAiDemo() {
       } else if (uc.multiline) {
         // Texte libre : tout le flux, coupé au marqueur d'arrêt (faux tour « User: » enchaîné).
         let done = false;
-        await model.generate(uc.tmpl(input.trim()), uc.nTokens, (txt) => {
+        await model.generateResident(uc.tmpl(input.trim()), uc.nTokens, (txt) => {
           const cut = uc.stopAt ? txt.split(uc.stopAt)[0] : txt;
           setOutput(cut.trim());
           if (uc.stopAt && txt.includes(uc.stopAt)) done = true;
@@ -132,7 +134,7 @@ export default function LocalAiDemo() {
       } else {
         let done = false;
         // Sortie = la 1re ligne générée ; on arrête dès que la ligne est finie.
-        const full = await model.generate(uc.tmpl(input.trim()), uc.nTokens, (txt) => {
+        const full = await model.generateResident(uc.tmpl(input.trim()), uc.nTokens, (txt) => {
           setOutput(txt.split('\n')[0].trim());
           if (txt.includes('\n')) done = true;
         }, () => done);

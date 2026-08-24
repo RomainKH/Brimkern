@@ -273,12 +273,23 @@ export class Lfm2Model {
 	// étiquettes candidates. Recette LFM2.5 (bancs q4 2026-07-21, sentiment 12/12) : prompt = few-shot
 	// MULTI-TOURS ChatML (des tours user/assistant d'exemple — la forme instruct-native) terminé par
 	// `assistant\n`, étiquette SANS espace de tête (début de réponse), 1er token comparé.
+	// Chemin RÉSIDENT quand il est disponible : classify est 100 % prefill, donc c'était le pire cas
+	// du forward JS (≈10 submits + readbacks × NL PAR token de prompt) — le résident le remplace par
+	// des tranches batchées et UN readback final de vocab·4 octets (logitsGpu, le même chemin que le
+	// chat via Lfm2ChatAdapter). Repli JS intact (gate coupé, tête f16/f32).
 	async classify(prompt: string, labels: string[]): Promise<{ label: string; scores: { label: string; logit: number }[] }> {
-		this.reset();
+		const ids = this.tok.encode(prompt);
 		let logits!: Float32Array;
-		for (const id of this.tok.encode(prompt)) logits = await this.forwardToken(id);
+		if (this.residentAvailable()) {
+			// Session dédiée 'cls' à pastLen 0 ⇒ reset du slot d'état — d'où le verrou partagé avec
+			// generateResident : entrelacé avec une génération, il lui volerait le slot (sortie invalide).
+			logits = (await this.locked(() => this.feedThen(ids, 0, 'cls', (tail, past) => this.logitsGpu(tail, past, 'cls'))))!; // sans `stop`, feedThen ne rend jamais null
+		} else {
+			this.reset();
+			for (const id of ids) logits = await this.forwardToken(id);
+		}
 		const scores = labels
-			.map((l) => { const ids = this.tok.encode(l); return { label: l, logit: logits[ids[1] ?? ids[0]] }; }) // ids[0] = BOS
+			.map((l) => { const lids = this.tok.encode(l); return { label: l, logit: logits[lids[1] ?? lids[0]] }; }) // lids[0] = BOS
 			.sort((a, b) => b.logit - a.logit);
 		return { label: scores[0].label, scores };
 	}
@@ -346,13 +357,41 @@ export class Lfm2Model {
 	// tuilés, assez petit pour garder le scratch (T×ffn f32) et la latence par soumission modestes.
 	private static readonly PREFILL_CHUNK = 128;
 
+	// Sérialise les entrées résidentes de CETTE instance. L'état GPU (K/V + conv) est un SLOT UNIQUE
+	// par moteur (kernels.lfm2Session) : deux exécutions entrelacées (deux widgets SDK sur la même
+	// page, ou un classify pendant une génération) se réinitialiseraient mutuellement le slot —
+	// pastLen > 0 sur un état vide ⇒ sortie invalide silencieuse (console.error côté kernels). Le
+	// moteur étant un singleton par URL de modèle, le verrou par instance suffit.
+	private residentLock: Promise<unknown> = Promise.resolve();
+	private locked<T>(fn: () => Promise<T>): Promise<T> {
+		const run = this.residentLock.then(fn, fn);
+		this.residentLock = run.catch(() => undefined);
+		return run;
+	}
+
+	// Nourrit `tokenIds` par tranches bornées (PREFILL_CHUNK, voir ci-dessus) puis exécute `final`
+	// sur la dernière tranche — celle qui paye la tête (topKGpu pour générer, logitsGpu pour
+	// classer). Extrait de generateResident pour servir aussi à classify ; miroir de
+	// RwkvModel.feedThen. `stop` est sondé entre deux tranches : null = annulé pendant le prefill.
+	private async feedThen<T>(tokenIds: number[], pastLen: number, sessionId: string, final: (tail: number[], past: number) => Promise<T>, stop?: () => boolean): Promise<T | null> {
+		let done = 0;
+		for (;;) {
+			if (stop?.()) return null;
+			const end = Math.min(done + Lfm2Model.PREFILL_CHUNK, tokenIds.length);
+			const part = tokenIds.slice(done, end);
+			if (end < tokenIds.length) await this.prefillGpu(part, pastLen + done, sessionId); // 1re tranche : pastLen 0 → reset
+			else return final(part, pastLen + done);
+			done = end;
+		}
+	}
+
 	// Choisit dans un top-K GPU (ids/vals triés décroissants, pénalité déjà appliquée sur le GPU) :
 	// filtre TOOL_BAN, puis greedy (ids[0]) ou softmax température sur les topK premiers candidats.
 	private pickFromTopK(r: { ids: Uint32Array; vals: Float32Array }, opts?: SampleOpts & { sample?: boolean }): number {
 		const ids: number[] = [], vals: number[] = [];
 		for (let i = 0; i < r.ids.length; i++) {
 			if (Lfm2Model.TOOL_BAN.includes(r.ids[i])) continue;
-			if (r.vals[i] === -Infinity) break;
+			if (r.vals[i] <= -3.0e38) break; // slot non rempli : le kernel top-K initialise à -3.4e38 (limite f32), pas à -Infinity
 			ids.push(r.ids[i]); vals.push(r.vals[i]);
 		}
 		if (!ids.length) return r.ids[0];
@@ -373,30 +412,25 @@ export class Lfm2Model {
 	// generate() (forwardToken JS) si le résident n'est pas dispo. Session neuve (pastLen 0) → reset.
 	async generateResident(prompt: string, n: number, onToken?: (text: string) => void, stop?: () => boolean, opts?: SampleOpts & { sample?: boolean }): Promise<string> {
 		if (!this.residentAvailable()) return this.generate(prompt, n, onToken, stop, opts);
-		const sid = 'gen';
-		const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1);
-		const ids = this.tok.encode(prompt);
-		let top!: { ids: Uint32Array; vals: Float32Array };
-		let done = 0;
-		while (done < ids.length) {
-			if (stop?.()) return '';
-			const end = Math.min(done + Lfm2Model.PREFILL_CHUNK, ids.length);
-			const part = ids.slice(done, end);
-			if (end < ids.length) await this.prefillGpu(part, done, sid); // 1re tranche : pastLen 0 → reset
-			else top = await this.topKGpu(part, done, sid, [], 1, 48);    // dernière : top-K pour amorcer
-			done = end;
-		}
-		let pos = ids.length;
-		const out: number[] = [];
-		for (let s = 0; s < n; s++) {
-			if (stop?.()) break;
-			const best = this.pickFromTopK(top, opts);
-			if (this.stops.has(best)) break;
-			out.push(best);
-			if (onToken) onToken(this.tok.decode(out));
-			top = await this.topKGpu([best], pos, sid, penalty !== 1 ? [...new Set(out.slice(-64))] : [], penalty, 48);
-			pos++;
-		}
-		return out.length ? this.tok.decode(out) : ''; // decode([]) jette dans transformers.js
+		return this.locked(async () => {
+			const sid = 'gen';
+			const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1);
+			const ids = this.tok.encode(prompt);
+			// Prefill par tranches, top-K sur la dernière pour amorcer le décodage.
+			let top = await this.feedThen(ids, 0, sid, (tail, past) => this.topKGpu(tail, past, sid, [], 1, 48), stop);
+			if (!top) return ''; // annulé pendant le prefill
+			let pos = ids.length;
+			const out: number[] = [];
+			for (let s = 0; s < n; s++) {
+				if (stop?.()) break;
+				const best = this.pickFromTopK(top, opts);
+				if (this.stops.has(best)) break;
+				out.push(best);
+				if (onToken) onToken(this.tok.decode(out));
+				top = await this.topKGpu([best], pos, sid, penalty !== 1 ? [...new Set(out.slice(-64))] : [], penalty, 48);
+				pos++;
+			}
+			return out.length ? this.tok.decode(out) : ''; // decode([]) jette dans transformers.js
+		});
 	}
 }

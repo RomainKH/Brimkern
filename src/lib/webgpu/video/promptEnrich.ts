@@ -52,7 +52,9 @@ export async function loadPromptEnricher(engine: WebGpuEngine, url: string, onPr
     const u = userPrompt.trim();
     const shots = SHOTS.map(([q, a]) => `<|im_start|>user\n${q}<|im_end|>\n<|im_start|>assistant\n${a}<|im_end|>\n`).join('');
     const prompt = `<|im_start|>system\n${SYS}<|im_end|>\n${shots}<|im_start|>user\n${u}<|im_end|>\n<|im_start|>assistant\n`;
-    const out = await core.generate(prompt, 64, undefined, undefined, { sample: true, temperature: 0.6, topK: 40, repeatPenalty: 1.3 });
+    // Chemin résident (repli forwardToken JS intégré) : l'enrichissement passe de « un readback du
+    // vocab entier par token » à un top-K de ~512 o — sur l'engine déjà occupé par le pipeline vidéo.
+    const out = await core.generateResident(prompt, 64, undefined, undefined, { sample: true, temperature: 0.6, topK: 40, repeatPenalty: 1.3 });
     const clean = out.replace(/^["'`\s]+|["'`\s]+$/g, '').split('\n')[0].trim();
     // Enrichi = plus long ET différent du prompt d'origine. Sinon (LFM vide/écho) on AJOUTE des
     // descripteurs de mouvement au prompt d'origine — jamais un no-op qui aurait fait perdre du temps.

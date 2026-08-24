@@ -152,6 +152,17 @@ export class RwkvModel {
 			await this.engine.rwkvPrefillGpu(this.embedsFor(part), part.length, this.cfg(), this.rLayers, this.rNorms!, pastLen + done, sessionId);
 		}
 	}
+	// Sérialise les entrées résidentes de CETTE instance. L'état GPU (S/tm/cm) est un SLOT UNIQUE par
+	// moteur (kernels.rwkvSession) : deux exécutions entrelacées (deux widgets SDK, ou un classify
+	// pendant une génération) se réinitialiseraient mutuellement le slot — pastLen > 0 sur un état
+	// vide ⇒ sortie invalide silencieuse. Miroir de Lfm2Model.locked.
+	private residentLock: Promise<unknown> = Promise.resolve();
+	private locked<T>(fn: () => Promise<T>): Promise<T> {
+		const run = this.residentLock.then(fn, fn);
+		this.residentLock = run.catch(() => undefined);
+		return run;
+	}
+
 	// Découpe interne : les appels du chat peuvent porter jusqu'à ~128 tokens (prefill tuilé côté
 	// page) — on sous-tranche à PREFILL_CHUNK, la tête ne se paye que sur la dernière tranche.
 	private async feedThen<T>(tokenIds: number[], pastLen: number, sessionId: string, final: (tail: number[], past: number) => Promise<T>): Promise<T> {
@@ -281,10 +292,18 @@ export class RwkvModel {
 	// les noms de langues / positive/negative). Pourquoi : en génération LIBRE un 0.1B recrache une
 	// étiquette du prompt (biais de récence) — contraint, il devient fiable (bancs CPU q4 2026-07-20 :
 	// langue zéro-shot 10/10, sentiment few-shot 12/12, contre 8/10 et 4/6 en libre).
+	// Chemin RÉSIDENT quand il est disponible : classify est 100 % prefill, le pire cas du forward JS
+	// (~320 passes + readback PAR token de prompt) — logitsGpu le remplace par des tranches et UN
+	// readback final. Repli JS intact. Verrou : même slot d'état GPU que la génération (cf. locked).
 	async classify(prompt: string, labels: string[]): Promise<{ label: string; scores: { label: string; logit: number }[] }> {
-		this.reset();
+		const ids = this.tok.encode(prompt);
 		let logits!: Float32Array;
-		for (const id of this.tok.encode(prompt)) logits = await this.forwardToken(id);
+		if (this.residentAvailable()) {
+			logits = await this.locked(() => this.logitsGpu(ids, 0, 'cls')); // pastLen 0 ⇒ reset du slot ; feedThen sous-tranche
+		} else {
+			this.reset();
+			for (const id of ids) logits = await this.forwardToken(id);
+		}
 		const scores = labels
 			.map((l) => ({ label: l, logit: logits[this.tok.encode(' ' + l)[0]] }))
 			.sort((a, b) => b.logit - a.logit);
@@ -339,7 +358,7 @@ export class RwkvModel {
 		if (!opts?.sample) return r.ids[0];
 		const { temperature = 0.8, topK = 40 } = opts;
 		let k = Math.min(topK, r.ids.length);
-		while (k > 1 && r.vals[k - 1] === -Infinity) k--;
+		while (k > 1 && r.vals[k - 1] <= -3.0e38) k--; // slots non remplis : le kernel initialise à -3.4e38 (limite f32), pas à -Infinity
 		const mx = r.vals[0];
 		let sum = 0;
 		const p = new Array<number>(k);
@@ -353,21 +372,23 @@ export class RwkvModel {
 	// token, décodage via topKGpu (~512 o/token au lieu du vocab entier). Repli si indisponible.
 	async generateResident(prompt: string, n: number, onToken?: (text: string) => void, stop?: () => boolean, opts?: SampleOpts & { sample?: boolean }): Promise<string> {
 		if (!this.residentAvailable()) return this.generate(prompt, n, onToken, stop, opts);
-		const sid = 'gen';
-		const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1);
-		const ids = this.tok.encode(prompt);
-		let top = await this.topKGpu(ids, 0, sid, [], 1, 48); // feedThen sous-tranche à PREFILL_CHUNK
-		let pos = ids.length;
-		const out: number[] = [];
-		for (let s = 0; s < n; s++) {
-			if (stop?.()) break;
-			const best = this.pickFromTopK(top, opts);
-			if (best === 0) break; // eos
-			out.push(best);
-			if (onToken) onToken(this.tok.decode(out));
-			top = await this.topKGpu([best], pos, sid, penalty !== 1 ? [...new Set(out.slice(-64))] : [], penalty, 48);
-			pos++;
-		}
-		return this.tok.decode(out);
+		return this.locked(async () => {
+			const sid = 'gen';
+			const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1);
+			const ids = this.tok.encode(prompt);
+			let top = await this.topKGpu(ids, 0, sid, [], 1, 48); // feedThen sous-tranche à PREFILL_CHUNK
+			let pos = ids.length;
+			const out: number[] = [];
+			for (let s = 0; s < n; s++) {
+				if (stop?.()) break;
+				const best = this.pickFromTopK(top, opts);
+				if (best === 0) break; // eos
+				out.push(best);
+				if (onToken) onToken(this.tok.decode(out));
+				top = await this.topKGpu([best], pos, sid, penalty !== 1 ? [...new Set(out.slice(-64))] : [], penalty, 48);
+				pos++;
+			}
+			return this.tok.decode(out);
+		});
 	}
 }
