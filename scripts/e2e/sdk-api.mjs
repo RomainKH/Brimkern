@@ -111,6 +111,58 @@ const res = await page.evaluate(async () => {
   t('un écouteur qui lève n’interrompt pas les suivants', ordre.join(',') === 'second', ordre.join(','));
   w4.destroy();
 
+  // ── Apparence 0.2.0 : thème, position, taille — posés PAR ÉLÉMENT (deux widgets ne se volent
+  // rien, comme l'accent). Les valeurs attendues sont celles de la palette interne.
+  const sombre = Brimkern.embed({ lang: 'en', theme: 'dark' });
+  const clair = Brimkern.embed({ lang: 'en' }); // défaut : light, l'aspect que les intégrateurs ont validé
+  const bgSombre = getComputedStyle(sombre.el).backgroundColor;
+  const bgClair = getComputedStyle(clair.el).backgroundColor;
+  t('theme:\'dark\' → panneau sombre', bgSombre === 'rgb(33, 31, 28)', bgSombre);
+  t('défaut → panneau clair INCHANGÉ (0.1.x)', bgClair === 'rgb(242, 239, 232)', bgClair);
+  t('les deux thèmes cohabitent sur la page', bgSombre !== bgClair, `${bgSombre} / ${bgClair}`);
+  sombre.destroy(); clair.destroy();
+
+  const gauche = Brimkern.embed({ lang: 'en', position: 'bottom-left', width: 9999, height: 100 });
+  const stG = getComputedStyle(gauche.el);
+  const fabG = document.querySelectorAll('.bk-fab')[1]; // [0] = le widget de la démo
+  t('position:\'bottom-left\' → panneau ancré à gauche', gauche.el.style.left === '20px' && gauche.el.style.right === 'auto', `left=${gauche.el.style.left} right=${gauche.el.style.right}`);
+  t('le bouton flottant suit le panneau à gauche', fabG && fabG.style.left === '20px', fabG && fabG.style.left);
+  t('width hors bornes → ramenée à 480', stG.width === '480px', stG.width);
+  t('height hors bornes → ramenée à 380', stG.height === '380px', stG.height);
+  gauche.destroy();
+  const nonNum = Brimkern.embed({ lang: 'en', width: '400px; position:fixed', height: NaN });
+  t('width non numérique / NaN → ignorés (taille de la feuille)', getComputedStyle(nonNum.el).width === '360px', getComputedStyle(nonNum.el).width);
+  nonNum.destroy();
+
+  // ── Libellés surchargeables : la voie i18n pour une langue non fournie ─────────────────────────
+  const de = Brimkern.embed({
+    lang: 'en',
+    labels: { open: 'Chat öffnen', placeholder: 'Nachricht eingeben…', note: 'Lokale KI — läuft auf Ihrer GPU.', phases: { init: 'Starte…' }, empty: 42 },
+  });
+  const fabDe = [...document.querySelectorAll('.bk-fab')].pop();
+  t('labels.open → aria-label du bouton', fabDe.getAttribute('aria-label') === 'Chat öffnen', fabDe.getAttribute('aria-label'));
+  t('labels.placeholder → champ de saisie', de.el.querySelector('.bk-in').placeholder === 'Nachricht eingeben…', de.el.querySelector('.bk-in').placeholder);
+  t('labels.note → mention sous le fil', de.el.querySelector('.bk-note').textContent === 'Lokale KI — läuft auf Ihrer GPU.', de.el.querySelector('.bk-note').textContent);
+  t('une surcharge non-chaîne est ignorée sans lever', !!de.el, typeof de.el);
+  de.destroy();
+
+  // ── Langue devinée depuis la PAGE quand ni lang ni system ne sont fournis ─────────────────────
+  const langAvant = document.documentElement.lang;
+  document.documentElement.lang = 'fr';
+  const nu = Brimkern.embed({});
+  t('sans lang ni system, <html lang="fr"> → libellés français', nu.el.querySelector('.bk-in').placeholder === 'Écris un message…', nu.el.querySelector('.bk-in').placeholder);
+  nu.destroy();
+  document.documentElement.lang = langAvant;
+
+  // ── Outils : la surface de config (l'exécution, elle, se mesure avec un modèle) ───────────────
+  const wTools = Brimkern.embed({ lang: 'en', tools: ['calc', 'date', { name: 'stock', match: /stock/i, run: () => '4 left' }, { pasBon: true }] });
+  t('embed accepte tools (intégrés + custom + entrée invalide) sans lever', !!wTools.el);
+  t('la poignée expose on(\'tool\')', typeof wTools.on === 'function' && typeof wTools.on('tool', () => {}) === 'function');
+  wTools.destroy();
+  const sTools = Brimkern.createSession({ tools: ['calc'] });
+  t('createSession accepte tools', typeof sTools.ask === 'function');
+  sTools.destroy();
+
   return out;
 });
 

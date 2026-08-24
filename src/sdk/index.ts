@@ -18,6 +18,7 @@
 // saturations GPU constatées en prod, 2026-07-29).
 
 import { chunkDocuments, selectScored, buildKnowledgeBlock, normalizeDocs, looksLikeFactQuestion, looksLikeRefusal, type Chunk } from './knowledge';
+import { normalizeTools, runTools, formatToolBlock, hasDateTool, dateSystemLine, type ToolInput, type ToolSpec, type ToolNote } from './tools';
 // Le moteur vit dans ./engineCore (aucun DOM) et tourne, par défaut, dans un Web Worker
 // (./workerBackend). index.ts ne garde que le widget, la composition de prompt et l'API publique.
 import { resolveModelUrl, type Msg, type LoadProgress } from './engineCore';
@@ -27,6 +28,9 @@ import { setWorkerScriptUrl } from './selfUrl';
 // `Msg` est public depuis 0.1.3 : l'historique est INJECTABLE (SessionConfig.history), donc son
 // type doit être nommable par l'intégrateur qui le range dans un localStorage.
 export type { LoadProgress, Msg };
+// `ToolSpec` est public depuis 0.2.0 : un intégrateur qui déclare ses outils dans un fichier à part
+// doit pouvoir les typer.
+export type { ToolInput, ToolSpec, ToolNote };
 
 // ── Contexte WORKER ─────────────────────────────────────────────────────────────────────────────
 // Ce même bundle est chargé dans le Web Worker par `importScripts` (cf. workerBackend.ts : c'est le
@@ -74,6 +78,14 @@ function appliquerOptions(cfg: { worker?: boolean; workerUrl?: string }): void {
 const GUARDRAILS =
   '\nAnswer briefly and honestly. If you do not know something, say so: never invent facts or details.' +
   '\nYou have no tools and no internet access: never emit tool calls, reply in plain text only.';
+// Avec des outils déclarés (0.2.0), « You have no tools » devient FAUX et nourrit le réflexe de
+// refus appris (« I don't have access to real-time inventory ») — mesuré au banc sdk-tools.mjs à
+// côté d'une note qui contenait précisément le stock demandé. La variante reste aussi courte, et
+// garde ce qui reste vrai : pas d'accès réseau, pas d'appels d'outils à émettre (c'est NOUS qui
+// les exécutons), du texte simple.
+const GUARDRAILS_OUTILS =
+  '\nAnswer briefly and honestly. If you do not know something, say so: never invent facts or details.' +
+  '\nBracketed tool results in the message are exact facts: use them as-is. Never emit tool calls yourself, reply in plain text only.';
 
 export interface EmbedConfig {
   model?: string;       // clé de MODELS ou URL .brik directe (défaut : lfm2.5-230m)
@@ -101,6 +113,37 @@ export interface EmbedConfig {
   // changement d'aspect du widget, il ne s'impose pas à qui met simplement à jour sa balise
   // <script>. Les mêmes données sont disponibles sans affichage via l'événement `message`.
   showSources?: boolean;
+  // OUTILS — cf. SessionConfig.tools : mêmes outils, même exécution, sur les deux surfaces.
+  tools?: SessionConfig['tools'];
+  // ── Apparence du widget (0.2.0) ────────────────────────────────────────────────────────────────
+  // Thème. 'light' par défaut — c'est l'aspect que les intégrateurs actuels ont vu et validé sur
+  // LEUR page ; 'auto' suit prefers-color-scheme du visiteur (et ses changements en direct),
+  // 'dark' force le sombre. La palette est INTERNE : aucune valeur de l'intégrateur n'entre en CSS.
+  theme?: 'light' | 'dark' | 'auto';
+  // Coin d'ancrage du bouton et du panneau. Défaut : 'bottom-right'.
+  position?: 'bottom-right' | 'bottom-left';
+  // Taille du panneau en pixels, bornée (largeur 300-480, hauteur 380-720) — les maxima du viewport
+  // de la feuille de style continuent de s'appliquer sur petit écran.
+  width?: number;
+  height?: number;
+  // Surcharge des libellés du widget — pour une langue non fournie (es, de…) ou un ton maison.
+  // Les clés absentes gardent le libellé de `lang`. Tout passe par textContent/escapeHtml : un
+  // libellé ne peut pas injecter de balisage.
+  labels?: WidgetLabels;
+}
+
+/** Libellés surchargeables du widget (cf. EmbedConfig.labels). Clés absentes = libellés de `lang`. */
+export interface WidgetLabels {
+  open?: string;         // aria-label du bouton flottant
+  close?: string;        // aria-label de la croix
+  placeholder?: string;  // champ de saisie
+  note?: string;         // mention « IA locale » sous le fil
+  error?: string;        // préfixe des messages d'erreur
+  empty?: string;        // réponse de repli quand le modèle ne rend rien
+  help?: string;         // phrase du filet anti-refus (cf. looksLikeRefusal)
+  sources?: string;      // étiquette de la ligne de sources
+  mb?: string;           // unité des octets dans la bulle de progression (« MB », « Mo », « MB »…)
+  phases?: Partial<Record<'init' | 'download' | 'tokenizer' | 'gpu', string>>; // bulles de statut
 }
 
 export interface SessionConfig {
@@ -143,6 +186,12 @@ export interface SessionConfig {
   // plutôt que de faire échouer la création : ce qui arrive ici vient souvent d'un stockage
   // persistant écrit par une version antérieure de l'hôte.
   history?: Msg[];
+  // OUTILS (0.2.0) — 'calc' et 'date' intégrés, ou vos propres { name, match, run }. AUCUNE
+  // décision n'est demandée au modèle (le tool-calling est halluciné sous ~3B, cf. ./tools.ts) :
+  // la détection est déterministe, l'exécution se fait dans VOTRE page, et le modèle reçoit le
+  // RÉSULTAT comme un fait — la même mécanique que les fiches de connaissance. Opt-in : sans ce
+  // champ, pas un caractère du prompt ne change.
+  tools?: ToolInput[];
 }
 
 export interface AskOptions {
@@ -187,6 +236,11 @@ export interface BrimkernEvents {
   message: (msg: { role: 'user' | 'assistant'; content: string; sources?: Source[] }) => void;
   /** Une génération ou un chargement a échoué. L'erreur est AUSSI levée côté appelant pour `ask()`. */
   error: (err: Error) => void;
+  /**
+   * Un outil a produit un résultat pour ce tour (émis AVANT la génération, comme onSources) : de
+   * quoi journaliser ce que le modèle a reçu — la traçabilité des outils, symétrique des sources.
+   */
+  tool: (note: ToolNote) => void;
 }
 
 export type BrimkernEvent = keyof BrimkernEvents;
@@ -249,9 +303,15 @@ function sanitizeHistory(input: unknown): Msg[] {
 // besoin lui aussi (ses libellés) : une seule règle, un seul endroit.
 function estFr(cfg: Pick<SessionConfig, 'lang' | 'system'>): boolean {
 	if (cfg.lang) return cfg.lang === 'fr';
-	return cfg.system
-		? /[àâäéèêëîïôöùûüç]|\b(?:bonjour|salut|vous|tu|réponds|conseiller|boutique|aide|aidez|client|magasin)\b/i.test(cfg.system)
-		: false;
+	if (cfg.system) return /[àâäéèêëîïôöùûüç]|\b(?:bonjour|salut|vous|tu|réponds|conseiller|boutique|aide|aidez|client|magasin)\b/i.test(cfg.system);
+	// Sans prompt système, il n'y a rien à deviner dans la config : on lit la PAGE (lang de <html>,
+	// puis langue du navigateur). Avant, ce cas tombait silencieusement en anglais — un embed() nu
+	// sur un site français servait un widget anglais. Le verdict du prompt système, lui, reste
+	// souverain : la langue des consignes doit suivre celle du comportement déclaré, pas celle de
+	// la page qui l'héberge.
+	if (typeof document !== 'undefined' && /^fr\b/i.test(document.documentElement.lang || '')) return true;
+	if (typeof navigator !== 'undefined' && /^fr\b/i.test(navigator.language || '')) return true;
+	return false;
 }
 
 // ── LIBELLÉS DU WIDGET ──────────────────────────────────────────────────────────────────────────
@@ -290,9 +350,41 @@ const LIBELLES = {
 		phases: { init: 'initialisation…', download: 'téléchargement du modèle…', tokenizer: 'tokenizer…', gpu: 'poids sur le GPU…' },
 		erreurs: { 'no-webgpu': 'Ce navigateur ne prend pas en charge WebGPU : l’assistant local ne peut pas tourner ici.' },
 	},
-} as const;
+} satisfies Record<'en' | 'fr', Libelles>;
 
-type Libelles = typeof LIBELLES['en' | 'fr'];
+// Le type est nommé (et non dérivé par `as const`) parce que les libellés sont SURCHARGEABLES
+// depuis 0.2.0 (EmbedConfig.labels) : une table fusionnée porte des chaînes quelconques.
+interface Libelles {
+	ouvrir: string; fermer: string; placeholder: string; note: string; erreur: string; vide: string;
+	aide: string; mo: string; sources: string;
+	phases: Record<string, string>;
+	erreurs: Record<string, string>;
+}
+
+// Fusionne les surcharges de l'intégrateur sur la table de `lang`. Les clés publiques sont en
+// anglais (open, close…) : c'est la langue de l'API. Tout ce qui n'est pas une chaîne est ignoré —
+// ce qui arrive ici peut venir d'une config sérialisée.
+function mergeLabels(base: Libelles, labels?: WidgetLabels): Libelles {
+	if (!labels) return base;
+	const s = (v: unknown): v is string => typeof v === 'string' && !!v.trim();
+	const phases: Record<string, string> = { ...base.phases };
+	if (labels.phases && typeof labels.phases === 'object') {
+		for (const [k, v] of Object.entries(labels.phases)) if (s(v)) phases[k] = v;
+	}
+	return {
+		...base,
+		...(s(labels.open) ? { ouvrir: labels.open } : null),
+		...(s(labels.close) ? { fermer: labels.close } : null),
+		...(s(labels.placeholder) ? { placeholder: labels.placeholder } : null),
+		...(s(labels.note) ? { note: labels.note } : null),
+		...(s(labels.error) ? { erreur: labels.error } : null),
+		...(s(labels.empty) ? { vide: labels.empty } : null),
+		...(s(labels.help) ? { aide: labels.help } : null),
+		...(s(labels.sources) ? { sources: labels.sources } : null),
+		...(s(labels.mb) ? { mo: labels.mb } : null),
+		phases,
+	};
+}
 // Une phase inconnue s'affiche TELLE QUELLE plutôt que de disparaître : si le moteur en ajoute une,
 // le widget la montre en clair au lieu de vider la bulle de statut.
 const phrasePhase = (L: Libelles, phase: string): string =>
@@ -303,25 +395,41 @@ const phraseErreur = (L: Libelles, e: any): string =>
 	(e?.code && (L.erreurs as Record<string, string>)[e.code]) || e?.message || String(e);
 
 // notes.
-function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'knowledgeBudget' | 'examples' | 'lang'>): {
+function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'knowledgeBudget' | 'examples' | 'lang' | 'tools'>): {
 	system: (q: string) => string;
 	/**
-	 * Le message réellement envoyé au modèle pour ce tour (notes + question) ET les fiches qui y
-	 * sont entrées. L'historique affiché, lui, garde la question seule.
+	 * Le message réellement envoyé au modèle pour ce tour (notes + résultats d'outils + question) ET
+	 * les fiches qui y sont entrées. L'historique affiché, lui, garde la question seule.
 	 * Les deux sortent du MÊME appel : une seconde sélection « pour les sources » pourrait diverger
 	 * de celle qui a nourri le prompt, et une traçabilité approximative ne trace rien.
+	 * `toolBlock` (0.2.0) : les résultats d'outils déjà exécutés pour ce tour (cf. ./tools.ts) —
+	 * ils sont injectés ICI pour que les deux surfaces composent le tour au même endroit.
 	 */
-	userTurn: (q: string) => { text: string; sources: Source[]; conversationnel: boolean };
+	userTurn: (q: string, toolBlock?: string) => { text: string; sources: Source[]; conversationnel: boolean };
 	/** Tours de démonstration épinglés en tête du prompt (jamais élagués). */
 	pinned: Msg[];
 } {
-	const base = (cfg.system || 'You are a helpful assistant.') + GUARDRAILS;
+	// L'outil 'date' vit dans le prompt SYSTÈME : la ligne est stable sur la journée, donc le
+	// préfixe KV survit d'un tour à l'autre — même choix que l'app (ChatApp.tsx).
+	const outilsDeclares = normalizeTools(cfg.tools);
+	const dateLine = hasDateTool(outilsDeclares) ? dateSystemLine(estFr(cfg)) : '';
+	const base = (cfg.system || 'You are a helpful assistant.') + (outilsDeclares.length ? GUARDRAILS_OUTILS : GUARDRAILS) + dateLine;
 	const epingler = (ex: { user: string; assistant: string }[]): Msg[] =>
 		ex.flatMap((e) => [{ role: 'user' as const, content: e.user }, { role: 'assistant' as const, content: e.assistant }]);
+	// Des outils déclarés = la forme crochet à DÉMONTRER (cf. toolExamples) : mesuré au banc
+	// sdk-tools.mjs, sans démonstration le modèle répond « I don't have access to real-time
+	// inventory » à côté d'une note qui contient justement le stock.
+	const exemplesOutils = outilsDeclares.length ? toolExamples(estFr(cfg)) : [];
 	// Sans documents, il n'y a ni fiche ni consigne de refus : rien à rattraper, `conversationnel` est
 	// faux et le filet ne s'arme pas. Un assistant sans base de connaissance a le droit de dire
 	// qu'il ne sait pas — c'est même tout ce qu'il peut faire.
-	if (!cfg.knowledge) return { system: () => base, userTurn: (q) => ({ text: q, sources: [], conversationnel: false }), pinned: epingler(cfg.examples || []) };
+	if (!cfg.knowledge) {
+		return {
+			system: () => base,
+			userTurn: (q, toolBlock) => ({ text: toolBlock ? `${q}\n\n${toolBlock}` : q, sources: [], conversationnel: false }),
+			pinned: epingler([...exemplesOutils, ...(cfg.examples || [])]),
+		};
+	}
 	const chunks: Chunk[] = chunkDocuments(normalizeDocs(cfg.knowledge));
 	const budget = cfg.knowledgeBudget ?? 1200;
 	const isFr = estFr(cfg);
@@ -330,13 +438,21 @@ function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'kn
 		: base + '\n\nThe user message may include reference notes between --- markers. When it does, answer from those notes and quote their figures exactly. When it says no note matches, say you do not have that information.';
 	return {
 		system: () => consigne,
-		userTurn: (q: string) => {
+		userTurn: (q: string, toolBlock?: string) => {
 			const retenus = selectScored(q, chunks, budget);
+			// Un outil a répondu et aucune fiche n'est retenue : le tour part SANS le bloc de fiches.
+			// Sinon, buildKnowledgeBlock émettrait sa consigne de refus (« dis que tu n'as pas cette
+			// information ») à côté d'un résultat qu'on demande justement d'utiliser — deux consignes
+			// contradictoires, et à 230M c'est la dernière lue qui gagne.
+			if (toolBlock && !retenus.length) {
+				return { text: `${q}\n\n${toolBlock}`, sources: [], conversationnel: false };
+			}
 			const b = buildKnowledgeBlock(retenus.map((x) => x.chunk), q, isFr).trim();
 			// Bloc vide (salutation, ou aucun passage au-dessus du seuil) : AUCUNE source. Ce qui est
 			// annoncé comme source doit être ce que le modèle a lu, pas ce qui a failli être retenu.
+			const avecOutils = (texte: string) => (toolBlock ? `${texte}\n\n${toolBlock}` : texte);
 			return {
-				text: b ? `${b}\n\nQuestion: ${q}` : q,
+				text: b ? `${avecOutils(b)}\n\nQuestion: ${q}` : avecOutils(q),
 				sources: b ? retenus.map(({ chunk, score }) => ({ title: chunk.title, text: chunk.text, score, doc: chunk.doc })) : [],
 				// Le tour est CONVERSATIONNEL quand aucun passage n'a été retenu et que le message n'est
 				// pas une demande d'information : c'est le seul cas où un refus est certainement faux,
@@ -344,8 +460,42 @@ function makeSystemBuilder(cfg: Pick<SessionConfig, 'system' | 'knowledge' | 'kn
 				conversationnel: !retenus.length && !looksLikeFactQuestion(q),
 			};
 		},
-		pinned: epingler([...knowledgeExamples(isFr), ...(cfg.examples || [])]),
+		pinned: epingler([...knowledgeExamples(isFr), ...exemplesOutils, ...(cfg.examples || [])]),
 	};
+}
+
+// Exemples ÉPINGLÉS quand des outils sont déclarés — le pendant outil de knowledgeExamples, pour la
+// même raison mesurée (sdk-tools.mjs, 2026-08-24) : la calculatrice passait (ancre lexicale forte)
+// mais un outil custom « stock » recevait « I don't have access to real-time inventory data » à
+// côté d'une note qui contenait précisément le stock. À 230M, DÉCRIRE échoue, MONTRER fonctionne.
+// Les tours sont FABRIQUÉS par formatToolBlock, celui-là même qui construit les vrais tours : la
+// dérive exemple/prompt est impossible par construction (même principe que knowledgeExamples).
+// Les valeurs sont volontairement différentes de tout cas réel : on démontre l'OPÉRATION (recopier
+// le fait du crochet), pas une réponse à réciter.
+function toolExamples(fr = false): { user: string; assistant: string }[] {
+	const tour = (q: string, notes: ToolNote[]) => `${q}\n\n${formatToolBlock(notes, fr)}`;
+	if (fr) {
+		return [
+			{
+				user: tour('Combien font 45*3 ?', [{ name: 'calculatrice', result: '45*3 = 135' }]),
+				assistant: '45*3 = 135.',
+			},
+			{
+				user: tour('Il vous en reste en rayon ?', [{ name: 'rayon', result: '3 exemplaires en rayon' }]),
+				assistant: 'Oui — il en reste 3 exemplaires en rayon.',
+			},
+		];
+	}
+	return [
+		{
+			user: tour('What is 45*3?', [{ name: 'calculator', result: '45*3 = 135' }]),
+			assistant: '45*3 = 135.',
+		},
+		{
+			user: tour('Do you still have some on the shelf?', [{ name: 'shelf', result: '3 items on the shelf' }]),
+			assistant: 'Yes — 3 items are on the shelf.',
+		},
+	];
 }
 
 // Exemples ÉPINGLÉS quand des documents sont fournis. Ce ne sont pas des fioritures : sur le modèle
@@ -446,8 +596,8 @@ export interface BrimkernSession {
   setKnowledge(knowledge: SessionConfig['knowledge']): void;
   /** Les fiches du dernier tour (cf. `Source`). Vide si aucune n'a servi. */
   readonly lastSources: Source[];
-  /** S'abonner ; rend la fonction de désabonnement. Événements : ready, progress, message, error. */
-  on<K extends 'ready' | 'progress' | 'message' | 'error'>(event: K, cb: BrimkernEvents[K]): () => void;
+  /** S'abonner ; rend la fonction de désabonnement. Événements : ready, progress, message, error, tool. */
+  on<K extends 'ready' | 'progress' | 'message' | 'error' | 'tool'>(event: K, cb: BrimkernEvents[K]): () => void;
 }
 
 function createSession(cfg: SessionConfig = {}): BrimkernSession {
@@ -473,6 +623,9 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
   // partait une fois sur trois sur la mauvaise colonne. Le même prompt doit se conduire pareil des
   // deux côtés. Recalculée à chaque tour parce que setKnowledge() peut en changer la réponse.
   const temperature = () => cfg.temperature ?? (knowledge ? 0.25 : 0.55);
+  // Les outils sont triés UNE FOIS (les invalides sont écartés avec un avertissement, pas à chaque
+  // tour) ; leur exécution, elle, dépend du message — cf. ./tools.ts.
+  const outils = normalizeTools(cfg.tools);
   const refuseSiOccupe = (quoi: string) => {
     if (busy) throw new Error(`brimkern: ${quoi} impossible pendant une génération`);
   };
@@ -485,9 +638,14 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
       history.push({ role: 'user', content: text });
       bus.emit('message', { role: 'user', content: text });
       try {
+        // Les outils s'exécutent AVANT la composition du tour (leur `run` peut être asynchrone) et
+        // toujours sur le thread principal : ce sont des closures de l'intégrateur, elles ne
+        // traversent pas un worker. Chaque résultat est annoncé (même contrat que onSources).
+        const notes = await runTools(outils, text, fr);
+        for (const n of notes) bus.emit('tool', n);
         // Le dernier tour part AUGMENTÉ des notes ; `history` (affiché, et réutilisé aux tours
         // suivants) garde la question seule — sinon les notes s'accumuleraient dans le contexte.
-        const { text: augmente, sources, conversationnel } = promptOf.userTurn(text);
+        const { text: augmente, sources, conversationnel } = promptOf.userTurn(text, formatToolBlock(notes, fr));
         lastSources = sources;
         opts.onSources?.(sources);
         const envoye = [...history.slice(0, -1), { role: 'user' as const, content: augmente }];
@@ -548,23 +706,23 @@ function injectStyles() {
   s.textContent = `
   .bk-fab{position:fixed;right:20px;bottom:20px;width:56px;height:56px;border-radius:16px;background:var(--bk-accent);color:#fff;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:24px;z-index:2147483000;display:flex;align-items:center;justify-content:center;transition:transform .15s}
   .bk-fab:hover{transform:translateY(-2px)}
-  .bk-panel{position:fixed;right:20px;bottom:88px;width:360px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 120px);background:#f2efe8;border:1px solid #e0dccf;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);z-index:2147483000;display:none;flex-direction:column;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;color:#1a1a1a}
+  .bk-panel{position:fixed;right:20px;bottom:88px;width:360px;max-width:calc(100vw - 40px);height:520px;max-height:calc(100vh - 120px);background:var(--bk-bg,#f2efe8);border:1px solid var(--bk-border,#e0dccf);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.28);z-index:2147483000;display:none;flex-direction:column;overflow:hidden;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;color:var(--bk-text,#1a1a1a)}
   .bk-panel.bk-open{display:flex}
-  .bk-hd{padding:12px 14px;background:#fff;border-bottom:1px solid #ece8dd;display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+  .bk-hd{padding:12px 14px;background:var(--bk-surface,#fff);border-bottom:1px solid var(--bk-border2,#ece8dd);display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
   .bk-hd .bk-dot{width:8px;height:8px;border-radius:50%;background:var(--bk-accent)}
-  .bk-hd .bk-x{margin-left:auto;background:none;border:none;cursor:pointer;color:#8b887f;font-size:18px;line-height:1}
+  .bk-hd .bk-x{margin-left:auto;background:none;border:none;cursor:pointer;color:var(--bk-muted,#8b887f);font-size:18px;line-height:1}
   .bk-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
   .bk-m{max-width:82%;padding:8px 12px;border-radius:12px;font-size:14px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word}
   .bk-m.bk-u{align-self:flex-end;background:var(--bk-accent);color:#fff;border-bottom-right-radius:4px}
-  .bk-m.bk-a{align-self:flex-start;background:#fff;border:1px solid #ece8dd;border-bottom-left-radius:4px}
-  .bk-src{align-self:flex-start;max-width:82%;margin-top:-6px;font-size:10.5px;line-height:1.4;color:#8b887f}
-  .bk-src b{font-weight:600;color:#6f6c64}
-  .bk-foot{padding:10px;border-top:1px solid #ece8dd;background:#fff;display:flex;gap:8px}
-  .bk-in{flex:1;border:1px solid #e0dccf;border-radius:10px;padding:9px 11px;font-size:14px;font-family:inherit;background:#fff;color:#1a1a1a;resize:none;outline:none}
+  .bk-m.bk-a{align-self:flex-start;background:var(--bk-surface,#fff);border:1px solid var(--bk-border2,#ece8dd);border-bottom-left-radius:4px}
+  .bk-src{align-self:flex-start;max-width:82%;margin-top:-6px;font-size:10.5px;line-height:1.4;color:var(--bk-muted,#8b887f)}
+  .bk-src b{font-weight:600;color:var(--bk-muted2,#6f6c64)}
+  .bk-foot{padding:10px;border-top:1px solid var(--bk-border2,#ece8dd);background:var(--bk-surface,#fff);display:flex;gap:8px}
+  .bk-in{flex:1;border:1px solid var(--bk-border,#e0dccf);border-radius:10px;padding:9px 11px;font-size:14px;font-family:inherit;background:var(--bk-surface,#fff);color:var(--bk-text,#1a1a1a);resize:none;outline:none}
   .bk-in:focus{border-color:var(--bk-accent)}
   .bk-send{background:var(--bk-accent);color:#fff;border:none;border-radius:10px;padding:0 14px;cursor:pointer;font-size:14px}
   .bk-send:disabled{opacity:.5;cursor:default}
-  .bk-note{font-size:10.5px;color:#8b887f;text-align:center;padding:4px 8px 8px}
+  .bk-note{font-size:10.5px;color:var(--bk-muted,#8b887f);text-align:center;padding:4px 8px 8px}
   `;
   document.head.appendChild(s);
 }
@@ -596,10 +754,11 @@ function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
   let knowledge = cfg.knowledge;
   let promptOf = makeSystemBuilder(cfg);
   const fr = estFr(cfg);
-  const L = LIBELLES[fr ? 'fr' : 'en'];
+  const L = mergeLabels(LIBELLES[fr ? 'fr' : 'en'], cfg.labels);
   const accent = safeAccent(cfg.accent);
   const title = cfg.title || 'Assistant';
   const maxTokens = cfg.maxTokens || 220;
+  const outils = normalizeTools(cfg.tools);
   injectStyles();
 
   const fab = document.createElement('button');
@@ -608,6 +767,42 @@ function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
   panel.className = 'bk-panel';
   fab.style.setProperty('--bk-accent', accent);
   panel.style.setProperty('--bk-accent', accent);
+
+  // ── Apparence (0.2.0) — tout est posé PAR ÉLÉMENT, jamais dans la feuille partagée : c'est la
+  // règle apprise avec l'accent (deux widgets sur la même page ne doivent rien se voler).
+  // Position : le coin d'ancrage. Les valeurs sont les nôtres, pas celles de l'intégrateur.
+  if (cfg.position === 'bottom-left') {
+    for (const el of [fab, panel]) { el.style.left = '20px'; el.style.right = 'auto'; }
+  }
+  // Taille : des NOMBRES bornés (aucune chaîne de l'intégrateur n'entre en CSS) ; les maxima
+  // viewport de la feuille (`max-width`/`max-height`) continuent de plafonner sur petit écran.
+  const clampPx = (v: unknown, min: number, max: number): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : null;
+  const wPx = clampPx(cfg.width, 300, 480);
+  const hPx = clampPx(cfg.height, 380, 720);
+  if (wPx) panel.style.width = `${wPx}px`;
+  if (hPx) panel.style.height = `${hPx}px`;
+  // Thème : la palette sombre est posée en propriétés personnalisées par élément ; la feuille
+  // partagée ne connaît que les défauts clairs (var(--bk-…, valeur claire)). 'auto' suit
+  // prefers-color-scheme EN DIRECT — un visiteur qui bascule son OS voit le widget suivre.
+  const SOMBRE: Record<string, string> = {
+    '--bk-bg': '#211f1c', '--bk-surface': '#2c2a26', '--bk-border': '#413e38', '--bk-border2': '#3a3733',
+    '--bk-text': '#f0eee8', '--bk-muted': '#a29e93', '--bk-muted2': '#c6c2b8',
+  };
+  const appliquerSombre = (on: boolean) => {
+    for (const el of [fab, panel]) {
+      for (const [k, v] of Object.entries(SOMBRE)) { if (on) el.style.setProperty(k, v); else el.style.removeProperty(k); }
+    }
+  };
+  let mqSombre: MediaQueryList | null = null;
+  let suivreMq: ((e: MediaQueryListEvent) => void) | null = null;
+  if (cfg.theme === 'dark') appliquerSombre(true);
+  else if (cfg.theme === 'auto' && typeof matchMedia === 'function') {
+    mqSombre = matchMedia('(prefers-color-scheme: dark)');
+    appliquerSombre(mqSombre.matches);
+    suivreMq = (e) => appliquerSombre(e.matches);
+    mqSombre.addEventListener('change', suivreMq);
+  }
   panel.innerHTML = `
     <div class="bk-hd"><span class="bk-dot"></span><span>${escapeHtml(title)}</span><button class="bk-x" aria-label="${escapeHtml(L.fermer)}">×</button></div>
     <div class="bk-msgs"></div>
@@ -691,7 +886,11 @@ function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
     const bubble = addBubble('assistant', '…');
     try {
       await ensureModel();
-      const { text: augmente, sources, conversationnel } = promptOf.userTurn(text);
+      // Les outils du widget : mêmes règles que la session (exécution AVANT le tour, annonce sur
+      // l'événement `tool`, panne d'outil silencieuse pour le visiteur).
+      const notes = await runTools(outils, text, fr);
+      for (const n of notes) bus.emit('tool', n);
+      const { text: augmente, sources, conversationnel } = promptOf.userTurn(text, formatToolBlock(notes, fr));
       const envoye = [...history.slice(0, -1), { role: 'user' as const, content: augmente }];
       // Température : 0,55 pour du bavardage, 0,25 dès qu'il y a des fiches. Un assistant qui doit
       // RECOPIER un chiffre d'une note n'a rien à gagner à échantillonner large — et beaucoup à
@@ -758,6 +957,7 @@ function mountWidget(cfg: EmbedConfig, bus: Emitter): MountedWidget {
       // Le moteur, lui, RESTE chargé : il est partagé par la page (un seul jeu de poids en VRAM).
       // Démonter un widget n'a pas à faire retélécharger 149 Mo au suivant.
       vie.abort();
+      if (mqSombre && suivreMq) mqSombre.removeEventListener('change', suivreMq);
       fab.onclick = null; closeEl.onclick = null; sendEl.onclick = null; inEl.onkeydown = null;
       fab.remove(); panel.remove();
       history = [];

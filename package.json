@@ -21,13 +21,15 @@
     "test:websearch": "node scripts/test-websearch.cjs",
     "test:evict": "node scripts/test-evict.cjs",
     "test:knowledge": "node scripts/test-knowledge.cjs",
+    "test:tools": "node scripts/test-tools.cjs",
     "test:ranges": "node scripts/test-ranges.cjs",
     "test:imagedims": "node scripts/test-image-dims.cjs",
     "brik:digest": "node scripts/brik-digest.cjs",
     "test:sdkfresh": "node scripts/test-sdk-fresh.cjs",
     "test:sdkapi": "node scripts/e2e/sdk-api.mjs",
     "test:docstoc": "node scripts/e2e/docs-toc.mjs",
-    "test:dialogue": "node scripts/e2e/sdk-dialogue.mjs 3"
+    "test:dialogue": "node scripts/e2e/sdk-dialogue.mjs 3",
+    "test:sdktools": "node scripts/e2e/sdk-tools.mjs 3"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
