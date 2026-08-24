@@ -378,6 +378,9 @@ Conseil pointure : Les baskets taillent normalement. Pour les chaussures de runn
       knowledge: CONFIGS[LANG].knowledge,
       knowledgeBudget: 1200,
       showSources: true,
+      // 0.2.0 : le widget suit le thème du visiteur. Purement visuel — les prompts que les bancs
+      // (sdk-rag, sdk-dialogue) mesurent sur cette page ne changent pas d'un octet.
+      theme: 'auto',
     });
 
     // Cette fonction est l'exemple même du trou que le SDK 0.1.3 comble. Avant, embed() ne rendait

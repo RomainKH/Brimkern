@@ -33,7 +33,7 @@ API is present. Call `embed()` from a client effect.
 Prefer the script tag? Pin a version so your widget never changes under your feet:
 
 ```html
-<script src="https://brimkern.com/sdk-0.1.4.js"></script>  <!-- pinned -->
+<script src="https://brimkern.com/sdk-0.2.0.js"></script>  <!-- pinned -->
 <script src="https://brimkern.com/sdk.js"></script>        <!-- always latest -->
 ```
 
@@ -71,10 +71,11 @@ widget.on('message',  ({ role, content, sources }) => analytics.track('chat', { 
 widget.on('progress', (phase, p) => bar.value = p ? p.loaded / p.total : 0);  // phase: 'init' | 'download' | 'tokenizer' | 'gpu'
 widget.on('ready',    () => {});
 widget.on('error',    (err) => report(err));   // err.code === 'no-webgpu' → this browser can't run it
+widget.on('tool',     ({ name, result }) => {});  // a tool produced a result for this turn
 ```
 
-That last one is the most useful thing the widget can tell you: without it, a visitor on a browser
-without WebGPU was a failure you never heard about.
+That `error` one is the most useful thing the widget can tell you: without it, a visitor on a
+browser without WebGPU was a failure you never heard about.
 
 ## Answer from *your* content
 
@@ -107,6 +108,51 @@ await session.ask(q, { onSources: (s) => show(s) });    // [{ title, text, score
 When no note matches, the assistant says it does not have that information — but only for questions
 that actually ask for information. "Are you ok?", "PLEASE", "hello" get an answer, not a wall: a
 widget that stonewalls everything outside its notes is a widget people close.
+
+## Tools: hand it facts your page knows
+
+Arithmetic, today's date, or your own functions — a stock lookup, an order status, a cart total.
+The model **never decides to call a tool** (below ~3B parameters, emitted tool calls are
+hallucinated — measured). Detection is deterministic, your function runs in *your* page, and the
+model receives the result as a fact, exactly like a knowledge note:
+
+```js
+Brimkern.embed({
+  tools: [
+    'calc',   // detects arithmetic in the message, injects the exact result
+    'date',   // the model knows today's date
+    {
+      name: 'stock',
+      match: /stock|available/i,               // or a predicate: (question) => boolean
+      run: async (q) => `${await api.stock(q)} in stock`,   // sync or async
+    },
+  ],
+});
+```
+
+A tool that throws, hangs (10 s cap) or returns nothing is simply absent from the turn — the turn
+itself never fails because of a tool. Results are capped at 600 characters: a result is a fact, not
+a report. Nothing touches the network unless *your* `run` does.
+
+## Make it yours: theme, corner, size, labels
+
+```js
+Brimkern.embed({
+  theme: 'auto',            // 'light' (default) | 'dark' | 'auto' — auto follows prefers-color-scheme, live
+  position: 'bottom-left',  // 'bottom-right' (default) | 'bottom-left'
+  width: 400, height: 600,  // px, clamped to 300-480 × 380-720
+  labels: {                 // any language, any tone — omitted keys keep the `lang` defaults
+    open: 'Chat öffnen',
+    placeholder: 'Nachricht eingeben…',
+    note: 'Lokale KI — läuft auf Ihrer GPU.',
+  },
+});
+```
+
+`lang` covers English and French out of the box; `labels` is the door to every other language
+(`open`, `close`, `placeholder`, `note`, `error`, `empty`, `help`, `sources`, `mb`, `phases`).
+Labels are rendered as text, never as markup, and `theme` takes a keyword, not CSS: nothing an
+integrator passes here can inject styles into the host page.
 
 ## Shape the tone
 
@@ -160,6 +206,8 @@ the conversation.
 | `lang` | `'en'` or `'fr'` — the widget's labels *and* the instructions given to the model. Guessed from your system prompt when left out. |
 | `history` | Starting conversation, so a visitor finds their thread after a reload. When set, `greeting` is skipped. |
 | `showSources` | Show the notes behind each answer, under the bubble. Off by default. |
+| `tools` | `'calc'`, `'date'`, or your own `{ name, match, run }` — see "Tools" above. |
+| `theme`, `position`, `width`, `height`, `labels` | The widget's look and wording — see "Make it yours" above. |
 | `maxTokens`, `temperature` | Generation limits. `temperature` defaults to 0.25 when you pass `knowledge` (copying a figure out of a note has nothing to gain from sampling wide) and 0.55 otherwise. |
 | `worker`, `workerUrl` | Run inference in a Web Worker. Only takes effect before the first load: the engine is shared by the page. |
 

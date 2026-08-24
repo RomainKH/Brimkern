@@ -191,13 +191,25 @@ widget.destroy();                          // and the engine stays loaded for th
 `destroy()`), and a visitor's conversation survives a reload if you store `widget.history` and hand
 it back as `history`. Sessions carry the same surface plus `lastSources`.
 
+Tools work the only way that measurably holds at this model size: the model **never decides to call
+one**. Detection is deterministic, your function runs in your page, and the model receives the
+result as a fact — like a knowledge note:
+
+```js
+embed({
+  tools: ['calc', 'date', { name: 'stock', match: /stock/i, run: (q) => api.stockFor(q) }],
+  theme: 'auto',            // 'light' | 'dark' | 'auto' — follows the visitor's system, live
+  position: 'bottom-left',  // and width/height/labels: the widget stops imposing its look
+});
+```
+
 The model downloads only when a visitor actually opens the widget, so your page speed is untouched.
-Pin a version with `https://brimkern.com/sdk-0.1.4.js` if you don't want the widget changing under
+Pin a version with `https://brimkern.com/sdk-0.2.0.js` if you don't want the widget changing under
 your feet. Live pitch page and working demo at
 [brimkern.com/local-ai](https://brimkern.com/local-ai).
-*(SDK v0: widget and handle, LFM2 `.brik` model URL, colours & wording, few-shot examples, knowledge
-documents with traceable sources, events. Tools are next. Write short factual notes: the default
-230M quotes them well, but it can mix up two numbers sharing a paragraph.)*
+*(SDK 0.2: widget and handle, LFM2 `.brik` model URL, theme/position/size/labels, few-shot examples,
+knowledge documents with traceable sources, local tools, events. Write short factual notes: the
+default 230M quotes them well, but it can mix up two numbers sharing a paragraph.)*
 
 ---
 
@@ -318,6 +330,7 @@ npm run test:evict      # which cached models the 30-day policy would remove
 npm run test:ranges     # which cached HTTP ranges are redundant and safe to drop
 npm run test:websearch  # when a message should (not) trigger a web lookup
 npm run test:knowledge  # the SDK's lightweight RAG chunker
+npm run test:tools      # the SDK's local tools: detection, execution, guardrails
 npm run test:sdkfresh   # is the built SDK still in sync with the engine's kernels?
 ```
 

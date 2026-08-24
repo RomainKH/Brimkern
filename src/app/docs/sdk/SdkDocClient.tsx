@@ -31,11 +31,13 @@ export default function SdkDocClient() {
   const toc: { id: string; label: string }[] = [
     { id: 'install', label: t('Install', 'Installation') },
     { id: 'embed', label: 'embed()' },
+    { id: 'appearance', label: t('Appearance & labels', 'Apparence & libellés') },
     { id: 'control', label: t('Controlling the widget', 'Piloter le widget') },
     { id: 'events', label: t('Events', 'Événements') },
     { id: 'sessions', label: 'createSession()' },
     { id: 'generate', label: 'generate()' },
     { id: 'knowledge', label: t('Knowledge documents', 'Documents de connaissance') },
+    { id: 'tools', label: t('Tools', 'Outils') },
     { id: 'sources', label: t('Sources of an answer', "Sources d'une réponse") },
     { id: 'preload', label: 'preload(), status() & runtime()' },
     { id: 'engine', label: t('One engine per page', 'Un seul moteur par page') },
@@ -63,7 +65,7 @@ export default function SdkDocClient() {
 import type {
   EmbedConfig, SessionConfig, AskOptions,
   BrimkernWidget, BrimkernSession, BrimkernEvents, BrimkernEvent,
-  Msg, Source, LoadProgress,
+  Msg, Source, LoadProgress, ToolSpec, WidgetLabels,
 } from 'brimkern';`}</Code>
         <P>
           {t('Or as a script tag, with no build step. The IIFE exposes the same API on a global:',
@@ -113,6 +115,36 @@ import type {
           {t('Show, under each answer, the knowledge cards it came from. Off by default.',
              'Affiche, sous chaque réponse, les fiches de connaissance qui l’ont produite. Faux par défaut.')}
         </Param>
+        <Param name="tools" type="('calc' | 'date' | ToolSpec)[]">
+          {t('Local tools whose results are handed to the model as facts: see the dedicated section.',
+             'Outils locaux dont les résultats sont donnés au modèle comme des faits : voir la section dédiée.')}
+        </Param>
+        <Param name="theme / position / width / height / labels" type="see below">
+          {t('The widget’s look and wording: see Appearance & labels.',
+             'L’aspect et les libellés du widget : voir Apparence & libellés.')}
+        </Param>
+      </Section>
+
+      <Section id="appearance" title={t('Appearance & labels', 'Apparence & libellés')}>
+        <P>
+          {t('The widget follows your page instead of imposing its own look. Everything here is set per widget: two widgets on the same page can differ in theme, corner and colour.',
+             "Le widget suit votre page au lieu d'imposer son aspect. Tout se règle PAR widget : deux widgets d'une même page peuvent différer de thème, de coin et de couleur.")}
+        </P>
+        <Code lang="js">{`embed({
+  theme: 'auto',             // 'light' (${t('default', 'défaut')}) | 'dark' | 'auto' — ${t('auto follows prefers-color-scheme, live', 'auto suit prefers-color-scheme, en direct')}
+  position: 'bottom-left',   // 'bottom-right' (${t('default', 'défaut')}) | 'bottom-left'
+  width: 400, height: 600,   // ${t('px, clamped to 300-480 × 380-720; small screens still cap to the viewport', 'px, bornés à 300-480 × 380-720 ; les petits écrans plafonnent toujours au viewport')}
+  labels: {                  // ${t('any language, any tone — keys you omit keep the lang defaults', "n'importe quelle langue, n'importe quel ton — les clés absentes gardent les défauts de lang")}
+    open: 'Chat öffnen',
+    placeholder: 'Nachricht eingeben…',
+    note: 'Lokale KI — läuft auf Ihrer GPU.',
+    phases: { download: 'Modell wird geladen…' },
+  },
+});`}</Code>
+        <P>
+          {t('lang covers English and French out of the box; labels is the door to every other language (open, close, placeholder, note, error, empty, help, sources, mb, phases). Labels are rendered as text, never as markup, and theme takes a keyword, not CSS: nothing an integrator passes here can inject styles or markup into the host page.',
+             "lang couvre l'anglais et le français d'origine ; labels est la porte vers toutes les autres langues (open, close, placeholder, note, error, empty, help, sources, mb, phases). Les libellés sont rendus comme du texte, jamais comme du balisage, et theme prend un mot-clé, pas du CSS : rien de ce qu'un intégrateur passe ici ne peut injecter du style ou du balisage dans la page hôte.")}
+        </P>
       </Section>
 
       <Section id="control" title={t('Controlling the widget', 'Piloter le widget')}>
@@ -157,10 +189,11 @@ widget.on('progress', (phase, p) => bar.value = p ? p.loaded / p.total : 0);
 widget.on('ready',    () => console.log('${t('model loaded', 'modèle chargé')}'));
 widget.on('open',     () => {});
 widget.on('close',    () => {});
-widget.on('error',    (err) => report(err));   // ${t('e.g. no WebGPU on this browser', 'ex. pas de WebGPU sur ce navigateur')}`}</Code>
+widget.on('error',    (err) => report(err));   // ${t('e.g. no WebGPU on this browser', 'ex. pas de WebGPU sur ce navigateur')}
+widget.on('tool',     ({ name, result }) => {});  // ${t('a tool produced a result for this turn', 'un outil a produit un résultat pour ce tour')}`}</Code>
         <P>
-          {t('phase is a stable key — init, download, tokenizer, gpu — never a sentence: you label it in your page’s own language. A listener that throws is caught and logged: your analytics can never break the widget. Sessions get ready, progress, message and error (open and close are widget-only), and a session emits progress because ask() now preloads before its first turn: that first call used to download 149 MB with no way to say so.',
-             "phase est une clé stable — init, download, tokenizer, gpu — jamais une phrase : c'est à vous de la libeller dans la langue de votre page. Un écouteur qui lève est intercepté et journalisé : votre analytics ne peut pas casser le widget. Les sessions reçoivent ready, progress, message et error (open et close n'existent que côté widget), et une session émet progress parce que ask() précharge avant son premier tour : ce premier appel téléchargeait 149 Mo sans aucun moyen de le dire.")}
+          {t('phase is a stable key — init, download, tokenizer, gpu — never a sentence: you label it in your page’s own language. A listener that throws is caught and logged: your analytics can never break the widget. Sessions get ready, progress, message, error and tool (open and close are widget-only), and a session emits progress because ask() now preloads before its first turn: that first call used to download 149 MB with no way to say so.',
+             "phase est une clé stable — init, download, tokenizer, gpu — jamais une phrase : c'est à vous de la libeller dans la langue de votre page. Un écouteur qui lève est intercepté et journalisé : votre analytics ne peut pas casser le widget. Les sessions reçoivent ready, progress, message, error et tool (open et close n'existent que côté widget), et une session émet progress parce que ask() précharge avant son premier tour : ce premier appel téléchargeait 149 Mo sans aucun moyen de le dire.")}
         </P>
         <P>
           {t('The one failure a visitor can trigger without doing anything wrong carries a cause code: err.code === "no-webgpu" means this browser cannot run the assistant at all. Treat it as the signal to hide the widget rather than as a bug — status() answers the same question before anything is mounted. Errors on the message path are emitted AND thrown, so ask() keeps its own catch.',
@@ -221,6 +254,33 @@ session.destroy()`}</Code>
 knowledgeBudget: 800  // ${t('max tokens of passages per question', 'tokens de passages max par question')}`}</Code>
       </Section>
 
+      <Section id="tools" title={t('Tools', 'Outils')}>
+        <P>
+          {t('Give the assistant abilities beyond its notes: arithmetic, today’s date, or your own functions — a stock lookup, an order status, a cart total. The design is deliberate: the model NEVER decides to call a tool (below ~3B parameters, emitted tool calls are hallucinated — measured). Instead, detection is deterministic, your function runs in your page, and the model receives the result as a fact, exactly like a knowledge passage.',
+             "Donnez à l'assistant des capacités au-delà de ses fiches : l'arithmétique, la date du jour, ou vos propres fonctions — un stock, l'état d'une commande, le total d'un panier. Le choix de conception est délibéré : le modèle ne décide JAMAIS d'appeler un outil (sous ~3B de paramètres, les appels d'outils émis sont hallucinés — mesuré). La détection est déterministe, votre fonction tourne dans votre page, et le modèle reçoit le résultat comme un fait, exactement comme un passage de connaissance.")}
+        </P>
+        <Code lang="js">{`embed({
+  tools: [
+    'calc',   // ${t('detects arithmetic in the message and injects the exact result', 'détecte l’arithmétique du message et injecte le résultat exact')}
+    'date',   // ${t('the model knows today’s date (stable line in the system prompt)', 'le modèle connaît la date du jour (ligne stable du prompt système)')}
+    {
+      name: 'stock',
+      match: /stock|disponible/i,          // ${t('or a predicate: (question) => boolean', 'ou un prédicat : (question) => boolean')}
+      run: async (question) => {           // ${t('runs in YOUR page — sync or async', 'tourne dans VOTRE page — sync ou async')}
+        const n = await api.stockFor(question);
+        return \`\${n} ${t('in stock', 'en stock')}\`;
+      },
+    },
+  ],
+});
+
+widget.on('tool', ({ name, result }) => trace(name, result));  // ${t('before generation, like onSources', 'avant la génération, comme onSources')}`}</Code>
+        <P>
+          {t('The contract protects the visitor: a tool that throws, hangs (10 s cap) or returns nothing is simply absent from the turn — the turn itself never fails because of a tool. Results are capped at 600 characters: a result is a fact, not a report, and the default model has a short window. Nothing here touches the network unless YOUR run function does.',
+             "Le contrat protège le visiteur : un outil qui lève, qui traîne (plafond 10 s) ou qui ne rend rien est simplement absent du tour — le tour, lui, n'échoue jamais à cause d'un outil. Les résultats sont bornés à 600 caractères : un résultat est un fait, pas un rapport, et le modèle par défaut a une fenêtre courte. Rien ici ne touche le réseau, sauf si VOTRE fonction run le fait.")}
+        </P>
+      </Section>
+
       <Section id="sources" title={t('Sources of an answer', "Sources d'une réponse")}>
         <P>
           {t('You can see which passages fed an answer. Two reasons this matters: a small model does get things wrong, and an answer a visitor can check is worth more than one merely asserted — and when yours answers oddly, this is how you tell a bad passage from a bad reading of a good one.',
@@ -273,11 +333,11 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
           {t('Pin a version if you would rather the widget did not change under your feet:',
              'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds :')}
         </P>
-        <Code lang="url">{`${SITE_URL}/sdk-0.1.4.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
+        <Code lang="url">{`${SITE_URL}/sdk-0.2.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
 
 <!-- ${t('or from the npm CDNs', 'ou depuis les CDN npm')} -->
-https://unpkg.com/brimkern@0.1.4/dist/brimkern.iife.js
-https://cdn.jsdelivr.net/npm/brimkern@0.1.4/dist/brimkern.iife.js`}</Code>
+https://unpkg.com/brimkern@0.2.0/dist/brimkern.iife.js
+https://cdn.jsdelivr.net/npm/brimkern@0.2.0/dist/brimkern.iife.js`}</Code>
       </Section>
 
       <Section id="server" title={t('Servers, licence, links', 'Serveur, licence, liens')}>
