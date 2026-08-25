@@ -89,8 +89,8 @@ import type {
         <Param name="greeting" type="string">{t('First message shown before the visitor types.', 'Premier message affiché avant que le visiteur n’écrive.')}</Param>
         <Param name="accent" type="string">{t('Accent color (any CSS color).', "Couleur d'accent (toute couleur CSS).")}</Param>
         <Param name="model" type="string">
-          {t('Model override: a Hugging Face repo or a direct .gguf/.brik URL. Defaults to the built-in small model (149 MB).',
-             'Modèle à la place du défaut : un dépôt Hugging Face ou une URL directe .gguf/.brik. Défaut : le petit modèle intégré (149 Mo).')}
+          {t('Model override: a direct URL to an LFM2 or RWKV-7 .brik. Defaults to the built-in small model (149 MB). Other architectures (any single-file GGUF) live in the app, not the SDK.',
+             'Modèle à la place du défaut : une URL directe vers un .brik LFM2 ou RWKV-7. Défaut : le petit modèle intégré (149 Mo). Les autres architectures (tout GGUF mono-fichier) vivent dans l’app, pas dans le SDK.')}
         </Param>
         <Param name="maxTokens" type="number">{t('Reply budget, in tokens.', 'Budget de réponse, en tokens.')}</Param>
         <Param name="lang" type="'en' | 'fr'">
@@ -333,11 +333,11 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
           {t('Pin a version if you would rather the widget did not change under your feet:',
              'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds :')}
         </P>
-        <Code lang="url">{`${SITE_URL}/sdk-0.2.1.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
+        <Code lang="url">{`${SITE_URL}/sdk-0.3.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
 
 <!-- ${t('or from the npm CDNs', 'ou depuis les CDN npm')} -->
-https://unpkg.com/brimkern@0.2.1/dist/brimkern.iife.js
-https://cdn.jsdelivr.net/npm/brimkern@0.2.1/dist/brimkern.iife.js`}</Code>
+https://unpkg.com/brimkern@0.3.0/dist/brimkern.iife.js
+https://cdn.jsdelivr.net/npm/brimkern@0.3.0/dist/brimkern.iife.js`}</Code>
       </Section>
 
       <Section id="server" title={t('Servers, licence, links', 'Serveur, licence, liens')}>

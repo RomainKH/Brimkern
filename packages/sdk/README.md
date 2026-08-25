@@ -33,7 +33,7 @@ API is present. Call `embed()` from a client effect.
 Prefer the script tag? Pin a version so your widget never changes under your feet:
 
 ```html
-<script src="https://brimkern.com/sdk-0.2.1.js"></script>  <!-- pinned -->
+<script src="https://brimkern.com/sdk-0.3.0.js"></script>  <!-- pinned -->
 <script src="https://brimkern.com/sdk.js"></script>        <!-- always latest -->
 ```
 
@@ -197,7 +197,7 @@ the conversation.
 
 | | |
 | --- | --- |
-| `model` | An LFM2 `.brik` URL, or omit for the default (149 MB). **v0 runs LFM2 `.brik` models only**: a clear error tells you when a file is not one. The full engine (any single-file GGUF from Hugging Face) lives in the app at [brimkern.com/chat](https://brimkern.com/chat). |
+| `model` | An LFM2 or RWKV-7 `.brik` URL, or omit for the default (149 MB). **The SDK runs LFM2 and RWKV-7 `.brik` models only**: a clear error tells you when a file is neither. The full engine (any single-file GGUF from Hugging Face) lives in the app at [brimkern.com/chat](https://brimkern.com/chat). |
 | `system` | What the assistant is and does. |
 | `knowledge` | A string, `{ title, text }`, or an array of either. |
 | `knowledgeBudget` | Characters of notes injected per question (default 1200). |

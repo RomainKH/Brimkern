@@ -20,6 +20,33 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'August 25, 2026', fr: '25 août 2026' },
+    tagline: {
+      en: 'SDK 0.3.0: the widget runs RWKV-7 .brik models — the guard that said “LFM2 only” was the last thing missing, the whole RWKV engine was already in the bundle. Built to answer a product question by measurement; the answer closed one path and opened a precise trade-off.',
+      fr: 'SDK 0.3.0 : le widget fait tourner les .brik RWKV-7 — la garde qui disait « LFM2 uniquement » était la dernière chose qui manquait, tout le moteur RWKV était déjà dans le bundle. Construit pour répondre à une question produit par la mesure ; la réponse a fermé une piste et ouvert un arbitrage précis.',
+    },
+    groups: [
+      {
+        title: { en: 'RWKV-7 in the widget', fr: 'RWKV-7 dans le widget' },
+        items: [
+          { en: 'model now accepts an RWKV-7 .brik URL alongside LFM2. The dispatch mirrors the app’s: the recurrent engine (WGSL kernels, drivers, World tokenizer path) was already shipped inside sdk.js — only the pure model class and one guard stood between integrators and Apache-licensed models. Prompts switch to RWKV’s plain-text User:/Assistant: format, and generation now also stops on a textual turn marker: the World vocabulary has no special turn tokens, so without that cut a small model happily writes both sides of the conversation. The bundle grows by 15 KB.',
+            fr: 'model accepte désormais une URL de .brik RWKV-7 à côté de LFM2. Le dispatch est le miroir de celui de l’app : le moteur récurrent (kernels WGSL, drivers, chemin du tokenizer World) était déjà livré dans sdk.js — seuls la classe pure et une garde séparaient les intégrateurs des modèles sous licence Apache. Les prompts passent au format texte brut User:/Assistant: de RWKV, et la génération s’arrête aussi sur un marqueur de tour TEXTUEL : le vocabulaire World n’a aucun token spécial de tour, sans cette coupe un petit modèle écrit joyeusement les deux côtés de la conversation. Le bundle grossit de 15 Ko.' },
+          { en: 'Nothing moved for the default model: RAG 6/6, dialogue 33/33 over three rounds (only 2 caught by the safety net — the model earned 31 alone), API surface 50/50.',
+            fr: 'Rien n’a bougé pour le modèle par défaut : RAG 6/6, dialogue 33/33 sur trois tours (2 rattrapages du filet seulement — le modèle en obtient 31 seul), surface d’API 50/50.' },
+        ],
+      },
+      {
+        title: { en: 'Two measurements that settle a product question', fr: 'Deux mesures qui tranchent une question produit' },
+        items: [
+          { en: 'The lightweight-widget question (“can the default model weigh ~100 MB instead of 149?”) had been blocked on a model decision since mid-August. The dispatch made it measurable. RWKV-7 G1 0.1B (128 MB, Apache): 6/24 on the widget’s RAG cases — it serves its canonical refusal while the right document sits selected under its eyes, and when it does read, it copies the whole document, forbidden number included. Reading documents is simply above what a 0.1B can do; that path is closed whatever the file format.',
+            fr: 'La question du widget léger (« le modèle par défaut peut-il peser ~100 Mo au lieu de 149 ? ») était bloquée sur un choix de modèle depuis mi-août. Le dispatch l’a rendue mesurable. RWKV-7 G1 0.1B (128 Mo, Apache) : 6/24 sur les cas RAG du widget — il sert son refus canonique alors que la bonne fiche est sélectionnée sous ses yeux, et quand il lit, il recopie la fiche entière, montant interdit compris. Lire des fiches est simplement au-dessus de ce qu’un 0.1B sait faire ; cette piste est fermée quel que soit le format du fichier.' },
+          { en: 'RWKV-7 G1a 0.4B (304 MB, Apache): 10/12 — refusals, greetings and same-document number disambiguation all hold; the two failures are the same single case, reading a row out of a size table (it answers 26.0/26.5 cm instead of 27.0). The licence trade-off is now a figure, not a feeling: the Apache option costs twice the download and loses table reading against the 149 MB default (12/12, LFM 1.0 licence).',
+            fr: 'RWKV-7 G1a 0.4B (304 Mo, Apache) : 10/12 — refus, salutations et désambiguïsation de deux nombres d’une même fiche tiennent tous ; les deux échecs sont le même cas unique, lire une ligne dans un tableau de tailles (il répond 26,0/26,5 cm au lieu de 27,0). L’arbitrage de licence est désormais un chiffre, pas une impression : l’option Apache coûte deux fois le téléchargement et perd la lecture de tableau face au défaut de 149 Mo (12/12, licence LFM 1.0).' },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'August 24, 2026', fr: '24 août 2026' },
     tagline: {
       en: 'SDK 0.2.1: classification and one-shot generation join the resident GPU path — ×20 measured on the /local-ai demo, and video prompt enrichment rides along. Plus a lock on the shared GPU state: two widgets on one page can no longer silently corrupt each other’s answer.',
