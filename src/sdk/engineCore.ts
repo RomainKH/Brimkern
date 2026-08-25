@@ -8,10 +8,16 @@
 
 import { WebGpuEngine } from '../lib/webgpu/kernels';
 import { Lfm2Model } from '../lib/webgpu/lfm2Model';
+import { RwkvModel } from '../lib/webgpu/rwkvModel';
 import { loadBrikStream } from '../lib/webgpu/source';
 import { spanRawTensor } from '../lib/webgpu/layerSpans';
-import { formatPrompt } from '../lib/chatFormat';
+import { formatPrompt, TURN_MARKERS } from '../lib/chatFormat';
 import { BpeTokenizer } from '../lib/bpeTokenizer';
+
+// Les deux classes pures partagent le même contrat (load/residentAvailable/generate/
+// generateResident/classify) — c'est ce qui rend le dispatch trivial. Le reste du fichier ne
+// dépend d'aucun détail d'architecture : formatPrompt et l'arrêt textuel portent la différence.
+export type PureModel = Lfm2Model | RwkvModel;
 
 const TRANSFORMERS_CDN = 'https://esm.sh/@huggingface/transformers@4.2.0';
 export const MODELS: Record<string, string> = {
@@ -57,24 +63,29 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
   // Garde EXPLICITE avant de construire quoi que ce soit. Sans elle, l'erreur venait du fond du
   // moteur (« manifest sans profil lfm2 ») : exacte, mais illisible pour un intégrateur qui a juste
   // pointé une URL. On dit ce qui a été trouvé, ce qui est supporté, et où aller.
-  if (!m?.config?.lfm2) {
+  // Depuis 0.3.0 : lfm2 ET rwkv7 (le moteur RWKV — kernels, drivers — était déjà dans le bundle ;
+  // seule cette garde et la classe pure manquaient). Même dispatch que l'app (useModelEngine).
+  const kind: 'lfm2' | 'rwkv7' | null = m?.config?.lfm2 ? 'lfm2' : m?.config?.rwkv ? 'rwkv7' : null;
+  if (!kind) {
     const arch = m?.arch ?? m?.config?.arch ?? 'unknown';
     throw new Error(
-      `Brimkern SDK v0 runs LFM2 .brik models only: this file's architecture is "${arch}". ` +
-      'Use the default model (omit `model`), or convert/pick an LFM2 .brik. ' +
+      `Brimkern SDK runs LFM2 and RWKV-7 .brik models only: this file's architecture is "${arch}". ` +
+      'Use the default model (omit `model`), or convert/pick an LFM2 or RWKV-7 .brik. ' +
       'Full model support lives in the app: https://brimkern.com/chat',
     );
   }
   const emb = m.tensors['token_embd.weight'];
   const bm: any = {
-    arch: { ...m.config, arch: 'lfm2', vocab: emb ? emb.nElems / m.config.d : 0 },
+    arch: { ...m.config, arch: kind, vocab: emb ? emb.nElems / m.config.d : 0 },
     tensors: Object.fromEntries(Object.entries(m.tensors).map(([n, tt]: [string, any]) => [n, {
       dtype: GG[tt.type] ?? tt.type, shape: tt.shape, nElems: tt.nElems, shard: 0, offset: tt.offset, byteLength: tt.bytes,
     }])),
     shards: [{ id: 0, file: '', byteLength: 0 }],
-    // 7 = <|im_end|>, 2 = <|endoftext|> ; 8/10/12 = ouvertures de blocs outil (<|tool_list/call/response_start|>) :
-    // LFM2.5 hallucine des appels d'outil (et 10 est special=false → s'afficherait brut), le widget n'a pas d'outils.
-    chat: { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] },
+    // lfm2 : 7 = <|im_end|>, 2 = <|endoftext|> ; 8/10/12 = ouvertures de blocs outil : LFM2.5
+    // hallucine des appels d'outil (et 10 est special=false → s'afficherait brut), le widget n'a
+    // pas d'outils. rwkv7 : eos World = 0 ; le manifeste du .brik porte un template VIDE
+    // (build-rwkv-brik), c'est donc bien à l'appelant de le poser — comme le fait l'app.
+    chat: kind === 'lfm2' ? { template: 'chatml', stopTokenIds: [7, 2, 8, 10, 12] } : { template: 'rwkv', stopTokenIds: [0] },
   };
   // Progression en OCTETS : Lfm2Model.load lit chaque tenseur via rawTensor — on compte au fil de
   // l'eau (le point de rebond n°1 d'un widget qui télécharge ~150 Mo chez un visiteur tiers était
@@ -95,6 +106,16 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     return bytes;
   };
   onProgress('tokenizer');
+  if (kind === 'rwkv7') {
+    // RWKV : le .brik embarque le VOCAB World ({ tokens, eosId }), pas un tokenizer.json BPE —
+    // RwkvModel.load prend le tableau de tokens et tokenise lui-même (RwkvTokenizer interne).
+    const world = loadable.tokenizer?.json ? JSON.parse(loadable.tokenizer.json) as { tokens?: string[] } : null;
+    if (!world?.tokens) throw new Error('RWKV .brik without its embedded World vocab (rebuild the BRIK).');
+    const core = new RwkvModel(engine, bm, rawTensor);
+    onProgress('gpu');
+    await core.load(world.tokens);
+    return { core, engine };
+  }
   // Tokenizer BUNDLÉ (BpeTokenizer, token-exact vs transformers.js) ; CDN en repli si la config
   // n'est pas couverte (modèle non-BPE) — jamais sur le chemin nominal LFM2.5.
   let tok: { encode(s: string): number[]; decode(ids: number[]): string };
@@ -117,7 +138,7 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
 }
 
 // ── Singleton moteur par URL de modèle : N consommateurs, 1 init, 1 jeu de poids en VRAM ──
-type Loaded = { core: Lfm2Model; engine: WebGpuEngine };
+type Loaded = { core: PureModel; engine: WebGpuEngine };
 type ModelEntry = {
   promise: Promise<Loaded>;
   status: LoadPhase;                    // dernière phase de progression
@@ -154,7 +175,7 @@ export function getModel(url: string, onProgress?: (s: LoadPhase, p?: LoadProgre
 
 // Modèle GARANTI vivant : si le device a été perdu entre-temps (onLost a déjà retiré l'entrée, ou
 // la perte n'a pas encore été notifiée), on reconstruit avant de rendre la main.
-async function getLiveModel(url: string, onProgress?: (s: string) => void): Promise<Lfm2Model> {
+async function getLiveModel(url: string, onProgress?: (s: string) => void): Promise<PureModel> {
   const first = await getModel(url, onProgress);
   if (!first.engine.lost) return first.core;
   models.delete(url);
@@ -163,7 +184,7 @@ async function getLiveModel(url: string, onProgress?: (s: string) => void): Prom
 
 // Exécute une génération en encaissant UNE perte de device : on reconstruit le moteur et on rejoue
 // le tour (les poids reviennent du cache BRIK). Au-delà, l'erreur remonte à l'appelant.
-export async function withDeviceRetry<T>(url: string, fn: (core: Lfm2Model) => Promise<T>): Promise<T> {
+export async function withDeviceRetry<T>(url: string, fn: (core: PureModel) => Promise<T>): Promise<T> {
   const core = await getLiveModel(url);
   try {
     return await fn(core);
@@ -199,9 +220,23 @@ function cleanOutput(s: string, greeted: boolean): string {
   return out.trimEnd();
 }
 
+// Coupe le texte au PREMIER marqueur de tour rencontré (TURN_MARKERS). Indispensable pour RWKV :
+// le vocab World n'a aucun token spécial de tour, un nouveau tour s'écrit en texte brut « \nUser: »
+// — sans cette coupe, le 0.1B enchaîne les deux rôles et toute mesure « interdit » est faussée.
+// Appliqué aux deux archis (même filet que l'app) : sur LFM2 les marqueurs sont des tokens stops,
+// la coupe n'y est qu'une ceinture.
+function cutAtTurnMarker(t: string): { text: string; hit: boolean } {
+  let best = -1;
+  for (const m of TURN_MARKERS) {
+    const i = t.indexOf(m);
+    if (i !== -1 && (best === -1 || i < best)) best = i;
+  }
+  return best === -1 ? { text: t, hit: false } : { text: t.slice(0, best), hit: true };
+}
+
 // ── Génération partagée (widget ET sessions) : fenêtre d'historique + résident + nettoyage ──
 export async function runTurn(
-  core: Lfm2Model,
+  core: PureModel,
   history: Msg[],
   system: string,
   maxTokens: number,
@@ -211,14 +246,21 @@ export async function runTurn(
   pinned: Msg[] = [],
 ): Promise<string> {
   // Les exemples few-shot restent EN TÊTE quoi qu'il arrive ; seule la conversation glisse.
-  const prompt = formatPrompt([...pinned, ...history.slice(-HISTORY_WINDOW)] as any, 'lfm2' as any, system);
+  const arch = core instanceof RwkvModel ? 'rwkv7' : 'lfm2';
+  const prompt = formatPrompt([...pinned, ...history.slice(-HISTORY_WINDOW)] as any, arch as any, system);
   const greeted = pinned.some((m) => m.role === 'assistant') || history.some((m) => m.role === 'assistant');
   let acc = '';
+  let turnHit = false; // marqueur de tour vu → on arrête la génération, pas seulement l'affichage
   // Chemin RÉSIDENT (prefill par tranches + décodage rapide) si dispo, sinon repli forwardToken JS.
   const run = core.residentAvailable?.() ? core.generateResident.bind(core) : core.generate.bind(core);
   // Température modérée : 0.7 divague (small-talk halluciné, banc de Romain), 0.45 s'effondre
   // en écho — 0.55 mesuré comme le bon compromis sur la conv-type de la démo.
-  await run(prompt, maxTokens, (t: string) => { acc = cleanOutput(t, greeted); onToken?.(acc); }, isStopped, {
+  await run(prompt, maxTokens, (t: string) => {
+    const cut = cutAtTurnMarker(t);
+    if (cut.hit) turnHit = true;
+    acc = cleanOutput(cut.text, greeted);
+    onToken?.(acc);
+  }, () => turnHit || !!isStopped?.(), {
     sample: true, temperature, topK: 40, repeatPenalty: 1.3,
   });
   return acc;

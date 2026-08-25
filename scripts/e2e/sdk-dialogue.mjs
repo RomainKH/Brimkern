@@ -26,12 +26,16 @@
 // Chaque tour recharge la page pour repartir d'une conversation vierge (le modèle reste en cache).
 //
 // Prérequis : le site sur le port 3618 et `npm run build:sdk`.
-// Usage : node scripts/e2e/sdk-dialogue.mjs [tours] [--lang=en|fr]
+// Usage : node scripts/e2e/sdk-dialogue.mjs [tours] [--lang=en|fr] [--model=<url .brik>]
 import { chromium } from 'playwright-core';
 import { CHROME as EXE } from './chrome.mjs';
 
 const LANG = (process.argv.find((a) => a.startsWith('--lang=')) || '').slice(7) === 'fr' ? 'fr' : 'en';
 const TOURS = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 3);
+// `--model=<url .brik>` : même mécanique que sdk-rag.mjs — on intercepte l'affectation de
+// window.Brimkern pour surcharger le modèle du embed() de la page, sans modifier la page. C'est ce
+// qui permet de juger le DIALOGUE d'un autre modèle (candidat widget) sur exactement les mêmes cas.
+const MODELE = (process.argv.find((a) => a.startsWith('--model=')) || '').slice(8) || null;
 
 // `refus` : la réponse ne doit PAS être un refus type. `exigeRefus` : elle doit l'être.
 // Le motif inclut les PARAPHRASES DE LA CONSIGNE, pas seulement le refus canonique. Sans elles, le
@@ -90,6 +94,21 @@ const ctx = await chromium.launchPersistentContext(
   { executablePath: EXE, headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal'], viewport: { width: 1280, height: 900 } },
 );
 const page = ctx.pages()[0] ?? await ctx.newPage();
+
+// Surcharge du modèle AVANT que le script en ligne de la démo appelle embed() (cf. sdk-rag.mjs).
+if (MODELE) {
+  await page.addInitScript((url) => {
+    let vrai;
+    Object.defineProperty(window, 'Brimkern', {
+      configurable: true,
+      get: () => vrai,
+      set: (api) => {
+        vrai = (!api || typeof api.embed !== 'function') ? api : { ...api, embed: (cfg) => api.embed({ ...cfg, model: url }) };
+      },
+    });
+  }, MODELE);
+  console.log(`modèle forcé : ${MODELE}`);
+}
 
 async function ouvrir() {
   await page.goto(`http://localhost:3618/sdk-demo?lang=${LANG}&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
