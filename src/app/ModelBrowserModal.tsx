@@ -10,7 +10,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 import { Database, X, Upload, Search, Info, Play, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Feather, HardDriveDownload, DownloadCloud, Cpu, Gauge, AlertCircle, Film } from 'lucide-react';
 import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
-import { COMING_SOON, MODALITY_PILL, fmtModelSize, normModelName } from '@/lib/modelCatalog';
+import { COMING_SOON, MODALITY_PILL, IMAGE_PIPELINE_BYTES, VIDEO_PIPELINE_BYTES, VISION_PIPELINE_BYTES, fmtModelSize, normModelName } from '@/lib/modelCatalog';
 import { type WeightDType } from '@/lib/brik/convert';
 import { useNetworkStatus, estimateDownloadSeconds, formatDuration, type NetTier } from '@/lib/useNetworkStatus';
 import { useGpuCapability, gpuVerdict, type GpuVerdict } from '@/lib/useGpuCapability';
@@ -43,6 +43,13 @@ interface Props {
   setShowAllModels: Dispatch<SetStateAction<boolean>>;
   loadedModelName: string;
   isCached: (url?: string) => boolean;
+  // Pipelines image RÉELLEMENT téléchargés (UNet + CLIP intégraux), calculé par ChatApp : le test par
+  // préfixe d'URL des tuiles texte dirait « téléchargé » pour un fichier dont seul l'en-tête est en
+  // cache (cf. le commentaire de refreshImagePipelineCache).
+  imagePipelineCached?: Record<'sdturbo' | 'sdxs', boolean>;
+  // Pipeline vidéo (UNet + motion + CLIP) intégralement en cache. Pas d'équivalent VISION : le mmproj
+  // se charge par spans coalescés, il n'y a pas de notion de « complet » pour ce fichier.
+  videoPipelineCached?: boolean;
   userModels: UserModel[];
   setUserModels: Dispatch<SetStateAction<UserModel[]>>;
   benchRunning: boolean;
@@ -90,7 +97,7 @@ const parseParamsB = (name: string): number => {
 
 export function ModelBrowserModal({
   setBrowseOpen, modelState, autoConvert, setAutoConvert, convertTier, setConvertTier,
-  modelQuery, setModelQuery, isMobile, showAllModels, setShowAllModels, loadedModelName, isCached,
+  modelQuery, setModelQuery, isMobile, showAllModels, setShowAllModels, loadedModelName, isCached, imagePipelineCached, videoPipelineCached,
   userModels, setUserModels, benchRunning, handleUnloadModel, handleLoadModelFromUrl, handleStreamBrik, loadLocalBrikFromCache, onLoadFromInput,
   handleLoadLocalModel, handleDragOver, handleDragLeave, handleDrop, handleFileChange,
   selectedFile, setSelectedFile,
@@ -613,6 +620,18 @@ export function ModelBrowserModal({
                     // qui chargeait en fait SD-Turbo sous un autre nom, c'est un mensonge d'interface.
                     const isAvailableImage = m.name.includes('SDXS') || m.name.includes('Stable Diffusion Turbo');
                     const previewable = (m.modality === 'text2img' && isAvailableImage && !!onLoadImageModel) || (m.modality === 'vision' && !!onLoadVisionModel);
+                    // Un pipeline image déjà téléchargé doit se VOIR, exactement comme un preset texte :
+                    // ces cartes n'ont jamais porté l'état du cache, donc 1,23 Go déjà sur le disque
+                    // s'affichaient comme un modèle jamais vu — même bouton, même absence de chiffre
+                    // (retour de Romain, 2026-08-28). Même test que les tuiles texte (`isCached`, préfixe
+                    // d'URL), donc zéro requête et zéro asynchrone ici : les deux surfaces s'accordent.
+                    const imgKey = isAvailableImage ? (m.name.includes('SDXS') ? 'sdxs' as const : 'sdturbo' as const) : null;
+                    const imgCached = !!imgKey && !!imagePipelineCached?.[imgKey];
+                    // La carte vision annonce son POIDS (2,98 Go — le plus lourd du catalogue) sans
+                    // badge de cache : cf. le commentaire de la prop videoPipelineCached.
+                    const visionBytes = m.modality === 'vision' && !!onLoadVisionModel ? VISION_PIPELINE_BYTES : 0;
+                    const imgBytes = imgKey ? IMAGE_PIPELINE_BYTES[imgKey] : 0;
+                    const imgEta = imgKey && !imgCached ? etaFor(imgBytes) : null;
                     const isCurrentlyLoaded = !!loadedModelName && (
                       normModelName(loadedModelName) === normModelName(m.name) ||
                       (m.modality === 'vision' && loadedModelName.includes('Qwen2-VL')) ||
@@ -660,6 +679,27 @@ export function ModelBrowserModal({
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: pill.bg, color: pill.fg, border: `1px solid ${pill.fg}33`, fontWeight: 700 }}>{t(pill.label.en, pill.label.fr)}</span>
+                          {imgKey && imgCached && (
+                            <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 600 }}>
+                              {t('Downloaded', 'Téléchargé')}
+                            </span>
+                          )}
+                          {imgKey && !imgCached && (
+                            <span
+                              title={t('Full pipeline: UNet + CLIP + TAESD decoder', 'Pipeline complet : UNet + CLIP + décodeur TAESD')}
+                              style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                            >
+                              <DownloadCloud size={10} /> {fmtModelSize(imgBytes, isFr)}{imgEta ? ` · ~${imgEta}` : ''}
+                            </span>
+                          )}
+                          {!!visionBytes && (
+                            <span
+                              title={t('Full pipeline: Q8_0 LLM + f16 visual encoder', 'Pipeline complet : LLM Q8_0 + encodeur visuel f16')}
+                              style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                            >
+                              <DownloadCloud size={10} /> {fmtModelSize(visionBytes, isFr)}{etaFor(visionBytes) ? ` · ~${etaFor(visionBytes)}` : ''}
+                            </span>
+                          )}
                           {m.tags.map((tg, ti) => (
                             <span key={ti} style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>
                               {typeof tg === 'object' ? t(tg.en, tg.fr) : tg}
@@ -721,12 +761,23 @@ export function ModelBrowserModal({
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                         <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: MODALITY_PILL.text2img.bg, color: MODALITY_PILL.text2img.fg, border: `1px solid ${MODALITY_PILL.text2img.fg}33`, fontWeight: 700 }}>{t('Video', 'Vidéo')}</span>
+                        {videoPipelineCached && (
+                          <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 600 }}>
+                            {t('Downloaded', 'Téléchargé')}
+                          </span>
+                        )}
                         <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>{t('beta', 'bêta')}</span>
                       </div>
+                      {/* L'avertissement de coût ANNONÇAIT un téléchargement déjà fait : quand les
+                          1,53 Go sont en cache, il ne reste que le temps GPU — et le dire faux use la
+                          crédibilité du seul avertissement honnête de la carte. */}
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
                         <AlertCircle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
-                        <span>{t('~1.5 GB to download, then several minutes of GPU work for a few seconds of video.',
-                                 '~1,5 Go à télécharger, puis plusieurs minutes de calcul GPU pour quelques secondes de vidéo.')}</span>
+                        <span>{videoPipelineCached
+                          ? t('Already downloaded — several minutes of GPU work for a few seconds of video.',
+                              'Déjà téléchargé — plusieurs minutes de calcul GPU pour quelques secondes de vidéo.')
+                          : t(`${fmtModelSize(VIDEO_PIPELINE_BYTES, false)} to download, then several minutes of GPU work for a few seconds of video.`,
+                              `${fmtModelSize(VIDEO_PIPELINE_BYTES, true)} à télécharger, puis plusieurs minutes de calcul GPU pour quelques secondes de vidéo.`)}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
                         {isVideoActive ? (

@@ -67,6 +67,25 @@ export const IMAGE_BRIK = {
   },
 };
 
+// Poids TÉLÉCHARGÉ d'un pipeline image complet (UNet + CLIP + décodeur TAESD), octets exacts relevés
+// par HEAD sur le CDN HF le 2026-08-28. Sert à annoncer le coût AVANT le clic et à estimer l'attente,
+// comme les tuiles texte le font depuis toujours avec leur `sizeBytes` — une carte image sans chiffre
+// laissait cliquer sur 1,29 Go sans le dire.
+//   sdturbo : 920 570 640 (unet q8) + 362 080 544 (clip q8) + 4 895 612 (taesd)
+//   sdxs    : 205 482 384 (unet light) + 235 464 752 (clip mixte) + 4 895 612 (taesd)
+export const IMAGE_PIPELINE_BYTES: Record<'sdturbo' | 'sdxs', number> = {
+  sdturbo: 1_287_546_796,
+  sdxs: 445_842_748,
+};
+
+// Pipeline VIDÉO (UNet + module motion + CLIP + TAESD) et pipeline VISION (LLM Q8_0 + mmproj f16),
+// mêmes relevés HEAD du 2026-08-28. La carte vidéo annonçait « ~1,5 Go » en dur ; la carte vision
+// n'annonçait RIEN alors qu'elle coûte le double.
+//   vidéo  : 913 781 600 (unet) + 483 206 080 (motion) + 130 949 760 (clip) + 4 895 612 (taesd)
+//   vision : 1 646 571 776 (Qwen2-VL 2B Q8_0) + 1 331 656 192 (mmproj f16)
+export const VIDEO_PIPELINE_BYTES = 1_532_833_052;
+export const VISION_PIPELINE_BYTES = 2_978_227_968;
+
 // Normalize a model name/filename for loose matching (the active model name loses its .gguf and gets
 // cleaned when auto-converted to BRIK, so an exact === against the preset URL filename misses).
 export const normModelName = (s: string) => (s || '').toLowerCase().replace(/\.(gguf|brik)$/i, '').replace(/[^a-z0-9]/g, '');

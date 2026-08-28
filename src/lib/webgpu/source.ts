@@ -236,32 +236,90 @@ async function planImageBrikRanges(url: string, signal?: AbortSignal): Promise<{
 	return { cache, ranges };
 }
 
-// Le BRIK image est-il INTÉGRALEMENT en cache local ?
-export async function imageBrikCacheComplete(url: string): Promise<boolean> {
+// Plage par plage : quelles clés de cache ce BRIK image attend-il, et lesquelles sont là ?
+// Exporté parce que « il en manque » ne se diagnostique pas sans le détail — et parce que c'est la
+// SEULE définition de « intégralement en cache » (imageBrikCacheComplete la lit, le banc aussi).
+export async function imageBrikRangeStatus(url: string): Promise<{ keys: string[]; hits: boolean[] }> {
 	try {
 		const plan = await planImageBrikRanges(url);
-		if (!plan) return false;
-		const hits = await Promise.all(plan.ranges.map((r) => plan.cache.match(rangeKey(url, r.off, r.off + r.len - 1))));
-		return hits.every(Boolean);
+		if (!plan) return { keys: [], hits: [] };
+		const keys = plan.ranges.map((r) => rangeKey(url, r.off, r.off + r.len - 1));
+		const hits = await Promise.all(keys.map(async (k) => !!(await plan.cache.match(k))));
+		return { keys, hits };
 	} catch {
-		return false;
+		return { keys: [], hits: [] };
+	}
+}
+
+// Le BRIK image est-il INTÉGRALEMENT en cache local ?
+export async function imageBrikCacheComplete(url: string): Promise<boolean> {
+	const { keys, hits } = await imageBrikRangeStatus(url);
+	return keys.length > 0 && hits.every(Boolean);
+}
+
+// État du cache du pipeline image, PAR PIÈCE. Le détail n'est pas décoratif : les deux BRIK pèsent
+// 1,23 Go et le décodeur TAESD 4,7 Mo, donc « il manque quelque chose » ne dit rien d'utile — seul
+// compte de savoir s'il manque du LOURD.
+// ⚠️ Deux BUCKETS de Cache API distincts, et c'est le piège qui a rendu ce test toujours faux :
+// les plages des BRIK vivent dans `brik-range-v1` (openCache), mais le TAESD est un safetensors
+// entier écrit par `cachedBuf` de diffusion/sdturbo.ts dans `brimkern-model-cache` (FULL_CACHE).
+// La version précédente cherchait le TAESD dans le bucket des plages : `cache.match` n'y a jamais
+// répondu, la fonction sortait sur son premier `return false` — donc les 1,23 Go de UNet + CLIP
+// n'étaient même pas examinés, et l'auto-reprise d'une conversation image n'a jamais eu lieu.
+export interface ImageCacheState {
+	unet: boolean;
+	clip: boolean;
+	taesd: boolean;
+	/** Les POIDS LOURDS (UNet + CLIP) sont intégralement en cache. */
+	heavy: boolean;
+	/** Tout est là : zéro octet de réseau au chargement. */
+	complete: boolean;
+}
+
+export async function imageModelCacheState(urls: { unet: string; clip: string; taesd: string }): Promise<ImageCacheState> {
+	try {
+		const [unet, clip, taesd] = await Promise.all([
+			imageBrikCacheComplete(urls.unet),
+			imageBrikCacheComplete(urls.clip),
+			fullCached(urls.taesd),
+		]);
+		const heavy = unet && clip;
+		return { unet, clip, taesd, heavy, complete: heavy && taesd };
+	} catch {
+		return { unet: false, clip: false, taesd: false, heavy: false, complete: false };
 	}
 }
 
 // L'ensemble du pipeline image (UNet BRIK + CLIP BRIK + TAESD) est-il 100% en cache local ?
 export async function imageModelCached(urls: { unet: string; clip: string; taesd: string }): Promise<boolean> {
+	return (await imageModelCacheState(urls)).complete;
+}
+
+// Même chose pour la VIDÉO : trois BRIK streamés (UNet + module motion + CLIP) et le même décodeur
+// TAESD, dans le même bucket plein-fichier — depuis que videoGen le met en cache au lieu de le
+// retélécharger à chaque chargement.
+export interface VideoCacheState {
+	unet: boolean;
+	motion: boolean;
+	clip: boolean;
+	taesd: boolean;
+	/** Les POIDS LOURDS (UNet + motion + CLIP, ~1,53 Go) sont intégralement en cache. */
+	heavy: boolean;
+	complete: boolean;
+}
+
+export async function videoModelCacheState(urls: { unet: string; motion: string; clip: string; taesd: string }): Promise<VideoCacheState> {
 	try {
-		const cache = await openCache();
-		if (!cache) return false;
-		const taesdHit = await cache.match(urls.taesd);
-		if (!taesdHit) return false;
-		const [unetOk, clipOk] = await Promise.all([
+		const [unet, motion, clip, taesd] = await Promise.all([
 			imageBrikCacheComplete(urls.unet),
+			imageBrikCacheComplete(urls.motion),
 			imageBrikCacheComplete(urls.clip),
+			fullCached(urls.taesd),
 		]);
-		return unetOk && clipOk;
+		const heavy = unet && motion && clip;
+		return { unet, motion, clip, taesd, heavy, complete: heavy && taesd };
 	} catch {
-		return false;
+		return { unet: false, motion: false, clip: false, taesd: false, heavy: false, complete: false };
 	}
 }
 
@@ -284,6 +342,17 @@ export async function loadGgufStream(url: string, signal?: AbortSignal): Promise
 	const probe = await fetchRange(url, 0, 12, signal);
 	if (!probe.ranged) return null;
 	return { manifest: await parseGgufHeaderRanged(url, signal), source: rangeSource(url, 0) };
+}
+
+// Ce fichier est-il en cache dans le bucket PLEIN-FICHIER ? (`cachedBuf` de diffusion/sdturbo.ts y
+// écrit les safetensors entiers : TAESD, encodeur TAESD, décodeur VAE complet.)
+export async function fullCached(url: string): Promise<boolean> {
+	try {
+		const c = await caches.open(FULL_CACHE);
+		return !!(await c.match(url));
+	} catch {
+		return false;
+	}
 }
 
 // Une copie plein-fichier de ce GGUF est-elle en cache ? (ancien chemin monolithique.)

@@ -156,3 +156,27 @@ le ratio affiché est un MINORANT. Relevé du 2026-08-24 (LFM2.5 230M q4) : clas
   PID mort, et le lancement suivant s'ouvre sur un profil qui n'est pas celui qu'on croit — donc sans
   le cache du modèle (~1 Go). Le banc meurt sur un `waitForFunction: Timeout` qui accuse le moteur
   alors que le coupable est un fichier de verrou. `chrome.mjs` les nettoie à l'import.
+
+### `image-cache.mjs` — « j'ai le modèle sur le disque et l'app ne me le propose pas »
+
+Le banc des LECTEURS de cache du pipeline image. Il ne télécharge **aucun octet de poids** : il pose
+des entrées témoins aux clés exactes que le code interroge (les clés viennent de
+`imageBrikRangeStatus`, donc du même code que le lecteur), puis lit ce que l'interface en dit.
+
+```bash
+npm run test:imgcache      # build de prod sur 3618 requis
+```
+
+Il garde trois choses qui ont chacune été fausses :
+1. le décodeur **TAESD** vit dans le bucket `brimkern-model-cache` (fichier entier écrit par
+   `cachedBuf`), pas dans `brik-range-v1` (les plages) — le chercher dans le mauvais bucket rendait
+   `imageModelCached` toujours faux, donc l'auto-reprise d'une conversation image impossible ;
+2. un fichier dont seul l'**en-tête** est en cache ne compte PAS comme téléchargé — et c'est la
+   vérification elle-même qui écrit ces deux plages, donc le piège se referme tout seul sur un test
+   par préfixe d'URL ;
+3. la carte image annonce son **poids** (1,29 Go pour SD-Turbo, 446 Mo pour SDXS) quand elle n'est pas
+   en cache, et le badge « Téléchargé » quand elle l'est.
+
+⚠️ L'état exact est ASYNCHRONE (deux lectures d'en-tête + une interrogation par shard) : la carte
+s'affiche d'abord « non téléchargée » puis se corrige. Le banc attend que le texte se STABILISE — lire
+tout de suite mesure l'état intermédiaire.

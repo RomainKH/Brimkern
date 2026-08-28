@@ -11,6 +11,7 @@ import { makeEulerScheduler, randnSeeded } from '../diffusion/scheduler';
 import { unetForwardVideo, type UnetCfg, type UnetPace } from '../diffusion/unet';
 import { TaesdDecoder, chwToRGBA } from '../taesd';
 import { parseSafetensors } from '../../safetensors';
+import { fetchFullCached } from '../source';
 import { parseBrik } from '../../brik/container';
 import { computeShardBases } from '../../brik/loader';
 import { decodeTensor } from '../../brik/codec';
@@ -144,7 +145,12 @@ export async function loadVideoGenerator(
   const clip = new ClipTextEncoder(engine, loadClipWeights(clipST, CLIP_L), CLIP_L);
   const motions = await loadMotionModules(engine, urls.motion, onProgress, tr);
   onProgress?.(tr('VAE (TAESD)…', 'VAE (TAESD)…'));
-  const taesdBuf = await (await fetch(urls.taesd)).arrayBuffer();
+  // MIS EN CACHE, comme le chemin image. Un `fetch` nu retéléchargeait ces 4,7 Mo à CHAQUE
+  // chargement du pipeline vidéo — et rendait impossible de dire « le pipeline est complet en
+  // local », puisque le fichier n'était jamais stocké. Même bucket et même URL que le TAESD du
+  // chemin image (`cachedBuf` de diffusion/sdturbo.ts) : les deux modes se partagent la copie.
+  const taesdBytes = await fetchFullCached(urls.taesd);
+  const taesdBuf = (taesdBytes.buffer as ArrayBuffer).slice(taesdBytes.byteOffset, taesdBytes.byteOffset + taesdBytes.byteLength);
   const taesd = new TaesdDecoder(engine, parseSafetensors(taesdBuf, { keepF16: true }));
   const { AutoTokenizer } = await import('@huggingface/transformers');
   const tok = await AutoTokenizer.from_pretrained('openai/clip-vit-large-patch14');

@@ -364,11 +364,38 @@ function App() {
   // RANGE under `url?__brik=…` keys, so an exact Set.has(url) would miss them. Used for the badge,
   // auto-resume, and cache→library pruning so all three agree.
   const isCached = (url?: string) => !!url && [...cachedUrls].some((c) => c.startsWith(url));
+
+  // Pipelines IMAGE réellement téléchargés (UNet + CLIP intégraux), pour le badge des cartes image.
+  // ⚠️ Le test par PRÉFIXE ci-dessus ne suffit PAS ici, et le banc image-cache.mjs l'a prouvé : lire
+  // l'en-tête d'un BRIK laisse deux plages en cache (`?__brik=0-11`, `?__brik=0-102769`), donc un
+  // fichier seulement SONDÉ passait pour téléchargé — et c'est justement la sonde de cette
+  // vérification qui les écrit. On garde donc le préfixe comme PRÉ-FILTRE gratuit (rien en cache =
+  // rien à demander au réseau) et on tranche avec le test exact par plages.
+  const [imgPipelineCached, setImgPipelineCached] = useState<Record<'sdturbo' | 'sdxs', boolean>>({ sdturbo: false, sdxs: false });
+  // Idem pour la VIDÉO : trois BRIK (UNet + motion + CLIP, 1,53 Go). Pas d'équivalent pour la VISION
+  // — son mmproj se charge par spans COALESCÉS calculés à la lecture de l'en-tête GGUF, il n'existe
+  // donc aucune notion de « intégralement en cache » pour ce fichier. Sa carte annonce son poids,
+  // sans badge : un badge sur une information partielle serait exactement le mensonge qu'on vient de
+  // retirer aux cartes image.
+  const [videoPipelineCached, setVideoPipelineCached] = useState<boolean>(false);
+  const refreshImagePipelineCache = async () => {
+    const src = await import('@/lib/webgpu/source');
+    const next = { sdturbo: false, sdxs: false };
+    for (const k of ['sdturbo', 'sdxs'] as const) {
+      const { taesd, brik } = resolveImageModel(k);
+      if (!isCached(brik.unet) || !isCached(brik.clip)) continue;   // zéro requête dans le cas courant
+      next[k] = (await src.imageModelCacheState({ unet: brik.unet, clip: brik.clip, taesd })).heavy;
+    }
+    setImgPipelineCached(next);
+    const vidPresent = isCached(VIDEO_BRIK.unet) && isCached(VIDEO_BRIK.motion) && isCached(VIDEO_BRIK.clip);
+    setVideoPipelineCached(vidPresent ? (await src.videoModelCacheState(VIDEO_BRIK)).heavy : false);
+  };
   // Keep the library in sync with the cache: after a Storage-panel clear, drop URL models whose bytes
   // are gone (local entries stay — they were never cached). Re-reads the cache to refresh badges too.
   const handleCacheChanged = async () => {
     const fresh = await cachedModelUrls().catch(() => new Set<string>());
     setCachedUrls(fresh);
+    refreshImagePipelineCache().catch(() => { /* cache indisponible : badge au pire absent */ });
     setUserModels((prev) => prev.filter((m) => m.kind === 'local' || (m.url && [...fresh].some((c) => c.startsWith(m.url!)))));
   };
 
@@ -458,6 +485,29 @@ function App() {
       e.destroy();
       console.log(fail ? `[vit] self-test KO: ${fail}` : '[vit] self-test OK (rope_2d + encodeur + merger)');
       return fail ?? 'OK';
+    };
+    // __imageCache() : état du cache du pipeline image, PAR PIÈCE, avec les URLs réellement testées.
+    // Sert le banc image-cache.mjs — et le diagnostic « pourquoi ça ne me propose pas le modèle que
+    // j'ai déjà téléchargé ? », dont la réponse a été pendant dix jours « le test cherchait le TAESD
+    // dans le mauvais bucket de Cache API » (source.ts, imageModelCacheState).
+    (window as any).__imageCache = async () => {
+      const { taesd, brik } = resolveImageModel();
+      const src = await import('@/lib/webgpu/source');
+      const state = await src.imageModelCacheState({ unet: brik.unet, clip: brik.clip, taesd });
+      // Le détail des plages avec l'état : « il en manque » ne se diagnostique pas autrement.
+      const [unetR, clipR] = await Promise.all([src.imageBrikRangeStatus(brik.unet), src.imageBrikRangeStatus(brik.clip)]);
+      const compte = (r: { keys: string[]; hits: boolean[] }) => ({ total: r.keys.length, present: r.hits.filter(Boolean).length, keys: r.keys });
+      return { urls: { unet: brik.unet, clip: brik.clip, taesd }, ...state, ranges: { unet: compte(unetR), clip: compte(clipR) } };
+    };
+    // __videoCache() : le même diagnostic pour le pipeline vidéo (UNet + motion + CLIP + TAESD).
+    (window as any).__videoCache = async () => {
+      const src = await import('@/lib/webgpu/source');
+      const state = await src.videoModelCacheState(VIDEO_BRIK);
+      const parts = await Promise.all((['unet', 'motion', 'clip'] as const).map((k) => src.imageBrikRangeStatus(VIDEO_BRIK[k])));
+      return {
+        urls: VIDEO_BRIK, ...state,
+        ranges: Object.fromEntries((['unet', 'motion', 'clip'] as const).map((k, i) => [k, { total: parts[i].keys.length, present: parts[i].hits.filter(Boolean).length, keys: parts[i].keys }])),
+      };
     };
     // __mmprojLoad(url) : CHRONOMÈTRE le chargement des poids du ViT (le vrai coût de la vision —
     // 512 plages en série + une vidange GPU par tenseur avant l'optimisation du 2026-08-12).
@@ -721,6 +771,10 @@ function App() {
       e.destroy();
       return { mTokens, dtype, results };
     };
+    // Effet de MONTAGE : ces hooks ne sont que des points d'entrée console, ils lisent l'état au
+    // moment de l'appel (resolveImageModel inclus) — les relier aux dépendances les réinstallerait à
+    // chaque frappe pour rien.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // __gpuProfile() : le BUDGET GPU PAR PASSE du modèle réellement chargé (?gpuprofile=1).
@@ -1445,6 +1499,14 @@ function App() {
     if (userInput) ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [userInput]);
 
+  // L'état exact des pipelines image se calcule à L'OUVERTURE du navigateur de modèles : c'est le
+  // seul endroit où le badge est lu, donc le seul moment où deux lectures d'en-tête se justifient.
+  useEffect(() => {
+    if (!browseOpen) return;
+    refreshImagePipelineCache().catch(() => { /* cache indisponible : badge au pire absent */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseOpen, cachedUrls]);
+
   // Load saved conversations on mount. This effect bridges the two hooks: it seeds the cache set and
   // the conversation list, then auto-resumes the most recent non-empty chat. If that chat's model is a
   // known preset already cached, load the MODEL FIRST (no network) — its activation paints the welcome
@@ -1466,13 +1528,17 @@ function App() {
       const last = cs.find((c) => c.messages?.length);
       if (!last) return;
       if (last.modelUrl === IMAGE_MODEL_URL) {
-        // Conversation IMAGE : auto-rechargement rapide si le pipeline est INTÉGRALEMENT en cache
-        // local (0 ms réseau). Les URLs testées viennent de resolveImageModel — LE MÊME résolveur
-        // que loadImageModel utilisera juste après, sinon la garde ne garde rien (cf. son commentaire).
+        // Conversation IMAGE : auto-rechargement rapide si les POIDS LOURDS sont en cache local. Les
+        // URLs testées viennent de resolveImageModel — LE MÊME résolveur que loadImageModel utilisera
+        // juste après, sinon la garde ne garde rien (cf. son commentaire).
+        // La garde protège d'un GROS téléchargement au premier plan : 1,23 Go de UNet + CLIP. Le
+        // décodeur TAESD pèse 4,7 Mo — l'exiger faisait renoncer à 1,23 Go déjà sur le disque pour un
+        // fichier qui se retélécharge en une seconde. On l'accepte donc manquant TANT QU'ON EST EN
+        // LIGNE ; hors ligne il redevient bloquant, puisque le chargement échouerait sans lui.
         const src = await import('@/lib/webgpu/source');
         const { taesd, brik } = resolveImageModel();
-        const imageCached = await src.imageModelCached({ unet: brik.unet, clip: brik.clip, taesd });
-        if (imageCached) {
+        const imgCache = await src.imageModelCacheState({ unet: brik.unet, clip: brik.clip, taesd });
+        if (imgCache.complete || (imgCache.heavy && navigator.onLine)) {
           await loadImageModel();
           if (cancelled) return;
           restoreConversation(last);
@@ -1483,6 +1549,17 @@ function App() {
         return;
       }
       if (last.modelUrl === VIDEO_MODEL_URL) {
+        // Conversation VIDÉO : même raccourci que l'image, qui manquait ici — rouvrir laissait la
+        // conversation devant un pipeline déchargé alors que ses 1,53 Go étaient sur le disque. Même
+        // règle : les POIDS LOURDS suffisent, le TAESD (4,7 Mo) est toléré manquant en ligne.
+        const src = await import('@/lib/webgpu/source');
+        const vid = await src.videoModelCacheState(VIDEO_BRIK);
+        if (vid.complete || (vid.heavy && navigator.onLine)) {
+          await loadVideoModel();
+          if (cancelled) return;
+          restoreConversation(last);
+          return;
+        }
         restoreConversation(last);
         return;
       }
@@ -2953,6 +3030,8 @@ function App() {
               setShowAllModels={setShowAllModels}
               loadedModelName={displayModelName}
               isCached={isCached}
+              imagePipelineCached={imgPipelineCached}
+              videoPipelineCached={videoPipelineCached}
               userModels={userModels}
               setUserModels={setUserModels}
               benchRunning={benchRunning}
