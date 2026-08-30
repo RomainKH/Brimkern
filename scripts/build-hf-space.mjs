@@ -17,4 +17,4 @@ cpSync('public/sdk.js', `${OUT}/sdk.js`);
 
 const kb = (p) => `${(statSync(p).size / 1024).toFixed(0)} KB`;
 console.log(`${OUT}/ prêt — index.html ${kb(`${OUT}/index.html`)}, sdk.js ${kb(`${OUT}/sdk.js`)}, README.md (front-matter sdk: static)`);
-console.log('Publier :  cp -r .hf-space/* <clone-du-space>/ && git -C <clone-du-space> add -A && git -C <clone-du-space> commit -m "Le Kern" && git -C <clone-du-space> push');
+console.log('Publier :  hf upload <org>/<space> .hf-space . --repo-type=space --commit-message="Brimkern — LLM WebGPU"');

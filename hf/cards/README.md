@@ -59,8 +59,15 @@ done
 Puis vérifier que le tag prend :
 
 ```bash
-curl -s "https://huggingface.co/api/models?other=brimkern" | python3 -m json.tool | grep '"id"'
+# ⚠️ Côté API c'est `filter=`, PAS `other=` : avec `other=` l'API IGNORE le paramètre en silence et
+# rend les 1000 modèles tendance — une vérification qui semble marcher et ne vérifie rien.
+# `other=` reste la bonne forme pour l'URL du SITE.
+curl -s "https://huggingface.co/api/models?filter=brimkern" | python3 -c "import json,sys;[print(m['id']) for m in json.load(sys.stdin)]"
+open "https://huggingface.co/models?other=brimkern"
 ```
+
+Fait le 2026-08-30 : les **7 dépôts** remontent, et le `license:mit` du Qwen2.5 est devenu
+`license:apache-2.0` (le tag est bien dérivé de la carte).
 
 ⚠️ Rappel du § 1 de `docs/huggingface-integration.md` : **déployer le site AVANT** de faire pointer
 des visiteurs sur ces cartes — un `.brik` à embeddings q4 exige le runtime déployé, et les deeplinks

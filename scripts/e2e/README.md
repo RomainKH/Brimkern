@@ -180,3 +180,26 @@ Il garde trois choses qui ont chacune été fausses :
 ⚠️ L'état exact est ASYNCHRONE (deux lectures d'en-tête + une interrogation par shard) : la carte
 s'affiche d'abord « non téléchargée » puis se corrige. Le banc attend que le texte se STABILISE — lire
 tout de suite mesure l'état intermédiaire.
+
+### `hf-space.mjs` — le Space vitrine, avant de le publier
+
+Le Space statique de Hugging Face est la « preuve vivante » que citent les deux PR `huggingface.js` :
+c'est la première chose qu'un mainteneur du Hub ouvrira. Il ne passe par AUCUN chemin du site — le SDK
+y est servi en fichier statique, sans Next, et le modèle vient d'une autre origine — donc aucun autre
+banc ne le couvre.
+
+```bash
+npm run build:hf-space && npm run test:hfspace       # profil chaud
+node scripts/e2e/hf-space.mjs --froid                # re-télécharge les 149 Mo
+```
+
+Il sert `.hf-space/` sur un port éphémère (comme `flops.mjs` sert sa propre page), charge vraiment le
+modèle depuis le Hub et exige une **vraie réponse**. Il garde aussi trois choses qui ne sont pas de la
+correction de code : la page est en **anglais** (la version que le Hub trouve), elle dit **Brimkern**
+et pas l'ancien nom, et le chiffre affiché est celui qu'on mesure — la vitrine annonçait **~40 t/s**
+pour un modèle qui en fait ~158, soit quatre fois moins que la vérité.
+
+⚠️ Deux pièges de banc payés ici : une **fonction ne traverse pas `page.evaluate`** (elle revient
+`undefined`, donc un test de `typeof` fait dehors échoue toujours, même quand tout va bien), et une
+génération **streamée** valide sa première bribe si l'on attend « du texte non vide » — le signal de
+fin est le bouton d'envoi qui se réactive, pas le premier token.

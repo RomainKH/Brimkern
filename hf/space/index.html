@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Le Kern — un LLM de 149 Mo dans votre onglet (WebGPU)</title>
+<title>Brimkern — a 149 MB LLM running in your tab (WebGPU)</title>
 <style>
   :root{--paper:#f2efe8;--ink:#1a1a1a;--muted:#8b887f;--line:#e0dccf;--red:#c72c1e;--card:#fff}
   @media (prefers-color-scheme: dark){:root{--paper:#16150f;--ink:#f1eee6;--muted:#9a978d;--line:#2e2b24;--card:#1e1c16}}
@@ -38,37 +38,39 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Un LLM de 149 Mo, dans votre onglet.</h1>
+  <h1>A 149 MB LLM, running in your tab.</h1>
   <div class="rule"></div>
-  <p class="sub">LFM2.5-230M au format BRIK, exécuté par des kernels WGSL maison sur <b>votre</b> GPU.
-     Aucun serveur d'inférence, aucune clé d'API : le texte ne quitte pas la machine.</p>
+  <p class="sub">LFM2.5-230M in the BRIK format, run by hand-written WGSL kernels on <b>your</b> GPU.
+     No inference server, no API key: the text never leaves the machine.</p>
 
   <div id="nogpu" class="warn" style="display:none">
-    Ce navigateur n'expose pas WebGPU. Ouvrez la page dans Chrome ou Edge (113+), ou Safari 18+.
+    This browser does not expose WebGPU. Open the page in Chrome or Edge (113+), or Safari 18+.
   </div>
 
   <div class="facts">
-    <div class="fact"><b>149 Mo</b><span>streamés par plages HTTP, puis hors ligne</span></div>
-    <div class="fact"><b>0 serveur</b><span>tout tourne côté visiteur</span></div>
-    <div class="fact"><b>~40 t/s</b><span>décodage résident sur GPU d'ordinateur portable</span></div>
+    <div class="fact"><b>149 MB</b><span>streamed by HTTP ranges, then offline</span></div>
+    <div class="fact"><b>0 servers</b><span>everything runs on the visitor's device</span></div>
+    <div class="fact"><b>~158 tok/s</b><span>decoding, measured on an Apple&nbsp;Silicon laptop</span></div>
   </div>
 
   <div class="card">
-    <button id="load">Charger le modèle (149 Mo)</button>
+    <button id="load">Load the model (149 MB)</button>
     <div class="bar" id="bar"><i></i></div>
     <div class="status" id="status"></div>
     <div class="msgs" id="msgs"></div>
     <div class="row" id="row" style="display:none">
-      <input type="text" id="q" placeholder="Posez une question…" autocomplete="off" />
-      <button id="send">Envoyer</button>
+      <input type="text" id="q" placeholder="Ask a question…" autocomplete="off" />
+      <button id="send">Send</button>
     </div>
   </div>
 
   <footer>
-    Moteur & format : <a href="https://brimkern.com">Le Kern</a> ·
-    poids <a href="https://huggingface.co/romainkh14/LFM2.5-230M_BRIK">romainkh14/LFM2.5-230M_BRIK</a>
-    (base <a href="https://huggingface.co/LiquidAI/LFM2.5-230M">LiquidAI/LFM2.5-230M</a>, licence LFM 1.0).
-    Ce Space est <b>statique</b> : il ne consomme aucun GPU côté Hugging Face.
+    Engine &amp; format: <a href="https://brimkern.com">Brimkern</a> ·
+    weights <a href="https://huggingface.co/romainkh14/LFM2.5-230M_BRIK">romainkh14/LFM2.5-230M_BRIK</a>
+    (base <a href="https://huggingface.co/LiquidAI/LFM2.5-230M">LiquidAI/LFM2.5-230M</a>, LFM 1.0 license).
+    Open <b>any</b> single-file GGUF or BRIK from the Hub in the same engine:
+    <a href="https://brimkern.com/chat">brimkern.com/chat?model=author/repo</a>.
+    This Space is <b>static</b>: it uses no Hugging Face GPU.
   </footer>
 </div>
 
@@ -91,19 +93,19 @@
     const ok = await Brimkern.preload({
       model: MODEL,
       onProgress: (phase, p) => {
-        $('status').textContent = p && p.total ? `${phase} ${mb(p.loaded)} / ${mb(p.total)} Mo` : phase;
+        $('status').textContent = p && p.total ? `${phase} ${mb(p.loaded)} / ${mb(p.total)} MB` : phase;
         if (p && p.total) $('bar').firstElementChild.style.width = (p.loaded / p.total * 100) + '%';
       },
     });
-    if (!ok) { $('status').textContent = 'Échec du chargement — WebGPU indisponible ou mémoire insuffisante.'; $('load').disabled = false; return; }
+    if (!ok) { $('status').textContent = 'Load failed — WebGPU unavailable or not enough memory.'; $('load').disabled = false; return; }
     $('bar').style.display = 'none';
-    $('status').textContent = 'Prêt — le modèle est en cache, la prochaine visite sera instantanée (et hors ligne).';
+    $('status').textContent = 'Ready — the model is cached: the next visit is instant, and works offline.';
     $('load').style.display = 'none'; $('row').style.display = 'flex'; $('q').focus();
     session = Brimkern.createSession({
       model: MODEL,
-      system: 'Tu es un assistant utile et concis. Réponds dans la langue de la question.',
+      system: 'You are a helpful, concise assistant. Answer in the language of the question.',
     });
-    bubble('a', 'Bonjour ! Je tourne entièrement sur votre GPU. Posez-moi une question.');
+    bubble('a', 'Hi! I am running entirely on your GPU. Ask me anything.');
   };
 
   const send = async () => {
@@ -114,9 +116,9 @@
     const out = bubble('a', '…');
     try {
       const reply = await session.ask(text, { onToken: (t) => { out.textContent = t || '…'; out.scrollIntoView({ block: 'nearest' }); } });
-      out.textContent = reply || '(réponse vide)';
+      out.textContent = reply || '(empty answer)';
     } catch (e) {
-      out.textContent = 'Erreur : ' + (e && e.message ? e.message : e);
+      out.textContent = 'Error: ' + (e && e.message ? e.message : e);
     } finally { busy = false; $('send').disabled = false; $('q').focus(); }
   };
   $('send').onclick = send;
