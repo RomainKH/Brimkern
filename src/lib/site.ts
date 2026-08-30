@@ -16,7 +16,7 @@ export const SITE_URL = 'https://brimkern.com';
 //
 // Le format du deeplink « ouvrir ce modèle » est `/chat?model=<auteur/dépôt>[&file=<fichier>]`
 // (les liens publiés vers `/?model=…` restent valides : la landing transmet la query à /chat).
-// Il n'a PLUS de constructeur ici : le seul producteur vivant est hf/local-apps-entry.ts —
+// Il n'a PLUS de constructeur ici : le seul producteur vivant est hf/huggingface-js.patch —
 // volontairement autonome, cf. ci-dessus — et la doc affiche des exemples littéraux. L'ancien
 // helper `modelDeeplink` et la constante `LEGACY_SITE_URL` ont été retirés le 2026-08-16 (plus
 // aucun appelant depuis la refonte landing du 13/08).

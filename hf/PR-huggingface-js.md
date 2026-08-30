@@ -1,9 +1,11 @@
 # Les deux PR `huggingface/huggingface.js` — patch vérifié, procédure, texte de PR
 
 C'est l'étape qui met **« Use this model » sur des milliers de pages de dépôts GGUF** : le playbook
-llama.cpp/Ollama, et le seul levier de VOLUME du plan Hugging Face. Le patch complet est dans
-`hf/huggingface-js.patch` ; les entrées commentées sont dans `hf/local-apps-entry.ts` et
-`hf/model-libraries-entry.ts`.
+llama.cpp/Ollama, et le seul levier de VOLUME du plan Hugging Face. Le patch complet et VÉRIFIÉ est dans `hf/huggingface-js.patch` — c'est la seule source de vérité.
+Les deux brouillons `.ts` qui vivaient ici ont été supprimés le 2026-08-30 : ils ne compilaient dans
+AUCUN dépôt (ils référencent `ModelData`, `snippets`, `isLlamaCppGgufModel`, qui sont amont), donc
+rien ne les vérifiait — et c'est précisément comme ça qu'ils avaient accumulé cinq erreurs en dix-huit
+jours. Un patch, lui, s'applique ou échoue.
 
 ## État des prérequis (vérifié le 2026-08-30)
 
