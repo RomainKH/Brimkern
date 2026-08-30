@@ -1,36 +1,45 @@
-// PROPOSITION DE PATCH — huggingface/huggingface.js
+// PROPOSITION DE PATCH — huggingface/huggingface.js  (Apache-2.0)
 // Fichiers cibles :
-//   1) packages/tasks/src/model-libraries.ts           → l'entrée `brimkern` (ordre alphabétique)
-//   2) packages/tasks/src/model-libraries-snippets.ts  → la fonction `brimkern` ci-dessous
-// Voir docs/huggingface-integration.md. Prérequis : ≥ 1 modèle en ligne avec
-// `library_name: brimkern` (vérifiable sur https://huggingface.co/models?other=brimkern).
+//   1) packages/tasks/src/model-libraries.ts           → l'entrée `brimkern` (ORDRE ALPHABÉTIQUE :
+//      entre `boltzgen` et `cancertathomev2`)
+//   2) packages/tasks/src/model-libraries-snippets.ts  → la fonction `brimkern` (ordre alphabétique
+//      aussi : juste avant `bm25s`)
+// Prérequis : ≥ 1 modèle en ligne avec `library_name: brimkern`. FAIT le 2026-08-30 — les 7 dépôts
+// remontent sur `https://huggingface.co/api/models?filter=brimkern`.
 //
-// ⚠️ Le registre est pour les BIBLIOTHÈQUES (architectures/moteurs), pas les formats de fichier :
-// on y déclare le MOTEUR (SDK npm `brimkern`), le conteneur .brik n'étant qu'un détail interne.
+// ⚠️ Le registre est pour les BIBLIOTHÈQUES (architectures/moteurs), pas les formats de fichier — son
+// propre commentaire le dit. On y déclare donc le MOTEUR (SDK npm `brimkern`) ; le conteneur .brik
+// n'est qu'un détail d'implémentation.
+// ⚠️ `snippets` attend une RÉFÉRENCE DE FONCTION (`snippets.brimkern`), pas la chaîne
+// `"snippets.brimkern"` qu'annonçait la version précédente de ce fichier.
 
 // ── 1) model-libraries.ts ─────────────────────────────────────────────────────────────────────
 const library = {
 	brimkern: {
-		prettyLabel: "BRIMKERN",
+		prettyLabel: "Brimkern",
 		repoName: "brimkern",
-		repoUrl: "https://github.com/romainkhanoyan/brimkern",
-		docsUrl: "https://brimkern.com/local-ai",
-		snippets: "snippets.brimkern", // → la fonction ci-dessous
-		filter: false,                  // passera à true au-delà de ~100 modèles taggés
+		repoUrl: "https://github.com/RomainKH/Brimkern",
+		docsUrl: "https://brimkern.com/docs/sdk",
+		snippets: snippets.brimkern,
+		filter: false, // passera à true au-delà de ~100 modèles taggés (règle du registre)
 		// UNE lecture de modèle = UN fichier .brik (conteneur mono-fichier, tokenizer inclus).
 		countDownloads: `path_extension:"brik"`,
 	},
 };
 
 // ── 2) model-libraries-snippets.ts ────────────────────────────────────────────────────────────
-export const brimkern = (model: { id: string }): string[] => [
-	`<!-- Runs fully in the browser on the visitor's GPU (WebGPU). No server, no API key. -->
+// ⚠️ `type="module"` n'est pas décoratif : sans lui, le `await` de dernier niveau est une ERREUR DE
+// SYNTAXE et le snippet publié ne s'exécute pas. Vérifié tel quel dans Chrome le 2026-08-30 (page
+// servie en statique, LFM2.5-230M streamé depuis le Hub) → « The capital of France is Paris. »
+export const brimkern = (model: ModelData): string[] => [
+	`<!-- Runs entirely in the visitor's browser, on their GPU (WebGPU). No server, no API key. -->
 <script src="https://brimkern.com/sdk.js"></script>
-<script>
+<script type="module">
   const session = Brimkern.createSession({
+    // Point at the .brik file of this repo:
     model: "https://huggingface.co/${model.id}/resolve/main/MODEL.brik",
   });
-  const reply = await session.ask("Hello!", { onToken: (t) => console.log(t) });
+  const answer = await session.ask("Hello!", { onToken: (token) => console.log(token) });
 </script>`,
 ];
 
