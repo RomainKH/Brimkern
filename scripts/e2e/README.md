@@ -87,6 +87,30 @@ la foi de la maquette perdait ses écritures de composantes vec4 à indice dynam
 en silence), et la seconde (forme dot-produit) rendait ×0,91 — seule la troisième (produit
 extérieur + transposition en registres) a tenu la promesse. Le juge reste `bench-decode.mjs`.
 
+### `fruit-fly.mjs` — la page qui publie un chiffre mesuré chez le VISITEUR
+
+`/fruit-fly` compare le GPU du lecteur au connectome de la drosophile (166 000 neurones, 125 M de
+synapses — Janelia/Google, *Cell*, 03/09/2026). Le chiffre de la mouche vient d'une publication ;
+celui du GPU est mesuré dans l'onglet au clic (`src/lib/webgpu/flyBench.ts`). Ce banc vérifie les
+trois choses qui rendraient la page mensongère si elles lâchaient :
+
+```bash
+npm run build && npx next start -p 3618
+node scripts/e2e/fruit-fly.mjs
+```
+
+1. **le gate** — un débit ne s'affiche QUE si le kernel a retrouvé sa référence CPU, et les deux
+   chiffres du panneau (GFLOP/s et balayages/s) doivent être le même chiffre vu deux fois ;
+2. **le bras témoin** `?flybench=0` — page sans chiffre, et qui dit pourquoi ;
+3. **le bilinguisme** — anglais canonique, français sous `/fr`, nombres formatés dans la langue de
+   la page, et `<html lang>` correct. C'est ce dernier point qui a fait tomber le bug de langue du
+   § 16 de la ROADMAP : **toutes** les pages `/fr` servaient `lang="en"`.
+
+⚠️ Le garde-fou d'ordre de grandeur est LARGE à dessein (5 à 4000 GFLOP/s) : ce banc doit passer du
+téléphone au GPU discret. Il attrape un kernel qui rend 0 ou l'infini, pas un GPU lent. Relevé de
+référence sur la machine de dev : **~490 GFLOP/s**, à ±0,6 % sur six chargements (cf. la rampe de
+fréquence, ROADMAP § 16 — sans elle c'était ±13 %).
+
 ### `validate-kernels.mjs` — la boucle courte quand on écrit un kernel
 
 Fait tourner `window.__selfValidate()` : exactement la validation que subit tout chargement de
