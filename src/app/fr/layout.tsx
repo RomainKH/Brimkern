@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Script from 'next/script';
 import { LocaleProvider } from '@/lib/i18n';
 import { SITE_URL } from '@/lib/site';
 
@@ -29,15 +28,15 @@ export const metadata: Metadata = {
 
 export default function FrLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      {/* `<html lang>` ne peut être posé que par le layout RACINE en App Router. On corrige donc
-          l'attribut avant le premier paint sur les pages /fr (même procédé que l'initialisation du
-          thème). Le CONTENU, lui, est bien en français dans le HTML servi — c'est ce que les moteurs
-          indexent — et hreflang déclare formellement la paire de langues. */}
-      <Script id="brimkern-lang-fr" strategy="beforeInteractive" dangerouslySetInnerHTML={{
-        __html: `try{document.documentElement.lang='fr'}catch(e){}`,
-      }} />
-      <LocaleProvider initialLocale="fr">{children}</LocaleProvider>
-    </>
+    // `<html lang>` ne peut être posé que par le layout RACINE en App Router : il est donc corrigé
+    // côté client par LocaleProvider, qui le DÉRIVE DU CHEMIN (cf. le correctif daté dans i18n.tsx).
+    // Il y avait ici un <Script strategy="beforeInteractive"> censé faire le travail avant le
+    // premier paint : retiré le 2026-09-11 parce qu'il ne l'a jamais fait — Next n'honore cette
+    // stratégie que dans le layout racine, et le script ne sortait donc jamais en balise (vérifié :
+    // il n'apparaissait que dans la charge RSC). Le garder aurait entretenu la croyance qu'un filet
+    // couvrait ce cas.
+    // Le CONTENU, lui, est bien en français dans le HTML servi — c'est ce que les moteurs indexent —
+    // et hreflang déclare formellement la paire de langues.
+    <LocaleProvider initialLocale="fr">{children}</LocaleProvider>
   );
 }

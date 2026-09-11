@@ -45,9 +45,23 @@ export function LocaleProvider({ children, initialLocale = 'en' }: { children: R
 	// rejoue pas lors d'une navigation côté client : après un clic sur « FR », l'attribut restait à
 	// « en » (vérifié). On le synchronise donc ici, où la locale est connue — un lecteur d'écran doit
 	// changer de voix en changeant de langue.
+	//
+	// ⚠️ ON DÉRIVE DU CHEMIN, PAS DE `initialLocale`, et c'est tout le correctif du 2026-09-11.
+	// Les providers sont IMBRIQUÉS : /fr/* est rendu par le provider « fr » du layout /fr, lui-même
+	// enveloppé par le provider « en » du layout racine. Or les effets de React remontent des
+	// enfants vers les parents — l'enfant écrivait donc « fr », puis le parent repassait derrière
+	// avec « en », à chaque rendu. Résultat mesuré au banc : TOUTES les pages /fr servaient
+	// lang="en" (/fr, /fr/docs, /fr/chat, /fr/vs-webllm), c'est-à-dire une violation axe-core et un
+	// lecteur d'écran qui lit le français avec une voix anglaise, sur la moitié du site.
+	// Le second filet censé couvrir ça — le <Script beforeInteractive> du layout /fr — était mort
+	// lui aussi : Next ne l'honore que dans le layout RACINE, il ne sortait donc jamais en balise
+	// (il n'existait que dans la charge RSC). Deux filets, deux trous, et rien pour le dire.
+	// En dérivant du chemin, les deux providers calculent la MÊME valeur : leur ordre n'a plus
+	// d'importance, et la règle reste celle qu'annonce l'en-tête de ce fichier — l'URL fait foi.
 	useEffect(() => {
-		try { document.documentElement.lang = initialLocale; } catch { /* hors navigateur */ }
-	}, [initialLocale]);
+		const l: Locale = /^\/fr(?=\/|$)/.test(pathname || '') ? 'fr' : 'en';
+		try { document.documentElement.lang = l; } catch { /* hors navigateur */ }
+	}, [pathname]);
 
 	return <LocaleCtx.Provider value={value}>{children}</LocaleCtx.Provider>;
 }
