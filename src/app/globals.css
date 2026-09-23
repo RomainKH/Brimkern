@@ -293,6 +293,37 @@ html.dark .btn-primary:hover:not(:disabled) {
   cursor: not-allowed;
 }
 
+.circle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.circle-btn:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--border-color) 60%, var(--text-primary));
+}
+
+.circle-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.circle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* Status Badges */
 .status-badge {
   display: inline-flex;
@@ -496,44 +527,147 @@ select:focus-visible {
 }
 
 .chat-header {
-  padding: 16px 24px;
+  padding: 10px 18px;
+  min-height: 54px;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-elevated);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   z-index: 5;
 }
 
 .chat-header-info {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.chat-header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.chat-header-icon-btn:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--border-color) 60%, var(--text-primary));
+}
+
+.chat-header-icon-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.chat-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chat-header-btn:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  border-color: color-mix(in srgb, var(--border-color) 60%, var(--text-primary));
+}
+
+.chat-header-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.chat-model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  max-width: 320px;
+  min-width: 0;
+}
+
+.chat-model-badge.idle {
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 6px;
+}
+
+.chat-model-unload-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  margin-left: 2px;
+  border-radius: 6px;
+  border: none;
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: var(--error);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chat-model-unload-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
 }
 
 /* Nom de modèle = chaîne technique → sans, pas la serif d'identité. */
 .loaded-model-name {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 12.5px;
   letter-spacing: -0.01em;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .loaded-model-status {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--success);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   font-weight: 500;
 }
 
 .pulse-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   background-color: var(--success);
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pulse-dot.idle {
+  background-color: var(--text-muted);
+  opacity: 0.7;
 }
 
 .pulse-dot.anim {
@@ -1681,25 +1815,27 @@ html.sb-closed .sidebar.open {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  background: var(--bg-elevated);
+  gap: 8px;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  padding: 12px;
-  border-radius: 10px;
+  padding: 9px 14px;
+  border-radius: 8px;
   font-family: var(--font-sans);
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 500;
+  font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: var(--shadow-sm);
+  transition: all 0.15s ease;
 }
 
 .new-chat-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  background: var(--bg-card-hover);
+  border-color: color-mix(in srgb, var(--border-color) 60%, var(--text-primary));
+  color: var(--text-primary);
+}
+
+.new-chat-btn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .new-chat-btn:disabled {

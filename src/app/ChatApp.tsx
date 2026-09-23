@@ -12,7 +12,7 @@ import {
   Zap, Trash2, CheckCircle, AlertCircle,
   Loader2, Menu, X, Sparkles,
   Info, ShieldCheck, Database, ArrowRight,
-  Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon, BookOpen
+  Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon
 } from 'lucide-react';
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
@@ -3423,20 +3423,20 @@ function App() {
       <main className="chat-area">
         {/* Header */}
         <header className="chat-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
             <button
-              className="circle-btn"
+              type="button"
+              className="chat-header-icon-btn"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               title={isSidebarOpen ? t('Hide panel', 'Masquer le panneau') : t('Show panel', 'Afficher le panneau')}
-              style={{ flexShrink: 0 }}
+              aria-label={isSidebarOpen ? t('Hide panel', 'Masquer le panneau') : t('Show panel', 'Afficher le panneau')}
             >
-              {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
+              {isSidebarOpen ? <X size={17} /> : <Menu size={17} />}
             </button>
             <button
               type="button"
-              className="btn btn-secondary"
+              className="chat-header-btn"
               onClick={() => { handleNewChat(); if (isMobile) setIsSidebarOpen(false); }}
-              style={{ fontSize: '12px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 8, height: 32 }}
               title={t('Start a new chat', 'Démarrer une nouvelle discussion')}
             >
               <Plus size={14} />
@@ -3444,68 +3444,45 @@ function App() {
             </button>
             <div className="chat-header-info">
               {displayModelName ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="chat-model-badge">
+                  <span className={`pulse-dot ${modelState === 'generating' ? 'anim' : ''}`}></span>
                   <span className="loaded-model-name" title={displayModelName}>
                     {isMobile
                       ? (displayModelName.match(/^[A-Za-z]+/)?.[0] || displayModelName.slice(0, 10))
-                      : (displayModelName.length > 30 ? displayModelName.slice(0, 30) + '…' : displayModelName)}
+                      : (displayModelName.length > 26 ? displayModelName.slice(0, 26) + '…' : displayModelName)}
                   </span>
-                  <span className="loaded-model-status" style={{ fontSize: '11px' }}>
-                    <span className={`pulse-dot ${modelState === 'generating' ? 'anim' : ''}`}></span>
-                    WGSL
-                  </span>
+                  {!isMobile && (
+                    <button
+                      type="button"
+                      className="chat-model-unload-btn"
+                      onClick={unloadActiveModel}
+                      disabled={modelState === 'generating' || benchRunning}
+                      title={t('Unload model', 'Décharger le modèle')}
+                    >
+                      {t('Unload', 'Décharger')}
+                    </button>
+                  )}
                 </div>
               ) : (
-                <span className="loaded-model-name" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  {t('WebGPU Ready', 'WebGPU Prêt')}
-                </span>
+                <div className="chat-model-badge idle">
+                  <span className="pulse-dot idle"></span>
+                  <span className="loaded-model-name" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    {t('WebGPU Ready', 'WebGPU Prêt')}
+                  </span>
+                </div>
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            {displayModelName && !isMobile && (
-              <button
-                className="btn btn-danger"
-                onClick={unloadActiveModel}
-                disabled={modelState === 'generating' || benchRunning}
-                title={t('Unload model', 'Décharger le modèle')}
-                style={{ padding: '5px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', height: 32 }}
-              >
-                {t('Unload', 'Décharger')}
-              </button>
-            )}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
-              className="circle-btn"
+              type="button"
+              className="chat-header-icon-btn"
               onClick={() => setOptionsOpen(true)}
               title={t('Settings', 'Réglages')}
-              style={{ flexShrink: 0 }}
+              aria-label={t('Settings', 'Réglages')}
             >
               <Settings size={16} />
             </button>
-            <button
-              className="circle-btn"
-              onClick={() => setStorageOpen(true)}
-              title={t('Storage', 'Stockage')}
-              style={{ flexShrink: 0 }}
-            >
-              <HardDrive size={16} />
-            </button>
-            <Link
-              href={href('/docs')}
-              title={t('Documentation', 'Documentation')}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '13px', padding: '6px 8px' }}
-            >
-              <BookOpen size={16} />
-              {!isMobile && <span>{t('Documentation', 'Documentation')}</span>}
-            </Link>
-            <Link
-              href={href('/changelog')}
-              title="Changelog"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', textDecoration: 'none', fontSize: '13px', padding: '6px 8px' }}
-            >
-              <Info size={16} />
-              {!isMobile && <span>Changelog</span>}
-            </Link>
           </div>
         </header>
 
