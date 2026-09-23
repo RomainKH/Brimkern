@@ -18,10 +18,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import BrandMark from './BrandMark';
-import Image from 'next/image';
-// Import STATIQUE (et non un chemin dans /public) : Next en déduit les dimensions et fabrique un
-// flou de chargement, donc pas de saut de mise en page ni de valeurs à tenir à jour à la main.
-import chatShot from './chat-shot.png';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, ArrowRight, Sparkles } from 'lucide-react';
 import { useT, useLocale, useHref } from '@/lib/i18n';
@@ -231,55 +227,79 @@ export default function LandingClient() {
           )}
         </section>
 
-        {/* ── LE PRODUIT, TEL QU'IL EST ───────────────────────────────────────────────────────── */}
-        <section className="lp-proof">
-          <figure className="lp-shot">
-            <Image
-              src={chatShot}
-              placeholder="blur"
-              priority
-              sizes="(max-width: 1028px) 100vw, 980px"
-              alt={t('The Brimkern chat: a Qwen 2.5 0.5B answering a question about WebGPU, with its measured throughput underneath. 197.8 tokens/s prefill, 65 tokens/s decode.',
-                     'Le chat Brimkern : un Qwen 2.5 0.5B répond à une question sur WebGPU, avec ses mesures en dessous. 197,8 tokens/s de prefill, 65 tokens/s de décodage.')}
-            />
-            <figcaption>
-              {t('A real session, in the tab, on a laptop GPU. Every reply carries its own measurements.',
-                 'Une vraie session, dans l’onglet, sur le GPU d’un portable. Chaque réponse porte ses mesures.')}
-            </figcaption>
-          </figure>
-
-          <div className="lp-quick-try">
-            <div className="lp-quick-try-header">
-              <span className="lp-quick-try-label">
-                <Sparkles size={13} style={{ color: 'var(--accent)' }} />
-                {t('Ready-to-run models (1-click start):', 'Modèles prêts à l’emploi (démarrage en 1 clic) :')}
-              </span>
+        {/* ── SÉLECTION RAPIDE DE MODÈLES (1-CLIC) ────────────────────────────────────────────── */}
+        <section className="lp-quick-section" aria-label={t('Try a model in 1 click', 'Essayer un modèle en 1 clic')}>
+          <div className="lp-quick-container">
+            <div className="lp-quick-header">
+              <div className="lp-quick-title-wrap">
+                <span className="lp-quick-badge">
+                  <Sparkles size={13} /> {t('Instant trial · 1 click', 'Essai instantané · 1 clic')}
+                </span>
+                <h2 className="lp-quick-heading">
+                  {t('Pick a model. Chat immediately.', 'Choisissez un modèle. Discutez immédiatement.')}
+                </h2>
+              </div>
               <button
                 type="button"
                 className="lp-quick-toggle"
                 onClick={() => setCustomHfOpen((v) => !v)}
+                aria-expanded={customHfOpen}
               >
-                {customHfOpen ? '▲ ' + t('Hide custom input', 'Masquer la saisie personnalisée') : '▼ ' + t('Or paste another Hugging Face model', 'Ou tester un autre modèle Hugging Face')}
+                {customHfOpen
+                  ? '▲ ' + t('Hide custom input', 'Masquer la saisie personnalisée')
+                  : '▼ ' + t('Or paste any Hugging Face model', 'Ou tester un autre modèle Hugging Face')}
               </button>
             </div>
 
-            <div className="lp-quick-pills">
-              <Link href={`${href('/chat')}?model=romainkh14/LFM2.5-230M_BRIK`} className="lp-quick-pill highlight">
-                <strong>LFM2.5 230M</strong>
-                <span>149 MB · {t('Ultra fast start', 'Démarrage instantané')}</span>
+            <div className="lp-quick-grid">
+              <Link href={`${href('/chat')}?model=romainkh14/LFM2.5-230M_BRIK`} className="lp-quick-card highlight">
+                <div className="lp-quick-card-top">
+                  <span className="lp-quick-tag fast">⚡ {t('Fastest', 'Ultra-rapide')}</span>
+                  <span className="lp-quick-size">149 MB</span>
+                </div>
+                <strong className="lp-quick-name">LFM2.5 230M</strong>
+                <p className="lp-quick-card-desc">
+                  {t('Liquid AI architecture. Instant download, minimal memory footprint.', 'Architecture Liquid AI. Téléchargement instantané, empreinte mémoire minimale.')}
+                </p>
+                <div className="lp-quick-card-action">
+                  <span>{t('Launch in chat', 'Lancer dans le chat')}</span>
+                  <ArrowRight size={13} />
+                </div>
               </Link>
-              <Link href={`${href('/chat')}?model=Qwen/Qwen2.5-0.5B-Instruct-GGUF`} className="lp-quick-pill">
-                <strong>Qwen 2.5 0.5B</strong>
-                <span>378 MB · {t('Reasoning & code', 'Raisonnement & code')}</span>
+
+              <Link href={`${href('/chat')}?model=Qwen/Qwen2.5-0.5B-Instruct-GGUF`} className="lp-quick-card">
+                <div className="lp-quick-card-top">
+                  <span className="lp-quick-tag smart">🧠 {t('Fluent', 'Polyvalent')}</span>
+                  <span className="lp-quick-size">378 MB</span>
+                </div>
+                <strong className="lp-quick-name">Qwen 2.5 0.5B</strong>
+                <p className="lp-quick-card-desc">
+                  {t('Alibaba. Strong at reasoning, coding and multilingual chat.', 'Alibaba. Excellent en raisonnement, code et dialogue en français.')}
+                </p>
+                <div className="lp-quick-card-action">
+                  <span>{t('Launch in chat', 'Lancer dans le chat')}</span>
+                  <ArrowRight size={13} />
+                </div>
               </Link>
-              <Link href={`${href('/chat')}?model=unsloth/gemma-3-270m-it-GGUF`} className="lp-quick-pill">
-                <strong>Gemma 3 270M</strong>
-                <span>270 MB · {t('Google Gemma', 'Google Gemma')}</span>
+
+              <Link href={`${href('/chat')}?model=unsloth/gemma-3-270m-it-GGUF`} className="lp-quick-card">
+                <div className="lp-quick-card-top">
+                  <span className="lp-quick-tag compact">📦 {t('Compact', 'Compact')}</span>
+                  <span className="lp-quick-size">270 MB</span>
+                </div>
+                <strong className="lp-quick-name">Gemma 3 270M</strong>
+                <p className="lp-quick-card-desc">
+                  {t('Google Gemma 3. Highly capable compact model for general queries.', 'Google Gemma 3. Modèle compact très efficace pour les requêtes courantes.')}
+                </p>
+                <div className="lp-quick-card-action">
+                  <span>{t('Launch in chat', 'Lancer dans le chat')}</span>
+                  <ArrowRight size={13} />
+                </div>
               </Link>
             </div>
 
             {customHfOpen && (
-              <div className="lp-console-input" style={{ marginTop: 12 }}>
+              <div className="lp-console-input" style={{ marginTop: 16 }}>
                 <HfModelInput onLoad={goToChatWith} examples={HF_EXAMPLES} compact />
               </div>
             )}

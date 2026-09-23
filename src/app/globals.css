@@ -1544,31 +1544,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   line-height: 1.5;
 }
 
-/* ── La preuve : une vraie capture, encadrée ─────────────────────────────────────────────────── */
-.lp-proof {
-  margin: 54px 0 0;
-}
 
-.lp-shot {
-  margin: 0;
-}
-
-/* `next/image` rend un <img> ordinaire (enveloppé de ses attributs) : le sélecteur reste valable. */
-.lp-shot img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-lg);
-}
-
-.lp-shot figcaption {
-  font-size: 12.5px;
-  color: var(--text-muted);
-  margin-top: 10px;
-  text-align: center;
-}
 
 /* ── Panneau encre ───────────────────────────────────────────────────────────────────────────
    Mêmes valeurs que le thème sombre (déjà validées au contraste), quel que soit le thème actif. */
@@ -1606,89 +1582,156 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-card);
 }
 
-/* ── Landing quick try ─────────────────────────────────────────────────────────────────────── */
-.lp-quick-try {
-  margin-top: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* ── Section essai rapide de modèles (1-clic) ─────────────────────────────────────────────── */
+.lp-quick-section {
+  margin: 40px 0 0;
 }
 
-.lp-quick-try-header {
+.lp-quick-container {
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-card);
+  padding: 24px 28px;
+  box-shadow: var(--shadow-sm);
+}
+
+.lp-quick-header {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
 }
 
-.lp-quick-try-label {
+.lp-quick-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lp-quick-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+}
+
+.lp-quick-heading {
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: 700;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .lp-quick-toggle {
   background: none;
   border: none;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--accent);
   cursor: pointer;
-  padding: 0;
+  padding: 4px 0;
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
+  font-weight: 500;
+  transition: color 0.15s ease;
 }
 
 .lp-quick-toggle:hover {
   color: var(--accent-hover, var(--accent));
 }
 
-.lp-quick-pills {
+.lp-quick-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 16px;
 }
 
-.lp-quick-pill {
+.lp-quick-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  padding: 16px 18px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
-  background: var(--bg-card);
+  background: var(--bg-card-hover, rgba(127,127,127,0.03));
   text-decoration: none;
   color: var(--text-primary);
-  transition: all 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.lp-quick-pill:hover {
+.lp-quick-card:hover {
   border-color: var(--accent);
-  background: var(--bg-card-hover);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
 }
 
-.lp-quick-pill.highlight {
+.lp-quick-card.highlight {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
   background: color-mix(in srgb, var(--accent) 4%, var(--bg-card));
 }
 
-.lp-quick-pill strong {
-  font-size: 13.5px;
-  font-weight: 700;
+.lp-quick-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
-.lp-quick-pill span {
-  font-size: 11.5px;
+.lp-quick-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.lp-quick-tag.fast {
+  color: var(--accent);
+}
+
+.lp-quick-size {
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-muted);
 }
 
-@media (max-width: 640px) {
-  .lp-quick-pills {
+.lp-quick-name {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.lp-quick-card-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0 0 14px 0;
+  flex: 1;
+}
+
+.lp-quick-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .lp-quick-grid {
     grid-template-columns: 1fr;
+  }
+  .lp-quick-container {
+    padding: 18px 16px;
   }
 }
 
