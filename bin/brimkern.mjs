@@ -1881,6 +1881,48 @@ function printModels() {
   console.log(`${C.gray}${t('You can also pass a local file: --model=/path/to/model.brik', 'Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik')}${C.reset}\n`);
 }
 
+const KNOWN_COMMANDS = ['chat', 'models', 'list', 'update', 'upgrade', 'help', 'version', 'config', 'status'];
+const COMMON_ALIASES = {
+  'run': 'chat',
+  'start': 'chat',
+  'repl': 'chat',
+  'interactive': 'chat',
+  'up': 'update',
+  'check': 'status',
+  'doctor': 'status',
+  'model': 'models',
+  'install': 'update',
+};
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const d = Array.from({ length: m + 1 }, () => new Uint8Array(n + 1));
+  for (let i = 0; i <= m; i++) d[i][0] = i;
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    }
+  }
+  return d[m][n];
+}
+
+function findClosestCommand(word) {
+  const w = word.toLowerCase().trim();
+  if (COMMON_ALIASES[w]) return COMMON_ALIASES[w];
+  let closest = null;
+  let minDistance = 3;
+  for (const cmd of KNOWN_COMMANDS) {
+    const dist = levenshtein(w, cmd);
+    if (dist < minDistance) {
+      minDistance = dist;
+      closest = cmd;
+    }
+  }
+  return closest;
+}
+
 function stripAnsi(str) {
   return typeof str === 'string' ? str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') : '';
 }
@@ -2664,12 +2706,25 @@ async function main() {
       printHelp();
       return;
     }
+    if (a === '-v' || a === '--version' || a === 'version') {
+      console.log(`Brimkern CLI v0.1.0 · WebGPU WGSL engine (https://brimkern.com)`);
+      return;
+    }
     if (a === 'models' || a === 'list') {
       printModels();
       return;
     }
     if (a === 'update' || a === 'upgrade') {
       await runCliUpdate();
+      return;
+    }
+    if (a === 'status' || a === 'config') {
+      const cfg = loadCliConfig();
+      console.log(`\n${C.boldRed}Brimkern CLI${C.reset} — ${t('Status & Configuration', 'Statut & Configuration')}\n`);
+      console.log(`  • ${t('Config file', 'Fichier config').padEnd(18)}: ${join(homedir(), '.config', 'brimkern', 'config.json')}`);
+      console.log(`  • ${t('Default model', 'Modèle par défaut').padEnd(18)}: ${cfg.lastModel || 'coder'} (${PRESET_CLI_MODELS[cfg.lastModel || 'coder']?.shortName || 'custom'})`);
+      console.log(`  • ${t('WebGPU runtime', 'Runtime WebGPU').padEnd(18)}: Dawn (native) & Chromium headless`);
+      console.log(`  • ${t('Install location', 'Emplacement install').padEnd(18)}: ${ROOT}\n`);
       return;
     }
     if (a === 'chat') {
@@ -2703,9 +2758,31 @@ async function main() {
     } else if (a === '--raw') {
       raw = true;
     } else if (a.startsWith('--lang=')) {
-      // Lu au chargement (LANG, en tête de fichier) : rien à faire ici, sinon il finirait dans le prompt.
+      // Lu au chargement (LANG, en tête de fichier) : rien à faire ici.
+    } else if (a.startsWith('-')) {
+      // Option inconnue : ne JAMAIS l'envoyer au LLM comme prompt
+      const clean = a.replace(/^-+/, '').split('=')[0];
+      const suggestion = findClosestCommand(clean);
+      const hint = suggestion ? ` ${t(`Did you mean '--${suggestion}' or 'brimkern ${suggestion}'?`, `Vouliez-vous dire '--${suggestion}' ou 'brimkern ${suggestion}' ?`)}` : '';
+      console.error(`\n${C.boldRed}brimkern:${C.reset} ${t(`unrecognized option '${a}'.${hint}`, `option non reconnue '${a}'.${hint}`)}`);
+      console.error(`${C.dim}${t(`Run 'brimkern --help' for available options.`, `Lancez 'brimkern --help' pour les options disponibles.`)}${C.reset}\n`);
+      process.exit(1);
     } else {
       promptParts.push(a);
+    }
+  }
+
+  // Si l'utilisateur tape un mot unique qui ressemble à une commande ou alias CLI manqué (sans pipe stdin)
+  if (!isChat && promptParts.length === 1 && process.stdin.isTTY) {
+    const singleWord = promptParts[0];
+    // Si c'est un mot de commande sans ponctuation et pas une phrase
+    if (!/[?.!,;:()"]/.test(singleWord) && singleWord.length <= 16) {
+      const suggestion = findClosestCommand(singleWord);
+      if (suggestion && suggestion !== singleWord.toLowerCase()) {
+        console.error(`\n${C.boldRed}brimkern:${C.reset} ${t(`'${singleWord}' is not a brimkern command. Did you mean 'brimkern ${suggestion}'?`, `'${singleWord}' n'est pas une commande brimkern. Vouliez-vous dire 'brimkern ${suggestion}' ?`)}`);
+        console.error(`${C.dim}${t(`Run 'brimkern --help' for available commands. If you meant to send this as a prompt, add quotes: brimkern "${singleWord}"`, `Lancez 'brimkern --help' pour les commandes disponibles. Si vous vouliez envoyer ce prompt, ajoutez des guillemets : brimkern "${singleWord}"`)}${C.reset}\n`);
+        process.exit(1);
+      }
     }
   }
 
