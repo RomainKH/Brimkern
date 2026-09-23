@@ -35,8 +35,7 @@ export default function NeonBanner({ text, className, neonClass, glitchA, glitch
       const lineH = parseFloat(cs.lineHeight) || fontSize * 1.06;
       const font = `${cs.fontWeight} ${fontSize}px ${cs.fontFamily}`;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      // Marge pour que le halo ne soit pas coupé au bord de la toile.
-      const pad = Math.ceil(fontSize * 3.2);
+      const pad = 72; // le plus grand halo (64 px) ne doit pas être coupé au bord de la toile
       const cw = w + pad * 2, ch = Math.round(rect.height) + pad * 2;
 
       const draw = (cv: HTMLCanvasElement | null, fill: string, glow: boolean) => {
@@ -52,19 +51,28 @@ export default function NeonBanner({ text, className, neonClass, glitchA, glitch
         g.scale(dpr, dpr);
         g.font = font;
         g.textBaseline = 'top';
-        const run = (color: string, blur: number, shadow: string) => {
-          g.fillStyle = color;
-          g.shadowColor = shadow;
-          g.shadowBlur = blur;
-          lines.forEach((l, i) => g.fillText(l, pad, pad + i * lineH));
-        };
+        const drawLines = (dx: number) => lines.forEach((l, i) => g.fillText(l, pad + dx, pad + i * lineH));
         if (glow) {
-          // Du plus large au plus serré : le halo, puis le tube, puis son cœur clair.
-          run('rgba(239,68,68,0.35)', fontSize * 3.0, 'rgba(239,68,68,0.55)');
-          run('rgba(239,68,68,0.55)', fontSize * 1.3, 'rgba(239,68,68,0.85)');
-          run('#ff6b5e', fontSize * 0.35, 'rgba(255,190,180,0.9)');
+          // Les QUATRE halos exacts de l'ancien text-shadow CSS (2 / 10 / 28 / 64 px, mêmes couleurs).
+          // ⚠️ shadowBlur et shadowOffset sont en pixels PHYSIQUES : la mise à l'échelle dpr ne s'y
+          // applique pas. Sans le « × dpr », chaque halo sortait deux fois plus étroit sur Retina — le
+          // néon « moins bien » relevé par Romain. Chaque halo est peint seul : le texte est tiré hors
+          // de la toile et seule son ombre, décalée d'autant, y revient.
+          const off = cw + pad * 4;
+          g.fillStyle = '#ff6b5e';
+          for (const [blur, color] of [[64, 'rgba(239,68,68,0.35)'], [28, 'rgba(239,68,68,0.55)'], [10, 'rgba(239,68,68,0.85)'], [2, 'rgba(255,190,180,0.9)']] as [number, string][]) {
+            g.shadowColor = color;
+            g.shadowBlur = blur * dpr;
+            g.shadowOffsetX = off * dpr;
+            drawLines(-off);
+          }
+          g.shadowColor = 'transparent';
+          g.shadowBlur = 0;
+          g.shadowOffsetX = 0;
+          drawLines(0);
         } else {
-          run(fill, 0, 'transparent');
+          g.fillStyle = fill;
+          drawLines(0);
         }
       };
       draw(neon.current, '', true);
