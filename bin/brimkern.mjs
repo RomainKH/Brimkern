@@ -1746,7 +1746,7 @@ async function runCliUpdate() {
       execSync('npm install --no-audit --no-fund --loglevel=error', { cwd: ROOT, stdio: 'inherit' });
 
       process.stdout.write(`${C.dim}▸ ${t('Rebuilding engine & SDK...', 'Recompilation du moteur et SDK...')}${C.reset}\n`);
-      execSync('npm run build:sdk', { cwd: ROOT, stdio: 'inherit' });
+      execSync('npm run build:sdk', { cwd: ROOT, stdio: 'inherit', env: { ...process.env, BRIMKERN_REGEN_FIGE: '1' } });
 
       const newCommit = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
       console.log(`\n${C.boldGreen}✓ ${t('Brimkern CLI updated successfully to', 'Brimkern CLI mis à jour avec succès vers')} ${newCommit} !${C.reset}\n`);
