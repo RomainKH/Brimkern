@@ -66,6 +66,7 @@ next-env.d.ts
 # et la méthode) et docs/engine-v2-linear-attention.md (l'architecture récurrente). Un chiffre sans
 # sa méthode n'est qu'une affirmation.
 docs/ROADMAP.md
+docs/DISTRIBUTION_PLAYBOOK.md
 docs/huggingface-integration.md
 docs/next-models.md
 docs/mcp-feasibility.md

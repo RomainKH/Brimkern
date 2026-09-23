@@ -122,6 +122,27 @@ function copyToClipboard(text) {
   }
 }
 
+// ── Détection et protection des fichiers sensibles ───────────────────────────────────
+const SENSITIVE_PATTERNS = [
+  /\.env(\..+)?$/i,
+  /id_rsa/i,
+  /id_ed25519/i,
+  /\.pem$/i,
+  /\.key$/i,
+  /\.pfx$/i,
+  /etc\/shadow/i,
+  /etc\/passwd/i,
+  /\.git\/config/i,
+  /\.npmrc/i,
+  /\.dockercfg/i,
+  /\.docker\/config\.json/i,
+];
+
+function isSensitivePath(filePath) {
+  const normalized = filePath.replace(/\\/g, '/');
+  return SENSITIVE_PATTERNS.some((pat) => pat.test(normalized));
+}
+
 // ── Résolution de fichiers (@chemin/vers/fichier[:début-fin]) ──────────────────────────
 function resolveFileReferences(rawPrompt) {
   const fileRegex = /@([a-zA-Z0-9_\-./\\]+(?::\d+(?:-\d+)?)?)/g;
@@ -154,6 +175,13 @@ function resolveFileReferences(rawPrompt) {
     }
 
     const resolved = resolve(process.cwd(), filePath);
+
+    // Garde-fou sécurité : blocage des fichiers de clés, secrets ou identifiants
+    if (isSensitivePath(resolved)) {
+      process.stderr.write(`${C.yellow}⚠ Sécurité : Fichier sensible bloqué pour protéger vos secrets : @${filePath}${C.reset}\n`);
+      continue;
+    }
+
     if (existsSync(resolved) && statSync(resolved).isFile()) {
       try {
         const rawContent = readFileSync(resolved, 'utf8');
@@ -246,6 +274,14 @@ function startLocalServer(localBrikFile = null) {
   const sdkCode = readFileSync(SDK_PATH, 'utf8');
 
   const server = createServer((req, res) => {
+    // Garde-fou réseau : seules les requêtes provenant strictement de localhost sont admises
+    const remote = req.socket.remoteAddress;
+    if (remote && remote !== '127.0.0.1' && remote !== '::1' && remote !== '::ffff:127.0.0.1') {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
     // 1. SDK Brimkern
     if (req.url === '/sdk.js') {
       res.writeHead(200, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
