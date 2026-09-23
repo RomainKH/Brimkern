@@ -81,11 +81,12 @@ function Figure({ value, label, i = 0 }: { value: string; label: string; i?: num
 }
 
 // Une force du moteur, tenue par un filet d'encre (même grammaire que l'accueil du chat).
-function Strength({ eyebrow, title, children, i = 0 }: { eyebrow: string; title: string; children: React.ReactNode; i?: number }) {
+function Strength({ eyebrow, title, children, command, i = 0 }: { eyebrow: string; title: string; children: React.ReactNode; command?: string; i?: number }) {
   return (
     // `--i` : rang dans la rangée, qui décale l'apparition. Trois blocs qui surgissent ensemble
     // font un clignotement ; décalés de 90 ms, ils se LISENT de gauche à droite.
     <div className="lp-strength" style={{ '--i': i } as React.CSSProperties}>
+      {command && <div className="lp-station-cmd">{command}</div>}
       <div className="lp-eyebrow">{eyebrow}</div>
       <h3 className="lp-strength-title">{title}</h3>
       <p className="lp-strength-desc">{children}</p>
@@ -119,6 +120,9 @@ export default function LandingClient() {
   // force le cas « non supporté », comme dans l'application, pour pouvoir le mettre au banc.
   const [gpuOk, setGpuOk] = useState<boolean | null>(null);
   const [customHfOpen, setCustomHfOpen] = useState<boolean>(false);
+  const [workbenchTab, setWorkbenchTab] = useState<'chat' | 'cli' | 'sdk'>('chat');
+  const [copiedNpx, setCopiedNpx] = useState(false);
+
   useEffect(() => {
     let alive = true;
     const set = (v: boolean) => { if (alive) setGpuOk(v); };
@@ -128,6 +132,12 @@ export default function LandingClient() {
     gpu.requestAdapter().then((a) => set(!!a)).catch(() => set(false));
     return () => { alive = false; };
   }, []);
+
+  const handleCopyNpx = () => {
+    navigator.clipboard.writeText('npx brimkern').catch(() => {});
+    setCopiedNpx(true);
+    setTimeout(() => setCopiedNpx(false), 2000);
+  };
 
   // Funnel : la landing est devenue la première marche, elle manquait donc au comptage. Deux
   // événements, sans donnée personnelle (cf. src/lib/metrics.ts) : la page vue, et le CTA cliqué —
@@ -173,10 +183,6 @@ export default function LandingClient() {
           >
             {locale === 'fr' ? 'EN' : 'FR'}
           </button>
-          {/* Le thème se règle ici aussi : il ne se réglait QUE dans l'en-tête du chat, alors que la
-              landing est la première page vue. Volontairement à côté de la langue — ce sont les deux
-              mêmes préférences d'affichage, et elles restent visibles sur mobile (contrairement à
-              .lp-nav-icon, masquée sous 1000 px). */}
           <ThemeToggle size={16} />
           <Link href={href('/chat')} className="btn btn-primary lp-nav-cta">{t('Open the chat', 'Ouvrir le chat')}</Link>
         </nav>
@@ -184,47 +190,151 @@ export default function LandingClient() {
 
       <main>
         {/* ── HERO ─────────────────────────────────────────────────────────────────────────────── */}
-        {/* Pas d'effet de fond derrière le hero : deux tentatives (trame de demi-ton WebGPU, puis
-            lavis d'encre) ont été retirées sur décision de Romain — la page reste du papier nu. */}
-        <section className="lp-hero">
-          <div className="lp-eyebrow">{t('WebGPU · 100% local · Nothing leaves your browser', 'WebGPU · 100 % local · Rien ne sort de votre navigateur')}</div>
-          <h1 className="lp-h1">
-            {t('Powerful AI models.', 'Des modèles d’IA puissants.')}<br />
-            <span className="lp-h1-accent">{t('Directly in your browser.', 'Directement dans votre navigateur.')}</span>
-          </h1>
-          <p className="lp-lede">
-            {t('Brimkern runs open-source models straight from Hugging Face on your own GPU: no installation, no server, and no subscription. Weights stream in once, stay on your device, and work completely offline.',
-               'Brimkern fait tourner des modèles open source directement sur votre carte graphique : sans installation, sans serveur tiers et sans abonnement. Les modèles arrivent en streaming, restent sur votre appareil et fonctionnent hors-ligne.')}
-          </p>
-          <div className="lp-cta-row">
-            <Link
-              href={`${href('/chat')}?start=1`}
-              className="btn btn-primary lp-cta"
-              onClick={() => metric('landing_cta', { webgpu: gpuOk ?? 'inconnu' })}
-            >
-              <Sparkles size={15} /> {t('Start chatting — Free & local', 'Lancer le chat — Gratuit & local')}
-            </Link>
-            <Link href={href('/docs')} className="lp-cta-ghost">
-              {t('Explore docs & models', 'Explorer la doc & les modèles')} <ArrowRight size={14} />
-            </Link>
+        <section className="lp-hero-wrap">
+          <div className="lp-hero">
+            <div className="lp-eyebrow">{t('WebGPU · 100% local · Nothing leaves your browser', 'WebGPU · 100 % local · Rien ne sort de votre navigateur')}</div>
+            <h1 className="lp-h1">
+              {t('Powerful AI models.', 'Des modèles d’IA puissants.')}<br />
+              <span className="lp-h1-accent">{t('Directly in your browser.', 'Directement dans votre navigateur.')}</span>
+            </h1>
+            <p className="lp-lede">
+              {t('Brimkern runs open-source models straight from Hugging Face on your own GPU: no installation, no server, and no subscription. Weights stream in once, stay on your device, and work completely offline.',
+                 'Brimkern fait tourner des modèles open source directement sur votre carte graphique : sans installation, sans serveur tiers et sans abonnement. Les modèles arrivent en streaming, restent sur votre appareil et fonctionnent hors-ligne.')}
+            </p>
+            <div className="lp-cta-row">
+              <Link
+                href={`${href('/chat')}?start=1`}
+                className="btn btn-primary lp-cta"
+                onClick={() => metric('landing_cta', { webgpu: gpuOk ?? 'inconnu' })}
+              >
+                <Sparkles size={15} /> {t('Start chatting — Free & local', 'Lancer le chat — Gratuit & local')}
+              </Link>
+              <Link href={href('/docs')} className="lp-cta-ghost">
+                {t('Explore docs & models', 'Explorer la doc & les modèles')} <ArrowRight size={14} />
+              </Link>
+            </div>
+
+            {/* Barre de commande rapide (inspiration mise.jdx.dev) */}
+            <div className="lp-hero-install">
+              <span className="lp-hero-install-prompt" aria-hidden="true">$</span>
+              <code>npx brimkern</code>
+              <button
+                type="button"
+                className="lp-hero-install-copy"
+                onClick={handleCopyNpx}
+                aria-label={t('Copy npx brimkern command', 'Copier la commande npx brimkern')}
+              >
+                {copiedNpx ? t('Copied!', 'Copié !') : t('Copy', 'Copier')}
+              </button>
+            </div>
+            <p className="lp-hero-install-note">
+              <span>{t('Terminal CLI or in-browser chat', 'En terminal CLI ou dans l’onglet web')}</span>
+              <span aria-hidden="true"> · </span>
+              <Link href={href('/cli')}>{t('CLI guide', 'Guide CLI')}</Link>
+              <span aria-hidden="true"> · </span>
+              <span>{t('Chrome, Edge, Safari 18+', 'Chrome, Edge, Safari 18+')}</span>
+            </p>
+
+            {gpuOk === false && (
+              <p className="lp-fineprint lp-warn">
+                <AlertCircle size={13} />
+                <span>
+                  {t('This browser has no WebGPU, so nothing can run here. Open the page in Chrome or Edge (from an in-app browser: “Open in browser”).',
+                     'Ce navigateur n’a pas WebGPU : rien ne peut s’exécuter ici. Ouvrez la page dans Chrome ou Edge (depuis un navigateur intégré : « Ouvrir dans le navigateur »).')}
+                </span>
+              </p>
+            )}
           </div>
-          {gpuOk === false ? (
-            /* Dit AVANT le clic, pas après : sans WebGPU aucun modèle ne peut tourner ici, et le
-               chemin de sortie (ouvrir dans un vrai navigateur) tient en une phrase. Le CTA reste
-               cliquable — l'application a son propre écran dédié, plus détaillé. */
-            <p className="lp-fineprint lp-warn">
-              <AlertCircle size={13} />
-              <span>
-                {t('This browser has no WebGPU, so nothing can run here. Open the page in Chrome or Edge (from an in-app browser: “Open in browser”).',
-                   'Ce navigateur n’a pas WebGPU : rien ne peut s’exécuter ici. Ouvrez la page dans Chrome ou Edge (depuis un navigateur intégré : « Ouvrir dans le navigateur »).')}
-              </span>
-            </p>
-          ) : (
-            <p className="lp-fineprint">
-              {t('Chrome, Edge, or Safari 18+. Free, open source (MIT), no account required.',
-                 'Chrome, Edge, ou Safari 18+. Gratuit, open source (MIT), sans compte requis.')}
-            </p>
-          )}
+
+          {/* Workbench interactif (inspiration mise.jdx.dev) */}
+          <div className="lp-workbench" aria-label={t('Engine interactive workbench', 'Établi interactif du moteur')}>
+            <div className="lp-workbench-bar">
+              <div className="lp-workbench-dots" aria-hidden="true">
+                <span className="lp-dot dot-close" />
+                <span className="lp-dot dot-min" />
+                <span className="lp-dot dot-max" />
+              </div>
+              <div className="lp-workbench-title">
+                <BrandMark size={14} />
+                <span>brimkern-engine.ts</span>
+              </div>
+              <span className="lp-workbench-badge">WebGPU v0.9</span>
+            </div>
+
+            <div className="lp-workbench-tabs" role="tablist" aria-label={t('Explore Brimkern surfaces', 'Explorer les surfaces de Brimkern')}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={workbenchTab === 'chat'}
+                className={`lp-workbench-tab ${workbenchTab === 'chat' ? 'active' : ''}`}
+                onClick={() => setWorkbenchTab('chat')}
+              >
+                {t('WebGPU Chat', 'Chat WebGPU')}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={workbenchTab === 'cli'}
+                className={`lp-workbench-tab ${workbenchTab === 'cli' ? 'active' : ''}`}
+                onClick={() => setWorkbenchTab('cli')}
+              >
+                {t('Terminal CLI', 'CLI Terminal')}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={workbenchTab === 'sdk'}
+                className={`lp-workbench-tab ${workbenchTab === 'sdk' ? 'active' : ''}`}
+                onClick={() => setWorkbenchTab('sdk')}
+              >
+                {t('Web SDK', 'SDK Web')}
+              </button>
+            </div>
+
+            <div className="lp-workbench-body">
+              {workbenchTab === 'chat' && (
+                <div className="lp-workbench-panel">
+                  <div className="lp-workbench-comment">
+                    # {t('Run any Hugging Face model directly on client GPU', 'Fait tourner n’importe quel modèle Hugging Face sur votre GPU')}
+                  </div>
+                  <pre className="lp-workbench-code"><code><span className="lp-wb-prompt">$</span> brimkern run Qwen/Qwen2.5-0.5B-Instruct-GGUF{'\n'}<span className="lp-wb-dim">[gpu]  WebGPU adapter: Apple M-series (resident KV cache)</span>{'\n'}<span className="lp-wb-dim">[http] Streaming Q4_K_M weights (378 MB) via range requests</span>{'\n'}<span className="lp-wb-dim">[wgsl] 14 custom shaders compiled · Zero server calls</span>{'\n'}<span className="lp-wb-success">✓ Model ready in 1.4s · 47.2 tok/s decode</span></code></pre>
+                  <div className="lp-workbench-footer">
+                    <Link href={`${href('/chat')}?model=Qwen/Qwen2.5-0.5B-Instruct-GGUF`} className="lp-wb-action">
+                      {t('Launch Qwen 2.5 in chat', 'Lancer Qwen 2.5 dans le chat')} <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {workbenchTab === 'cli' && (
+                <div className="lp-workbench-panel">
+                  <div className="lp-workbench-comment">
+                    # {t('Coding assistant running in your shell on your local GPU', 'Assistant de code dans votre shell sur votre GPU local')}
+                  </div>
+                  <pre className="lp-workbench-code"><code><span className="lp-wb-prompt">$</span> npx brimkern{'\n'}<span className="lp-wb-dim">? Project: ~/dev/my-app (indexed 84 files)</span>{'\n'}<span className="lp-wb-dim">? Model: Qwen 3 4B (4-bit quantized, local GPU)</span>{'\n'}<span className="lp-wb-info">brimkern&gt; Optimize the WebGPU render pipeline</span>{'\n'}<span className="lp-wb-success">✓ 2 files updated · 100% offline & private</span></code></pre>
+                  <div className="lp-workbench-footer">
+                    <Link href={href('/cli')} className="lp-wb-action">
+                      {t('Explore CLI docs & features', 'Explorer la doc CLI & fonctionnalités')} <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {workbenchTab === 'sdk' && (
+                <div className="lp-workbench-panel">
+                  <div className="lp-workbench-comment">
+                    # {t('Drop client-side AI into any website with 0 inference costs', 'Intégrez l’IA client dans tout site avec 0 coût d’inférence')}
+                  </div>
+                  <pre className="lp-workbench-code"><code>&lt;<span className="lp-wb-tag">script</span> <span className="lp-wb-attr">src</span>=<span className="lp-wb-val">&quot;{SDK_URL}&quot;</span>&gt;&lt;/<span className="lp-wb-tag">script</span>&gt;{'\n'}&lt;<span className="lp-wb-tag">script</span>&gt;{'\n'}{'  '}<span className="lp-wb-fn">Brimkern</span>.<span className="lp-wb-fn">embed</span>({'{'}{'\n'}{'    '}<span className="lp-wb-attr">model</span>: <span className="lp-wb-val">&quot;romainkh14/LFM2.5-230M_BRIK&quot;</span>,{'\n'}{'    '}<span className="lp-wb-attr">system</span>: <span className="lp-wb-val">&quot;{t('You answer product questions.', 'Tu réponds aux questions produit.')}&quot;</span>{'\n'}{'  '}{'}'});{'\n'}&lt;/<span className="lp-wb-tag">script</span>&gt;</code></pre>
+                  <div className="lp-workbench-footer">
+                    <Link href={href('/local-ai')} className="lp-wb-action">
+                      {t('SDK page & live demo', 'Page SDK & démo live')} <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </section>
 
         {/* ── SÉLECTION RAPIDE DE MODÈLES (1-CLIC) ────────────────────────────────────────────── */}
@@ -233,7 +343,7 @@ export default function LandingClient() {
             <div className="lp-quick-header">
               <div className="lp-quick-title-wrap">
                 <span className="lp-quick-badge">
-                  <Sparkles size={13} /> {t('Instant trial · 1 click', 'Essai instantané · 1 clic')}
+                  <span className="lp-quick-kicker">01</span> {t('Instant trial · 1 click', 'Essai instantané · 1 clic')}
                 </span>
                 <h2 className="lp-quick-heading">
                   {t('Pick a model. Chat immediately.', 'Choisissez un modèle. Discutez immédiatement.')}
@@ -261,6 +371,11 @@ export default function LandingClient() {
                 <p className="lp-quick-card-desc">
                   {t('Liquid AI architecture. Instant download, minimal memory footprint.', 'Architecture Liquid AI. Téléchargement instantané, empreinte mémoire minimale.')}
                 </p>
+                <div className="lp-quick-specs">
+                  <span>{t('Arch: Liquid Net', 'Arch : Réseau Liquide')}</span>
+                  <span>{t('Weights: .brik', 'Poids : .brik')}</span>
+                  <span>{t('Speed: Instant', 'Vitesse : Immédiate')}</span>
+                </div>
                 <div className="lp-quick-card-action">
                   <span>{t('Launch in chat', 'Lancer dans le chat')}</span>
                   <ArrowRight size={13} />
@@ -276,6 +391,11 @@ export default function LandingClient() {
                 <p className="lp-quick-card-desc">
                   {t('Alibaba. Strong at reasoning, coding and multilingual chat.', 'Alibaba. Excellent en raisonnement, code et dialogue en français.')}
                 </p>
+                <div className="lp-quick-specs">
+                  <span>{t('Arch: Transformer', 'Arch : Transformer')}</span>
+                  <span>{t('Format: Q4_K_M', 'Format : Q4_K_M')}</span>
+                  <span>{t('Ctx: 32,768', 'Ctx : 32 768')}</span>
+                </div>
                 <div className="lp-quick-card-action">
                   <span>{t('Launch in chat', 'Lancer dans le chat')}</span>
                   <ArrowRight size={13} />
@@ -291,6 +411,11 @@ export default function LandingClient() {
                 <p className="lp-quick-card-desc">
                   {t('Google Gemma 3. Highly capable compact model for general queries.', 'Google Gemma 3. Modèle compact très efficace pour les requêtes courantes.')}
                 </p>
+                <div className="lp-quick-specs">
+                  <span>{t('Arch: Gemma 3', 'Arch : Gemma 3')}</span>
+                  <span>{t('Format: Q4_K_S', 'Format : Q4_K_S')}</span>
+                  <span>{t('Ctx: 8,192', 'Ctx : 8 192')}</span>
+                </div>
                 <div className="lp-quick-card-action">
                   <span>{t('Launch in chat', 'Lancer dans le chat')}</span>
                   <ArrowRight size={13} />
@@ -311,18 +436,35 @@ export default function LandingClient() {
           {/* Un h2 ici n'est pas décoratif : sans lui les trois forces (h3) suivaient directement le
               h1, et l'ordre des titres sautait un niveau : un lecteur d'écran annonce alors une
               hiérarchie fausse (relevé axe-core, règle heading-order). */}
-          <div className="lp-eyebrow">{t('why brimkern', 'pourquoi brimkern')}</div>
+          <div className="lp-eyebrow">
+            <span className="lp-quick-kicker">02</span> {t('Architecture & Privacy', 'Architecture & Confidentialité')}
+          </div>
           <h2 className="lp-h2">{t('Three reasons to run AI directly in your browser', 'Trois raisons d’exécuter l’IA directement dans l’onglet')}</h2>
           <div className="lp-strengths">
-            <Strength i={0} eyebrow={t('privacy first', 'confidentialité totale')} title={t('100% Private & offline', '100 % Privé & hors-ligne')}>
+            <Strength
+              i={0}
+              command="$ brimkern privacy --audit"
+              eyebrow={t('privacy first', 'confidentialité totale')}
+              title={t('100% Private & offline', '100 % Privé & hors-ligne')}
+            >
               {t('Your conversations and documents never leave your machine. No accounts, no servers, and no telemetry. Once loaded, models continue to work even without an internet connection.',
                  'Vos conversations et documents ne quittent jamais votre machine. Aucun compte, aucun serveur et aucune collecte. Une fois chargé, le modèle continue de fonctionner même déconnecté d’Internet.')}
             </Strength>
-            <Strength i={1} eyebrow={t('instant streaming', 'streaming instantané')} title={t('Zero install, zero configuration', 'Zéro installation, zéro configuration')}>
+            <Strength
+              i={1}
+              command="$ brimkern stream --range"
+              eyebrow={t('instant streaming', 'streaming instantané')}
+              title={t('Zero install, zero configuration', 'Zéro installation, zéro configuration')}
+            >
               {t('No Python, Docker, or complex drivers to configure. Models stream in seconds through standard HTTP ranges and are cached locally on your device for immediate future access.',
                  'Pas de Python, pas de Docker, ni de pilotes complexes. Les modèles arrivent en quelques secondes via votre navigateur et restent en mémoire locale pour vos prochaines visites.')}
             </Strength>
-            <Strength i={2} eyebrow={t('open ecosystem', 'écosystème ouvert')} title={t('Any open-source model', 'N’importe quel modèle open source')}>
+            <Strength
+              i={2}
+              command="$ brimkern models --hub"
+              eyebrow={t('open ecosystem', 'écosystème ouvert')}
+              title={t('Any open-source model', 'N’importe quel modèle open source')}
+            >
               {t('Run standard GGUF and BRIK models from Hugging Face: Qwen, Gemma, Llama and more. Generate text, reason through problems, describe photos, or create images.',
                  'Exécutez les formats standards GGUF et BRIK depuis Hugging Face : Qwen, Gemma, Llama et bien d’autres. Discutez, résolvez des problèmes, décrivez des photos ou générez des images.')}
             </Strength>
@@ -342,7 +484,9 @@ export default function LandingClient() {
             Le schéma est fait de DOM (texte + un SVG de la découpe), pas d'une grosse image : il se
             traduit, il se lit au lecteur d'écran, il s'empile sur mobile, et il ne pèse rien. */}
         <section className="lp-section">
-          <div className="lp-eyebrow">{t('how it works', 'comment ça marche')}</div>
+          <div className="lp-eyebrow">
+            <span className="lp-quick-kicker">03</span> {t('Pipeline & Shaders', 'Pipeline & Shaders')}
+          </div>
           <h2 className="lp-h2">{t('From model weights to answers on your GPU', 'Du modèle à la réponse sur votre GPU')}</h2>
           <ol className="lp-flow">
             {([
@@ -382,11 +526,17 @@ export default function LandingClient() {
 
         {/* ── LES CHIFFRES ─────────────────────────────────────────────────────────────────────
             Tous mesurés (banc décrit dans le README) : aucune estimation sur cette page. */}
-        <section className="lp-figures">
-          <Figure i={0} value="149 MB" label={t('lightest chat model, cached once', 'plus petit modèle de chat, mis en cache une fois')} />
-          <Figure i={1} value="47.2 tok/s" label={t('prefill on a 7B int4 (WebLLM: 18.7)', 'prefill sur un 7B int4 (WebLLM : 18,7)')} />
-          <Figure i={2} value="15.8 s" label={t('to reload 4.7 GB from local cache', 'pour recharger 4,7 Go depuis le cache')} />
-          <Figure i={3} value="0" label={t('servers, accounts, or API keys needed', 'serveur, compte ou clé d’API requis')} />
+        <section className="lp-section">
+          <div className="lp-eyebrow">
+            <span className="lp-quick-kicker">04</span> {t('Hardware Benchmarks', 'Bancs d’essai matériels')}
+          </div>
+          <h2 className="lp-h2">{t('Measured on real hardware', 'Mesures réelles sur GPU')}</h2>
+          <div className="lp-figures">
+            <Figure i={0} value="149 MB" label={t('lightest chat model, cached once', 'plus petit modèle de chat, mis en cache une fois')} />
+            <Figure i={1} value="47.2 tok/s" label={t('prefill on a 7B int4 (WebLLM: 18.7)', 'prefill sur un 7B int4 (WebLLM : 18,7)')} />
+            <Figure i={2} value="15.8 s" label={t('to reload 4.7 GB from local cache', 'pour recharger 4,7 Go depuis le cache')} />
+            <Figure i={3} value="0" label={t('servers, accounts, or API keys needed', 'serveur, compte ou clé d’API requis')} />
+          </div>
         </section>
 
         {/* ── LE SDK ───────────────────────────────────────────────────────────────────────────── */}
@@ -395,7 +545,7 @@ export default function LandingClient() {
             l'endroit naturel pour un extrait. Contrastes repris du thème sombre, déjà validés. */}
         <section className="lp-section lp-sdk lp-ink">
           <div>
-            <div className="lp-eyebrow">{t('for your own product', 'pour votre produit')}</div>
+            <div className="lp-eyebrow"><span className="lp-quick-kicker">05</span> {t('for your own product', 'pour votre produit')}</div>
             <h2 className="lp-h2">{t('One script tag, an assistant that costs nothing to run', 'Une balise script, un assistant qui ne coûte rien à faire tourner')}</h2>
             <p className="lp-strength-desc">
               {t('The compute is your visitor’s GPU: no inference bill, no rate limit, no data leaving their browser. The model only downloads when someone actually opens the widget, so your page speed is untouched.',
@@ -416,7 +566,7 @@ export default function LandingClient() {
         {/* ── LA CLI ─────────────────────────────────────────────────────────────────────────────
             Juste un renvoi : les consoles et les démonstrations de terminal vivent sur /cli. */}
         <section className="lp-section">
-          <div className="lp-eyebrow">{t('also in your terminal', 'aussi dans votre terminal')}</div>
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">06</span> {t('also in your terminal', 'aussi dans votre terminal')}</div>
           <h2 className="lp-h2">{t('The same engine, as a coding assistant for your shell', 'Le même moteur, en assistant de code pour votre terminal')}</h2>
           <p className="lp-strength-desc" style={{ maxWidth: 640 }}>
             {t('It reads the project you are in and runs Qwen 3 4B on your GPU. Nothing leaves the machine.',
@@ -429,7 +579,7 @@ export default function LandingClient() {
 
         {/* ── LES PORTES ───────────────────────────────────────────────────────────────────────── */}
         <section className="lp-section">
-          <div className="lp-eyebrow">{t('also in the box', 'aussi dans la boîte')}</div>
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">07</span> {t('also in the box', 'aussi dans la boîte')}</div>
           <h2 className="lp-h2">{t('One engine, four modalities', 'Un moteur, quatre modalités')}</h2>
           <ul className="lp-list">
             <li><strong>{t('Chat', 'Chat')}</strong>{t(': ', ' : ')}{t('multi-turn, reasoning models, French & English, on a resident GPU KV cache.', 'multi-tours, modèles à raisonnement, français & anglais, sur un cache KV résident en GPU.')}</li>
