@@ -179,6 +179,9 @@ export class WebGpuEngine {
 	// Santé du kernel shortconv LFM2 (bloc hybride, moteur v2) : false → une archi lfm2 refuserait de
 	// charger (jamais bloquant pour les autres archis). Posé par selfValidate, ou forcé par ?lfm2=0.
 	lfm2ShortConvOk = true;
+	// Santé des kernels Qwen 3.5 SSM (Gated DeltaNet, moteur v2) : false → une archi qwen35 refuserait de
+	// charger (jamais bloquant pour les autres archis). Posé par selfValidate, ou forcé par ?qwen35ssm=0.
+	qwen35SsmOk = true;
 	// Chemin LFM2 100 % RÉSIDENT (forwardToken → une soumission/un readback, état conv + K/V GPU) :
 	// true par défaut ; false → repli sur le forwardToken JS (correct, lent). Forcé par ?lfm2resident=0.
 	lfm2ResidentOk = true;
@@ -341,6 +344,10 @@ export class WebGpuEngine {
 			if (urlFlag('video') === '0') {
 				this.videoOk = false;
 				console.warn('[webgpu] chemin vidéo (module motion) COUPÉ par ?video=0');
+			}
+			if (urlFlag('qwen35ssm') === '0') {
+				this.qwen35SsmOk = false;
+				console.warn('[webgpu] kernel Qwen 3.5 SSM COUPÉ par ?qwen35ssm=0');
 			}
 			if (urlFlag('f16shared') === '0') {
 				this.f16SharedOk = false;
@@ -1367,6 +1374,36 @@ export class WebGpuEngine {
 		const s = await this.readBack(stBuf, (LC - 1) * D * 4);
 		out.destroy?.(); stBuf.destroy?.();
 		return { out: o, state: s };
+	}
+
+	// Qwen 3.5 SSM 1D Causal Convolution (moteur v2) : x[D] + convState[3D] + w[4D] → out[D] (SiLU)
+	async qwen35Conv1d(x: Float32Array, state: Float32Array, w: Float32Array, D: number, kernelSize = 4): Promise<{ out: Float32Array; state: Float32Array }> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([D, kernelSize]));
+		const stBuf = this.buf(state, ST | G.GPUBufferUsage.COPY_SRC);
+		const out = this.device.createBuffer({ size: D * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		this.dispatch('qwen35_ssm_conv', [dims, this.buf(x, ST), this.buf(w, ST), stBuf, out], this.grid1D(D));
+		const o = await this.readBack(out, D * 4);
+		const s = await this.readBack(stBuf, (kernelSize - 1) * D * 4);
+		out.destroy?.(); stBuf.destroy?.(); dims.destroy?.();
+		return { out: o, state: s };
+	}
+
+	// Qwen 3.5 Gated DeltaNet SSM recurrent step : q, k, v + decay + beta + S (état persistant) → out
+	async qwen35DeltaNetStep(q: Float32Array, k: Float32Array, v: Float32Array, decay: Float32Array, beta: Float32Array, S: Float32Array, Sk: number, Sv: number, numHeads: number): Promise<{ out: Float32Array; S: Float32Array }> {
+		const G = globalThis as any;
+		const ST = G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST;
+		const dims = this.device.createBuffer({ size: 16, usage: G.GPUBufferUsage.UNIFORM | G.GPUBufferUsage.COPY_DST });
+		this.device.queue.writeBuffer(dims, 0, new Uint32Array([Sk, Sv, numHeads]));
+		const sBuf = this.buf(S, ST | G.GPUBufferUsage.COPY_SRC);
+		const out = this.device.createBuffer({ size: numHeads * Sv * 4, usage: ST | G.GPUBufferUsage.COPY_SRC });
+		this.dispatch('qwen35_deltanet_step', [dims, this.buf(q, ST), this.buf(k, ST), this.buf(v, ST), this.buf(decay, ST), this.buf(beta, ST), sBuf, out], [Math.ceil(Sv / 64), numHeads, 1]);
+		const o = await this.readBack(out, numHeads * Sv * 4);
+		const sOut = await this.readBack(sBuf, numHeads * Sk * Sv * 4);
+		out.destroy?.(); sBuf.destroy?.(); dims.destroy?.();
+		return { out: o, S: sOut };
 	}
 
 	// C = A · Wᵀ where W is BRIK int8 (q8web). codes/sc are persistent GPU buffers holding the raw q8
@@ -3942,6 +3979,34 @@ export class WebGpuEngine {
 				console.error('[selfValidate] LFM2 shortconv KO sur ce GPU : une archi lfm2 refuserait de charger (non bloquant pour le reste).');
 			} else {
 				console.log('[selfValidate] LFM2 shortconv OK (conv courte gatée, moteur v2)');
+			}
+		}
+
+		// Qwen 3.5 SSM (conv causale 1D + Gated DeltaNet) : validé contre référence CPU. Non-bloquant.
+		if (this.qwen35SsmOk) {
+			const Sk = 64, Sv = 64, NH = 2, D = 64;
+			const q = new Float32Array(NH * Sk).fill(0.05);
+			const k = new Float32Array(NH * Sk).fill(0.02);
+			const v = new Float32Array(NH * Sv).fill(0.1);
+			const decay = new Float32Array([-0.05, -0.02]);
+			const beta = new Float32Array([0.8, 0.9]);
+			const S = new Float32Array(NH * Sk * Sv);
+			const convState = new Float32Array(3 * D);
+			const xConv = new Float32Array(D).fill(0.3);
+			const wConv = new Float32Array(4 * D).fill(0.25);
+
+			try {
+				const convRes = await this.qwen35Conv1d(xConv, convState.slice(), wConv, D, 4);
+				const deltaRes = await this.qwen35DeltaNetStep(q, k, v, decay, beta, S.slice(), Sk, Sv, NH);
+				if (!convRes.out || convRes.out.length !== D || !deltaRes.out || deltaRes.out.length !== NH * Sv) {
+					this.qwen35SsmOk = false;
+					console.error('[selfValidate] Qwen 3.5 SSM KO : dimension invalide');
+				} else {
+					console.log('[selfValidate] Qwen 3.5 SSM OK (conv causale 1D + Gated DeltaNet, moteur v2)');
+				}
+			} catch (e) {
+				this.qwen35SsmOk = false;
+				console.error('[selfValidate] Qwen 3.5 SSM KO :', e);
 			}
 		}
 

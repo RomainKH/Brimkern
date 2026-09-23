@@ -1,7 +1,7 @@
 // Shared model + tokenizer presets and the UI architecture tag, used by the main app and the
 // standalone /convert page.
 
-export type ArchType = 'qwen' | 'qwen3' | 'llama3' | 'llama2' | 'gemma' | 'gemma3' | 'smollm3' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
+export type ArchType = 'qwen' | 'qwen3' | 'qwen35' | 'llama3' | 'llama2' | 'gemma' | 'gemma3' | 'smollm3' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
 
 // `useCase`: a short capability label shown as a badge so the picker reads like modern model
 // catalogs ("for X"). BILINGUE depuis le 2026-08-13 : ces badges étaient en français dans un
@@ -112,6 +112,22 @@ export const PRESET_MODELS: PresetModel[] = [
 		type: 'qwen',
 		useCase: { en: 'Opus-distilled coder', fr: 'Code distillé Opus' },
 		tags: [{ en: 'code', fr: 'code' }, { en: 'claude-distill', fr: 'claude-distill' }, { en: '3b', fr: '3b' }],
+		mobile: false,
+	},
+	{
+		name: 'Qwen 3.5 4B Super Coder (GGUF Q4_0)',
+		vendor: 'jica98 / Alibaba',
+		url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/main/qwen3.5-4B-super-coder.Q4_0.gguf',
+		size: '2,61 Go',
+		sizeBytes: 2_611_783_040,
+		desc: {
+			en: 'Hybrid State Space Model (Gated DeltaNet) + attention. High performance coding with infinite recurrent state.',
+			fr: 'Architecture hybride SSM (Gated DeltaNet) + attention. Hautes performances de code avec état récurrent continu.'
+		},
+		tokenizer: 'Qwen/Qwen2.5-Coder-3B-Instruct',
+		type: 'qwen35',
+		useCase: { en: 'Hybrid SSM Coder', fr: 'Codeur hybride SSM' },
+		tags: [{ en: 'ssm', fr: 'ssm' }, { en: 'deltanet', fr: 'deltanet' }, { en: 'code', fr: 'code' }],
 		mobile: false,
 	},
 	{

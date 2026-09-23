@@ -45,6 +45,8 @@ export interface Manifest {
     // LFM2/LFM2.5 (moteur v2, hybride) : fenêtre de la conv courte + têtes KV par couche
     // (0 = bloc shortconv, >0 = bloc attention GQA).
     lfm2?: { lCache: number; kvHeadsPerLayer: number[] };
+    // Qwen 3.5 (moteur v2, hybride SSM Gated DeltaNet + full attention).
+    qwen35?: { fullAttnInterval: number; dConv: number; dInner: number; dState: number; dtRank: number; nGroup: number };
   };
   tensors: Record<string, TensorInfo>;
   // Métadonnées GGUF brutes (clé → valeur) : les fichiers non-LLM (mmproj vision, arch `clip`)
@@ -353,6 +355,19 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
     config.lfm2 = {
       lCache: getMetaU32('shortconv.l_cache', 3),
       kvHeadsPerLayer: arr.length ? arr : Array(blockCount).fill(config.nKvHeads),
+    };
+  }
+
+  // Qwen 3.5 (moteur v2, hybride Gated DeltaNet SSM + full attention)
+  if (arch === 'qwen35' || arch === 'qwen3_5') {
+    const fullAttnInterval = getMetaU32('full_attention_interval', 4);
+    config.qwen35 = {
+      fullAttnInterval,
+      dConv: getMetaU32('ssm.d_conv', 4),
+      dInner: getMetaU32('ssm.d_inner', d),
+      dState: getMetaU32('ssm.d_state', 128),
+      dtRank: getMetaU32('ssm.dt_rank', 32),
+      nGroup: getMetaU32('ssm.n_group', 16),
     };
   }
 

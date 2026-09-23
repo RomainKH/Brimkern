@@ -84,7 +84,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
   // LFM2/LFM2.5 : ChatML identique (le BOS <|startoftext|> est ajouté par le tokenizer à l'encode).
   // SmolLM3 : ChatML aussi (<|im_start|>/<|im_end|>) ; l'arrêt passe par le marqueur textuel
   // <|im_end|> de TURN_MARKERS — son id dépend du vocab, on ne le code pas en dur.
-  if (archType === 'qwen' || archType === 'qwen3' || archType === 'lfm2' || archType === 'smollm3') {
+  if (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35' || archType === 'lfm2' || archType === 'smollm3') {
     if (systemText.trim()) {
       formatted += `<|im_start|>system\n${systemText}<|im_end|>\n`;
     }
@@ -168,8 +168,8 @@ export function isStopToken(tokenId: number, text: string, archType: ArchType, d
   if (tokenId === 107 && archType === 'gemma') return true;
   // Gemma 3 : nouveau vocab 262k — <end_of_turn> = 106 (et non 107 comme Gemma 1/2).
   if (tokenId === 106 && archType === 'gemma3') return true;
-  if (tokenId === 151645 && (archType === 'qwen' || archType === 'qwen3')) return true;
-  if (tokenId === 151643 && (archType === 'qwen' || archType === 'qwen3')) return true;
+  if (tokenId === 151645 && (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35')) return true;
+  if (tokenId === 151643 && (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35')) return true;
   // LFM2/LFM2.5 : <|im_end|> = 7, <|endoftext|> = 2 (vocab 65536, ids ChatML propres au modèle).
   if ((tokenId === 7 || tokenId === 2) && archType === 'lfm2') return true;
   // LFM2.5 est entraîné au tool-calling et hallucine des appels d'outil (<|tool_call_start|> = 10,

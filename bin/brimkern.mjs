@@ -134,6 +134,19 @@ const PRESET_CLI_MODELS = {
     desc: t('Highest code intelligence for machines with 16GB+ RAM. Deep refactoring and architecture.',
       'Niveau maximal d\'intelligence de code pour machines avec 16Go+ de RAM. Refactoring profond.'),
   },
+  'super-coder': {
+    name: 'Qwen 3.5 4B Super Coder (GGUF)',
+    shortName: 'Qwen 3.5 4B Coder',
+    url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/main/qwen3.5-4B-super-coder.Q4_0.gguf',
+    format: 'gguf',
+    formatLabel: 'GGUF Q4_0',
+    runtime: 'WebGPU (Chromium)',
+    size: t('2.61 GB', '2,61 Go'),
+    badge: t('SSM Hybrid', 'Hybride SSM'),
+    defaultSystem: 'You are Brimkern Super Coder, a specialized AI coding engineer. Generate accurate, concise, and clean code.',
+    desc: t('Next-generation hybrid SSM (DeltaNet) + attention: continuous recurrent state with 4B capacity.',
+      'Nouvelle génération hybride SSM (DeltaNet) + attention : état récurrent continu avec puissance 4B.'),
+  },
 };
 
 // Anciennes clés : alias vers les nouvelles (qwen3-4b, coder-1.5b) ou raccourcis pratiques
@@ -149,6 +162,10 @@ const MODEL_ALIASES = {
   'qwen-3b': 'coder-3b',
   'qwen-7b': 'coder-7b',
   '7b': 'coder-7b',
+  'super': 'super-coder',
+  'qwen35': 'super-coder',
+  'qwen-3.5': 'super-coder',
+  'deltanet': 'super-coder',
 };
 const RETIRED_MODELS = new Set(['coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b']);
 

@@ -328,6 +328,8 @@ export const GGUF_ARCH_FAMILY: Partial<Record<string, { archType: ArchType; toke
   // SmolLM3 : vocab Llama-like propre au modèle (NoPE côté moteur, cf. ggufParser).
   smollm3: { archType: 'smollm3', tokenizerId: 'HuggingFaceTB/SmolLM3-3B' },
   qwen3: { archType: 'qwen3', tokenizerId: 'Qwen/Qwen3-0.6B' },
+  qwen35: { archType: 'qwen35', tokenizerId: 'Qwen/Qwen2.5-Coder-3B-Instruct' },
+  qwen3_5: { archType: 'qwen35', tokenizerId: 'Qwen/Qwen2.5-Coder-3B-Instruct' },
   mistral3: { archType: 'mistral3', tokenizerId: 'unsloth/Ministral-3-3B-Instruct-2512' },
   // `llama` MANQUAIT (ajouté 2026-08-13) : un GGUF llama chargé HORS preset — champ « n'importe quel
   // modèle », deeplink ?model=, URL collée — gardait le tokenizer sélectionné dans l'UI (souvent une

@@ -4124,6 +4124,69 @@ export const SHADERS = {
 				stride = stride / 2u;
 			}
 			if (tid == 0u) { o[0] = sIdx[0]; }
+		}`,
+
+	// Qwen 3.5 SSM 1D Causal Convolution with SiLU activation
+	qwen35_ssm_conv: `
+		struct ConvParams { D: u32, kernelSize: u32 };
+		@group(0) @binding(0) var<uniform> p: ConvParams;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> convState: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> out: array<f32>;
+		@compute @workgroup_size(64, 1, 1)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let d = gid.x;
+			if (d >= p.D) { return; }
+			var acc: f32 = 0.0;
+			acc = acc + convState[0u * p.D + d] * w[0u * p.D + d];
+			acc = acc + convState[1u * p.D + d] * w[1u * p.D + d];
+			acc = acc + convState[2u * p.D + d] * w[2u * p.D + d];
+			acc = acc + x[d] * w[3u * p.D + d];
+			convState[0u * p.D + d] = convState[1u * p.D + d];
+			convState[1u * p.D + d] = convState[2u * p.D + d];
+			convState[2u * p.D + d] = x[d];
+			out[d] = acc / (1.0 + exp(-acc));
+		}`,
+
+	// Qwen 3.5 Gated DeltaNet SSM recurrent step
+	qwen35_deltanet_step: `
+		struct DeltaParams { Sk: u32, Sv: u32, numHeads: u32 };
+		@group(0) @binding(0) var<uniform> p: DeltaParams;
+		@group(0) @binding(1) var<storage, read> q: array<f32>;
+		@group(0) @binding(2) var<storage, read> k: array<f32>;
+		@group(0) @binding(3) var<storage, read> v: array<f32>;
+		@group(0) @binding(4) var<storage, read> decay: array<f32>;
+		@group(0) @binding(5) var<storage, read> beta: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> S: array<f32>;
+		@group(0) @binding(7) var<storage, read_write> out: array<f32>;
+		@compute @workgroup_size(64, 1, 1)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let j = gid.x;
+			let h = gid.y;
+			if (j >= p.Sv || h >= p.numHeads) { return; }
+			let g = exp(decay[h]);
+			let b = beta[h];
+			let headStateOffset = h * (p.Sk * p.Sv);
+			let headKOffset = h * p.Sk;
+			let headVOffset = h * p.Sv;
+
+			var sk: f32 = 0.0;
+			for (var i: u32 = 0u; i < p.Sk; i = i + 1u) {
+				let sIdx = headStateOffset + i * p.Sv + j;
+				sk = sk + (S[sIdx] * g) * k[headKOffset + i];
+			}
+
+			let d = (v[headVOffset + j] - sk) * b;
+
+			var o: f32 = 0.0;
+			for (var i: u32 = 0u; i < p.Sk; i = i + 1u) {
+				let sIdx = headStateOffset + i * p.Sv + j;
+				let sNew = S[sIdx] * g + k[headKOffset + i] * d;
+				S[sIdx] = sNew;
+				o = o + sNew * q[headKOffset + i];
+			}
+			out[headVOffset + j] = o;
 		}`
 };
 
