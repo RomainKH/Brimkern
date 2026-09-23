@@ -31,14 +31,12 @@ void main(){
   vec2 uv = gl_FragCoord.xy / res;
   // Le défilement (en hauteurs d'écran) décale le domaine du bruit : la fumée monte quand on descend.
   vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 1.6);
-  // La souris : c'est son MOUVEMENT qui agit (vitesse lissée, qui retombe à l'arrêt). Elle entraîne
-  // la fumée dans son sillage et creuse un trou plus clair sous le pointeur.
+  // La souris : son mouvement pousse LÉGÈREMENT la fumée alentour, rien de plus (retour de
+  // Romain : l'effet précédent — sillage, trou, éclat — était beaucoup trop violent).
   vec2 aspect = vec2(res.x/res.y, 1.0);
   vec2 dm = (uv - mouse) * aspect;
-  float near = exp(-dot(dm, dm) * 9.0);
-  float speed = min(1.0, length(mvel) * 18.0);
-  p -= mvel * aspect * 22.0 * near;
-  p += vec2(-dm.y, dm.x) * near * speed * 1.4;
+  float near = exp(-dot(dm, dm) * 3.5);
+  p -= mvel * aspect * 3.5 * near;
   float s = t * 0.045;
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
@@ -47,8 +45,7 @@ void main(){
   // (demande de Romain : « la fumée sur toute la page »). Le plafond bas protège le texte.
   float inPage = smoothstep(0.3, 0.9, scroll);
   float rise = mix(smoothstep(1.1, 0.0, uv.y), 0.85, inPage);
-  float d = smoothstep(0.30, 0.92, f) * rise * (1.0 - near * speed * 0.55);
-  float halo = near * speed;
+  float d = smoothstep(0.30, 0.92, f) * rise;
   // Zone du texte (colonne de gauche sur grand écran, toute la largeur sur téléphone) : fumée
   // retenue. Ailleurs, elle a le droit d'être dense : c'est là qu'elle fait le « wow ».
   float wide = step(900.0, res.x / 0.5);
@@ -58,8 +55,7 @@ void main(){
   vec3 cyan = vec3(0.22, 0.74, 0.97);
   float gain = mix(mix(1.25, 0.32, textZone), 0.55, inPage);
   // Rouge carmin dominant, contre-jour froid dans les replis (r.x) : le néon bicolore.
-  vec3 col = ink + red * d * gain + cyan * smoothstep(0.5, 0.9, r.x) * d * gain * 0.42
-            + (red * 0.10 + cyan * 0.05) * halo;
+  vec3 col = ink + red * d * gain + cyan * smoothstep(0.5, 0.9, r.x) * d * gain * 0.42;
   // Plafonds : derrière le texte ~#491c19 (papier > 11:1, texte atténué > 5.6:1) ; ailleurs
   // plus haut, il n'y a rien à lire.
   vec3 capLow = vec3(0.29, 0.11, 0.10);
