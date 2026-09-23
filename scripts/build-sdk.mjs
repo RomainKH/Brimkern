@@ -44,6 +44,14 @@ const commun = {
   metafile: true,
 };
 
+// Résolveur de modèles du Hub (src/lib/deeplink.ts, celui du site) compilé pour la CLI Node :
+// `--model=Qwen/Qwen3-0.6B-GGUF` choisit le même fichier que `?model=` sur le site. Hors du
+// paquet npm (bin/generated/, ignoré par git) : c'est un détail interne de la CLI, pas de l'API.
+await esbuild.build({
+  absWorkingDir: ROOT, entryPoints: [r('src/lib/deeplink.ts')], bundle: true, format: 'esm',
+  platform: 'node', target: ['node18'], outfile: r('bin/generated/deeplink.mjs'), legalComments: 'none',
+});
+
 const iife = await esbuild.build({ ...commun, format: 'iife', outfile: path.join(DIST, 'brimkern.iife.js') });
 const esm = await esbuild.build({ ...commun, format: 'esm', outfile: path.join(DIST, 'brimkern.mjs') });
 

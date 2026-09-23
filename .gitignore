@@ -82,3 +82,6 @@ docs/vision-feasibility.md
 
 # Profils Chrome des bancs e2e (créés au vol par Playwright — jamais versionnés)
 scripts/e2e/chrome-profile*/
+
+# Résolveur du Hub compilé pour la CLI (npm run build:sdk)
+/bin/generated

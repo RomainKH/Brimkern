@@ -17,7 +17,7 @@
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import readline, { createInterface } from 'node:readline';
 import { execSync, spawnSync } from 'node:child_process';
@@ -106,7 +106,9 @@ function resolveModelKey(key) {
 // /no_think : la consigne en français de « off » était ignorée et il consommait tout son budget
 // de tokens à réfléchir (300/300 au banc). Sans réflexion par défaut, /think deep la rend.
 function thinkSuffixFor(modelKey, level) {
-  if (PRESET_CLI_MODELS[modelKey]?.qwen3Think) {
+  // Un Qwen 3 venu du Hub (« Qwen3-0.6B-Q8_0.gguf ») a les mêmes interrupteurs que le preset ;
+  // pas Qwen 2.5 ni Qwen 3.5 (autre famille).
+  if (PRESET_CLI_MODELS[modelKey]?.qwen3Think || /qwen3[-_](?!\.)/i.test(String(modelKey).split('/').pop() || '')) {
     return level === 'deep' ? ' /think' : ' /no_think';
   }
   return (THINKING_LEVELS[level] || THINKING_LEVELS.auto).promptSuffix;
@@ -1147,6 +1149,7 @@ class BrimkernNativeDawnEngine {
     this.localBrikFile = null;
 
     this.resolveModelConfig();
+    if (options.displayName) this.displayName = options.displayName;
     this.session = null;
     this.server = null;
     this.isReady = false;
@@ -1174,7 +1177,7 @@ class BrimkernNativeDawnEngine {
     } else if (existsSync(this.modelKey)) {
       this.localBrikFile = resolve(this.modelKey);
       this.displayName = t(`Local file (${this.modelKey})`, `Fichier local (${this.modelKey})`);
-      this.format = 'brik';
+      this.format = this.modelKey.toLowerCase().endsWith('.gguf') ? 'gguf' : 'brik';
     } else {
       this.modelUrl = this.modelKey;
       this.displayName = this.modelKey;
@@ -1279,6 +1282,7 @@ class BrimkernChromiumEngine {
     this.localBrikFile = null;
 
     this.resolveModelConfig();
+    if (options.displayName) this.displayName = options.displayName;
 
     this.server = null;
     this.browserCtx = null;
@@ -1296,7 +1300,7 @@ class BrimkernChromiumEngine {
     } else if (existsSync(this.modelKey)) {
       this.localBrikFile = resolve(this.modelKey);
       this.displayName = t(`Local file (${this.modelKey})`, `Fichier local (${this.modelKey})`);
-      this.format = 'brik';
+      this.format = this.modelKey.toLowerCase().endsWith('.gguf') ? 'gguf' : 'brik';
     } else {
       this.modelUrl = this.modelKey;
       this.displayName = this.modelKey;
@@ -1448,11 +1452,58 @@ class BrimkernChromiumEngine {
   }
 }
 
+// ── Modèles du Hub : même résolution que le site ─────────────────────────────────────────
+// `--model=Qwen/Qwen3-0.6B-GGUF`, l'URL de la page du dépôt ou celle d'un fichier : le résolveur
+// du site (src/lib/deeplink.ts, compilé par `npm run build:sdk`) choisit le même fichier que
+// `?model=` sur brimkern.com (BRIK d'abord, sinon le meilleur quant GGUF mono-fichier).
+async function resolveHubModel(input) {
+  const modPath = join(ROOT, 'bin', 'generated', 'deeplink.mjs');
+  if (!existsSync(modPath)) {
+    throw new Error(t('Hugging Face resolver missing: run `npm run build:sdk` first.', 'Résolveur Hugging Face absent : lancez d\'abord `npm run build:sdk`.'));
+  }
+  const { parseModelInput, resolveHfModel } = await import(pathToFileURL(modPath).href);
+  const parsed = parseModelInput(input);
+  if (!parsed) {
+    throw new Error(t(
+      `Unknown model « ${input} ». Use a preset (${Object.keys(PRESET_CLI_MODELS).join(', ')}), a Hugging Face repo (owner/repo), a .gguf/.brik URL or a local file.`,
+      `Modèle inconnu « ${input} ». Utilisez un preset (${Object.keys(PRESET_CLI_MODELS).join(', ')}), un dépôt Hugging Face (auteur/modèle), une URL .gguf/.brik ou un fichier local.`,
+    ));
+  }
+  if ('url' in parsed) {
+    return { url: parsed.url, displayName: decodeURIComponent(parsed.url.split('/').slice(-1)[0]) };
+  }
+  process.stderr.write(`${C.dim}${t(`Looking up ${parsed.id} on Hugging Face...`, `Recherche de ${parsed.id} sur Hugging Face...`)}${C.reset}\n`);
+  let target;
+  try {
+    target = await resolveHfModel(parsed.id, parsed.file);
+  } catch (e) {
+    // Les messages du résolveur sont ceux du site, en français : traduits ici pour l'anglais.
+    const m = String(e?.message || e);
+    const id = parsed.id;
+    throw new Error(LANG === 'fr' ? m
+      : /Aucun fichier chargeable/.test(m) ? `No loadable file in « ${id} »: Brimkern reads .brik and single-file .gguf, and this repo has neither. Look for a GGUF version of this model.`
+      : /privé|licence/.test(m) ? `The repo « ${id} » is private or requires accepting its license on Hugging Face.`
+      : /introuvable/.test(m) ? `Repo not found on Hugging Face: « ${id} ».`
+      : /Fichier non chargeable/.test(m) ? `Not a loadable file: « ${parsed.file} » (expected .brik or a single-file .gguf).`
+      : /HTTP \d+/.test(m) ? `Hugging Face answered ${m.match(/HTTP \d+/)[0]} for « ${id} ».`
+      : `Could not reach Hugging Face for « ${id} » (network?).`);
+  }
+  process.stderr.write(`${C.dim}→ ${target.path}${C.reset}\n`);
+  return { url: target.url, displayName: `${parsed.id} · ${target.path}` };
+}
+
 // ── Fabrique unifiée de moteur CLI ───────────────────────────────────────────────────
 async function createCliEngine(options = {}) {
   options = { ...options, model: resolveModelKey(options.model) };
-  if (!options.system && PRESET_CLI_MODELS[options.model]) {
-    options.system = PRESET_CLI_MODELS[options.model].defaultSystem + buildProjectContext();
+  if (!PRESET_CLI_MODELS[options.model] && !existsSync(options.model)) {
+    const hub = await resolveHubModel(options.model);
+    options.model = hub.url;
+    options.displayName = hub.displayName;
+  }
+  if (!options.system) {
+    // Modèle du Hub ou fichier local : même consigne que les presets de code.
+    const base = PRESET_CLI_MODELS[options.model]?.defaultSystem || PRESET_CLI_MODELS.coder.defaultSystem;
+    options.system = base + buildProjectContext();
   }
   const forceChromium = !!options.chromium || !!options.headless || process.env.BRIMKERN_FORCE_CHROMIUM === '1';
   const forceNative = !!options.native || process.env.BRIMKERN_FORCE_NATIVE === '1';
