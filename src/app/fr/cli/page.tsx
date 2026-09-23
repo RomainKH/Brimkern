@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { SITE_URL } from '@/lib/site';
-import CliClient from '../../cli/CliClient';
+import CliLanding from '../../cli/CliLanding';
 
 // Coquille Server Component pour la version française de la page CLI.
 export const metadata: Metadata = {
@@ -20,10 +20,10 @@ export const metadata: Metadata = {
     description:
       'Exécutez des LLMs orientés code directement depuis votre shell grâce aux kernels WGSL écrits à la main. Compatible pipes Unix, chaînage stdin et REPL interactif, avec Qwen 3 4B exécuté sur votre GPU.',
     url: `${SITE_URL}/fr/cli`,
-    type: 'article',
+    type: 'website',
   },
 };
 
 export default function Page() {
-  return <CliClient />;
+  return <CliLanding />;
 }

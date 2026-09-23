@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { SITE_URL } from '@/lib/site';
-import CliClient from './CliClient';
+import CliLanding from './CliLanding';
 
 // Coquille Server Component pour la page de promotion et référence de la CLI Brimkern.
 // Tout le contenu dynamique et bilingue vit dans CliClient.
@@ -21,10 +21,10 @@ export const metadata: Metadata = {
     description:
       'Run coding LLMs directly from your shell using hand-written WGSL kernels. Supports Unix pipes, stdin chaining, and an interactive REPL, with Qwen 3 4B running on your GPU.',
     url: `${SITE_URL}/cli`,
-    type: 'article',
+    type: 'website',
   },
 };
 
 export default function CliPage() {
-  return <CliClient />;
+  return <CliLanding />;
 }

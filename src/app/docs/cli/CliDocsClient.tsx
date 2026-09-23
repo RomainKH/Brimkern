@@ -1,8 +1,8 @@
 "use client";
 
-// Page de la CLI Brimkern. Direction artistique reprise du terminal lui-même : la bannière en
-// blocs de `brimkern chat`, les cadres, la chasse fixe, et une VRAIE session capturée (cf.
-// session.ts) plutôt qu'une réponse inventée. Aucun effet de fond : les écrans sombres sont du
+// Référence de la CLI Brimkern (/docs/cli) — la page produit immersive vit sur /cli. Direction
+// artistique reprise du terminal : bannière en blocs, cadres, chasse fixe, et une VRAIE session
+// capturée (cf. cli/captures.ts) plutôt qu'une réponse inventée. Aucun effet de fond : les écrans sombres sont du
 // contenu (ils représentent le terminal), la page reste sur le papier du site.
 //
 // Tout chiffre ici vient d'un banc rejouable (ROADMAP §16) — ne pas en ajouter sans mesure.
@@ -11,9 +11,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Copy, Check, Code2, Terminal } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
-import DocsShell, { Code, P } from '../docs/DocsShell';
-import s from './cli.module.css';
-import { SESSION, type Seg } from './session';
+import DocsShell, { Code, P } from '../DocsShell';
+import s from '../../cli/cli.module.css';
+import { SESSION, type Seg } from '../../cli/captures';
 
 const BANNER = `██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
 ██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
@@ -102,7 +102,7 @@ function Param({ name, type, children }: { name: string; type: string; children:
   );
 }
 
-export default function CliClient() {
+export default function CliDocsClient() {
   const t = useT();
   const href = useHref();
 
@@ -136,7 +136,7 @@ export default function CliClient() {
       {/* ── EN-TÊTE : la bannière du terminal ─────────────────────────────────────────────── */}
       <div style={{ marginTop: 12 }}>
         <p className={s.eyebrow}>$ brimkern chat</p>
-        <Screen title="brimkern — zsh">
+        <Screen title="brimkern · zsh">
           <pre className={s.banner} aria-hidden="true">{BANNER}</pre>
           <p className={s.tagline}>{t('On-device WebGPU & WGSL inference engine', 'Moteur d’inférence WebGPU & WGSL on-device')}</p>
           <div className={s.box}>
@@ -179,7 +179,7 @@ export default function CliClient() {
       </P>
       <Screen title="brimkern chat">
         <pre className={`${s.pre} ${s.wrap}`}>
-          {SESSION.lines.map((line, i) => (
+          {SESSION.map((line, i) => (
             <span key={i}>
               {line.map((seg, j) => <Seg key={j} seg={seg} />)}
               {'\n'}
@@ -187,14 +187,14 @@ export default function CliClient() {
           ))}
         </pre>
       </Screen>
-      <p className={s.caption}>{t(SESSION.caption.en, SESSION.caption.fr)}</p>
+      <p className={s.caption}>{t('Recorded on 2026-09-23 on an M-series Mac, Qwen 3 4B (native Dawn), warm cache. Output untouched.', 'Enregistrée le 23/09/2026 sur un Mac série M, Qwen 3 4B (Dawn natif), cache chaud. Sortie non retouchée.')}</p>
 
       {/* ── INSTALLATION ──────────────────────────────────────────────────────────────────── */}
       <H2 id="install" n="02">{t('Install', 'Installation')}</H2>
       <P>
         {t(
-          'From the repository, with Node.js and npm. The first launch downloads the model once, then it is read from ~/.cache/brimkern — offline included.',
-          'Depuis le dépôt, avec Node.js et npm. Le premier lancement télécharge le modèle une fois, ensuite il est relu depuis ~/.cache/brimkern — hors-ligne compris.'
+          'From the repository, with Node.js and npm. The first launch downloads the model once, then it is read from ~/.cache/brimkern, offline included.',
+          'Depuis le dépôt, avec Node.js et npm. Le premier lancement télécharge le modèle une fois, ensuite il est relu depuis ~/.cache/brimkern, hors-ligne compris.'
         )}
       </P>
       <ol className={s.steps}>
@@ -227,8 +227,8 @@ export default function CliClient() {
       </div>
       <P>
         {t(
-          'The savings figure is an estimate, and presented as one: tokens ≈ characters / 4, the conversation history counted on every turn as an API would bill it, at a reference price of $3 / $15 per million input / output tokens — set BRIMKERN_PRICE_IN and BRIMKERN_PRICE_OUT to use your own.',
-          'Le chiffre d’économies est une estimation, présentée comme telle : tokens ≈ caractères / 4, l’historique compté à chaque tour comme le facturerait une API, à un tarif de référence de 3 $ / 15 $ par million de tokens en entrée / sortie — BRIMKERN_PRICE_IN et BRIMKERN_PRICE_OUT pour mettre le vôtre.'
+          'The savings figure is an estimate, and presented as one: tokens ≈ characters / 4, the conversation history counted on every turn as an API would bill it, at a reference price of $3 / $15 per million input / output tokens; set BRIMKERN_PRICE_IN and BRIMKERN_PRICE_OUT to use your own.',
+          'Le chiffre d’économies est une estimation, présentée comme telle : tokens ≈ caractères / 4, l’historique compté à chaque tour comme le facturerait une API, à un tarif de référence de 3 $ / 15 $ par million de tokens en entrée / sortie ; BRIMKERN_PRICE_IN et BRIMKERN_PRICE_OUT pour mettre le vôtre.'
         )}
       </P>
 
@@ -310,7 +310,7 @@ export default function CliClient() {
       <div className={s.points}>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('Hand-written WGSL', 'WGSL écrit à la main')}</p>
-          <p className={s.pointText}>{t('The compute shaders of the browser engine, compiled by the platform WebGPU driver — Metal on macOS, Vulkan on Linux.', 'Les compute shaders du moteur navigateur, compilés par le pilote WebGPU de la plateforme — Metal sur macOS, Vulkan sur Linux.')}</p>
+          <p className={s.pointText}>{t('The compute shaders of the browser engine, compiled by the platform WebGPU driver: Metal on macOS, Vulkan on Linux.', 'Les compute shaders du moteur navigateur, compilés par le pilote WebGPU de la plateforme : Metal sur macOS, Vulkan sur Linux.')}</p>
         </div>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('Native Dawn', 'Dawn natif')}</p>

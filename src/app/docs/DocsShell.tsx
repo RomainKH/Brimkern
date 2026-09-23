@@ -216,7 +216,7 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
     { path: '/docs', label: t('Overview', "Vue d'ensemble") },
     { path: '/docs/models', label: t('Models & the .brik format', 'Modèles & format .brik') },
     { path: '/docs/sdk', label: t('SDK & npm package', 'SDK & paquet npm') },
-    { path: '/cli', label: t('WGSL CLI', 'CLI WGSL') },
+    { path: '/docs/cli', label: t('CLI reference', 'Référence CLI') },
     { path: '/docs/diagnostics', label: t('Diagnostics', 'Diagnostics') },
     { path: '/vs-webllm', label: t('Compared to WebLLM', 'Comparé à WebLLM') },
     { path: '/changelog', label: 'Changelog' },

@@ -1,0 +1,519 @@
+/* Page produit /cli — sombre en permanence (décision de Romain, 2026-09-23 : c'est un terminal).
+   Lecture : page produit pour développeurs, dans la langue visuelle du terminal Brimkern.
+   Cadrans : ÉNERGIE 3 · RYTHME 3 · MOUVEMENT 2.
+   Raisons, une ligne chacune :
+   - fond d'encre chaude (#0d0d0c) : le négatif du papier du site, pas un noir « tech » neutre ;
+   - Fraunces pour les titres contre Fira en chasse fixe : le spécimen d'imprimeur de la marque face
+     à la machine — c'est l'identité Brimkern, reprise telle quelle ;
+   - un seul accent, le rouge carmin de la bannière du terminal ; sable / cyan / vert n'existent que
+     DANS les captures, parce que ce sont les vraies couleurs de la CLI ;
+   - motif : les cadres « ┌─ titre ─┐ » du terminal, repris autour de chaque capture ;
+   - aucun effet de fond (grille, halo, bruit) : refusés trois fois sur la landing ; l'immersion
+     vient des captures réelles et de la session rejouée.
+   Contrastes mesurés sur #0d0d0c : papier 15.77, atténué 7.66, faible 5.58, rouge 5.17 ; sur
+   #151514 (écrans) : rouge 4.86, sable 9.74, cyan 8.53, vert 10.49, grisé 5.41. */
+
+.page {
+  --ink: #0d0d0c;
+  --screen: #151514;
+  --rule: #34322e;
+  --paper: #ece7dc;
+  --muted: #a8a296;
+  --faint: #8e897e;
+  --red: #ef4444;
+  --red-text: #f26d64;
+  --sand: #d8b984;
+  --cyan: #38bdf8;
+  --green: #4ade80;
+  --ghost: #8b8b94;
+  background: var(--ink);
+  color: var(--paper);
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  overflow-x: clip;
+}
+
+/* Le `code` global du site (fond papier clair) donnait des blocs blancs illisibles sur l'encre. */
+.page code {
+  background: transparent;
+  padding: 0;
+  border: 0;
+  color: var(--paper);
+}
+
+.page a:focus-visible,
+.page button:focus-visible,
+.page [tabindex]:focus-visible {
+  outline: 2px solid var(--red-text);
+  outline-offset: 3px;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+@media (min-width: 720px) {
+  .wrap { padding: 0 32px; }
+}
+
+/* ── Barre du haut : trois destinations réelles, rien d'autre ─────────────────────────── */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 18px;
+  padding-bottom: 18px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.topLinks {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.topLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 10px;
+  color: var(--muted);
+  text-decoration: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.topLink:hover { color: var(--paper); }
+
+.home {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--paper);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.home span { color: var(--red-text); margin-right: 8px; }
+
+/* ── Hero ─────────────────────────────────────────────────────────────────────────────── */
+.hero {
+  padding-top: clamp(28px, 7vh, 88px);
+  padding-bottom: clamp(48px, 10vh, 120px);
+}
+
+.prompt {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 22px;
+}
+
+.prompt b { color: var(--red-text); font-weight: 600; }
+
+/* Curseur : dit « invite en attente », rien de plus. Coupé si l'OS demande moins de mouvement. */
+.cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  margin-left: 4px;
+  vertical-align: text-bottom;
+  background: var(--red);
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes blink { 50% { opacity: 0; } }
+
+.banner {
+  margin: 0;
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-size: clamp(5.2px, 1.9vw, 21px);
+  line-height: 1.06;
+  white-space: pre;
+  letter-spacing: 0;
+}
+
+.h1 {
+  margin: clamp(26px, 5vh, 48px) 0 18px;
+  max-width: 16ch;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(34px, 6.4vw, 76px);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: var(--paper);
+}
+
+.h1 em {
+  font-style: italic;
+  color: var(--red-text);
+}
+
+.lede {
+  max-width: 56ch;
+  margin: 0 0 30px;
+  font-size: clamp(16px, 1.6vw, 19px);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: 1px solid var(--red);
+}
+
+.btnPrimary { background: var(--red); color: var(--ink); }
+.btnPrimary:hover { background: #f26d64; }
+.btnGhost { background: transparent; color: var(--paper); border-color: var(--rule); }
+.btnGhost:hover { border-color: var(--muted); }
+
+/* ── Sections : le titre est une ligne de commande, la composition change à chaque fois ── */
+.section {
+  padding-top: clamp(56px, 11vh, 128px);
+  padding-bottom: 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.cmdLabel {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--red-text);
+  margin: 0 0 16px;
+}
+
+.h2 {
+  margin: 0 0 16px;
+  max-width: 20ch;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(28px, 4.2vw, 52px);
+  line-height: 1.06;
+  letter-spacing: -0.015em;
+  color: var(--paper);
+}
+
+.body {
+  max-width: 58ch;
+  margin: 0 0 14px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.body code,
+.note code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--paper);
+}
+
+.note {
+  margin: 12px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--faint);
+}
+
+/* Section « rejouée » : la capture prend toute la largeur, c'est le moment fort de la page. */
+.replayHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 32px;
+  margin-bottom: 26px;
+}
+
+.replayHead .body { margin: 0; }
+
+/* Section « dépôt » : asymétrique, texte étroit à gauche, deux écrans décalés à droite. */
+.split {
+  display: grid;
+  gap: 28px;
+}
+
+@media (min-width: 900px) {
+  .split { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 56px; align-items: start; }
+  .splitSticky { position: sticky; top: 32px; }
+}
+
+.stack { display: grid; gap: 22px; }
+
+@media (min-width: 900px) {
+  .stackOffset { margin-left: 28px; }
+}
+
+/* Boîtes du terminal (80 colonnes) : corps un peu plus petit pour tenir dans leur colonne sans
+   être rognées à droite. */
+.wide .shotBody { font-size: clamp(10px, 0.98vw, 12.5px); }
+
+/* Section « suggestions » : la capture seule, grossie, pour qu'on lise le grisé. */
+.bigShot .shotBody { font-size: clamp(13px, 1.7vw, 18px); }
+
+/* Section modèles : tableau mesuré à gauche, sélecteur réel à droite. */
+.models {
+  display: grid;
+  gap: 28px;
+}
+
+@media (min-width: 900px) {
+  .models { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 36px; align-items: start; }
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+
+.table caption {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+  padding-bottom: 12px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 12px 12px 12px 0;
+  border-bottom: 1px solid var(--rule);
+  line-height: 1.45;
+}
+
+.table th {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--faint);
+}
+
+.table td:first-child { font-family: var(--font-mono); color: var(--red-text); font-weight: 600; white-space: nowrap; }
+.table td { color: var(--muted); }
+.table .strong { color: var(--paper); }
+
+.tableWrap { overflow-x: auto; }
+
+/* Section « local » : une phrase, la vraie ligne de stats, la formule. Rien d'autre. */
+.statement {
+  margin: 0 0 26px;
+  max-width: 18ch;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: clamp(34px, 5.6vw, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+}
+
+.statLine {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 14px 16px;
+  background: var(--screen);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 1.5vw, 15px);
+  color: #a1a1aa;
+  white-space: pre;
+}
+
+.statLine .green { color: var(--green); }
+
+/* ── Installation ─────────────────────────────────────────────────────────────────────── */
+.steps {
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  max-width: 760px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.stepNum {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--red-text);
+}
+
+.copy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 6px 6px 6px 14px;
+  background: var(--screen);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.copyText {
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  color: var(--paper);
+}
+
+.copyText::before { content: '$ '; color: var(--red-text); }
+
+.copyBtn {
+  flex-shrink: 0;
+  min-height: 44px;
+  min-width: 72px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.copyBtn:hover { color: var(--paper); border-color: var(--muted); }
+
+/* ── Écrans : les captures, dans le cadre du terminal ─────────────────────────────────── */
+.shot {
+  position: relative;
+  background: var(--screen);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.shotTitle {
+  position: absolute;
+  top: -0.8em;
+  left: 14px;
+  padding: 0 8px;
+  background: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.shotBody {
+  margin: 0;
+  padding: 22px 18px 18px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: clamp(11.5px, 1.35vw, 13.5px);
+  line-height: 1.6;
+  color: var(--paper);
+  white-space: pre;
+}
+
+.shotBody.wrapText { white-space: pre-wrap; word-break: break-word; }
+
+.shotFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 0 18px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.replayBtn {
+  min-height: 44px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.replayBtn:hover { border-color: var(--muted); }
+
+/* Couleurs de la CLI, uniquement dans les captures. */
+.red { color: var(--red); }
+.boldRed { color: var(--red); font-weight: 700; }
+.sand { color: var(--sand); }
+.cyan { color: var(--cyan); }
+.green { color: var(--green); }
+.gray { color: #a1a1aa; }
+.dim { color: var(--ghost); }
+.bold { font-weight: 700; }
+.italic { font-style: italic; }
+
+.caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: var(--paper);
+  opacity: 0.85;
+}
+
+/* ── Pied ─────────────────────────────────────────────────────────────────────────────── */
+.foot {
+  margin-top: clamp(64px, 12vh, 140px);
+  padding-top: 22px;
+  padding-bottom: 36px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.foot nav { display: flex; flex-wrap: wrap; gap: 0 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor { animation: none; }
+}
