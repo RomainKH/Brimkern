@@ -22,7 +22,7 @@ const VERT = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`
 
 // fbm à domaine déformé (Quilez) : deux couches de bruit qui se tordent l'une l'autre.
 const FRAG = `precision mediump float;
-uniform vec2 res; uniform float t; uniform float scroll; uniform vec2 mouse; uniform vec2 mvel;
+uniform vec2 res; uniform float t; uniform float scroll;
 float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
@@ -31,12 +31,6 @@ void main(){
   vec2 uv = gl_FragCoord.xy / res;
   // Le défilement (en hauteurs d'écran) décale le domaine du bruit : la fumée monte quand on descend.
   vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 1.6);
-  // La souris : son mouvement pousse LÉGÈREMENT la fumée alentour, rien de plus (retour de
-  // Romain : l'effet précédent — sillage, trou, éclat — était beaucoup trop violent).
-  vec2 aspect = vec2(res.x/res.y, 1.0);
-  vec2 dm = (uv - mouse) * aspect;
-  float near = exp(-dot(dm, dm) * 3.5);
-  p -= mvel * aspect * 3.5 * near;
   float s = t * 0.045;
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
@@ -99,16 +93,6 @@ export default function Smoke({ className }: { className?: string }) {
     const uRes = gl.getUniformLocation(prog, 'res');
     const uT = gl.getUniformLocation(prog, 't');
     const uScroll = gl.getUniformLocation(prog, 'scroll');
-    const uMouse = gl.getUniformLocation(prog, 'mouse');
-    const uVel = gl.getUniformLocation(prog, 'mvel');
-    const vel = { x: 0, y: 0 };
-    // Pointeur en coordonnées de la toile (0..1, y vers le haut), suivi avec retard : la fumée
-    // réagit comme un fluide, pas comme un curseur collé.
-    const target = { x: 0.7, y: 0.4 };
-    const cur = { x: 0.7, y: 0.4 };
-    const onMove = (e: PointerEvent) => { target.x = e.clientX / window.innerWidth; target.y = 1 - e.clientY / window.innerHeight; };
-    window.addEventListener('pointermove', onMove, { passive: true });
-
     // Coût CONSTANT : au plus ~220 000 pixels calculés, quel que soit l'écran (un 5K coûte ce que
     // coûte un portable) ; le flou de la fumée masque l'agrandissement.
     const MAX_PIXELS = 220_000;
@@ -124,20 +108,12 @@ export default function Smoke({ className }: { className?: string }) {
     const draw = (sec: number) => {
       gl.uniform1f(uT, sec);
       gl.uniform1f(uScroll, window.scrollY / Math.max(1, window.innerHeight));
-      const nx = cur.x + (target.x - cur.x) * 0.12;
-      const ny = cur.y + (target.y - cur.y) * 0.12;
-      // Vitesse lissée : monte vite quand la souris bouge, retombe en ~1 s à l'arrêt.
-      vel.x = vel.x * 0.86 + (nx - cur.x) * 0.14 * 8;
-      vel.y = vel.y * 0.86 + (ny - cur.y) * 0.14 * 8;
-      cur.x = nx; cur.y = ny;
-      gl.uniform2f(uMouse, cur.x, cur.y);
-      gl.uniform2f(uVel, vel.x, vel.y);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
     resize();
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) { draw(12); window.removeEventListener('pointermove', onMove); return; }
+    if (reduced) { draw(12); return; }
 
     let raf = 0;
     let last = 0;
@@ -154,7 +130,7 @@ export default function Smoke({ className }: { className?: string }) {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pointermove', onMove); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
   return <canvas ref={ref} className={className} aria-hidden="true" />;
