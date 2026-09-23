@@ -134,7 +134,7 @@ export default function LandingClient() {
   }, []);
 
   const handleCopyNpx = () => {
-    navigator.clipboard.writeText('npx brimkern').catch(() => {});
+    navigator.clipboard.writeText('curl -fsSL https://brimkern.com/install.sh | bash').catch(() => {});
     setCopiedNpx(true);
     setTimeout(() => setCopiedNpx(false), 2000);
   };
@@ -217,22 +217,22 @@ export default function LandingClient() {
             {/* Barre de commande rapide (inspiration mise.jdx.dev) */}
             <div className="lp-hero-install">
               <span className="lp-hero-install-prompt" aria-hidden="true">$</span>
-              <code>npx brimkern</code>
+              <code>curl -fsSL https://brimkern.com/install.sh | bash</code>
               <button
                 type="button"
                 className="lp-hero-install-copy"
                 onClick={handleCopyNpx}
-                aria-label={t('Copy npx brimkern command', 'Copier la commande npx brimkern')}
+                aria-label={t('Copy CLI install command', 'Copier la commande d’installation CLI')}
               >
                 {copiedNpx ? t('Copied!', 'Copié !') : t('Copy', 'Copier')}
               </button>
             </div>
             <p className="lp-hero-install-note">
-              <span>{t('Terminal CLI or in-browser chat', 'En terminal CLI ou dans l’onglet web')}</span>
+              <span>macOS & Linux</span>
               <span aria-hidden="true"> · </span>
               <Link href={href('/cli')}>{t('CLI guide', 'Guide CLI')}</Link>
               <span aria-hidden="true"> · </span>
-              <span>{t('Chrome, Edge, Safari 18+', 'Chrome, Edge, Safari 18+')}</span>
+              <span>{t('Or open in browser', 'Ou ouvrir dans le navigateur')}</span>
             </p>
 
             {gpuOk === false && (
@@ -311,7 +311,7 @@ export default function LandingClient() {
                   <div className="lp-workbench-comment">
                     # {t('Coding assistant running in your shell on your local GPU', 'Assistant de code dans votre shell sur votre GPU local')}
                   </div>
-                  <pre className="lp-workbench-code"><code><span className="lp-wb-prompt">$</span> npx brimkern{'\n'}<span className="lp-wb-dim">? Project: ~/dev/my-app (indexed 84 files)</span>{'\n'}<span className="lp-wb-dim">? Model: Qwen 3 4B (4-bit quantized, local GPU)</span>{'\n'}<span className="lp-wb-info">brimkern&gt; Optimize the WebGPU render pipeline</span>{'\n'}<span className="lp-wb-success">✓ 2 files updated · 100% offline & private</span></code></pre>
+                  <pre className="lp-workbench-code"><code><span className="lp-wb-prompt">$</span> brimkern chat{'\n'}<span className="lp-wb-dim">? Project: ~/dev/my-app (indexed 84 files)</span>{'\n'}<span className="lp-wb-dim">? Model: Qwen 3 4B (4-bit quantized, local GPU)</span>{'\n'}<span className="lp-wb-info">brimkern&gt; Optimize the WebGPU render pipeline</span>{'\n'}<span className="lp-wb-success">✓ 2 files updated · 100% offline & private</span></code></pre>
                   <div className="lp-workbench-footer">
                     <Link href={href('/cli')} className="lp-wb-action">
                       {t('Explore CLI docs & features', 'Explorer la doc CLI & fonctionnalités')} <ArrowRight size={13} />
