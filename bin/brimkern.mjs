@@ -470,6 +470,9 @@ class ActivitySpinner {
   }
 
   stop(clear = true) {
+    // Arrêt déjà fait (premier token) : ne RIEN écrire. Le « \r\x1b[2K » effaçait sinon la ligne
+    // courante du terminal — la dernière ligne de la réponse, coupée en plein mot.
+    if (!this.active) return;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
