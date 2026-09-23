@@ -184,6 +184,46 @@ const THINKING_LEVELS = {
   }
 };
 
+// ── Contexte du projet courant ─────────────────────────────────────────────────────────
+// Le modèle ne voyait que le message : à « à quoi sert ce projet ? » il répondait qu'il ne
+// travaillait sur aucun projet. On lui décrit le dossier courant (paquet, README, branche,
+// arborescence de tête) dans le prompt système. Borné (~900 car. ; mesuré +1,45 s de TTFT par tour sur Qwen 3 4B, +1,8 s à 1 500 car.) : il est repréfillé à
+// chaque tour.
+function buildProjectContext(cwd = process.cwd()) {
+  const parts = [];
+  const readme = ['README.md', 'README', 'readme.md'].map((f) => join(cwd, f)).find((f) => existsSync(f));
+  // Le README d'abord, et le NOM du paquet seulement sans README : un nom interne
+  // (« local-llm-interface-ssr » ici) faisait décrire le projet comme « une interface SSR ».
+  try {
+    const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
+    const line = (readme ? [pkg.description] : [pkg.name, pkg.description]).filter(Boolean).join(' — ');
+    if (line) parts.push(`package.json: ${line}`);
+  } catch {}
+  if (readme) {
+    const text = readFileSync(readme, 'utf8')
+      .replace(/```[\s\S]*?```/g, ' ')          // blocs de code
+      .replace(/<[^>]+>/g, ' ')                   // HTML
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')        // images
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')      // liens → texte
+      .replace(/[*_`#>|]/g, '')
+      .split('\n').map((l) => l.trim()).filter((l) => l && !/^-{3,}$/.test(l))
+      .join(' ').replace(/\s+/g, ' ').trim();
+    if (text) parts.unshift(`README: ${text.slice(0, 450)}${text.length > 450 ? '…' : ''}`);
+  }
+  const git = getGitInfo();
+  if (git) parts.push(`git branch: ${git.branch}`);
+  try {
+    const IGNORED = new Set(['node_modules', '.git', '.next', 'dist', '.cache']);
+    const entries = readdirSync(cwd, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith('.') && !IGNORED.has(e.name))
+      .slice(0, 20)
+      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+    if (entries.length) parts.push(`top-level files: ${entries.join(', ')}`);
+  } catch {}
+  if (!parts.length || (!readme && parts.length < 3 && !git)) return '';
+  return `\n\nThe user is working in the directory ${cwd}. When they say "this project", "ce projet" or "le repo", they mean this one:\n${parts.join('\n')}`;
+}
+
 // ── Utilitaires Git ──────────────────────────────────────────────────────────────────
 function getGitInfo() {
   try {
@@ -1159,6 +1199,9 @@ class BrimkernChromiumEngine {
 // ── Fabrique unifiée de moteur CLI ───────────────────────────────────────────────────
 async function createCliEngine(options = {}) {
   options = { ...options, model: resolveModelKey(options.model) };
+  if (!options.system && PRESET_CLI_MODELS[options.model]) {
+    options.system = PRESET_CLI_MODELS[options.model].defaultSystem + buildProjectContext();
+  }
   const forceChromium = !!options.chromium || !!options.headless || process.env.BRIMKERN_FORCE_CHROMIUM === '1';
   const forceNative = !!options.native || process.env.BRIMKERN_FORCE_NATIVE === '1';
   const modelKey = options.model || 'coder';
