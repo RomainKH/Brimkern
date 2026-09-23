@@ -224,6 +224,28 @@ function buildProjectContext(cwd = process.cwd()) {
   return `\n\nThe user is working in the directory ${cwd}. When they say "this project", "ce projet" or "le repo", they mean this one:\n${parts.join('\n')}`;
 }
 
+// ── Économies estimées vs une API payante ─────────────────────────────────────────────
+// Gadget assumé : ce que la même conversation aurait coûté facturée par une API. ESTIMATION,
+// affichée comme telle : tokens ≈ caractères / 4, tarif de référence réglable (défaut 3 $ / 15 $
+// par million de tokens en entrée / sortie, ordre de grandeur d'un modèle milieu de gamme).
+// Une API refacture tout l'historique à chaque tour : il compte dans l'entrée.
+const REF_PRICE = {
+  in: Number(process.env.BRIMKERN_PRICE_IN) || 3,
+  out: Number(process.env.BRIMKERN_PRICE_OUT) || 15,
+};
+const approxTokens = (chars) => Math.ceil(chars / 4);
+function estimateSavings(inChars, outTokens) {
+  return (approxTokens(inChars) * REF_PRICE.in + outTokens * REF_PRICE.out) / 1e6;
+}
+function fmtUsd(x) {
+  if (x >= 1) return `${x.toFixed(2)} $`;
+  if (x >= 0.01) return `${x.toFixed(3)} $`;
+  return `${x.toFixed(4)} $`;
+}
+function savingsLabel(x) {
+  return `${C.green}≈ ${fmtUsd(x)} économisés${C.reset}`;
+}
+
 // ── Utilitaires Git ──────────────────────────────────────────────────────────────────
 function getGitInfo() {
   try {
@@ -405,24 +427,32 @@ function findFileCompletions(partial) {
 }
 
 // ── Auto-compléteur readline avancé (commandes /, modes, think et fichiers @) ────────
+// Commandes slash : une seule table pour la complétion Tab ET les suggestions en direct.
+const SLASH_COMMANDS = [
+  ['/help', 'Liste des commandes'],
+  ['/model', 'Choisir le modèle (sélecteur ↑/↓)'],
+  ['/models', 'Choisir le modèle (sélecteur ↑/↓)'],
+  ['/mode', 'Mode : code, plan, review, auto'],
+  ['/think', 'Réflexion : off, auto, deep'],
+  ['/status', 'État de la session'],
+  ['/stats', 'Tokens, vitesse, économies estimées'],
+  ['/diff', 'Revue de vos modifications git'],
+  ['/commit', 'Propositions de messages de commit'],
+  ['/review', 'Revue de code d’un fichier'],
+  ['/copy', 'Copier la dernière réponse'],
+  ['/accept', 'Extraire les blocs de code proposés'],
+  ['/reset', 'Effacer l’historique de la conversation'],
+  ['/clear', 'Effacer l’écran'],
+  ['/exit', 'Quitter'],
+];
+const SUBCOMMAND_DESCS = () => ({
+  '/mode': Object.fromEntries(Object.entries(CLI_MODES).map(([k, m]) => [k, m.desc])),
+  '/think': Object.fromEntries(Object.entries(THINKING_LEVELS).map(([k, t]) => [k, t.desc])),
+  '/model': Object.fromEntries(Object.entries(PRESET_CLI_MODELS).map(([k, m]) => [k, `${m.shortName} · ${m.size}`])),
+});
+
 function createCliCompleter() {
-  const slashCommands = [
-    '/help',
-    '/mode',
-    '/think',
-    '/status',
-    '/model',
-    '/models',
-    '/diff',
-    '/commit',
-    '/review',
-    '/copy',
-    '/accept',
-    '/reset',
-    '/stats',
-    '/clear',
-    '/exit',
-  ];
+  const slashCommands = SLASH_COMMANDS.map(([cmd]) => cmd);
 
   return function completer(line) {
     // 1. Completion de fichiers avec @ (ex: @src/app/...)
@@ -524,6 +554,79 @@ class ActivitySpinner {
   }
 }
 
+// ── Suggestions en direct pendant la frappe ──────────────────────────────────────────
+// Dès « / », la fin de la première commande candidate s'affiche en grisé après le curseur (→ ou
+// Tab pour l'accepter) et les candidates sont listées dessous avec leur rôle. Tout est dessiné
+// APRÈS la fin de la saisie et effacé avant que la ligne soit traitée : la sortie d'une commande
+// ne peut pas être recouverte.
+function createLiveSuggest(rl) {
+  let shown = false;      // quelque chose est dessiné après la saisie
+  let ghost = '';
+  let drawnEndCol = 0;
+  const tailWidth = () => stripAnsi(String(rl.getPrompt()).split('\n').pop()).length;
+
+  function candidates(line) {
+    const sp = line.indexOf(' ');
+    if (sp === -1) {
+      return SLASH_COMMANDS.filter(([cmd]) => cmd.startsWith(line)).map(([cmd, desc]) => [cmd, desc]);
+    }
+    const head = line.slice(0, sp) === '/models' ? '/model' : line.slice(0, sp);
+    const subs = SUBCOMMAND_DESCS()[head];
+    if (!subs) return [];
+    const partial = line.slice(sp + 1);
+    if (partial.includes(' ')) return [];
+    return Object.entries(subs).filter(([k]) => k.startsWith(partial)).map(([k, d]) => [`${line.slice(0, sp)} ${k}`, d]);
+  }
+
+  function clear() {
+    if (!shown) return;
+    const endCol = tailWidth() + rl.line.length;
+    process.stdout.write(`\x1b7\x1b[${endCol + 1}G\x1b[0J\x1b8`);
+    shown = false;
+    ghost = '';
+  }
+
+  function update() {
+    const line = rl.line || '';
+    const endCol = tailWidth() + line.length;
+    const cols = process.stdout.columns || 80;
+    if (!line.startsWith('/') || rl.cursor !== line.length || endCol >= cols - 1) { clear(); return; }
+    const hits = candidates(line).slice(0, 6);
+    if (!hits.length || (hits.length === 1 && hits[0][0] === line && !SUBCOMMAND_DESCS()[line])) { clear(); return; }
+    ghost = hits[0][0].startsWith(line) ? hits[0][0].slice(line.length) : '';
+    if (endCol + ghost.length >= cols - 1) ghost = '';
+    const rows = hits.map(([cmd, desc]) => {
+      const txt = `  ${cmd.padEnd(16)} ${desc}`.slice(0, cols - 1);
+      return `${C.cyan}${txt.slice(0, 18)}${C.reset}${C.dim}${txt.slice(18)}${C.reset}`;
+    });
+    // Réserver les lignes AVANT de sauver le curseur : un défilement en bas d'écran fausserait
+    // la position sauvegardée.
+    process.stdout.write('\r\n'.repeat(rows.length) + `\x1b[${rows.length}A\x1b[${endCol + 1}G\x1b[0J\x1b7`);
+    process.stdout.write(`${C.darkGray}${ghost}${C.reset}\r\n${rows.join('\r\n')}\x1b8`);
+    shown = true;
+    drawnEndCol = endCol;
+  }
+
+  // Entrée : readline est déjà passé à la ligne suivante — on efface le grisé resté sur la ligne
+  // validée et la liste dessous, avant tout traitement de la commande.
+  function onSubmit() {
+    if (!shown) return;
+    process.stdout.write(`\x1b[1A\x1b[${drawnEndCol + 1}G\x1b[0J\x1b[1B\r`);
+    shown = false;
+    ghost = '';
+  }
+
+  function accept() {
+    if (!ghost || rl.cursor !== rl.line.length) return false;
+    const g = ghost;
+    clear();
+    rl.write(g);
+    return true;
+  }
+
+  return { update, clear, onSubmit, accept };
+}
+
 // ── Filtre de flux de réflexion (<think>...</think>) ────────────────────────────────
 class ThinkStreamFilter {
   constructor({ onToken, onThinkStart, onThinkEnd }) {
@@ -605,10 +708,129 @@ class ThinkStreamFilter {
   }
 }
 
+// ── Rendu Markdown en flux pour le terminal ────────────────────────────────────────────
+// Les réponses arrivaient en Markdown brut (« **Local execution** », « ```ts »). Rendu ANSI au fil
+// des tokens : **gras**, `code`, titres, puces, blocs de code colorés et clôtures masquées. On ne
+// retient un caractère que tant qu'un marqueur est ambigu (« * » avant un 2e « * », début de
+// ligne avant de savoir si c'est « ``` », « # », « - »). Hors TTY (pipe), le texte reste brut.
+class MarkdownStream {
+  constructor(out) {
+    this.out = out;
+    this.lineStart = true;
+    this.lineBuf = '';
+    this.inFence = false;
+    this.swallowLine = false; // ligne de clôture ``` (et son langage) : non affichée
+    this.bold = false;
+    this.code = false;
+    this.heading = false;
+    this.pendStar = false;
+  }
+  style() {
+    let st = C.reset;
+    if (this.heading) st += C.boldRed;
+    if (this.bold) st += C.bold;
+    if (this.code) st += C.cyan;
+    return st;
+  }
+  write(chunk) {
+    for (const ch of chunk) this.push(ch);
+  }
+  push(ch) {
+    if (this.swallowLine) {
+      if (ch === '\n') { this.swallowLine = false; this.lineStart = true; this.lineBuf = ''; }
+      return;
+    }
+    if (this.lineStart) {
+      this.lineBuf += ch;
+      this.decideLine();
+      return;
+    }
+    if (this.inFence) {
+      this.out(ch === '\n' ? `${C.reset}\n` : ch);
+      if (ch === '\n') { this.lineStart = true; this.lineBuf = ''; }
+      return;
+    }
+    this.inline(ch);
+  }
+  decideLine() {
+    const b = this.lineBuf;
+    const ended = b.endsWith('\n');
+    const body = ended ? b.slice(0, -1) : b;
+    // Clôture de bloc de code, en entrée comme en sortie.
+    // (indentée comprise : un bloc sous une puce arrive en « ␣␣```ts ».)
+    if (!ended && /^\s{0,8}`{0,2}$/.test(body)) return;
+    if (/^\s*```/.test(body)) {
+      this.inFence = !this.inFence;
+      this.lineStart = false;
+      this.lineBuf = '';
+      if (ended) this.lineStart = true; else this.swallowLine = true;
+      return;
+    }
+    if (this.inFence) {
+      this.lineStart = false; this.lineBuf = '';
+      this.out(C.sand);
+      for (const c of b) this.push(c);
+      return;
+    }
+    if (!ended) {
+      // Encore ambigu : blancs d'indentation, « # », puce, numéro.
+      if (/^\s{0,8}$/.test(body) || /^#{1,6}$/.test(body) || /^\s*[-*+]$/.test(body) || /^\s*\d{1,3}\.?$/.test(body) || body === '>') return;
+    }
+    let rest = b;
+    let m;
+    if ((m = body.match(/^(#{1,6}) /))) {
+      this.heading = true;
+      this.out(this.style());
+      rest = b.slice(m[0].length);
+    } else if ((m = body.match(/^(\s*)[-*+] /)) && !/^\s*\*\*/.test(body)) {
+      this.out(`${m[1]}${C.red}•${C.reset} `);
+      rest = b.slice(m[0].length);
+    } else if ((m = body.match(/^(\s*)(\d{1,3})\. /))) {
+      this.out(`${m[1]}${C.red}${m[2]}.${C.reset} `);
+      rest = b.slice(m[0].length);
+    } else if ((m = body.match(/^> ?/))) {
+      this.out(`${C.darkGray}│${C.reset} `);
+      rest = b.slice(m[0].length);
+    }
+    this.lineStart = false;
+    this.lineBuf = '';
+    for (const c of rest) this.inline(c);
+  }
+  inline(ch) {
+    if (this.pendStar) {
+      this.pendStar = false;
+      if (ch === '*') { this.bold = !this.bold; this.out(this.style()); return; }
+      this.out('*');
+    }
+    if (ch === '*' && !this.code) { this.pendStar = true; return; }
+    if (ch === '`') { this.code = !this.code; this.out(this.style()); return; }
+    if (ch === '\n') {
+      this.bold = this.code = this.heading = false;
+      this.out(`${C.reset}\n`);
+      this.lineStart = true;
+      this.lineBuf = '';
+      return;
+    }
+    this.out(ch);
+  }
+  flush() {
+    if (this.lineStart && this.lineBuf) {
+      const b = this.lineBuf;
+      this.lineBuf = '';
+      this.lineStart = false;
+      if (!/^\s*```/.test(b)) for (const c of b) this.inline(c);
+    }
+    if (this.pendStar) { this.pendStar = false; this.out('*'); }
+    this.out(C.reset);
+  }
+}
+
 // Affichage d'un flux de génération (REPL et one-shot). Les en-têtes Réflexion/Réponse ne
 // s'impriment qu'au premier caractère non blanc : Qwen 3 en /no_think émet un bloc
 // <think></think> VIDE, qui laissait « 💭 [Réflexion] » suivi de lignes blanches.
-function createStreamPrinter(spinner, onChunk) {
+function createStreamPrinter(spinner, onChunk, { markdown = process.stdout.isTTY } = {}) {
+  const write = (t) => process.stdout.write(t);
+  const md = markdown ? new MarkdownStream(write) : null;
   let started = false;
   let thinkOpen = false;      // <think> vu, en-tête pas encore imprimé
   let thinkPrinted = false;
@@ -616,7 +838,7 @@ function createStreamPrinter(spinner, onChunk) {
   const firstOutput = () => {
     if (!started) { started = true; spinner.stop(true); }
   };
-  return new ThinkStreamFilter({
+  const filter = new ThinkStreamFilter({
     onToken: (tok, isThink) => {
       onChunk();
       if (isThink) {
@@ -636,7 +858,7 @@ function createStreamPrinter(spinner, onChunk) {
         answerStarted = true;
       }
       firstOutput();
-      process.stdout.write(tok);
+      if (md) md.write(tok); else write(tok);
     },
     onThinkStart: () => { thinkOpen = true; },
     onThinkEnd: () => {
@@ -646,6 +868,10 @@ function createStreamPrinter(spinner, onChunk) {
       thinkOpen = false;
     },
   });
+  return {
+    feed: (chunk) => filter.feed(chunk),
+    flush: () => { filter.flush(); if (md) md.flush(); },
+  };
 }
 
 // ── Génération de la ligne d'état dynamique au-dessus du prompt ─────────────────────
@@ -667,16 +893,15 @@ function printStatusCard(engine, currentMode, thinkLevel, sessionState) {
   const elapsedSec = (sessionState.totalElapsedMs / 1000).toFixed(1);
   const avgSpeed = sessionState.totalElapsedMs > 0 ? ((sessionState.totalTokens / sessionState.totalElapsedMs) * 1000).toFixed(1) : '0';
 
-  console.log(`
-${C.boldRed}┌─ État de la session Brimkern ──────────────────────────────────────────┐${C.reset}
-${C.boldRed}│${C.reset} ${C.bold}Modèle actif${C.reset} : ${C.yellow}${engine.displayName.padEnd(49)}${C.reset} ${C.boldRed}│${C.reset}
-${C.boldRed}│${C.reset} ${C.bold}Moteur & GPU${C.reset} : ${C.cyan}${(engine.engineType + ' · ' + engine.gpuBackend).padEnd(49)}${C.reset} ${C.boldRed}│${C.reset}
-${C.boldRed}│${C.reset} ${C.bold}Mode IA${C.reset}      : ${modeInfo.badge} — ${C.gray}${modeInfo.desc.slice(0, 36).padEnd(36)}${C.reset} ${C.boldRed}│${C.reset}
-${C.boldRed}│${C.reset} ${C.bold}Réflexion${C.reset}    : ${thinkInfo.color}${thinkInfo.name.padEnd(8)}${C.reset} ${C.dim}(${thinkInfo.desc.slice(0, 38).padEnd(38)})${C.reset} ${C.boldRed}│${C.reset}
-${C.boldRed}│${C.reset} ${C.bold}Dépôt Git${C.reset}    : ${C.sand}${gitBranch.padEnd(49)}${C.reset} ${C.boldRed}│${C.reset}
-${C.boldRed}│${C.reset} ${C.bold}Inférence${C.reset}    : ${C.green}Local ($0.00)${C.reset} · ${sessionState.totalTokens} tokens · ~${avgSpeed} tok/s (${elapsedSec}s)    ${C.boldRed}│${C.reset}
-${C.boldRed}└────────────────────────────────────────────────────────────────────────┘${C.reset}
-`);
+  const saved = estimateSavings(sessionState.totalInChars || 0, sessionState.totalTokens);
+  console.log('\n' + drawBox(`${C.boldRed}État de la session Brimkern${C.reset}`, [
+    `${C.bold}Modèle actif${C.reset} : ${C.yellow}${engine.displayName}${C.reset}`,
+    `${C.bold}Moteur & GPU${C.reset} : ${C.cyan}${engine.engineType} · ${engine.gpuBackend}${C.reset}`,
+    `${C.bold}Mode IA${C.reset}      : ${modeInfo.badge} ${C.gray}${modeInfo.desc}${C.reset}`,
+    `${C.bold}Réflexion${C.reset}    : ${thinkInfo.color}${thinkInfo.name}${C.reset} ${C.dim}(${thinkInfo.desc})${C.reset}`,
+    `${C.bold}Dépôt Git${C.reset}    : ${C.sand}${gitBranch}${C.reset}`,
+    `${C.bold}Inférence${C.reset}    : ${C.green}100 % local${C.reset} · ${sessionState.totalTokens} tokens · ~${avgSpeed} tok/s (${elapsedSec}s) · ${savingsLabel(saved)}`,
+  ], { color: C.boldRed }) + '\n');
 }
 
 // ── Résolution de Chromium ───────────────────────────────────────────────────────────
@@ -1240,7 +1465,7 @@ async function createCliEngine(options = {}) {
 // ── Bannière de marque "Le Kern" ─────────────────────────────────────────────────────
 function printBrandBanner(engine, mode = 'code', think = 'auto') {
   const git = getGitInfo();
-  const gitStr = git ? ` · Git: ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.gray}` : '';
+  const gitStr = git ? `  ${C.dim}·${C.reset}  Git : ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.reset}` : '';
   const gpuStr = engine.gpuBackend || (process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)');
   const engineStr = engine.engineType || 'Natif Dawn (in-process)';
   const modeBadge = CLI_MODES[mode]?.badge || '[CODE]';
@@ -1254,11 +1479,11 @@ ${C.boldRed}██████╗ ██████╗ ██╗███╗   
 ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝${C.reset}
 ${C.dim}Moteur d'inférence WebGPU & WGSL on-device${C.reset}
 
-${C.red}┌─ Brimkern WGSL ────────────────────────────────────────────────────────┐${C.reset}
-${C.red}│${C.reset} Modèle : ${C.yellow}${engine.displayName.padEnd(25)}${C.reset} WebGPU : ${C.cyan}${gpuStr.padEnd(14)}${C.reset} ${C.red}│${C.reset}
-${C.red}│${C.reset} Moteur : ${C.green}${engineStr.padEnd(25)}${C.reset} Statut : ${C.green}Local ($0.00)${C.reset}${gitStr.padEnd(16)} ${C.red}│${C.reset}
-${C.red}│${C.reset} Mode   : ${modeBadge.padEnd(34)}${C.reset} Think  : ${C.sand}${think.padEnd(14)}${C.reset} ${C.red}│${C.reset}
-${C.red}└────────────────────────────────────────────────────────────────────────┘${C.reset}
+${drawBox(`${C.boldRed}Brimkern WGSL${C.reset}`, [
+  `Modèle : ${C.yellow}${engine.displayName}${C.reset}`,
+  `Moteur : ${C.green}${engineStr}${C.reset}  ${C.dim}·${C.reset}  WebGPU : ${C.cyan}${gpuStr}${C.reset}`,
+  `Mode : ${modeBadge}  ${C.dim}·${C.reset}  Think : ${C.sand}${think}${C.reset}  ${C.dim}·${C.reset}  ${C.green}100 % local${C.reset}${gitStr}`,
+], { color: C.red })}
 ${C.dim}Tapez ${C.boldRed}/help${C.reset}${C.dim} pour les commandes · ${C.yellow}Tab${C.reset}${C.dim} pour compléter · ${C.yellow}Esc${C.reset}${C.dim} pour annuler${C.reset}
 `);
 }
@@ -1339,6 +1564,88 @@ function printModels() {
 
 function stripAnsi(str) {
   return typeof str === 'string' ? str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') : '';
+}
+
+// Retour à la ligne d'une chaîne colorée sur une largeur VISIBLE (les codes ANSI ne comptent
+// pas). Les styles actifs sont refermés en fin de ligne et rouverts sur la suivante.
+function wrapAnsi(str, width) {
+  const tokens = str.match(/\x1b\[[0-9;]*m|\s+|[^\s\x1b]+/g) || [];
+  const lines = [];
+  let cur = '';
+  let curLen = 0;
+  let active = '';
+  const pushLine = () => { lines.push(cur + (active ? C.reset : '')); cur = active; curLen = 0; };
+  for (let tok of tokens) {
+    if (tok.startsWith('\x1b[')) {
+      cur += tok;
+      active = tok === C.reset ? '' : active + tok;
+      continue;
+    }
+    if (/^\s+$/.test(tok)) {
+      if (curLen === 0) continue;
+      if (curLen + tok.length > width) { pushLine(); continue; }
+      cur += tok; curLen += tok.length;
+      continue;
+    }
+    while (tok.length > width) {           // mot plus long que la boîte : coupé net
+      if (curLen > 0) pushLine();
+      cur += tok.slice(0, width); curLen = width; tok = tok.slice(width);
+      pushLine();
+    }
+    if (curLen + tok.length > width && curLen > 0) {
+      cur = cur.replace(/\s+$/, ''); pushLine();
+    }
+    cur += tok; curLen += tok.length;
+  }
+  if (curLen > 0 || !lines.length) lines.push(cur + (active ? C.reset : ''));
+  return lines.map((l) => {
+    const vis = stripAnsi(l).replace(/\s+$/, '');
+    return vis.length === stripAnsi(l).length ? l : l.replace(/\s+(\x1b\[0m)?$/, '$1');
+  });
+}
+
+// Suffixe d'une chaîne colorée à partir du n-ième caractère VISIBLE (styles actifs conservés).
+function sliceVisible(str, n) {
+  let vis = 0;
+  let styles = '';
+  for (let i = 0; i < str.length;) {
+    const m = str.slice(i).match(/^\x1b\[[0-9;]*m/);
+    if (m) { styles = m[0] === C.reset ? '' : styles + m[0]; i += m[0].length; continue; }
+    if (vis === n) return styles + str.slice(i);
+    vis++; i++;
+  }
+  return '';
+}
+
+// Boîte à bordure calculée sur la largeur visible : les boîtes étaient montées à la main avec
+// padEnd sur des chaînes colorées, donc tout contenu plus long que prévu (nom de modèle,
+// description) débordait du cadre et décalait le bord droit.
+function drawBox(title, rows, { color = C.darkGray, titleColor = C.yellow, indent = '', width } = {}) {
+  const cols = process.stdout.columns || 80;
+  const outer = Math.max(40, Math.min(width || 78, cols - indent.length - 1));
+  const inner = outer - 4;
+  const out = [];
+  const t = title ? ` ${title} ` : '';
+  out.push(`${indent}${color}┌─${C.reset}${titleColor}${t}${C.reset}${color}${'─'.repeat(Math.max(1, outer - 3 - stripAnsi(t).length))}┐${C.reset}`);
+  const put = (line) => {
+    const pad = Math.max(0, inner - stripAnsi(line).length);
+    out.push(`${indent}${color}│${C.reset} ${line}${' '.repeat(pad)} ${color}│${C.reset}`);
+  };
+  for (const row of rows) {
+    // « Libellé : valeur » : les lignes repliées s'alignent sous la valeur.
+    const colon = stripAnsi(row).indexOf(' : ');
+    const hang = colon > 0 && colon < inner / 2 ? colon + 3 : 0;
+    const [first, ...rest] = wrapAnsi(row, inner);
+    put(first);
+    if (rest.length) {
+      const restText = row.slice(0); // re-replier le reste sur la largeur diminuée
+      const consumed = stripAnsi(first).length;
+      const remaining = wrapAnsi(sliceVisible(restText, consumed).replace(/^\s+/, ''), inner - hang);
+      for (const l of remaining) put(' '.repeat(hang) + l);
+    }
+  }
+  out.push(`${indent}${color}└${'─'.repeat(outer - 2)}┘${C.reset}`);
+  return out.join('\n');
 }
 
 // ── Sélecteur interactif et scrollable de modèles (Flèches ↑/↓, Entrée, Échap) ───────
@@ -1432,12 +1739,12 @@ async function selectModelInteractive(currentModelKey) {
 
     const cur = items[selectedIndex];
     lines.push('');
-    const cardTitle = `Fiche technique : ${cur.name} `;
-    lines.push('  ' + C.darkGray + '┌─ ' + C.yellow + cardTitle + C.darkGray + '─'.repeat(Math.max(2, innerWidth - stripAnsi(cardTitle).length - 1)) + '┐' + C.reset);
-    lines.push(boxLine(`${C.bold}Architecture :${C.reset} ${C.yellow}${cur.name}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}VRAM :${C.reset} ${C.yellow}${cur.size}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}[${cur.badge}]${C.reset}`));
-    lines.push(boxLine(`${C.gray}${cur.desc}${C.reset}`));
-    lines.push(boxLine(`${C.bold}Format :${C.reset} ${C.sand}${cur.format}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}Moteur :${C.reset} ${C.green}${cur.runtime}${C.reset}  ${C.dim}·${C.reset}  ${C.dim}Commande : /model ${cur.key}${C.reset}`));
-    lines.push('  ' + C.darkGray + '└' + '─'.repeat(innerWidth + 2) + '┘' + C.reset);
+    lines.push(drawBox(`Fiche technique : ${cur.name}`, [
+      `${C.bold}Architecture :${C.reset} ${C.yellow}${cur.name}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}Taille :${C.reset} ${C.yellow}${cur.size}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}[${cur.badge}]${C.reset}`,
+      `${C.gray}${cur.desc}${C.reset}`,
+      `${C.bold}Format :${C.reset} ${C.sand}${cur.format}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}Moteur :${C.reset} ${C.green}${cur.runtime}${C.reset}`,
+      `${C.dim}Commande : /model ${cur.key}${C.reset}`,
+    ], { indent: '  ', width: terminalCols }));
 
     return lines.join('\n') + '\n';
   }
@@ -1445,9 +1752,17 @@ async function selectModelInteractive(currentModelKey) {
   return new Promise((resolve) => {
     process.stdout.write('\x1b[?25l');
 
+    // Hauteur du DERNIER rendu : la fiche technique se replie sur un nombre de lignes variable
+    // selon la description, donc remonter d'une hauteur fixe laissait des restes à l'écran.
     const initialRender = render();
     process.stdout.write(initialRender);
-    const totalLines = initialRender.split('\n').length - 1;
+    let totalLines = initialRender.split('\n').length - 1;
+    const redraw = () => {
+      process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+      const out = render();
+      process.stdout.write(out);
+      totalLines = out.split('\n').length - 1;
+    };
 
     const wasRaw = process.stdin.isRaw;
     if (process.stdin.setRawMode) {
@@ -1479,48 +1794,42 @@ async function selectModelInteractive(currentModelKey) {
       if (key.name === 'up' || key.name === 'k') {
         selectedIndex = (selectedIndex - 1 + items.length) % items.length;
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
       if (key.name === 'down' || key.name === 'j') {
         selectedIndex = (selectedIndex + 1) % items.length;
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
       if (key.name === 'pageup') {
         selectedIndex = Math.max(0, selectedIndex - pageSize);
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
       if (key.name === 'pagedown') {
         selectedIndex = Math.min(items.length - 1, selectedIndex + pageSize);
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
       if (key.name === 'home') {
         selectedIndex = 0;
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
       if (key.name === 'end') {
         selectedIndex = items.length - 1;
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
@@ -1528,8 +1837,7 @@ async function selectModelInteractive(currentModelKey) {
       if (char && char >= '1' && char <= String(Math.min(9, items.length))) {
         selectedIndex = parseInt(char, 10) - 1;
         ensureVisible();
-        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
-        process.stdout.write(render());
+        redraw();
         return;
       }
 
@@ -1568,6 +1876,8 @@ async function runInteractiveChat(initialEngine) {
   const sessionState = {
     totalTokens: 0,
     totalElapsedMs: 0,
+    totalInChars: 0,   // entrée cumulée qu'une API aurait facturée (estimation des économies)
+    historyChars: 0,   // historique de la conversation en cours, renvoyé à chaque tour
     lastResponse: '',
   };
 
@@ -1592,8 +1902,18 @@ async function runInteractiveChat(initialEngine) {
 
   readline.emitKeypressEvents(process.stdin);
 
+  const liveSuggest = createLiveSuggest(rl);
+  rl.prependListener('line', () => liveSuggest.onSubmit());
+
   process.stdin.on('keypress', (char, key) => {
     if (!key || inInteractiveMenu) return;
+    if (!isGenerating) {
+      if (key.name === 'return' || key.name === 'enter') return;
+      if (key.name === 'escape') liveSuggest.clear();
+      else if (key.name === 'right' && liveSuggest.accept()) { /* suggestion acceptée */ }
+      // Laisser readline finir de redessiner la ligne avant de dessiner par-dessus.
+      setImmediate(() => { if (!isGenerating && !inInteractiveMenu) liveSuggest.update(); });
+    }
 
     // 1. Pendant la génération : Escape ou Ctrl+C interrompt immédiatement l'inférence
     if (isGenerating) {
@@ -1695,6 +2015,7 @@ async function runInteractiveChat(initialEngine) {
     }
     if (input === '/reset') {
       await engine.reset();
+      sessionState.historyChars = 0;
       console.log(`${C.yellow}✓ Historique conversationnel et cache KV réinitialisés.${C.reset}\n`);
       resumeAndPrompt();
       return;
@@ -1793,7 +2114,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
   • Tokens générés   : ${C.yellow}${sessionState.totalTokens}${C.reset} tokens
   • Temps de calcul  : ${C.cyan}${elapsedSec} s${C.reset}
   • Vitesse moyenne  : ${C.green}~${avgSpeed} tok/s${C.reset}
-  • Coût d'inférence : ${C.boldGreen}0.00 $${C.reset} ${C.dim}(sur votre GPU physique)${C.reset}
+  • Économisé (est.) : ${C.boldGreen}${fmtUsd(estimateSavings(sessionState.totalInChars, sessionState.totalTokens))}${C.reset} ${C.dim}vs une API à ${REF_PRICE.in} $ / ${REF_PRICE.out} $ par M tokens (entrée / sortie) — BRIMKERN_PRICE_IN / _OUT pour changer${C.reset}
   • Confidentialité  : ${C.green}100% on-device${C.reset} ${C.dim}(aucun octet envoyé hors de la machine)${C.reset}
 `);
       resumeAndPrompt();
@@ -1834,6 +2155,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
           temperature: engine.temperature,
         });
         await engine.init();
+        sessionState.historyChars = 0; // nouveau moteur = nouvelle conversation
         process.stderr.write(`\r${C.green}✓ Modèle actif : ${engine.displayName} [${engine.engineType}]${C.reset}                \n\n`);
       } catch (err) {
         process.stderr.write(`\r${C.red}✗ Échec du changement de modèle : ${err.message}${C.reset}\n\n`);
@@ -1928,10 +2250,15 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
         sessionState.lastResponse = res.text;
         sessionState.totalTokens += tokenCount;
         sessionState.totalElapsedMs += res.elapsedMs;
+        const turnInChars = engine.systemPrompt.length + sessionState.historyChars + composedPrompt.length;
+        sessionState.totalInChars += turnInChars;
+        sessionState.historyChars += composedPrompt.length + res.text.length;
+        const turnSaved = estimateSavings(turnInChars, tokenCount);
+        const sessionSaved = estimateSavings(sessionState.totalInChars, sessionState.totalTokens);
 
         console.log('\n');
         const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-        console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${C.green}$0.00${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
+        console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${savingsLabel(turnSaved)}${C.gray} (session : ${fmtUsd(sessionSaved)})${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
       }
     } catch (e) {
       spinner.stop(true);
@@ -2089,7 +2416,7 @@ async function main() {
 
   let tokenCount = 0;
 
-  const thinkFilter = createStreamPrinter(spinner, () => { tokenCount++; });
+  const thinkFilter = createStreamPrinter(spinner, () => { tokenCount++; }, { markdown: process.stdout.isTTY && !raw });
 
   try {
     const res = await engine.ask(prompt, {
@@ -2110,7 +2437,8 @@ async function main() {
     if (!raw && !res.aborted) {
       console.log('\n');
       const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés · ${C.green}$0.00${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
+      const saved = estimateSavings(engine.systemPrompt.length + prompt.length, tokenCount);
+      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés · ${savingsLabel(saved)} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
     } else {
       process.stdout.write('\n');
     }
