@@ -20,9 +20,6 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   // elle déclare maintenant ses alternates comme les autres pages produit.
   { path: '/sdk-demo', freq: 'monthly', prio: 0.7 },
   { path: '/vs-webllm', freq: 'monthly', prio: 0.8 }, // comparaison mesurée (porte d'entrée SEO)
-  // Page d'actualité (connectome de la drosophile, publié le 03/09/2026) qui MESURE le GPU du
-  // visiteur : porte d'entrée grand public, et démonstration du moteur sans téléchargement.
-  { path: '/fruit-fly', freq: 'monthly', prio: 0.7 },
   { path: '/convert', freq: 'monthly', prio: 0.6 },  // convertisseur GGUF→BRIK
   { path: '/changelog', freq: 'weekly', prio: 0.5 },
 ];
