@@ -19,7 +19,7 @@ import { readFileSync, existsSync, statSync, createReadStream, readdirSync, rmSy
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { createInterface } from 'node:readline';
+import readline, { createInterface } from 'node:readline';
 import { execSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chromium } from 'playwright-core';
@@ -110,6 +110,67 @@ const C = {
   cyan: '\x1b[38;2;56;189;248m',      // Bleu ciel
   gray: '\x1b[38;2;161;161;170m',     // Gris papier
   darkGray: '\x1b[38;2;82;82;91m',
+};
+
+// ── Modes d'utilisation de l'IA (Code, Plan, Review, Auto) ───────────────────────────
+const CLI_MODES = {
+  code: {
+    name: 'code',
+    label: 'CODE',
+    badge: `${C.cyan}[CODE]${C.reset}`,
+    color: C.cyan,
+    desc: 'Génération directe de code, syntaxe exacte et concision',
+    systemSuffix: '\n[MODE: CODE] Fournis du code propre, directement utilisable en production, avec des explications minimales et ciblées.'
+  },
+  plan: {
+    name: 'plan',
+    label: 'PLAN',
+    badge: `${C.yellow}[PLAN]${C.reset}`,
+    color: C.yellow,
+    desc: 'Conception architecturale et analyse étape par étape avant toute écriture',
+    systemSuffix: '\n[MODE: PLAN] Ne génère pas tout le code immédiatement. Analyse les besoins, décompose l\'architecture, évalue les compromis, les cas limites et propose un plan d\'implémentation étape par étape.'
+  },
+  review: {
+    name: 'review',
+    label: 'REVIEW',
+    badge: `${C.boldRed}[REVIEW]${C.reset}`,
+    color: C.boldRed,
+    desc: 'Audit de sécurité, détection de régressions, bugs et goulots d’étranglement',
+    systemSuffix: '\n[MODE: REVIEW] Agis comme un reviewer senior intraitable. Cherche activement les bugs, failles de sécurité, régressions, fuites de mémoire et problèmes de performance dans le code fourni.'
+  },
+  auto: {
+    name: 'auto',
+    label: 'AUTO',
+    badge: `${C.boldGreen}[AUTO]${C.reset}`,
+    color: C.boldGreen,
+    desc: 'Mode autonome / agent : propositions de diffs unifiés et actions atomiques',
+    systemSuffix: '\n[MODE: AUTO] Propose des modifications de code atomiques sous forme de blocs ou diffs unifiés clairs, en expliquant la raison de chaque modification et la validation à exécuter.'
+  }
+};
+
+// ── Niveaux de réflexion (Thinking / Monologue interne) ──────────────────────────────
+const THINKING_LEVELS = {
+  off: {
+    name: 'off',
+    label: 'off',
+    color: C.gray,
+    desc: 'Réponses directes sans affichage des étapes de réflexion',
+    promptSuffix: '\nRéponds directement sans balises de réflexion interne ni <think>.'
+  },
+  auto: {
+    name: 'auto',
+    label: 'auto',
+    color: C.cyan,
+    desc: 'Détection et mise en page soignée des balises <think>...</think>',
+    promptSuffix: ''
+  },
+  deep: {
+    name: 'deep',
+    label: 'deep',
+    color: C.sand,
+    desc: 'Réflexion étape par étape explicite dans des balises <think>',
+    promptSuffix: '\nRéfléchis étape par étape avant de répondre. Encadre ton analyse détaillée et tes hésitations à l\'intérieur de balises <think>...</think>, puis donne la solution finale en dehors.'
+  }
 };
 
 // ── Utilitaires Git ──────────────────────────────────────────────────────────────────
@@ -251,6 +312,273 @@ function resolveFileReferences(rawPrompt) {
 
   const cleanPrompt = rawPrompt + additions.join('\n');
   return { prompt: cleanPrompt, files: loadedFiles };
+}
+
+// ── Complétion de fichiers (@chemin/vers/fichier) ────────────────────────────────────
+function findFileCompletions(partial) {
+  try {
+    const cwd = process.cwd();
+    const lastSlash = partial.lastIndexOf('/');
+    let searchDir = cwd;
+    let filePrefix = partial;
+    let pathPrefix = '';
+
+    if (lastSlash !== -1) {
+      pathPrefix = partial.slice(0, lastSlash + 1);
+      const sub = partial.slice(0, lastSlash);
+      searchDir = resolve(cwd, sub);
+      filePrefix = partial.slice(lastSlash + 1);
+    }
+
+    if (!existsSync(searchDir) || !statSync(searchDir).isDirectory()) {
+      return [];
+    }
+
+    const entries = readdirSync(searchDir, { withFileTypes: true });
+    const IGNORED = new Set(['.git', 'node_modules', '.next', 'dist', '.cache']);
+    const hits = [];
+
+    const lowerPrefix = filePrefix.toLowerCase();
+    for (const ent of entries) {
+      if (IGNORED.has(ent.name)) continue;
+      if (ent.name.startsWith('.') && !filePrefix.startsWith('.')) continue;
+      if (!lowerPrefix || ent.name.toLowerCase().startsWith(lowerPrefix)) {
+        const isDir = ent.isDirectory();
+        hits.push(pathPrefix + ent.name + (isDir ? '/' : ''));
+      }
+    }
+    return hits;
+  } catch {
+    return [];
+  }
+}
+
+// ── Auto-compléteur readline avancé (commandes /, modes, think et fichiers @) ────────
+function createCliCompleter() {
+  const slashCommands = [
+    '/help',
+    '/mode',
+    '/think',
+    '/status',
+    '/model',
+    '/diff',
+    '/commit',
+    '/review',
+    '/copy',
+    '/accept',
+    '/reset',
+    '/stats',
+    '/clear',
+    '/exit',
+  ];
+
+  return function completer(line) {
+    // 1. Completion de fichiers avec @ (ex: @src/app/...)
+    const atIdx = line.lastIndexOf('@');
+    if (atIdx !== -1) {
+      const partial = line.slice(atIdx + 1);
+      if (!/\s/.test(partial)) {
+        const prefixBeforeAt = line.slice(0, atIdx);
+        const fileHits = findFileCompletions(partial);
+        if (fileHits.length > 0) {
+          return [fileHits.map((f) => prefixBeforeAt + '@' + f), line];
+        }
+      }
+    }
+
+    // 2. Sous-arguments des commandes slash
+    if (line.startsWith('/mode ')) {
+      const sub = line.slice(6).trim().toLowerCase();
+      const modes = Object.keys(CLI_MODES);
+      const hits = modes.filter((m) => m.startsWith(sub));
+      return [hits.map((m) => `/mode ${m}`), line];
+    }
+
+    if (line.startsWith('/think ')) {
+      const sub = line.slice(7).trim().toLowerCase();
+      const levels = Object.keys(THINKING_LEVELS);
+      const hits = levels.filter((l) => l.startsWith(sub));
+      return [hits.map((l) => `/think ${l}`), line];
+    }
+
+    if (line.startsWith('/model ')) {
+      const sub = line.slice(7).trim().toLowerCase();
+      const models = Object.keys(PRESET_CLI_MODELS);
+      const hits = models.filter((m) => m.startsWith(sub));
+      return [hits.map((m) => `/model ${m}`), line];
+    }
+
+    if (line.startsWith('/review ')) {
+      const sub = line.slice(8);
+      const fileHits = findFileCompletions(sub);
+      if (fileHits.length > 0) {
+        return [fileHits.map((f) => `/review ${f}`), line];
+      }
+    }
+
+    // 3. Commandes slash de premier niveau
+    if (line.startsWith('/')) {
+      const hits = slashCommands.filter((c) => c.startsWith(line));
+      return [hits.length ? hits : slashCommands, line];
+    }
+
+    return [[], line];
+  };
+}
+
+// ── Spinner d'activité animé & retour d'état en direct ──────────────────────────────
+class ActivitySpinner {
+  constructor() {
+    this.frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    this.frameIdx = 0;
+    this.timer = null;
+    this.phase = 'Traitement...';
+    this.startTime = 0;
+    this.active = false;
+  }
+
+  start(initialPhase = 'Traitement...') {
+    this.phase = initialPhase;
+    this.startTime = Date.now();
+    this.active = true;
+    if (!process.stderr.isTTY) return;
+    this.timer = setInterval(() => {
+      this.frameIdx = (this.frameIdx + 1) % this.frames.length;
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
+      process.stderr.write(`\r\x1b[2K${C.boldRed}${this.frames[this.frameIdx]}${C.reset} ${C.sand}${this.phase}${C.reset} ${C.dim}(${elapsed}s)${C.reset}`);
+    }, 80);
+  }
+
+  setPhase(newPhase) {
+    this.phase = newPhase;
+    if (process.stderr.isTTY && this.active) {
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
+      process.stderr.write(`\r\x1b[2K${C.boldRed}${this.frames[this.frameIdx]}${C.reset} ${C.sand}${this.phase}${C.reset} ${C.dim}(${elapsed}s)${C.reset}`);
+    }
+  }
+
+  stop(clear = true) {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.active = false;
+    if (process.stderr.isTTY && clear) {
+      process.stderr.write('\r\x1b[2K');
+    }
+  }
+}
+
+// ── Filtre de flux de réflexion (<think>...</think>) ────────────────────────────────
+class ThinkStreamFilter {
+  constructor({ onToken, onThinkStart, onThinkEnd }) {
+    this.onToken = onToken;
+    this.onThinkStart = onThinkStart;
+    this.onThinkEnd = onThinkEnd;
+    this.inThink = false;
+    this.buffer = '';
+  }
+
+  feed(chunk) {
+    this.buffer += chunk;
+    while (this.buffer.length > 0) {
+      if (!this.inThink) {
+        const startTag = '<think>';
+        const idx = this.buffer.indexOf(startTag);
+        if (idx !== -1) {
+          const before = this.buffer.slice(0, idx);
+          if (before) this.onToken(before, false);
+          this.inThink = true;
+          this.buffer = this.buffer.slice(idx + startTag.length);
+          if (this.onThinkStart) this.onThinkStart();
+          continue;
+        }
+        let potentialMatch = false;
+        for (let i = 1; i < startTag.length; i++) {
+          if (this.buffer.endsWith(startTag.slice(0, i))) {
+            const safe = this.buffer.slice(0, -i);
+            if (safe) this.onToken(safe, false);
+            this.buffer = this.buffer.slice(-i);
+            potentialMatch = true;
+            break;
+          }
+        }
+        if (!potentialMatch) {
+          this.onToken(this.buffer, false);
+          this.buffer = '';
+        }
+        break;
+      } else {
+        const endTag = '</think>';
+        const idx = this.buffer.indexOf(endTag);
+        if (idx !== -1) {
+          const thinkText = this.buffer.slice(0, idx);
+          if (thinkText) this.onToken(thinkText, true);
+          this.inThink = false;
+          this.buffer = this.buffer.slice(idx + endTag.length);
+          if (this.onThinkEnd) this.onThinkEnd();
+          continue;
+        }
+        let potentialMatch = false;
+        for (let i = 1; i < endTag.length; i++) {
+          if (this.buffer.endsWith(endTag.slice(0, i))) {
+            const safe = this.buffer.slice(0, -i);
+            if (safe) this.onToken(safe, true);
+            this.buffer = this.buffer.slice(-i);
+            potentialMatch = true;
+            break;
+          }
+        }
+        if (!potentialMatch) {
+          this.onToken(this.buffer, true);
+          this.buffer = '';
+        }
+        break;
+      }
+    }
+  }
+
+  flush() {
+    if (this.buffer) {
+      this.onToken(this.buffer, this.inThink);
+      this.buffer = '';
+    }
+    if (this.inThink && this.onThinkEnd) {
+      this.onThinkEnd();
+      this.inThink = false;
+    }
+  }
+}
+
+// ── Génération de la ligne d'état dynamique au-dessus du prompt ─────────────────────
+function renderPromptStatus(engine, mode, thinkLevel) {
+  const modeInfo = CLI_MODES[mode] || CLI_MODES.code;
+  const thinkInfo = THINKING_LEVELS[thinkLevel] || THINKING_LEVELS.auto;
+  const gpuStr = engine.gpuBackend || (process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)');
+  const modelShort = engine.displayName || engine.modelKey;
+
+  return `${C.darkGray}┌─${C.reset} ${C.boldRed}Brimkern${C.reset} ${C.dim}·${C.reset} ${C.yellow}${modelShort}${C.reset} ${C.dim}·${C.reset} ${C.cyan}${gpuStr}${C.reset} ${C.dim}·${C.reset} ${modeInfo.color}${modeInfo.badge}${C.reset} ${C.dim}·${C.reset} ${C.dim}think:${C.reset}${thinkInfo.color}${thinkInfo.label}${C.reset}`;
+}
+
+// ── Carte d'état complète de session (/status) ──────────────────────────────────────
+function printStatusCard(engine, currentMode, thinkLevel, sessionState) {
+  const modeInfo = CLI_MODES[currentMode] || CLI_MODES.code;
+  const thinkInfo = THINKING_LEVELS[thinkLevel] || THINKING_LEVELS.auto;
+  const git = getGitInfo();
+  const gitBranch = git ? `${git.branch}${git.dirty ? ' (modifié *)' : ' (propre)'}` : 'Non versionné';
+  const elapsedSec = (sessionState.totalElapsedMs / 1000).toFixed(1);
+  const avgSpeed = sessionState.totalElapsedMs > 0 ? ((sessionState.totalTokens / sessionState.totalElapsedMs) * 1000).toFixed(1) : '0';
+
+  console.log(`
+${C.boldRed}┌─ État de la session Brimkern ──────────────────────────────────────────┐${C.reset}
+${C.boldRed}│${C.reset} ${C.bold}Modèle actif${C.reset} : ${C.yellow}${engine.displayName.padEnd(49)}${C.reset} ${C.boldRed}│${C.reset}
+${C.boldRed}│${C.reset} ${C.bold}Moteur & GPU${C.reset} : ${C.cyan}${(engine.engineType + ' · ' + engine.gpuBackend).padEnd(49)}${C.reset} ${C.boldRed}│${C.reset}
+${C.boldRed}│${C.reset} ${C.bold}Mode IA${C.reset}      : ${modeInfo.badge} — ${C.gray}${modeInfo.desc.slice(0, 36).padEnd(36)}${C.reset} ${C.boldRed}│${C.reset}
+${C.boldRed}│${C.reset} ${C.bold}Réflexion${C.reset}    : ${thinkInfo.color}${thinkInfo.name.padEnd(8)}${C.reset} ${C.dim}(${thinkInfo.desc.slice(0, 38).padEnd(38)})${C.reset} ${C.boldRed}│${C.reset}
+${C.boldRed}│${C.reset} ${C.bold}Dépôt Git${C.reset}    : ${C.sand}${gitBranch.padEnd(49)}${C.reset} ${C.boldRed}│${C.reset}
+${C.boldRed}│${C.reset} ${C.bold}Inférence${C.reset}    : ${C.green}Local ($0.00)${C.reset} · ${sessionState.totalTokens} tokens · ~${avgSpeed} tok/s (${elapsedSec}s)    ${C.boldRed}│${C.reset}
+${C.boldRed}└────────────────────────────────────────────────────────────────────────┘${C.reset}
+`);
 }
 
 // ── Résolution de Chromium ───────────────────────────────────────────────────────────
@@ -498,23 +826,31 @@ class BrimkernNativeDawnEngine {
     this.isReady = true;
   }
 
-  async ask(prompt, { onToken = null } = {}) {
+  async ask(prompt, { onToken = null, signal = null } = {}) {
     if (!this.isReady) {
       await this.init();
     }
     const t0 = performance.now();
     let lastLen = 0;
-    const text = await this.session.ask(prompt, {
-      onToken: (acc) => {
-        if (onToken) {
-          const delta = acc.slice(lastLen);
-          lastLen = acc.length;
-          onToken(delta);
-        }
-      },
-    });
-    const t1 = performance.now();
-    return { text, elapsedMs: t1 - t0 };
+    try {
+      const text = await this.session.ask(prompt, {
+        signal,
+        onToken: (acc) => {
+          if (onToken) {
+            const delta = acc.slice(lastLen);
+            lastLen = acc.length;
+            onToken(delta);
+          }
+        },
+      });
+      const t1 = performance.now();
+      return { text: text || '', elapsedMs: t1 - t0, aborted: !!signal?.aborted };
+    } catch (err) {
+      if (signal?.aborted) {
+        return { text: '', elapsedMs: performance.now() - t0, aborted: true };
+      }
+      throw err;
+    }
   }
 
   async reset() {
@@ -634,7 +970,7 @@ class BrimkernChromiumEngine {
     this.isReady = true;
   }
 
-  async ask(prompt, { onToken = null, onProgress = null } = {}) {
+  async ask(prompt, { onToken = null, onProgress = null, signal = null } = {}) {
     if (!this.isReady) {
       await this.init();
     }
@@ -651,18 +987,35 @@ class BrimkernChromiumEngine {
       }).catch(() => {});
     }
 
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        this.page?.evaluate(() => {
+          if (window._currentAbort) window._currentAbort.abort();
+        }).catch(() => {});
+      }, { once: true });
+    }
+
     const result = await this.page.evaluate(async (p) => {
+      window._currentAbort = new AbortController();
       let lastLen = 0;
       const t0 = performance.now();
-      const text = await window.session.ask(p, {
-        onToken: (acc) => {
-          const delta = acc.slice(lastLen);
-          lastLen = acc.length;
-          window.onTokenBridge(delta);
+      try {
+        const text = await window.session.ask(p, {
+          signal: window._currentAbort.signal,
+          onToken: (acc) => {
+            const delta = acc.slice(lastLen);
+            lastLen = acc.length;
+            window.onTokenBridge(delta);
+          }
+        });
+        const t1 = performance.now();
+        return { text: text || '', elapsedMs: t1 - t0, aborted: window._currentAbort.signal.aborted };
+      } catch (err) {
+        if (window._currentAbort && window._currentAbort.signal.aborted) {
+          return { text: '', elapsedMs: performance.now() - t0, aborted: true };
         }
-      });
-      const t1 = performance.now();
-      return { text, elapsedMs: t1 - t0 };
+        throw err;
+      }
     }, prompt);
 
     return result;
@@ -724,11 +1077,12 @@ async function createCliEngine(options = {}) {
 }
 
 // ── Bannière de marque "Le Kern" ─────────────────────────────────────────────────────
-function printBrandBanner(engine) {
+function printBrandBanner(engine, mode = 'code', think = 'auto') {
   const git = getGitInfo();
   const gitStr = git ? ` · Git: ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.gray}` : '';
   const gpuStr = engine.gpuBackend || (process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)');
   const engineStr = engine.engineType || 'Natif Dawn (in-process)';
+  const modeBadge = CLI_MODES[mode]?.badge || '[CODE]';
 
   console.log(`
 ${C.boldRed}██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
@@ -742,8 +1096,9 @@ ${C.dim}Moteur d'inférence WebGPU & WGSL on-device${C.reset}
 ${C.red}┌─ Brimkern WGSL ────────────────────────────────────────────────────────┐${C.reset}
 ${C.red}│${C.reset} Modèle : ${C.yellow}${engine.displayName.padEnd(25)}${C.reset} WebGPU : ${C.cyan}${gpuStr.padEnd(14)}${C.reset} ${C.red}│${C.reset}
 ${C.red}│${C.reset} Moteur : ${C.green}${engineStr.padEnd(25)}${C.reset} Statut : ${C.green}Local ($0.00)${C.reset}${gitStr.padEnd(16)} ${C.red}│${C.reset}
+${C.red}│${C.reset} Mode   : ${modeBadge.padEnd(34)}${C.reset} Think  : ${C.sand}${think.padEnd(14)}${C.reset} ${C.red}│${C.reset}
 ${C.red}└────────────────────────────────────────────────────────────────────────┘${C.reset}
-${C.dim}Tapez ${C.boldRed}/help${C.reset}${C.dim} pour les commandes · ${C.cyan}@fichier${C.reset}${C.dim} pour injecter du code${C.reset}
+${C.dim}Tapez ${C.boldRed}/help${C.reset}${C.dim} pour les commandes · ${C.yellow}Tab${C.reset}${C.dim} pour compléter · ${C.yellow}Esc${C.reset}${C.dim} pour annuler${C.reset}
 `);
 }
 
@@ -758,12 +1113,23 @@ ${C.boldRed}ASSISTANT & CONTEXTE${C.reset}
   ${C.bold}${C.cyan}/commit${C.reset}              Génère 3 propositions de messages de commit conventionnels
   ${C.bold}${C.cyan}/review <fichier>${C.reset}    Revue de code approfondie (bugs, sécurité, perf)
   ${C.bold}${C.cyan}/copy${C.reset}                Copie la dernière réponse dans le presse-papier
+  ${C.bold}${C.cyan}/accept, /apply${C.reset}      Extrait et copie/affiche les blocs de code proposés
+
+${C.boldRed}MODES & CONTRÔLE DE L'IA${C.reset}
+  ${C.bold}${C.cyan}/mode [nom]${C.reset}          Bascule le mode (${C.yellow}code, plan, review, auto${C.reset})
+  ${C.bold}${C.cyan}/think [niveau]${C.reset}      Niveau de réflexion pas à pas (${C.sand}off, auto, deep${C.reset})
+  ${C.bold}${C.cyan}/status${C.reset}              État complet (modèle, GPU, mode, cache, git)
 
 ${C.boldRed}CONVERSATION & SESSION${C.reset}
   ${C.bold}${C.cyan}/model [nom|chemin]${C.reset}  Affiche ou change de modèle actif à chaud
   ${C.bold}${C.cyan}/reset${C.reset}               Efface l'historique et libère le cache KV GPU
   ${C.bold}${C.cyan}/stats${C.reset}               Statistiques de session (tokens, tok/s, coût 0$)
   ${C.bold}${C.cyan}/clear${C.reset}               Efface l'écran du terminal
+
+${C.boldRed}RACCOURCIS CLAVIER${C.reset}
+  ${C.bold}${C.yellow}Tab${C.reset}                  Auto-complétion des commandes (/), modes et fichiers (@)
+  ${C.bold}${C.yellow}Escape${C.reset}               Interrompt l'inférence en cours / efface la saisie
+  ${C.bold}${C.yellow}Ctrl+C${C.reset}               Annule la génération sans tuer la session REPL
 
 ${C.boldRed}COMMANDES SYSTÈME${C.reset}
   ${C.bold}${C.cyan}!commande${C.reset}            Exécute une commande shell locale (ex: ${C.dim}!git status${C.reset})
@@ -788,6 +1154,8 @@ ${C.bold}OPTIONS${C.reset}
   ${C.yellow}-s, --system=<prompt>${C.reset}            Prompt système
   ${C.yellow}-n, --max-tokens=<n>${C.reset}             Plafond de tokens générés (défaut: 512)
   ${C.yellow}-t, --temperature=<val>${C.reset}          Température (défaut: 0.3)
+  ${C.yellow}--mode=<code|plan|review|auto>${C.reset}       Mode d'intervention IA (défaut: code)
+  ${C.yellow}--think=<off|auto|deep>${C.reset}              Niveau de réflexion pas à pas (défaut: auto)
   ${C.yellow}--native${C.reset}                              Force l'exécution native Dawn (in-process, 0ms overhead)
   ${C.yellow}--chromium, --headless${C.reset}               Force l'exécution via Chromium headless (repli universel)
   ${C.yellow}--raw${C.reset}                              Sortie brute uniquement (sans en-tête ni stats)
@@ -816,7 +1184,10 @@ function printModels() {
 // ── Mode REPL interactif ──────────────────────────────────────────────────────────────
 async function runInteractiveChat(initialEngine) {
   let engine = initialEngine;
-  printBrandBanner(engine);
+  let currentMode = 'code';
+  let thinkLevel = 'auto';
+
+  printBrandBanner(engine, currentMode, thinkLevel);
 
   process.stderr.write(`${C.dim}Initialisation du GPU et chargement du modèle...${C.reset}`);
   await engine.init();
@@ -829,25 +1200,87 @@ async function runInteractiveChat(initialEngine) {
     lastResponse: '',
   };
 
+  const completer = createCliCompleter();
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `${C.boldRed}kern ›${C.reset} `,
+    completer,
   });
 
+  function updatePrompt() {
+    rl.setPrompt(`${renderPromptStatus(engine, currentMode, thinkLevel)}\n${C.boldRed}kern ›${C.reset} `);
+  }
+
+  updatePrompt();
   rl.prompt();
+
+  let isGenerating = false;
+  let currentAbortController = null;
+  const spinner = new ActivitySpinner();
+
+  readline.emitKeypressEvents(process.stdin);
+
+  process.stdin.on('keypress', (char, key) => {
+    if (!key) return;
+
+    // 1. Pendant la génération : Escape ou Ctrl+C interrompt immédiatement l'inférence
+    if (isGenerating) {
+      if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+        if (currentAbortController) {
+          currentAbortController.abort();
+        }
+        spinner.stop(true);
+        process.stdout.write(`\n${C.yellow}⚠ Interrompu (${key.name === 'escape' ? 'Escape' : 'Ctrl+C'})${C.reset}\n`);
+      }
+      return;
+    }
+
+    // 2. Hors génération : Escape efface la ligne en cours de saisie
+    if (key.name === 'escape') {
+      readline.cursorTo(process.stdout, 0);
+      readline.clearLine(process.stdout, 0);
+      rl.line = '';
+      rl.cursor = 0;
+      updatePrompt();
+      rl.prompt();
+    }
+  });
+
+  rl.on('SIGINT', () => {
+    if (isGenerating) {
+      if (currentAbortController) {
+        currentAbortController.abort();
+      }
+      spinner.stop(true);
+      process.stdout.write(`\n${C.yellow}⚠ Interrompu (Ctrl+C)${C.reset}\n`);
+      return;
+    }
+    if (rl.line.length > 0) {
+      readline.cursorTo(process.stdout, 0);
+      readline.clearLine(process.stdout, 0);
+      rl.line = '';
+      rl.cursor = 0;
+      updatePrompt();
+      rl.prompt();
+      return;
+    }
+    console.log(`\n${C.dim}(Pour quitter, tapez /exit ou Ctrl+D)${C.reset}`);
+    updatePrompt();
+    rl.prompt();
+  });
 
   rl.on('line', async (line) => {
     let input = line.trim();
     if (!input) {
+      updatePrompt();
       rl.prompt();
       return;
     }
 
-    // 1. Commandes shell directes (!cmd)
+    // 1. Commandes shell directes (!cmd ou /exec cmd)
     if (input.startsWith('!') || input.startsWith('/exec ')) {
       const cmd = input.startsWith('!') ? input.slice(1).trim() : input.slice(6).trim();
-      if (!cmd) { rl.prompt(); return; }
+      if (!cmd) { updatePrompt(); rl.prompt(); return; }
       console.log(`${C.dim}$ ${cmd}${C.reset}`);
       try {
         execSync(cmd, { stdio: 'inherit' });
@@ -855,6 +1288,7 @@ async function runInteractiveChat(initialEngine) {
         console.error(`${C.red}Erreur d'exécution : ${e.message}${C.reset}`);
       }
       console.log('');
+      updatePrompt();
       rl.prompt();
       return;
     }
@@ -866,18 +1300,73 @@ async function runInteractiveChat(initialEngine) {
     }
     if (input === '/help') {
       printReplHelp();
+      updatePrompt();
       rl.prompt();
       return;
     }
     if (input === '/clear') {
       console.clear();
-      printBrandBanner(engine);
+      printBrandBanner(engine, currentMode, thinkLevel);
+      updatePrompt();
       rl.prompt();
       return;
     }
     if (input === '/reset') {
       await engine.reset();
       console.log(`${C.yellow}✓ Historique conversationnel et cache KV réinitialisés.${C.reset}\n`);
+      updatePrompt();
+      rl.prompt();
+      return;
+    }
+    if (input === '/status') {
+      printStatusCard(engine, currentMode, thinkLevel, sessionState);
+      updatePrompt();
+      rl.prompt();
+      return;
+    }
+    if (input.startsWith('/mode')) {
+      const targetMode = input.slice(5).trim().toLowerCase();
+      if (!targetMode) {
+        console.log(`\n${C.bold}Modes d'utilisation disponibles :${C.reset}\n`);
+        for (const [key, m] of Object.entries(CLI_MODES)) {
+          const isActive = key === currentMode;
+          console.log(`  ${m.badge} ${C.bold}${m.name.padEnd(8)}${C.reset} ${m.desc}${isActive ? ` ${C.boldGreen}◀ (Actif)${C.reset}` : ''}`);
+        }
+        console.log(`\n${C.dim}Usage : /mode <code|plan|review|auto>${C.reset}\n`);
+        updatePrompt();
+        rl.prompt();
+        return;
+      }
+      if (CLI_MODES[targetMode]) {
+        currentMode = targetMode;
+        console.log(`${C.green}✓ Mode basculé vers ${CLI_MODES[targetMode].badge} : ${CLI_MODES[targetMode].desc}${C.reset}\n`);
+      } else {
+        console.log(`${C.red}Mode inconnu : "${targetMode}". Choix : code, plan, review, auto${C.reset}\n`);
+      }
+      updatePrompt();
+      rl.prompt();
+      return;
+    }
+    if (input.startsWith('/think')) {
+      const targetThink = input.slice(6).trim().toLowerCase();
+      if (!targetThink) {
+        console.log(`\n${C.bold}Niveaux de réflexion disponibles :${C.reset}\n`);
+        for (const [key, t] of Object.entries(THINKING_LEVELS)) {
+          const isActive = key === thinkLevel;
+          console.log(`  ${C.bold}${t.color}${key.padEnd(8)}${C.reset} : ${t.desc}${isActive ? ` ${C.boldGreen}◀ (Actif)${C.reset}` : ''}`);
+        }
+        console.log(`\n${C.dim}Usage : /think <off|auto|deep>${C.reset}\n`);
+        updatePrompt();
+        rl.prompt();
+        return;
+      }
+      if (THINKING_LEVELS[targetThink]) {
+        thinkLevel = targetThink;
+        console.log(`${C.green}✓ Niveau de réflexion défini sur [${targetThink}] : ${THINKING_LEVELS[targetThink].desc}${C.reset}\n`);
+      } else {
+        console.log(`${C.red}Niveau inconnu : "${targetThink}". Choix : off, auto, deep${C.reset}\n`);
+      }
+      updatePrompt();
       rl.prompt();
       return;
     }
@@ -892,6 +1381,34 @@ async function runInteractiveChat(initialEngine) {
           console.log(`${C.yellow}Impossible de copier dans le presse-papier.${C.reset}\n`);
         }
       }
+      updatePrompt();
+      rl.prompt();
+      return;
+    }
+    if (input === '/accept' || input === '/apply') {
+      if (!sessionState.lastResponse) {
+        console.log(`${C.dim}Aucune proposition d'édition récente à appliquer.${C.reset}\n`);
+        updatePrompt();
+        rl.prompt();
+        return;
+      }
+      const codeBlockRegex = /```(?:[a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/g;
+      const matches = [...sessionState.lastResponse.matchAll(codeBlockRegex)];
+      if (matches.length === 0) {
+        console.log(`${C.yellow}Aucun bloc de code détecté dans la dernière réponse.${C.reset}\n`);
+      } else {
+        console.log(`\n${C.bold}Blocs de code détectés dans la dernière réponse :${C.reset}`);
+        matches.forEach((m, idx) => {
+          const snippet = m[1].trim();
+          const firstLine = snippet.split('\n')[0] || '';
+          console.log(`  ${C.cyan}#${idx + 1}${C.reset} (${snippet.split('\n').length} lignes) — ${C.dim}${firstLine.slice(0, 50)}${C.reset}`);
+        });
+        const copied = copyToClipboard(sessionState.lastResponse);
+        if (copied) {
+          console.log(`\n${C.green}✓ Code extrait et copié dans le presse-papier système pour intégration.${C.reset}\n`);
+        }
+      }
+      updatePrompt();
       rl.prompt();
       return;
     }
@@ -906,6 +1423,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
   • Coût d'inférence : ${C.boldGreen}0.00 $${C.reset} ${C.dim}(sur votre GPU physique)${C.reset}
   • Confidentialité  : ${C.green}100% on-device${C.reset} ${C.dim}(aucun octet envoyé hors de la machine)${C.reset}
 `);
+      updatePrompt();
       rl.prompt();
       return;
     }
@@ -914,6 +1432,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       if (!targetModel) {
         printModels();
         console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
+        updatePrompt();
         rl.prompt();
         return;
       }
@@ -931,6 +1450,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       } catch (err) {
         process.stderr.write(`\r${C.red}✗ Échec du changement de modèle : ${err.message}${C.reset}\n\n`);
       }
+      updatePrompt();
       rl.prompt();
       return;
     }
@@ -941,6 +1461,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const diff = getGitDiff(diffArgs);
       if (!diff) {
         console.log(`${C.dim}Aucune modification git détectée.${C.reset}\n`);
+        updatePrompt();
         rl.prompt();
         return;
       }
@@ -951,6 +1472,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const diff = getGitDiff();
       if (!status && !diff) {
         console.log(`${C.dim}L'arbre de travail git est propre, aucun commit à proposer.${C.reset}\n`);
+        updatePrompt();
         rl.prompt();
         return;
       }
@@ -961,6 +1483,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const resolved = resolve(process.cwd(), targetFile);
       if (!existsSync(resolved)) {
         console.log(`${C.red}Fichier introuvable : ${targetFile}${C.reset}\n`);
+        updatePrompt();
         rl.prompt();
         return;
       }
@@ -978,32 +1501,92 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       console.log('');
     }
 
-    // 5. Exécution de l'inférence WebGPU
+    // 5. Exécution de l'inférence WebGPU avec feedback visuel & annulation
+    isGenerating = true;
+    currentAbortController = new AbortController();
     let tokenCount = 0;
-    try {
-      const res = await engine.ask(finalPrompt, {
-        onToken: (tok) => {
-          tokenCount++;
+    let firstTokenReceived = false;
+
+    spinner.start('Préparation du prompt & contexte...');
+    if (files.length > 0) {
+      spinner.setPhase(`Chargement de ${files.length} fichier(s) de contexte...`);
+    }
+
+    const thinkFilter = new ThinkStreamFilter({
+      onToken: (tok, isThink) => {
+        tokenCount++;
+        if (!firstTokenReceived) {
+          firstTokenReceived = true;
+          spinner.stop(true);
+        }
+        if (isThink) {
+          process.stdout.write(`${C.dim}${C.italic}${tok}${C.reset}`);
+        } else {
           process.stdout.write(tok);
+        }
+      },
+      onThinkStart: () => {
+        if (!firstTokenReceived) {
+          firstTokenReceived = true;
+          spinner.stop(true);
+        }
+        process.stdout.write(`\n${C.sand}💭 [Réflexion]${C.reset}\n${C.dim}${C.italic}`);
+      },
+      onThinkEnd: () => {
+        process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [Réponse]${C.reset}\n`);
+      }
+    });
+
+    try {
+      spinner.setPhase('Calcul des logits WebGPU (TTFT)...');
+
+      let composedPrompt = finalPrompt;
+      const modeConfig = CLI_MODES[currentMode] || CLI_MODES.code;
+      if (modeConfig.systemSuffix) {
+        composedPrompt += modeConfig.systemSuffix;
+      }
+      const thinkConfig = THINKING_LEVELS[thinkLevel] || THINKING_LEVELS.auto;
+      if (thinkConfig.promptSuffix) {
+        composedPrompt += thinkConfig.promptSuffix;
+      }
+
+      const res = await engine.ask(composedPrompt, {
+        signal: currentAbortController.signal,
+        onToken: (tok) => {
+          thinkFilter.feed(tok);
         },
         onProgress: (phase, loaded, total) => {
           if (total) {
-            process.stderr.write(`\r${C.dim}[Téléchargement] ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo${C.reset}`);
+            spinner.setPhase(`Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`);
+          } else {
+            spinner.setPhase(`Phase : ${phase}`);
           }
         },
       });
 
-      sessionState.lastResponse = res.text;
-      sessionState.totalTokens += tokenCount;
-      sessionState.totalElapsedMs += res.elapsedMs;
+      thinkFilter.flush();
+      spinner.stop(true);
 
-      console.log('\n');
-      const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-      console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${C.green}$0.00${C.reset}\n`);
+      if (!res.aborted) {
+        sessionState.lastResponse = res.text;
+        sessionState.totalTokens += tokenCount;
+        sessionState.totalElapsedMs += res.elapsedMs;
+
+        console.log('\n');
+        const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
+        console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${C.green}$0.00${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
+      }
     } catch (e) {
-      console.error(`\n${C.red}Erreur : ${e.message}${C.reset}\n`);
+      spinner.stop(true);
+      if (!currentAbortController.signal.aborted) {
+        console.error(`\n${C.red}Erreur : ${e.message}${C.reset}\n`);
+      }
+    } finally {
+      isGenerating = false;
+      currentAbortController = null;
     }
 
+    updatePrompt();
     rl.prompt();
   });
 
@@ -1021,10 +1604,14 @@ async function main() {
   let system = null;
   let maxTokens = 512;
   let temperature = 0.3;
+  let mode = 'code';
+  let think = 'auto';
   let raw = false;
   let native = false;
   let chromium = false;
   let promptParts = [];
+
+  let isChat = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -1035,6 +1622,10 @@ async function main() {
     if (a === 'models' || a === 'list') {
       printModels();
       return;
+    }
+    if (a === 'chat') {
+      isChat = true;
+      continue;
     }
     if (a.startsWith('--model=')) {
       model = a.split('=').slice(1).join('=');
@@ -1052,6 +1643,10 @@ async function main() {
       temperature = parseFloat(a.split('=')[1]);
     } else if (a === '-t' && args[i + 1]) {
       temperature = parseFloat(args[++i]);
+    } else if (a.startsWith('--mode=')) {
+      mode = a.split('=')[1].toLowerCase();
+    } else if (a.startsWith('--think=')) {
+      think = a.split('=')[1].toLowerCase();
     } else if (a === '--native') {
       native = true;
     } else if (a === '--chromium' || a === '--headless') {
@@ -1063,9 +1658,9 @@ async function main() {
     }
   }
 
-  // Lecture de stdin si redirigé (pipe unix)
+  // Lecture de stdin si redirigé (pipe unix) sauf si commande explicite 'chat'
   let stdinContent = '';
-  if (!process.stdin.isTTY) {
+  if (!isChat && !process.stdin.isTTY) {
     stdinContent = await new Promise((resolvePipe) => {
       let data = '';
       process.stdin.setEncoding('utf8');
@@ -1104,15 +1699,17 @@ async function main() {
     chromium,
   });
 
+  const abortController = new AbortController();
   const cleanup = async () => {
+    abortController.abort();
     await engine.close();
     process.exit(0);
   };
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
-  // Si aucun prompt et terminal interactif -> REPL chat
-  if (!prompt && process.stdin.isTTY) {
+  // Si chat explicite ou aucun prompt en terminal interactif -> REPL chat
+  if (isChat || (!prompt && process.stdin.isTTY)) {
     await runInteractiveChat(engine);
     return;
   }
@@ -1122,34 +1719,76 @@ async function main() {
     return;
   }
 
+  // Application des modes & réflexion
+  if (CLI_MODES[mode]?.systemSuffix) {
+    prompt += CLI_MODES[mode].systemSuffix;
+  }
+  if (THINKING_LEVELS[think]?.promptSuffix) {
+    prompt += THINKING_LEVELS[think].promptSuffix;
+  }
+
   // Mode One-shot
+  const spinner = new ActivitySpinner();
   if (!raw) {
-    process.stderr.write(`${C.dim}[Brimkern WGSL] Modèle: ${engine.displayName} • Inférence WebGPU...${C.reset}\n`);
+    spinner.start(`[Brimkern WGSL] ${engine.displayName} · Calcul des logits...`);
   }
 
   let tokenCount = 0;
+  let firstTokenReceived = false;
+
+  const thinkFilter = new ThinkStreamFilter({
+    onToken: (tok, isThink) => {
+      tokenCount++;
+      if (!firstTokenReceived) {
+        firstTokenReceived = true;
+        spinner.stop(true);
+      }
+      if (isThink) {
+        process.stdout.write(`${C.dim}${C.italic}${tok}${C.reset}`);
+      } else {
+        process.stdout.write(tok);
+      }
+    },
+    onThinkStart: () => {
+      if (!firstTokenReceived) {
+        firstTokenReceived = true;
+        spinner.stop(true);
+      }
+      process.stdout.write(`\n${C.sand}💭 [Réflexion]${C.reset}\n${C.dim}${C.italic}`);
+    },
+    onThinkEnd: () => {
+      process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [Réponse]${C.reset}\n`);
+    }
+  });
+
   try {
     const res = await engine.ask(prompt, {
+      signal: abortController.signal,
       onToken: (tok) => {
-        tokenCount++;
-        process.stdout.write(tok);
+        thinkFilter.feed(tok);
       },
       onProgress: (phase, loaded, total) => {
         if (!raw && total) {
-          process.stderr.write(`\r${C.dim}[Téléchargement] ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo${C.reset}`);
+          spinner.setPhase(`Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`);
         }
       },
     });
 
-    if (!raw) {
+    thinkFilter.flush();
+    spinner.stop(true);
+
+    if (!raw && !res.aborted) {
       console.log('\n');
       const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés · ${C.green}$0.00${C.reset}\n`);
+      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés · ${C.green}$0.00${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
     } else {
       process.stdout.write('\n');
     }
   } catch (e) {
-    console.error(`\n${C.red}Erreur d'exécution WebGPU : ${e.message}${C.reset}`);
+    spinner.stop(true);
+    if (!abortController.signal.aborted) {
+      console.error(`\n${C.red}Erreur d'exécution WebGPU : ${e.message}${C.reset}`);
+    }
     process.exit(1);
   } finally {
     await engine.close();

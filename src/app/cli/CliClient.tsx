@@ -341,16 +341,22 @@ export default function CliClient() {
         </P>
 
         <ul style={{ paddingLeft: 20, margin: '10px 0', fontSize: 13.5, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>@chemin/fichier</code> : {t('Injects source code or specific line ranges into prompt', 'Injecte du code source ou des plages de lignes dans le prompt')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>@chemin/fichier</code> : {t('Injects source code or specific line ranges into prompt (supports Tab completion)', 'Injecte du code source ou des plages de lignes dans le prompt (avec complétion Tab)')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/mode [code|plan|review|auto]</code> : {t('Switches operating mode (direct code, architecture planning, strict review, or autonomous edits)', 'Bascule le mode d’intervention (code direct, planification, audit strict ou mode auto/agent)')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/think [off|auto|deep]</code> : {t('Adjusts chain-of-thought and streaming reasoning blocks with <think>', 'Ajuste la réflexion pas à pas et le flux de raisonnement stylisé <think>')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/status</code> : {t('Displays active model, physical WebGPU adapter, operating mode, and KV cache', 'Affiche l’état complet : modèle actif, GPU physique, mode actif et cache KV')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/diff [args]</code> : {t('Analyzes git diff and provides an automated code review', 'Analyse le diff git et génère une revue de code automatique')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/commit</code> : {t('Drafts 3 conventional commit message proposals with rationale', 'Rédige 3 propositions de messages de commit conventionnels')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/accept, /apply</code> : {t('Extracts proposed code blocks or diffs and copies them for seamless integration', 'Extrait les blocs de code ou diffs proposés et les copie pour intégration')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/copy</code> : {t('Copies the latest assistant response directly to system clipboard', 'Copie la dernière réponse de l’assistant dans le presse-papier')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/model [nom]</code> : {t('Displays or live-switches active model without restarting', 'Affiche ou change le modèle actif à la volée')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/stats</code> : {t('Displays session statistics, token velocity and $0 on-device cost', 'Affiche les statistiques de session, le débit en tok/s et le coût nul')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>!commande</code> : {t('Executes a local shell command directly from REPL (e.g. !git status)', 'Exécute une commande shell locale depuis le REPL (ex: !git status)')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Tab</code> : {t('Smart autocompletion for slash commands, mode names, and filesystem paths', 'Auto-complétion intelligente des commandes (/), des modes et des chemins de fichiers (@)')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Escape</code> : {t('Instantly cancels in-flight GPU generation via AbortController, or clears input draft', 'Interrompt immédiatement la génération GPU via AbortController, ou efface la saisie')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/clear</code> : {t('Clears terminal screen', 'Efface l’écran du terminal')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/reset</code> : {t('Resets conversation history and frees GPU KV cache', 'Réinitialise l’historique et vide le cache KV GPU')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/exit</code> {t('or', 'ou')} <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Ctrl+C</code> : {t('Exits the REPL session', 'Quitte la session REPL')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/exit</code> {t('or', 'ou')} <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Ctrl+D</code> : {t('Exits the REPL session', 'Quitte la session REPL')}</li>
         </ul>
       </Section>
 
