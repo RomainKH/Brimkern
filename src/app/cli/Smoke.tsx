@@ -29,33 +29,32 @@ float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
 float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a*n(p); p = p*2.03 + 7.1; a *= 0.5; } return v; }
 void main(){
   vec2 uv = gl_FragCoord.xy / res;
-  // Le défilement décale le domaine du bruit avec une vitesse naturelle (fumée d'ambiance).
-  vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 0.95);
+  // Parallaxe douce en profondeur : la fumée flotte en arrière-plan sans distorsion ni à-coup.
+  vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 0.35);
   float s = t * 0.045;
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
   float f = fbm(p + 2.6*r);
-  // Dans le hero, la fumée monte du bas ; dans le contenu, elle s'étend sans à-coups ni cassure nette.
-  float inPage = smoothstep(0.05, 1.2, scroll);
-  float rise = mix(smoothstep(1.25, -0.15, uv.y), 0.85, inPage);
-  float d = smoothstep(0.30, 0.92, f) * rise;
-  // Zone du texte (colonne de gauche sur grand écran, toute la largeur sur téléphone) : fumée
-  // retenue. Ailleurs, elle a le droit d'être dense : c'est là qu'elle fait le « wow ».
+
+  // Transition continue et douce entre le hero et le corps de page (aucun seuil brutal)
+  float inPage = smoothstep(0.1, 1.0, scroll);
+  float rise = mix(smoothstep(1.2, 0.0, uv.y), 0.75, inPage);
+  float d = smoothstep(0.28, 0.90, f) * rise;
+
+  // Zone de texte (colonne gauche sur grand écran) : atténuation douce sans écrêtage dur
   float wide = step(900.0, res.x / 0.5);
-  float textZone = mix(1.0, smoothstep(0.78, 0.42, uv.x), wide);
+  float textZone = mix(1.0, smoothstep(0.80, 0.40, uv.x), wide);
+
+  // Atténuation continue du gain : évite le min() qui rabotait brutalement les volutes lumineuses
+  float gain = mix(mix(0.68, 0.28, textZone), 0.28, inPage);
+
   vec3 ink = vec3(0.051, 0.051, 0.047);
   vec3 red = vec3(0.94, 0.27, 0.27);
   vec3 cyan = vec3(0.22, 0.74, 0.97);
-  float gain = mix(mix(1.25, 0.32, textZone), 0.55, inPage);
-  // Rouge carmin dominant, contre-jour froid dans les replis (r.x) : le néon bicolore.
-  vec3 col = ink + red * d * gain + cyan * smoothstep(0.5, 0.9, r.x) * d * gain * 0.42;
-  // Plafonds : derrière le texte ~#491c19 (papier > 11:1, texte atténué > 5.6:1) ; ailleurs
-  // plus haut, il n'y a rien à lire.
-  vec3 capLow = vec3(0.29, 0.11, 0.10);
-  vec3 capHigh = vec3(0.62, 0.22, 0.22);
-  // Passé le hero, du texte peut être n'importe où (paragraphe aligné à droite, tableau) : le
-  // plafond bas s'applique partout.
-  col = min(col, mix(mix(capHigh, capLow, textZone), capLow, inPage));
+
+  // Rouge carmin dominant, contre-jour froid dans les replis : dégradés continus sans clipping
+  vec3 col = ink + red * (d * gain) + cyan * (smoothstep(0.5, 0.9, r.x) * d * gain * 0.40);
+
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -123,13 +122,13 @@ export default function Smoke({ className }: { className?: string }) {
       if (document.hidden) { raf = 0; return; } // reprend à visibilitychange
       raf = requestAnimationFrame(loop);
       const targetScroll = window.scrollY / Math.max(1, window.innerHeight);
-      const moving = Math.abs(targetScroll - currentScroll) > 0.0008;
-      // Fluidité maximale au défilement (60 i/s plein écran) ; au repos complet, cadence allégée (~30 i/s)
-      const minInterval = moving ? 0 : 33;
+      const moving = Math.abs(targetScroll - currentScroll) > 0.0005;
+      // Fluidité maximale au défilement (60/120 i/s) ; cadence allégée (~30 i/s) uniquement au repos complet
+      const minInterval = moving ? 0 : 32;
       if (now - last < minInterval) return;
       last = now;
-      // Lissage exponentiel (lerp) : élimine tout décrochage ou saccade lors des crans de molette
-      currentScroll += (targetScroll - currentScroll) * 0.12;
+      // Lissage réactif : suit immédiatement le défilement sans décalage temporel
+      currentScroll += (targetScroll - currentScroll) * 0.22;
       draw((now - t0) / 1000 + 12, currentScroll);
     };
     const onVis = () => { if (!document.hidden && !raf) raf = requestAnimationFrame(loop); };
