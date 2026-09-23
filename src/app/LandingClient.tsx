@@ -166,6 +166,7 @@ export default function LandingClient() {
         <nav className="lp-nav-links" aria-label={t('Main', 'Principale')}>
           <Link href={href('/docs')}>{t('Docs', 'Doc')}</Link>
           <Link href={href('/local-ai')}>SDK</Link>
+          <Link href={href('/cli')}>CLI</Link>
           <Link href={href('/changelog')} className="lp-nav-wide">Changelog</Link>
           <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="lp-nav-icon">
             <GithubMark size={16} />
@@ -402,6 +403,26 @@ export default function LandingClient() {
 </script>`}</pre>
         </section>
 
+        {/* ── LA CLI TERMINAL ─────────────────────────────────────────────────────────────────── */}
+        <section className="lp-section lp-sdk" style={{ marginTop: 28 }}>
+          <div>
+            <div className="lp-eyebrow">{t('for your shell & scripts', 'pour votre terminal & vos scripts')}</div>
+            <h2 className="lp-h2">{t('WebGPU & WGSL in your shell, no Python or CUDA needed', 'WebGPU & WGSL dans votre terminal, sans Python ni CUDA')}</h2>
+            <p className="lp-strength-desc">
+              {t('Run coding models directly on your hardware GPU. Pipe source files through stdin, trigger one-shot analyses, or start an interactive chat session with instant .brik weight caching.',
+                 'Faites tourner des modèles de code directement sur votre GPU matériel. Passez des fichiers sources dans les pipes stdin, lancez des analyses en une commande ou discutez en mode interactif avec mise en cache instantanée des poids .brik.')}
+            </p>
+            <Link href={href('/cli')} className="lp-cta-ghost">
+              {t('CLI documentation & workflows', 'Documentation CLI & cas d’usage')} <ArrowRight size={14} />
+            </Link>
+          </div>
+          <pre tabIndex={0} className="lp-code">{`# ${t('One-shot code review with Unix pipes', 'Revue de code en une ligne avec pipe Unix')}
+cat src/app.ts | npx brimkern "Find potential bugs"
+
+# ${t('Interactive REPL with local GPU caching', 'REPL interactif avec cache GPU local')}
+npx brimkern chat --preset=coder`}</pre>
+        </section>
+
         {/* ── LES PORTES ───────────────────────────────────────────────────────────────────────── */}
         <section className="lp-section">
           <div className="lp-eyebrow">{t('also in the box', 'aussi dans la boîte')}</div>
@@ -420,6 +441,7 @@ export default function LandingClient() {
           <Link href={href('/chat')}>{t('Chat', 'Chat')}</Link>
           <Link href={href('/docs')}>{t('Documentation', 'Documentation')}</Link>
           <Link href={href('/local-ai')}>SDK</Link>
+          <Link href={href('/cli')}>CLI</Link>
           {/* La comparaison mesurée : c'est la question que se pose tout visiteur qui connaît
               déjà WebLLM, et la porte d'entrée SEO sur « run an LLM in the browser ». */}
           <Link href={href('/vs-webllm')}>{t('vs WebLLM', 'vs WebLLM')}</Link>

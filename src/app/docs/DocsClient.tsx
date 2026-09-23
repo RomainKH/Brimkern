@@ -11,7 +11,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Globe, Package, Info, ArrowUpRight, Sparkles } from 'lucide-react';
+import { MessageSquare, Globe, Package, Info, ArrowUpRight, Sparkles, Terminal } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
 import GithubMark from '../GithubMark';
 import DocsShell, { P, PageTitle, Section } from './DocsShell';
@@ -96,6 +96,12 @@ export default function DocsClient() {
           desc={t('Put a local assistant on your own site with one script tag. Live demo included.', "Posez un assistant local sur votre site avec une balise script. Démo live incluse.")}
         />
         <NavCard
+          href={href('/cli')}
+          icon={<Terminal size={17} />}
+          title={t('WGSL Terminal CLI', 'CLI WGSL Terminal')}
+          desc={t('Run coding models on your GPU straight from your shell with Unix pipes.', 'Exécutez des modèles de code sur votre GPU depuis votre terminal avec des pipes Unix.')}
+        />
+        <NavCard
           href={href('/convert')}
           icon={<Package size={17} />}
           title={t('GGUF → .brik converter', 'Convertisseur GGUF → .brik')}
@@ -136,8 +142,10 @@ export default function DocsClient() {
         <P>
           {t('To go further: ', 'Pour aller plus loin : ')}
           <Link href={href('/docs/models')} style={{ color: 'var(--accent-text)' }}>{t('run any Hugging Face model', "charger n'importe quel modèle Hugging Face")}</Link>
+          {t(', ', ', ')}
+          <Link href={href('/docs/sdk')} style={{ color: 'var(--accent-text)' }}>{t('put the assistant on your own site', 'poser l’assistant sur votre propre site')}</Link>
           {t(', or ', ', ou ')}
-          <Link href={href('/docs/sdk')} style={{ color: 'var(--accent-text)' }}>{t('put the assistant on your own site', 'poser l’assistant sur votre propre site')}</Link>.
+          <Link href={href('/cli')} style={{ color: 'var(--accent-text)' }}>{t('use the terminal CLI', 'utiliser la CLI dans votre terminal')}</Link>.
         </P>
       </Section>
 

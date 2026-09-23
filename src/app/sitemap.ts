@@ -12,6 +12,7 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   { path: '/docs', freq: 'weekly', prio: 0.9 },      // documentation (tout y renvoie)
   { path: '/docs/models', freq: 'monthly', prio: 0.8 },  // modèles HF, liens de test, format .brik
   { path: '/docs/sdk', freq: 'monthly', prio: 0.8 },     // référence API du paquet npm
+  { path: '/cli', freq: 'monthly', prio: 0.8 },          // CLI terminal WGSL WebGPU
   { path: '/docs/diagnostics', freq: 'monthly', prio: 0.4 }, // commutateurs de repli
   { path: '/local-ai', freq: 'monthly', prio: 0.8 }, // SDK / offre pro
   // La démo live du SDK : un fichier statique, mais désormais BILINGUE et sur deux URL (/sdk-demo et
