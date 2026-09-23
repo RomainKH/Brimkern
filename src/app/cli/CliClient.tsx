@@ -91,9 +91,10 @@ export default function CliClient() {
   const href = useHref();
 
   const toc: { id: string; label: string }[] = [
-    { id: 'quickstart', label: t('Quickstart', 'Démarrage rapide') },
-    { id: 'pipes', label: t('Unix Pipes & Code', 'Pipes Unix & Code') },
+    { id: 'quickstart', label: t('Quickstart & Install', 'Démarrage rapide & Install') },
+    { id: 'context', label: t('File Context & Git', 'Contexte @fichier & Git') },
     { id: 'chat', label: t('Interactive REPL', 'REPL interactif') },
+    { id: 'pipes', label: t('Unix Pipes & Code', 'Pipes Unix & Code') },
     { id: 'presets', label: t('Models & .brik Format', 'Modèles & format .brik') },
     { id: 'options', label: t('Options Reference', 'Référence des options') },
     { id: 'architecture', label: t('WGSL Architecture', 'Architecture WGSL') },
@@ -205,32 +206,89 @@ export default function CliClient() {
       </div>
 
       {/* ── SECTION DÉMARRAGE RAPIDE ────────────────────────────────────────── */}
-      <Section id="quickstart" title={t('Quickstart', 'Démarrage rapide')}>
+      <Section id="quickstart" title={t('Quickstart & Universal Install', 'Démarrage rapide & Installation universelle')}>
         <P>
           {t(
-            'The CLI requires zero build step and zero prior setup. You can run it instantly using npx without installing anything permanently:',
-            'La CLI ne demande aucune étape de compilation ni configuration préalable. Vous pouvez la lancer instantanément avec npx sans rien installer définitivement :'
+            'Install Brimkern on any device (macOS Apple Silicon & Intel, Linux, WSL) in a single command. The installer configures Node, global bins, and the hardware WebGPU environment automatically:',
+            'Installez Brimkern sur n’importe quel appareil (macOS Apple Silicon & Intel, Linux, WSL) en une seule commande. Le script configure Node, les binaires globaux et l’environnement WebGPU matériel automatiquement :'
           )}
+        </P>
+
+        <CopySnippet text="curl -fsSL https://brimkern.com/install.sh | bash" label={t('Universal installer', 'Installateur universel')} />
+
+        <P>
+          {t('Or run it on demand without permanent installation using npx:', 'Ou lancez-le à la demande sans installation permanente avec npx :')}
         </P>
 
         <CopySnippet text='npx brimkern "Write a quicksort function in TypeScript"' />
 
         <P>
-          {t(
-            'To have brimkern available everywhere as a global command in your terminal:',
-            'Pour rendre brimkern disponible partout comme commande globale dans votre terminal :'
-          )}
+          {t('Or via npm global install:', 'Ou via npm global :')}
         </P>
 
-        <CopySnippet text="npm install -g brimkern" label={t('Install globally', 'Installer globalement')} />
+        <CopySnippet text="npm install -g brimkern" label={t('Install globally via npm', 'Installer globalement via npm')} />
 
         <P>
-          <strong>{t('Requirements: ', 'Prérequis : ')}</strong>
+          <strong>{t('Hardware GPU Acceleration: ', 'Accélération matérielle GPU : ')}</strong>
           {t(
-            'Node.js 18+ and a Chromium or Chrome installation. On macOS, Linux, or Windows, Brimkern automatically detects Chromium (Playwright cache or system Chrome) and launches it in headless mode with native GPU flags (--enable-unsafe-webgpu, --use-angle=metal/vulkan).',
-            'Node.js 18+ et une installation de Chromium ou Google Chrome. Sur macOS, Linux ou Windows, Brimkern détecte automatiquement Chromium (cache Playwright ou Chrome système) et le lance en mode headless avec les drapeaux GPU natifs (--enable-unsafe-webgpu, --use-angle=metal/vulkan).'
+            'Brimkern runs directly on your physical GPU hardware (Apple Metal on macOS, Vulkan on Linux, D3D12/Vulkan on Windows). No CUDA toolkit, no Python, and no heavy background daemons are required.',
+            'Brimkern s’exécute directement sur votre GPU physique (Apple Metal sur macOS, Vulkan sur Linux, D3D12/Vulkan sur Windows). Aucun toolkit CUDA, aucun environnement Python ni démon d’arrière-plan n’est requis.'
           )}
         </P>
+      </Section>
+
+      {/* ── SECTION CONTEXTE FICHIER & GIT ──────────────────────────────────── */}
+      <Section id="context" title={t('File Context & Git Integration (@file, /diff, /commit)', 'Contexte fichier & Intégration Git (@fichier, /diff, /commit')}>
+        <P>
+          {t(
+            'Like Claude Code or Gemini CLI, Brimkern brings direct awareness of your project files and git repository right to your terminal:',
+            'À la manière de Claude Code ou de Gemini CLI, Brimkern apporte une conscience directe de vos fichiers de projet et de votre dépôt git dans votre terminal :'
+          )}
+        </P>
+
+        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
+          {t('1. Inline file context with @filepath', '1. Injection de contexte avec @fichier')}
+        </h3>
+        <P>
+          {t(
+            'Mention any file with @path/to/file or specify line ranges with @path/to/file:start-end. Brimkern automatically reads the file from disk, counts lines, and embeds it into the prompt with language-tagged markdown fences:',
+            'Mentionnez n’importe quel fichier avec @chemin/vers/fichier ou spécifiez des lignes avec @chemin/vers/fichier:début-fin. Brimkern charge automatiquement le fichier depuis le disque, compte les lignes et l’injecte dans le prompt avec la coloration syntaxique :'
+          )}
+        </P>
+        <Code lang="sh">{'brimkern "Explique la logique de ce composant @src/app/Composer.tsx:10-60"'}</Code>
+
+        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
+          {t('2. Instant Git code reviews (/diff)', '2. Revue de code Git instantanée (/diff)')}
+        </h3>
+        <P>
+          {t(
+            'In chat mode or via pipe, ask for a review of your current branch changes. In REPL, simply type /diff:',
+            'En mode chat ou via pipe, demandez une relecture de vos modifications git en cours. Dans le REPL, tapez simplement /diff :'
+          )}
+        </P>
+        <Code lang="sh">{'kern › /diff'}</Code>
+
+        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
+          {t('3. Conventional commit message generator (/commit)', '3. Générateur de messages de commit (/commit)')}
+        </h3>
+        <P>
+          {t(
+            'Inspects git status and uncommitted diffs to generate 3 conventional commit proposals in French and English with diagnostic context:',
+            'Inspecte git status et les diffs non commités pour générer 3 propositions de messages de commit conventionnels en français et anglais avec leur diagnostic :'
+          )}
+        </P>
+        <Code lang="sh">{'kern › /commit'}</Code>
+
+        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
+          {t('4. Direct clipboard copying (/copy)', '4. Copie directe dans le presse-papier (/copy)')}
+        </h3>
+        <P>
+          {t(
+            'Never select terminal text manually again: /copy sends the assistant’s latest response directly to your system clipboard (macOS pbcopy, Linux xclip/wl-copy, Windows clip):',
+            'Plus besoin de sélectionner du texte dans la console : /copy envoie la dernière réponse de l’assistant directement dans votre presse-papier système (macOS pbcopy, Linux xclip/wl-copy, Windows clip) :'
+          )}
+        </P>
+        <Code lang="sh">{'kern › /copy'}</Code>
       </Section>
 
       {/* ── SECTION PIPES UNIX & CODE ────────────────────────────────────────── */}
@@ -283,8 +341,15 @@ export default function CliClient() {
         </P>
 
         <ul style={{ paddingLeft: 20, margin: '10px 0', fontSize: 13.5, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/clear</code> : {t('Resets conversation history and frees the KV cache', 'Réinitialise l’historique de conversation et vide le cache KV')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/help</code> : {t('Displays available commands', 'Affiche les commandes disponibles')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>@chemin/fichier</code> : {t('Injects source code or specific line ranges into prompt', 'Injecte du code source ou des plages de lignes dans le prompt')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/diff [args]</code> : {t('Analyzes git diff and provides an automated code review', 'Analyse le diff git et génère une revue de code automatique')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/commit</code> : {t('Drafts 3 conventional commit message proposals with rationale', 'Rédige 3 propositions de messages de commit conventionnels')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/copy</code> : {t('Copies the latest assistant response directly to system clipboard', 'Copie la dernière réponse de l’assistant dans le presse-papier')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/model [nom]</code> : {t('Displays or live-switches active model without restarting', 'Affiche ou change le modèle actif à la volée')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/stats</code> : {t('Displays session statistics, token velocity and $0 on-device cost', 'Affiche les statistiques de session, le débit en tok/s et le coût nul')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>!commande</code> : {t('Executes a local shell command directly from REPL (e.g. !git status)', 'Exécute une commande shell locale depuis le REPL (ex: !git status)')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/clear</code> : {t('Clears terminal screen', 'Efface l’écran du terminal')}</li>
+          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/reset</code> : {t('Resets conversation history and frees GPU KV cache', 'Réinitialise l’historique et vide le cache KV GPU')}</li>
           <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/exit</code> {t('or', 'ou')} <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Ctrl+C</code> : {t('Exits the REPL session', 'Quitte la session REPL')}</li>
         </ul>
       </Section>

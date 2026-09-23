@@ -4,19 +4,14 @@
  * BRIMKERN CLI — Exécution de modèles d'IA on-device en WGSL / WebGPU depuis le terminal.
  * Moteur d'inférence WebGPU natif (kernels WGSL) via Chromium headless / GPU matériel.
  *
- * Utilisation :
- *   brimkern "Écris une fonction de tri rapide en TypeScript"
- *   cat script.py | brimkern "Trouve les bugs dans ce code"
- *   brimkern chat                       # Mode REPL interactif
- *   brimkern models                     # Liste les modèles pré-configurés
- *
- * Options :
- *   -m, --model=<nom|url|fichier>      Modèle à utiliser (défaut : coder / lfm2.5-230m)
- *   -s, --system=<prompt>              Prompt système (défaut : expert dev orienté code)
- *   -n, --max-tokens=<n>               Nombre maximal de tokens générés (défaut : 512)
- *   -t, --temperature=<val>            Température d'échantillonnage (défaut : 0.3)
- *   --raw                              Sortie brute uniquement (sans en-tête ni stats)
- *   -h, --help                         Affiche cette aide
+ * Fonctionnalités avancées style Claude Code / Gemini CLI :
+ *   - Injection de contexte fichier (@chemin/vers/fichier[:début-fin])
+ *   - Raccourcis Git intégrés (/diff, /commit, /review)
+ *   - REPL interactif avec persistance KV-cache, changement de modèle à chaud (/model)
+ *   - Commandes shell directes (!cmd ou /exec cmd)
+ *   - Copie directe au presse-papier système (/copy)
+ *   - Statistiques de session (/stats, tokens, tok/s, coût 0$)
+ *   - Identité visuelle "Le Kern" (palette rouge carmin, bordures nettes, typographie soignée)
  */
 
 import { createServer } from 'node:http';
@@ -25,6 +20,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
+import { execSync, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -59,19 +55,137 @@ const PRESET_CLI_MODELS = {
   },
 };
 
-// ── Couleurs ANSI pour la console ────────────────────────────────────────────────────
+// ── Palette ANSI "Le Kern" (rouge carmin, papier, encre) ─────────────────────────────
 const C = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
   dim: '\x1b[2m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
-  gray: '\x1b[90m',
+  italic: '\x1b[3m',
+  underline: '\x1b[4m',
+  red: '\x1b[38;2;239;68;68m',        // Rouge Kern (#ef4444)
+  boldRed: '\x1b[1;38;2;239;68;68m',
+  green: '\x1b[38;2;74;222;128m',     // Vert menthe
+  boldGreen: '\x1b[1;38;2;74;222;128m',
+  yellow: '\x1b[38;2;234;179;8m',
+  sand: '\x1b[38;2;216;185;132m',     // Sable chaud
+  blue: '\x1b[38;2;96;165;250m',
+  cyan: '\x1b[38;2;56;189;248m',      // Bleu ciel
+  gray: '\x1b[38;2;161;161;170m',     // Gris papier
+  darkGray: '\x1b[38;2;82;82;91m',
 };
+
+// ── Utilitaires Git ──────────────────────────────────────────────────────────────────
+function getGitInfo() {
+  try {
+    const branch = execSync('git rev-parse --abbrev-ref HEAD 2>/dev/null', { encoding: 'utf8' }).trim();
+    if (!branch) return null;
+    const status = execSync('git status --porcelain 2>/dev/null', { encoding: 'utf8' }).trim();
+    return { branch, dirty: status.length > 0 };
+  } catch {
+    return null;
+  }
+}
+
+function getGitDiff(args = '') {
+  try {
+    return execSync(`git diff ${args} 2>/dev/null`, { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function getGitStatusSummary() {
+  try {
+    return execSync('git status -s 2>/dev/null', { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+// ── Utilitaires Presse-papier ────────────────────────────────────────────────────────
+function copyToClipboard(text) {
+  try {
+    if (process.platform === 'darwin') {
+      spawnSync('pbcopy', { input: text });
+      return true;
+    } else if (process.platform === 'win32') {
+      spawnSync('clip', { input: text });
+      return true;
+    } else {
+      const res = spawnSync('xclip', ['-selection', 'clipboard'], { input: text });
+      if (res.status === 0) return true;
+      const resWl = spawnSync('wl-copy', { input: text });
+      return resWl.status === 0;
+    }
+  } catch {
+    return false;
+  }
+}
+
+// ── Résolution de fichiers (@chemin/vers/fichier[:début-fin]) ──────────────────────────
+function resolveFileReferences(rawPrompt) {
+  const fileRegex = /@([a-zA-Z0-9_\-./\\]+(?::\d+(?:-\d+)?)?)/g;
+  const matches = [...rawPrompt.matchAll(fileRegex)];
+  if (matches.length === 0) {
+    return { prompt: rawPrompt, files: [] };
+  }
+
+  const loadedFiles = [];
+  const additions = [];
+
+  for (const match of matches) {
+    const fullRef = match[1];
+    let filePath = fullRef;
+    let startLine = null;
+    let endLine = null;
+
+    if (fullRef.includes(':')) {
+      const parts = fullRef.split(':');
+      filePath = parts[0];
+      const range = parts[1];
+      if (range.includes('-')) {
+        const [s, e] = range.split('-').map(Number);
+        startLine = s;
+        endLine = e;
+      } else {
+        startLine = Number(range);
+        endLine = Number(range);
+      }
+    }
+
+    const resolved = resolve(process.cwd(), filePath);
+    if (existsSync(resolved) && statSync(resolved).isFile()) {
+      try {
+        const rawContent = readFileSync(resolved, 'utf8');
+        const lines = rawContent.split('\n');
+        let slice = lines;
+        let lineNote = `${lines.length} lignes`;
+
+        if (startLine !== null) {
+          const s = Math.max(1, startLine) - 1;
+          const e = endLine !== null ? Math.min(lines.length, endLine) : lines.length;
+          slice = lines.slice(s, e);
+          lineNote = `lignes ${startLine}-${endLine || lines.length} sur ${lines.length}`;
+        }
+
+        let truncated = false;
+        if (slice.length > 800) {
+          slice = slice.slice(0, 800);
+          truncated = true;
+        }
+
+        const ext = filePath.split('.').pop() || '';
+        additions.push(
+          `\n\n--- Fichier : ${filePath} (${lineNote}${truncated ? ', tronqué à 800 lignes' : ''}) ---\n\`\`\`${ext}\n${slice.join('\n')}\n\`\`\``
+        );
+        loadedFiles.push({ path: filePath, lineCount: slice.length });
+      } catch {}
+    }
+  }
+
+  const cleanPrompt = rawPrompt + additions.join('\n');
+  return { prompt: cleanPrompt, files: loadedFiles };
+}
 
 // ── Résolution de Chromium ───────────────────────────────────────────────────────────
 function findChromium() {
@@ -201,7 +315,15 @@ class BrimkernCliEngine {
     this.raw = !!options.raw;
     this.localBrikFile = null;
 
-    // Résolution URL du modèle
+    this.resolveModelConfig();
+
+    this.server = null;
+    this.browserCtx = null;
+    this.page = null;
+    this.isReady = false;
+  }
+
+  resolveModelConfig() {
     if (PRESET_CLI_MODELS[this.modelKey]) {
       this.modelUrl = PRESET_CLI_MODELS[this.modelKey].url;
       this.displayName = PRESET_CLI_MODELS[this.modelKey].name;
@@ -212,11 +334,6 @@ class BrimkernCliEngine {
       this.modelUrl = this.modelKey;
       this.displayName = this.modelKey;
     }
-
-    this.server = null;
-    this.browserCtx = null;
-    this.page = null;
-    this.isReady = false;
   }
 
   async init() {
@@ -252,49 +369,52 @@ class BrimkernCliEngine {
       headless: true,
       args: [
         '--enable-unsafe-webgpu',
-        '--use-angle=metal',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
+        '--use-webgpu-adapter=default',
+        process.platform === 'darwin' ? '--use-angle=metal' : '--use-angle=vulkan',
+        '--enable-features=Vulkan,DefaultANGLEVulkan',
+        '--disable-gpu-watchdog',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
       ],
-      viewport: { width: 800, height: 600 },
     });
 
-    this.page = this.browserCtx.pages()[0] || await this.browserCtx.newPage();
-    await this.page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'domcontentloaded' });
+    this.page = await this.browserCtx.newPage();
+    await this.page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
 
-    // Initialisation session WebGPU
-    await this.page.evaluate(({ modelUrl, systemPrompt, maxTokens, temperature }) => {
-      window.session = Brimkern.createSession({
+    // Initialisation de la session Brimkern dans le contexte WebGPU
+    await this.page.evaluate(async ({ modelUrl, maxTokens, temperature, systemPrompt }) => {
+      window.session = await window.Brimkern.createSession({
         model: modelUrl,
-        system: systemPrompt,
         maxTokens,
         temperature,
-      });
-      window.session.on('progress', (phase, pr) => {
-        if (window.onProgressBridge) window.onProgressBridge(phase, pr?.loaded, pr?.total);
+        system: systemPrompt,
       });
     }, {
       modelUrl: this.modelUrl,
-      systemPrompt: this.systemPrompt,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
+      systemPrompt: this.systemPrompt,
     });
 
     this.isReady = true;
   }
 
-  async ask(prompt, { onToken, onProgress } = {}) {
-    if (!this.isReady) await this.init();
+  async ask(prompt, { onToken = null, onProgress = null } = {}) {
+    if (!this.isReady) {
+      await this.init();
+    }
 
-    // Pont pour le streaming des tokens
-    await this.page.exposeFunction('onTokenBridge', (tokenDelta) => {
-      if (onToken) onToken(tokenDelta);
-    });
+    if (onToken) {
+      await this.page.exposeFunction('onTokenBridge', (delta) => {
+        onToken(delta);
+      }).catch(() => {});
+    }
 
-    // Pont pour la progression du téléchargement
-    await this.page.exposeFunction('onProgressBridge', (phase, loaded, total) => {
-      if (onProgress) onProgress(phase, loaded, total);
-    });
+    if (onProgress) {
+      await this.page.exposeFunction('onProgressBridge', (phase, loaded, total) => {
+        onProgress(phase, loaded, total);
+      }).catch(() => {});
+    }
 
     const result = await this.page.evaluate(async (p) => {
       let lastLen = 0;
@@ -331,16 +451,64 @@ class BrimkernCliEngine {
   }
 }
 
-// ── Aide CLI ──────────────────────────────────────────────────────────────────────────
+// ── Bannière de marque "Le Kern" ─────────────────────────────────────────────────────
+function printBrandBanner(engine) {
+  const git = getGitInfo();
+  const gitStr = git ? ` · Git: ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.gray}` : '';
+  const gpuStr = process.platform === 'darwin' ? 'Metal' : 'Vulkan';
+
+  console.log(`
+${C.boldRed}██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
+██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
+██████╔╝██████╔╝██║██╔████╔██║█████═╝ █████╗  ██████╔╝██╔██╗ ██║
+██╔══██╗██╔══██╗██║██║╚██╔╝██║██╔═██╗ ██╔══╝  ██╔══██╗██║╚██╗██║
+██████╔╝██║  ██║██║██║ ╚═╝ ██║██║ ╚██╗███████╗██║  ██║██║ ╚████║
+╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝${C.reset}
+${C.dim}Moteur d'inférence WebGPU & WGSL on-device${C.reset}
+
+${C.red}┌─ Brimkern WGSL ────────────────────────────────────────────────────────┐${C.reset}
+${C.red}│${C.reset} Modèle : ${C.yellow}${engine.displayName.padEnd(25)}${C.reset} WebGPU : ${C.cyan}${gpuStr.padEnd(14)}${C.reset} ${C.red}│${C.reset}
+${C.red}│${C.reset} Statut : ${C.green}Local ($0.00)${C.reset}${gitStr.padEnd(38)} ${C.red}│${C.reset}
+${C.red}└────────────────────────────────────────────────────────────────────────┘${C.reset}
+${C.dim}Tapez ${C.boldRed}/help${C.reset}${C.dim} pour les commandes · ${C.cyan}@fichier${C.reset}${C.dim} pour injecter du code${C.reset}
+`);
+}
+
+// ── Aide REPL complète ────────────────────────────────────────────────────────────────
+function printReplHelp() {
+  console.log(`
+${C.bold}Commandes interactives Brimkern (style Claude Code / Gemini CLI) :${C.reset}
+
+${C.boldRed}ASSISTANT & CONTEXTE${C.reset}
+  ${C.bold}${C.cyan}@chemin/fichier${C.reset}      Injecte le fichier dans le prompt (ex: ${C.dim}@src/app.ts:1-50${C.reset})
+  ${C.bold}${C.cyan}/diff [args]${C.reset}         Analyse vos modifications git et propose une revue
+  ${C.bold}${C.cyan}/commit${C.reset}              Génère 3 propositions de messages de commit conventionnels
+  ${C.bold}${C.cyan}/review <fichier>${C.reset}    Revue de code approfondie (bugs, sécurité, perf)
+  ${C.bold}${C.cyan}/copy${C.reset}                Copie la dernière réponse dans le presse-papier
+
+${C.boldRed}CONVERSATION & SESSION${C.reset}
+  ${C.bold}${C.cyan}/model [nom|chemin]${C.reset}  Affiche ou change de modèle actif à chaud
+  ${C.bold}${C.cyan}/reset${C.reset}               Efface l'historique et libère le cache KV GPU
+  ${C.bold}${C.cyan}/stats${C.reset}               Statistiques de session (tokens, tok/s, coût 0$)
+  ${C.bold}${C.cyan}/clear${C.reset}               Efface l'écran du terminal
+
+${C.boldRed}COMMANDES SYSTÈME${C.reset}
+  ${C.bold}${C.cyan}!commande${C.reset}            Exécute une commande shell locale (ex: ${C.dim}!git status${C.reset})
+  ${C.bold}${C.cyan}/exit${C.reset}                Quitte la session
+`);
+}
+
+// ── Aide CLI One-shot ─────────────────────────────────────────────────────────────────
 function printHelp() {
   console.log(`
-${C.bold}${C.red}BRIMKERN CLI${C.reset} — Inférence IA locale en WebGPU (WGSL) depuis le terminal
+${C.boldRed}BRIMKERN CLI${C.reset} — Inférence IA locale en WebGPU (WGSL) depuis le terminal
 
-${C.bold}USAGE${C.reset}
+${C.bold}UTILISATION${C.reset}
   ${C.green}brimkern${C.reset} [options] [prompt]
   ${C.green}brimkern${C.reset} chat                     ${C.gray}# Mode REPL interactif${C.reset}
   ${C.green}brimkern${C.reset} models                   ${C.gray}# Liste les modèles pré-configurés${C.reset}
   ${C.green}cat file.ts | brimkern${C.reset} "Trouve les bugs"
+  ${C.green}brimkern${C.reset} "Explique @src/app/Composer.tsx:10-40"
 
 ${C.bold}OPTIONS${C.reset}
   ${C.yellow}-m, --model=<nom|url|fichier>${C.reset}    Modèle (défaut: coder / LFM2.5 230M)
@@ -358,7 +526,7 @@ ${C.bold}MODÈLES PRÉCONFIGURÉS${C.reset}
 }
 
 function printModels() {
-  console.log(`\n${C.bold}${C.red}Modèles disponibles pour la CLI Brimkern :${C.reset}\n`);
+  console.log(`\n${C.boldRed}Modèles disponibles pour la CLI Brimkern :${C.reset}\n`);
   for (const [key, m] of Object.entries(PRESET_CLI_MODELS)) {
     console.log(`  ${C.bold}${C.cyan}${key.padEnd(8)}${C.reset} ${C.bold}${m.name}${C.reset} [${C.yellow}${m.size}${C.reset}]`);
     console.log(`           ${C.gray}${m.desc}${C.reset}`);
@@ -369,64 +537,164 @@ function printModels() {
 
 // ── Mode REPL interactif ──────────────────────────────────────────────────────────────
 async function runInteractiveChat(engine) {
-  console.log(`
-${C.bold}${C.red}██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
-██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
-██████╔╝██████╔╝██║██╔████╔██║█████═╝ █████╗  ██████╔╝██╔██╗ ██║
-██╔══██╗██╔══██╗██║██║╚██╔╝██║██╔═██╗ ██╔══╝  ██╔══██╗██║╚██╗██║
-██████╔╝██║  ██║██║██║ ╚═╝ ██║██║ ╚██╗███████╗██║  ██║██║ ╚████║
-╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝${C.reset}
-${C.gray}Moteur WebGPU (WGSL) on-device • Modèle : ${C.yellow}${engine.displayName}${C.gray} • Tapez ${C.cyan}/help${C.gray} pour les commandes.${C.reset}
-`);
+  printBrandBanner(engine);
 
   process.stderr.write(`${C.dim}Initialisation du GPU et chargement du modèle...${C.reset}`);
   await engine.init();
   process.stderr.write(`\r${C.green}✓ Moteur WebGPU prêt et connecté.${C.reset}                                 \n\n`);
 
+  // État de session (stats, lastResponse)
+  const sessionState = {
+    totalTokens: 0,
+    totalElapsedMs: 0,
+    lastResponse: '',
+  };
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `${C.bold}${C.cyan}brimkern>${C.reset} `,
+    prompt: `${C.boldRed}kern ›${C.reset} `,
   });
 
   rl.prompt();
 
   rl.on('line', async (line) => {
-    const input = line.trim();
+    let input = line.trim();
     if (!input) {
       rl.prompt();
       return;
     }
 
+    // 1. Commandes shell directes (!cmd)
+    if (input.startsWith('!') || input.startsWith('/exec ')) {
+      const cmd = input.startsWith('!') ? input.slice(1).trim() : input.slice(6).trim();
+      if (!cmd) { rl.prompt(); return; }
+      console.log(`${C.dim}$ ${cmd}${C.reset}`);
+      try {
+        execSync(cmd, { stdio: 'inherit' });
+      } catch (e) {
+        console.error(`${C.red}Erreur d'exécution : ${e.message}${C.reset}`);
+      }
+      console.log('');
+      rl.prompt();
+      return;
+    }
+
+    // 2. Commandes slash
     if (input === '/exit' || input === '/quit') {
       await engine.close();
       process.exit(0);
     }
     if (input === '/help') {
-      console.log(`
-Commandes :
-  /reset    Réinitialise l'historique de la conversation
-  /clear    Efface l'écran de la console
-  /exit     Quitte la session
-`);
-      rl.prompt();
-      return;
-    }
-    if (input === '/reset') {
-      await engine.reset();
-      console.log(`${C.yellow}Historique réinitialisé.${C.reset}\n`);
+      printReplHelp();
       rl.prompt();
       return;
     }
     if (input === '/clear') {
       console.clear();
+      printBrandBanner(engine);
+      rl.prompt();
+      return;
+    }
+    if (input === '/reset') {
+      await engine.reset();
+      console.log(`${C.yellow}✓ Historique conversationnel et cache KV réinitialisés.${C.reset}\n`);
+      rl.prompt();
+      return;
+    }
+    if (input === '/copy') {
+      if (!sessionState.lastResponse) {
+        console.log(`${C.dim}Aucune réponse précédente à copier.${C.reset}\n`);
+      } else {
+        const ok = copyToClipboard(sessionState.lastResponse);
+        if (ok) {
+          console.log(`${C.green}✓ Dernière réponse copiée dans le presse-papier système.${C.reset}\n`);
+        } else {
+          console.log(`${C.yellow}Impossible de copier dans le presse-papier.${C.reset}\n`);
+        }
+      }
+      rl.prompt();
+      return;
+    }
+    if (input === '/stats' || input === '/cost' || input === '/tokens') {
+      const elapsedSec = (sessionState.totalElapsedMs / 1000).toFixed(1);
+      const avgSpeed = sessionState.totalElapsedMs > 0 ? ((sessionState.totalTokens / sessionState.totalElapsedMs) * 1000).toFixed(1) : '—';
+      console.log(`
+${C.bold}Statistiques de session Brimkern :${C.reset}
+  • Tokens générés   : ${C.yellow}${sessionState.totalTokens}${C.reset} tokens
+  • Temps de calcul  : ${C.cyan}${elapsedSec} s${C.reset}
+  • Vitesse moyenne  : ${C.green}~${avgSpeed} tok/s${C.reset}
+  • Coût d'inférence : ${C.boldGreen}0.00 $${C.reset} ${C.dim}(sur votre GPU physique)${C.reset}
+  • Confidentialité  : ${C.green}100% on-device${C.reset} ${C.dim}(aucun octet envoyé hors de la machine)${C.reset}
+`);
+      rl.prompt();
+      return;
+    }
+    if (input.startsWith('/model')) {
+      const targetModel = input.slice(6).trim();
+      if (!targetModel) {
+        printModels();
+        console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset}\n`);
+        rl.prompt();
+        return;
+      }
+      process.stderr.write(`${C.dim}Changement de modèle vers ${targetModel}...${C.reset}`);
+      await engine.close();
+      engine.modelKey = targetModel;
+      engine.resolveModelConfig();
+      await engine.init();
+      process.stderr.write(`\r${C.green}✓ Modèle actif : ${engine.displayName}${C.reset}                \n\n`);
       rl.prompt();
       return;
     }
 
+    // 3. Raccourcis Git intégrés
+    if (input.startsWith('/diff')) {
+      const diffArgs = input.slice(5).trim();
+      const diff = getGitDiff(diffArgs);
+      if (!diff) {
+        console.log(`${C.dim}Aucune modification git détectée.${C.reset}\n`);
+        rl.prompt();
+        return;
+      }
+      console.log(`${C.dim}Analyse du diff git (${diff.split('\n').length} lignes)...${C.reset}\n`);
+      input = `Fais une revue technique concise de ces changements git : bugs potentiels, régressions, sécurité et style.\n\n\`\`\`diff\n${diff}\n\`\`\``;
+    } else if (input === '/commit') {
+      const status = getGitStatusSummary();
+      const diff = getGitDiff();
+      if (!status && !diff) {
+        console.log(`${C.dim}L'arbre de travail git est propre, aucun commit à proposer.${C.reset}\n`);
+        rl.prompt();
+        return;
+      }
+      console.log(`${C.dim}Génération des messages de commit pour les modifications en cours...${C.reset}\n`);
+      input = `Voici l'état actuel de mon dépôt git :\n\nStatus :\n${status}\n\nDiff :\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\nRédige 3 propositions de messages de commit conventionnels concis (type: titre explicite) en français et en anglais avec un court diagnostic de 1 phrase.`;
+    } else if (input.startsWith('/review ')) {
+      const targetFile = input.slice(8).trim();
+      const resolved = resolve(process.cwd(), targetFile);
+      if (!existsSync(resolved)) {
+        console.log(`${C.red}Fichier introuvable : ${targetFile}${C.reset}\n`);
+        rl.prompt();
+        return;
+      }
+      const code = readFileSync(resolved, 'utf8');
+      console.log(`${C.dim}Revue de code de ${targetFile} (${code.split('\n').length} lignes)...${C.reset}\n`);
+      input = `Revue de code approfondie pour le fichier ${targetFile} : analyse les bugs potentiels, la robustesse, les performances et les cas limites.\n\n\`\`\`\n${code.slice(0, 4000)}\n\`\`\``;
+    }
+
+    // 4. Résolution des références de fichiers @chemin/vers/fichier
+    const { prompt: finalPrompt, files } = resolveFileReferences(input);
+    if (files.length > 0) {
+      for (const f of files) {
+        console.log(`${C.dim}📎 Contexte chargé : @${f.path} (${f.lineCount} lignes)${C.reset}`);
+      }
+      console.log('');
+    }
+
+    // 5. Exécution de l'inférence WebGPU
     let tokenCount = 0;
     try {
-      const res = await engine.ask(input, {
+      const res = await engine.ask(finalPrompt, {
         onToken: (tok) => {
           tokenCount++;
           process.stdout.write(tok);
@@ -438,9 +706,13 @@ Commandes :
         },
       });
 
+      sessionState.lastResponse = res.text;
+      sessionState.totalTokens += tokenCount;
+      sessionState.totalElapsedMs += res.elapsedMs;
+
       console.log('\n');
       const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-      console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens${C.reset}\n`);
+      console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${C.green}$0.00${C.reset}\n`);
     } catch (e) {
       console.error(`\n${C.red}Erreur : ${e.message}${C.reset}\n`);
     }
@@ -458,7 +730,6 @@ Commandes :
 async function main() {
   const args = process.argv.slice(2);
 
-  // Parsing des arguments
   let model = 'coder';
   let system = null;
   let maxTokens = 512;
@@ -499,7 +770,7 @@ async function main() {
     }
   }
 
-  // Lecture de stdin si redirigé (pipe)
+  // Lecture de stdin si redirigé (pipe unix)
   let stdinContent = '';
   if (!process.stdin.isTTY) {
     stdinContent = await new Promise((resolvePipe) => {
@@ -519,6 +790,17 @@ async function main() {
     }
   }
 
+  // Résolution des références de fichiers @fichier en mode one-shot
+  if (prompt) {
+    const { prompt: resolvedPrompt, files } = resolveFileReferences(prompt);
+    prompt = resolvedPrompt;
+    if (!raw && files.length > 0) {
+      for (const f of files) {
+        process.stderr.write(`${C.dim}📎 Contexte chargé : @${f.path} (${f.lineCount} lignes)${C.reset}\n`);
+      }
+    }
+  }
+
   const engine = new BrimkernCliEngine({
     model,
     system,
@@ -527,7 +809,6 @@ async function main() {
     raw,
   });
 
-  // Nettoyage à l'interruption
   const cleanup = async () => {
     await engine.close();
     process.exit(0);
@@ -568,7 +849,7 @@ async function main() {
     if (!raw) {
       console.log('\n');
       const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés${C.reset}\n`);
+      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés · ${C.green}$0.00${C.reset}\n`);
     } else {
       process.stdout.write('\n');
     }
