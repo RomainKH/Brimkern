@@ -202,8 +202,8 @@ export async function runFlyBench(): Promise<FlyBenchResult> {
 		// le `catch` global rendre un statut, la page dira simplement qu'elle n'a pas pu mesurer.
 		dev.lost?.then(() => { /* le finally détruit ce qui reste */ });
 
-		const module = dev.createShaderModule({ code: WGSL });
-		const pipe = dev.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' } });
+		const shaderModule = dev.createShaderModule({ code: WGSL });
+		const pipe = dev.createComputePipeline({ layout: 'auto', compute: { module: shaderModule, entryPoint: 'main' } });
 		const layout = pipe.getBindGroupLayout(0);
 
 		const failedAt = await validate(dev, pipe, layout);

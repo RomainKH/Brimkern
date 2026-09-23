@@ -2,7 +2,11 @@
   "name": "local-llm-interface-ssr",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "brimkern": "./bin/brimkern.mjs"
+  },
   "scripts": {
+    "cli": "node bin/brimkern.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
