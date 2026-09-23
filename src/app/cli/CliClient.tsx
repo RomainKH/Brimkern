@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Copy, Check, Zap, Code2, Play, HardDrive, Shield } from 'lucide-react';
+import { Copy, Check, Zap, Code2, Play, HardDrive, Shield, Cpu } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
 import DocsShell, { Code, P, Section } from '../docs/DocsShell';
 
@@ -370,22 +370,34 @@ export default function CliClient() {
               <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>149 Mo</span>
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('LFM2.5 230M Coder (int4). Tailored specifically for code generation, bug fixing, refactoring, and code review.',
-                 'LFM2.5 230M Coder (int4). Spécialisé pour la génération de code, la correction de bugs, le refactoring et la revue technique.')}
+              {t('LFM2.5 230M Coder (BRIK int4). Tailored specifically for code generation, bug fixing, refactoring, and code review.',
+                 'LFM2.5 230M Coder (BRIK int4). Spécialisé pour la génération de code, la correction de bugs, le refactoring et la revue technique.')}
             </p>
             <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder &quot;...&quot;</code>
           </div>
 
           <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>lfm2</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>149 Mo</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>coder-0.5b</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>491 Mo</span>
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('LFM2.5 230M General (int4). Ultra-light general assistant for conversational queries with minimal VRAM footprint.',
-                 'LFM2.5 230M Généraliste (int4). Modèle ultra-léger pour requêtes conversationnelles, empreinte VRAM minimale.')}
+              {t('Qwen 2.5 Coder 0.5B (GGUF int4). Ultra-compact coder fine-tuned for scripting, quick fixes, and syntactic correctness.',
+                 'Qwen 2.5 Coder 0.5B (GGUF int4). Modèle compact spécialisé dev : scripts, petits correctifs et exactitude syntaxique.')}
             </p>
-            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m lfm2 &quot;...&quot;</code>
+            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder-0.5b &quot;...&quot;</code>
+          </div>
+
+          <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>coder-1.5b</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>1,12 Go</span>
+            </div>
+            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
+              {t('Qwen 2.5 Coder 1.5B (GGUF int4). Advanced architectural reasoning, deeper refactoring, and test suite generation.',
+                 'Qwen 2.5 Coder 1.5B (GGUF int4). Raisonnement d’architecture avancé, refactoring profond et génération de suites de tests.')}
+            </p>
+            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder-1.5b &quot;...&quot;</code>
           </div>
 
           <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
@@ -421,8 +433,8 @@ export default function CliClient() {
 
         <Param name="-m, --model=<preset|url|path>" type="string">
           {t(
-            'Model to run. Can be a preset name (coder, lfm2, rwkv), a direct remote URL to a .brik file, or a local filesystem path. Default: coder.',
-            'Modèle à exécuter. Nom de preset (coder, lfm2, rwkv), URL directe vers un fichier .brik, ou chemin de fichier local. Défaut : coder.'
+            'Model to run. Preset name (coder, coder-0.5b, coder-1.5b, qwen-0.5b, rwkv, lfm2), remote URL to a .brik or .gguf file, or local path. Default: coder.',
+            'Modèle à exécuter. Nom de preset (coder, coder-0.5b, coder-1.5b, qwen-0.5b, rwkv, lfm2), URL vers un fichier .brik/.gguf, ou chemin local. Défaut : coder.'
           )}
         </Param>
 
@@ -444,6 +456,20 @@ export default function CliClient() {
           {t(
             'Sampling temperature between 0.0 (deterministic) and 1.0. Default: 0.3 for coding accuracy.',
             'Température d’échantillonnage entre 0.0 (déterministe) et 1.0. Défaut : 0.3 pour la précision de code.'
+          )}
+        </Param>
+
+        <Param name="--native" type="flag">
+          {t(
+            'Forces in-process native WebGPU execution via Google Dawn bindings. Boots in <1s with 0-browser overhead.',
+            'Force l’exécution native WebGPU in-process via les bindings Google Dawn. Démarre en moins d’une seconde sans ouvrir de navigateur.'
+          )}
+        </Param>
+
+        <Param name="--chromium, --headless" type="flag">
+          {t(
+            'Forces the universal headless Chromium runtime (used as automatic fallback for full GGUF dequantization or environments without native bindings).',
+            'Force l’exécution via le runtime universel Chromium headless (utilisé comme repli automatique pour les GGUF complets ou les OS sans binaire natif).'
           )}
         </Param>
 
@@ -521,6 +547,19 @@ export default function CliClient() {
               {t(
                 'Every kernel validates against a CPU reference at launch. If a GPU miscompiles a subgroup shader, it safely falls back to a portable path.',
                 'Chaque kernel se valide contre une référence CPU au démarrage. Si un GPU compile mal un shader de sous-groupe, il retombe en toute sécurité sur un chemin portable.'
+              )}
+            </p>
+          </div>
+
+          <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-code)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--accent)' }}>
+              <Cpu size={18} />
+              <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{t('Native Dawn Runtime', 'Moteur Natif Dawn')}</strong>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.55 }}>
+              {t(
+                'Direct Node.js N-API bindings to Google Dawn run WebGPU shaders in-process. <1s startup latency, zero Chromium overhead, and native Metal/Vulkan GPU performance.',
+                'Bindings N-API Node.js directs vers Google Dawn pour exécuter les shaders WebGPU in-process. Démarrage en <1s, 0 surcharge navigateur, et performances Metal/Vulkan natives.'
               )}
             </p>
           </div>

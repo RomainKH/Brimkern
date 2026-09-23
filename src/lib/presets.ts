@@ -67,6 +67,22 @@ export const PRESET_MODELS: PresetModel[] = [
 		mobile: false,
 	},
 	{
+		name: 'Qwen 2.5 Coder 0.5B Instruct (Q4_K_M)',
+		vendor: 'Alibaba',
+		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+		size: '491 Mo',
+		sizeBytes: 491_400_064,
+		desc: {
+			en: 'Specialized compact coder: fast code generation, refactoring, and bug fixes on mobile and laptops.',
+			fr: 'Modèle de code ultra-compact : génération rapide, refactoring et correction de bugs sur mobile et laptop.'
+		},
+		tokenizer: 'Qwen/Qwen2.5-0.5B-Instruct',
+		type: 'qwen',
+		useCase: { en: 'Code & dev (compact)', fr: 'Code & dev (compact)' },
+		tags: [{ en: 'code', fr: 'code' }, { en: 'compact', fr: 'compact' }, { en: 'fast', fr: 'rapide' }],
+		mobile: true,
+	},
+	{
 		name: 'Qwen 2.5 Coder 1.5B Instruct (Q4_K_M)',
 		vendor: 'Alibaba',
 		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',

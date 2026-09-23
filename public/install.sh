@@ -85,26 +85,31 @@ main() {
 
   echo -e "${GREEN}✓${RESET} Paquet ${BOLD}brimkern${RESET} installé avec succès."
 
-  # 5. Vérification du runtime Chromium / WebGPU
-  echo -e "\n${CYAN}▸${RESET} Vérification du moteur WebGPU (Chromium)..."
-  CHROME_FOUND=false
-
-  if [ "$OS" = "Darwin" ]; then
-    if [ -d "/Applications/Google Chrome.app" ] || [ -d "$HOME/Library/Caches/ms-playwright" ]; then
-      CHROME_FOUND=true
-    fi
-  elif [ "$OS" = "Linux" ]; then
-    if command -v google-chrome >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || [ -d "$HOME/.cache/ms-playwright" ]; then
-      CHROME_FOUND=true
-    fi
-  fi
-
-  if [ "$CHROME_FOUND" = false ]; then
-    echo -e "${GRAY}Chromium avec WebGPU n'est pas encore installé dans votre profil.${RESET}"
-    echo -e "${CYAN}▸${RESET} Téléchargement du runtime Chromium (Playwright)..."
-    npx -y playwright install chromium || true
+  # 5. Vérification de l'accélération matérielle WebGPU
+  echo -e "\n${CYAN}▸${RESET} Configuration de l'accélération matérielle WebGPU..."
+  if node -e "import('webgpu').then(() => process.exit(0)).catch(() => process.exit(1))" 2>/dev/null; then
+    echo -e "${GREEN}✓${RESET} Moteur natif Google Dawn actif (exécution in-process, démarrage instantané <1s)."
   else
-    echo -e "${GREEN}✓${RESET} Environnement Chromium WebGPU détecté."
+    echo -e "${GRAY}Bindings natifs Dawn optionnels, vérification du repli Chromium headless...${RESET}"
+    CHROME_FOUND=false
+
+    if [ "$OS" = "Darwin" ]; then
+      if [ -d "/Applications/Google Chrome.app" ] || [ -d "$HOME/Library/Caches/ms-playwright" ]; then
+        CHROME_FOUND=true
+      fi
+    elif [ "$OS" = "Linux" ]; then
+      if command -v google-chrome >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || [ -d "$HOME/.cache/ms-playwright" ]; then
+        CHROME_FOUND=true
+      fi
+    fi
+
+    if [ "$CHROME_FOUND" = false ]; then
+      echo -e "${GRAY}Chromium avec WebGPU n'est pas encore installé dans votre profil.${RESET}"
+      echo -e "${CYAN}▸${RESET} Téléchargement du runtime Chromium (Playwright)..."
+      npx -y playwright install chromium || true
+    else
+      echo -e "${GREEN}✓${RESET} Environnement Chromium WebGPU détecté."
+    fi
   fi
 
   # 6. Message de succès & instructions

@@ -20,6 +20,45 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'September 23, 2026', fr: '23 septembre 2026' },
+    tagline: {
+      en: 'Brimkern CLI & Native Dawn Engine: on-device terminal inference with zero browser overhead via Google Dawn WebGPU bindings (25× faster boot measured on Apple Metal: 0.93s vs 23.46s), Claude Code / Gemini-style workflows (@file injection, git shortcuts), and dedicated coding models (Qwen 2.5 Coder 0.5B & 1.5B).',
+      fr: 'CLI Brimkern & Moteur Natif Dawn : inférence terminale on-device sans navigateur via les bindings WebGPU Google Dawn (démarrage 25× plus rapide mesuré sur Apple Metal : 0,93s vs 23,46s), flux style Claude Code / Gemini (injection @fichier, raccourcis git) et modèles de code dédiés (Qwen 2.5 Coder 0.5B & 1.5B).',
+    },
+    groups: [
+      {
+        title: { en: 'In-process Native Dawn WebGPU Engine', fr: 'Moteur WebGPU Natif Dawn in-process' },
+        items: [
+          {
+            en: 'Replaced headless Chromium requirement with direct Google Dawn N-API bindings. Startup latency drops from 23.46s under Playwright Chromium to 0.93s on Apple Metal (25× speedup), and idle memory footprint falls from ~350 MB to ~45 MB RAM. 100% of WGSL compute shaders run unchanged on physical hardware.',
+            fr: 'Remplacement de la dépendance à Chromium headless par des bindings Node N-API directs vers Google Dawn. La latence de démarrage passe de 23,46s sous Playwright Chromium à 0,93s sur Apple Metal (gain de 25×), et la consommation mémoire au repos chute de ~350 Mo à ~45 Mo. 100% des shaders compute WGSL s’exécutent à l’identique sur le GPU physique.'
+          },
+          {
+            en: 'Persistent disk caching for HTTP Range tensor requests in ~/.cache/brimkern/ranges/. The first download warms local disk blocks; subsequent runs achieve 18/18 cache hits in 0ms with zero network requests.',
+            fr: 'Cache disque persistant pour les requêtes HTTP Range de tenseurs dans ~/.cache/brimkern/ranges/. Le premier téléchargement préchauffe les blocs locaux ; les exécutions suivantes atteignent 18/18 hits de cache en 0ms avec zéro requête réseau.'
+          },
+          {
+            en: 'Automatic dual-runtime fallback: native Dawn executes in-process by default, with seamless fallback to headless Chromium for arbitrary full-GGUF dequantization or environments without native binaries (--native and --chromium flags).',
+            fr: 'Architecture de repli automatique à double runtime : Dawn natif s’exécute in-process par défaut, avec repli transparent sur Chromium headless pour la déquantification GGUF complète arbitraire ou les OS sans binaire natif (drapeaux --native et --chromium).'
+          },
+        ],
+      },
+      {
+        title: { en: 'New Developer Models & Context Workflows', fr: 'Nouveaux modèles de dev & Contexte @fichier' },
+        items: [
+          {
+            en: 'Added Qwen 2.5 Coder 0.5B Instruct (491 MB GGUF Q4_K_M, marked mobile: true in the catalog presets) and Qwen 2.5 Coder 1.5B Instruct (1.12 GB) alongside our lightweight 149 MB LFM2.5 Coder and RWKV-7 World 1.5B RNN.',
+            fr: 'Ajout de Qwen 2.5 Coder 0.5B Instruct (491 Mo GGUF Q4_K_M, marqué mobile: true dans les presets du catalogue) et Qwen 2.5 Coder 1.5B Instruct (1,12 Go) aux côtés de notre modèle ultra-léger LFM2.5 Coder 149 Mo et de RWKV-7 World 1.5B RNN.'
+          },
+          {
+            en: 'Claude Code and Gemini CLI workflow tools: file context injection (@path/to/file:start-end with sensitive secret guardrails), git shortcuts (/diff, /commit conventional proposals, /review <file>), /copy system clipboard bridge, and /stats token speed & $0.00 cost tracker.',
+            fr: 'Outils de travail style Claude Code et Gemini CLI : injection de contexte fichier (@chemin/fichier:début-fin avec garde-fous secrets), raccourcis git (/diff, propositions /commit conventionnelles, revue /review <fichier>), copie presse-papier /copy, et métriques /stats à 0,00 $.'
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'August 25, 2026', fr: '25 août 2026' },
     tagline: {
       en: 'SDK 0.3.0: the widget runs RWKV-7 .brik models — the guard that said “LFM2 only” was the last thing missing, the whole RWKV engine was already in the bundle. Built to answer a product question by measurement; the answer closed one path and opened a precise trade-off.',

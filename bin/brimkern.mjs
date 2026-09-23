@@ -15,17 +15,31 @@
  */
 
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync, createReadStream, readdirSync, rmSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { execSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chromium } from 'playwright-core';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const SDK_PATH = join(ROOT, 'public', 'sdk.js');
+
+const SDK_MJS_CANDIDATES = [
+  join(ROOT, 'packages', 'sdk', 'dist', 'brimkern.mjs'),
+  join(ROOT, 'dist', 'brimkern.mjs'),
+  join(ROOT, 'public', 'sdk.mjs'),
+];
+
+function getSdkMjsPath() {
+  for (const p of SDK_MJS_CANDIDATES) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 // ── Modèles préconfigurés (spécifiques code & brik) ───────────────────────────────────
 const PRESET_CLI_MODELS = {
@@ -44,6 +58,30 @@ const PRESET_CLI_MODELS = {
     size: '149 Mo',
     defaultSystem: 'You are Brimkern, a fast and helpful local AI assistant running on WebGPU.',
     desc: 'Ultra-léger, ultra-rapide, consommation VRAM minimale.'
+  },
+  'qwen-0.5b': {
+    name: 'Qwen 2.5 0.5B Instruct (BRIK mixte)',
+    url: 'https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik',
+    format: 'brik',
+    size: '377 Mo',
+    defaultSystem: 'You are Brimkern, a helpful and precise coding assistant running on WebGPU.',
+    desc: 'Qwen 2.5 en format BRIK streamé : léger, rapide et capable sur petit GPU.'
+  },
+  'coder-0.5b': {
+    name: 'Qwen 2.5 Coder 0.5B Instruct (GGUF)',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+    format: 'gguf',
+    size: '491 Mo',
+    defaultSystem: 'You are Brimkern Code, an expert software engineer. Provide high-quality code and concise explanations.',
+    desc: 'Qwen 2.5 Coder 0.5B spécialisé dev : scripts, fonctions, syntaxe et debug rapide.'
+  },
+  'coder-1.5b': {
+    name: 'Qwen 2.5 Coder 1.5B Instruct (GGUF)',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+    format: 'gguf',
+    size: '1,12 Go',
+    defaultSystem: 'You are Brimkern Code, an expert software architect and engineer. Provide comprehensive, production-ready code with best practices.',
+    desc: 'Qwen 2.5 Coder 1.5B : logique poussée, architecture, tests et refactoring lourd.'
   },
   'rwkv': {
     name: 'RWKV-7 World 1.5B (BRIK)',
@@ -341,8 +379,164 @@ function startLocalServer(localBrikFile = null) {
   });
 }
 
-// ── Classe de session CLI ─────────────────────────────────────────────────────────────
-class BrimkernCliEngine {
+// ── Cache disque persistant pour l'inférence native (évite les retéléchargements) ───
+function initDiskCache() {
+  if (globalThis.caches && globalThis.__brimkern_disk_cache) return;
+  const cacheBase = process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
+  const cacheDir = join(cacheBase, 'brimkern', 'ranges');
+  if (!existsSync(cacheDir)) {
+    mkdirSync(cacheDir, { recursive: true });
+  }
+
+  function keyToFilename(key) {
+    return createHash('sha256').update(key).digest('hex') + '.bin';
+  }
+
+  const diskCache = {
+    async match(key) {
+      const file = join(cacheDir, keyToFilename(key));
+      if (existsSync(file)) {
+        const buf = readFileSync(file);
+        return new Response(buf, { headers: { 'Content-Length': String(buf.byteLength) } });
+      }
+      return null;
+    },
+    async put(key, response) {
+      const file = join(cacheDir, keyToFilename(key));
+      const buf = await response.arrayBuffer();
+      writeFileSync(file, Buffer.from(buf));
+    }
+  };
+
+  globalThis.caches = {
+    async open(_name) {
+      return diskCache;
+    }
+  };
+  globalThis.__brimkern_disk_cache = true;
+}
+
+// ── Moteur Natif Dawn (in-process, 0ms de démarrage, aucun navigateur requis) ────────
+class BrimkernNativeDawnEngine {
+  constructor(options = {}) {
+    this.modelKey = options.model || 'coder';
+    this.maxTokens = options.maxTokens || 512;
+    this.temperature = options.temperature ?? 0.3;
+    this.systemPrompt = options.system || PRESET_CLI_MODELS[this.modelKey]?.defaultSystem || 'You are a code assistant.';
+    this.raw = !!options.raw;
+    this.localBrikFile = null;
+
+    this.resolveModelConfig();
+    this.session = null;
+    this.server = null;
+    this.isReady = false;
+    this.engineType = 'Natif Dawn (in-process)';
+    this.gpuBackend = process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)';
+  }
+
+  static async isAvailable() {
+    try {
+      const { create } = await import('webgpu');
+      const gpu = create([]);
+      if (!gpu) return false;
+      const adapter = await gpu.requestAdapter();
+      return !!adapter;
+    } catch {
+      return false;
+    }
+  }
+
+  resolveModelConfig() {
+    if (PRESET_CLI_MODELS[this.modelKey]) {
+      this.modelUrl = PRESET_CLI_MODELS[this.modelKey].url;
+      this.displayName = PRESET_CLI_MODELS[this.modelKey].name;
+      this.format = PRESET_CLI_MODELS[this.modelKey].format;
+    } else if (existsSync(this.modelKey)) {
+      this.localBrikFile = resolve(this.modelKey);
+      this.displayName = `Fichier local (${this.modelKey})`;
+      this.format = 'brik';
+    } else {
+      this.modelUrl = this.modelKey;
+      this.displayName = this.modelKey;
+      this.format = this.modelKey.endsWith('.gguf') ? 'gguf' : 'brik';
+    }
+  }
+
+  async init() {
+    initDiskCache();
+
+    const { create, globals } = await import('webgpu');
+    Object.assign(globalThis, globals);
+    const gpu = create([]);
+    try {
+      Object.defineProperty(globalThis.navigator, 'gpu', { value: gpu, configurable: true, writable: true });
+    } catch {
+      globalThis.navigator = { gpu };
+    }
+    globalThis.location = globalThis.location || { search: '' };
+
+    let targetUrl = this.modelUrl;
+    if (this.localBrikFile) {
+      const { server, port } = await startLocalServer(this.localBrikFile);
+      this.server = server;
+      targetUrl = `http://127.0.0.1:${port}/local-model.brik`;
+    }
+
+    const sdkPath = getSdkMjsPath();
+    if (!sdkPath) {
+      throw new Error('Bundle ESM du SDK introuvable (packages/sdk/dist/brimkern.mjs). Exécutez npm run build:sdk.');
+    }
+
+    const sdk = await import(sdkPath);
+    this.session = await sdk.createSession({
+      model: targetUrl,
+      maxTokens: this.maxTokens,
+      temperature: this.temperature,
+      system: this.systemPrompt,
+    });
+
+    this.isReady = true;
+  }
+
+  async ask(prompt, { onToken = null } = {}) {
+    if (!this.isReady) {
+      await this.init();
+    }
+    const t0 = performance.now();
+    let lastLen = 0;
+    const text = await this.session.ask(prompt, {
+      onToken: (acc) => {
+        if (onToken) {
+          const delta = acc.slice(lastLen);
+          lastLen = acc.length;
+          onToken(delta);
+        }
+      },
+    });
+    const t1 = performance.now();
+    return { text, elapsedMs: t1 - t0 };
+  }
+
+  async reset() {
+    if (this.session) {
+      this.session.reset();
+    }
+  }
+
+  async close() {
+    try {
+      if (this.session) {
+        this.session.destroy();
+      }
+      if (this.server) {
+        this.server.close();
+      }
+    } catch {}
+  }
+}
+
+// ── Moteur Chromium Headless (repli universel pour GGUF ou sans bindings natifs) ─────
+class BrimkernChromiumEngine {
   constructor(options = {}) {
     this.modelKey = options.model || 'coder';
     this.maxTokens = options.maxTokens || 512;
@@ -357,18 +551,23 @@ class BrimkernCliEngine {
     this.browserCtx = null;
     this.page = null;
     this.isReady = false;
+    this.engineType = 'Chromium headless';
+    this.gpuBackend = process.platform === 'darwin' ? 'Chromium (Metal)' : 'Chromium (Vulkan)';
   }
 
   resolveModelConfig() {
     if (PRESET_CLI_MODELS[this.modelKey]) {
       this.modelUrl = PRESET_CLI_MODELS[this.modelKey].url;
       this.displayName = PRESET_CLI_MODELS[this.modelKey].name;
+      this.format = PRESET_CLI_MODELS[this.modelKey].format;
     } else if (existsSync(this.modelKey)) {
       this.localBrikFile = resolve(this.modelKey);
       this.displayName = `Fichier local (${this.modelKey})`;
+      this.format = 'brik';
     } else {
       this.modelUrl = this.modelKey;
       this.displayName = this.modelKey;
+      this.format = this.modelKey.endsWith('.gguf') ? 'gguf' : 'brik';
     }
   }
 
@@ -487,11 +686,49 @@ class BrimkernCliEngine {
   }
 }
 
+// ── Fabrique unifiée de moteur CLI ───────────────────────────────────────────────────
+async function createCliEngine(options = {}) {
+  const forceChromium = !!options.chromium || !!options.headless || process.env.BRIMKERN_FORCE_CHROMIUM === '1';
+  const forceNative = !!options.native || process.env.BRIMKERN_FORCE_NATIVE === '1';
+  const modelKey = options.model || 'coder';
+  const isGguf = modelKey.endsWith('.gguf') || PRESET_CLI_MODELS[modelKey]?.format === 'gguf';
+
+  if (forceChromium) {
+    return new BrimkernChromiumEngine(options);
+  }
+
+  if (isGguf && !forceNative) {
+    return new BrimkernChromiumEngine(options);
+  }
+
+  // Tenter le moteur natif Dawn
+  const hasSdk = !!getSdkMjsPath();
+  const dawnAvailable = hasSdk && await BrimkernNativeDawnEngine.isAvailable();
+
+  if (dawnAvailable) {
+    try {
+      return new BrimkernNativeDawnEngine(options);
+    } catch {
+      // Repli en cas d'erreur
+    }
+  }
+
+  if (forceNative) {
+    throw new Error('Moteur natif Dawn demandé (--native) mais indisponible sur ce système.');
+  }
+
+  if (!options.raw) {
+    process.stderr.write(`${C.dim}[Notice] Repli sur Chromium headless (support WebGPU universel)...${C.reset}\n`);
+  }
+  return new BrimkernChromiumEngine(options);
+}
+
 // ── Bannière de marque "Le Kern" ─────────────────────────────────────────────────────
 function printBrandBanner(engine) {
   const git = getGitInfo();
   const gitStr = git ? ` · Git: ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.gray}` : '';
-  const gpuStr = process.platform === 'darwin' ? 'Metal' : 'Vulkan';
+  const gpuStr = engine.gpuBackend || (process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)');
+  const engineStr = engine.engineType || 'Natif Dawn (in-process)';
 
   console.log(`
 ${C.boldRed}██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
@@ -504,7 +741,7 @@ ${C.dim}Moteur d'inférence WebGPU & WGSL on-device${C.reset}
 
 ${C.red}┌─ Brimkern WGSL ────────────────────────────────────────────────────────┐${C.reset}
 ${C.red}│${C.reset} Modèle : ${C.yellow}${engine.displayName.padEnd(25)}${C.reset} WebGPU : ${C.cyan}${gpuStr.padEnd(14)}${C.reset} ${C.red}│${C.reset}
-${C.red}│${C.reset} Statut : ${C.green}Local ($0.00)${C.reset}${gitStr.padEnd(38)} ${C.red}│${C.reset}
+${C.red}│${C.reset} Moteur : ${C.green}${engineStr.padEnd(25)}${C.reset} Statut : ${C.green}Local ($0.00)${C.reset}${gitStr.padEnd(16)} ${C.red}│${C.reset}
 ${C.red}└────────────────────────────────────────────────────────────────────────┘${C.reset}
 ${C.dim}Tapez ${C.boldRed}/help${C.reset}${C.dim} pour les commandes · ${C.cyan}@fichier${C.reset}${C.dim} pour injecter du code${C.reset}
 `);
@@ -551,33 +788,39 @@ ${C.bold}OPTIONS${C.reset}
   ${C.yellow}-s, --system=<prompt>${C.reset}            Prompt système
   ${C.yellow}-n, --max-tokens=<n>${C.reset}             Plafond de tokens générés (défaut: 512)
   ${C.yellow}-t, --temperature=<val>${C.reset}          Température (défaut: 0.3)
+  ${C.yellow}--native${C.reset}                              Force l'exécution native Dawn (in-process, 0ms overhead)
+  ${C.yellow}--chromium, --headless${C.reset}               Force l'exécution via Chromium headless (repli universel)
   ${C.yellow}--raw${C.reset}                              Sortie brute uniquement (sans en-tête ni stats)
   ${C.yellow}-h, --help${C.reset}                         Affiche cette aide
 
-${C.bold}MODÈLES PRÉCONFIGURÉS${C.reset}
-  ${C.cyan}coder${C.reset}     LFM2.5 230M Coder (format BRIK, 149 Mo) — ${C.dim}spécialisé code & dev${C.reset}
-  ${C.cyan}lfm2${C.reset}      LFM2.5 230M Généraliste (format BRIK, 149 Mo) — ${C.dim}ultra-léger & rapide${C.reset}
-  ${C.cyan}rwkv${C.reset}      RWKV-7 World 1.5B (format BRIK, 1,5 Go) — ${C.dim}RNN linéaire en WGSL${C.reset}
+${C.bold}MODÈLES DE DÉVELOPPEMENT & CODE${C.reset}
+  ${C.cyan}coder${C.reset}         LFM2.5 230M Coder (format BRIK, 149 Mo) — ${C.dim}spécialisé code & refactoring${C.reset}
+  ${C.cyan}coder-0.5b${C.reset}    Qwen 2.5 Coder 0.5B (format GGUF, 491 Mo) — ${C.dim}développement rapide & scripts${C.reset}
+  ${C.cyan}coder-1.5b${C.reset}    Qwen 2.5 Coder 1.5B (format GGUF, 1,12 Go) — ${C.dim}architecture, tests et logique${C.reset}
+  ${C.cyan}qwen-0.5b${C.reset}     Qwen 2.5 0.5B Instruct (format BRIK, 377 Mo) — ${C.dim}léger & capable sur tout GPU${C.reset}
+  ${C.cyan}rwkv${C.reset}          RWKV-7 World 1.5B (format BRIK, 1,5 Go) — ${C.dim}RNN linéaire en WGSL${C.reset}
+  ${C.cyan}lfm2${C.reset}          LFM2.5 230M Généraliste (format BRIK, 149 Mo) — ${C.dim}ultra-léger & rapide${C.reset}
 `);
 }
 
 function printModels() {
   console.log(`\n${C.boldRed}Modèles disponibles pour la CLI Brimkern :${C.reset}\n`);
   for (const [key, m] of Object.entries(PRESET_CLI_MODELS)) {
-    console.log(`  ${C.bold}${C.cyan}${key.padEnd(8)}${C.reset} ${C.bold}${m.name}${C.reset} [${C.yellow}${m.size}${C.reset}]`);
-    console.log(`           ${C.gray}${m.desc}${C.reset}`);
-    console.log(`           ${C.dim}URL : ${m.url}${C.reset}\n`);
+    console.log(`  ${C.bold}${C.cyan}${key.padEnd(12)}${C.reset} ${C.bold}${m.name}${C.reset} [${C.yellow}${m.size}${C.reset}]`);
+    console.log(`               ${C.gray}${m.desc}${C.reset}`);
+    console.log(`               ${C.dim}URL : ${m.url}${C.reset}\n`);
   }
   console.log(`${C.gray}Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik${C.reset}\n`);
 }
 
 // ── Mode REPL interactif ──────────────────────────────────────────────────────────────
-async function runInteractiveChat(engine) {
+async function runInteractiveChat(initialEngine) {
+  let engine = initialEngine;
   printBrandBanner(engine);
 
   process.stderr.write(`${C.dim}Initialisation du GPU et chargement du modèle...${C.reset}`);
   await engine.init();
-  process.stderr.write(`\r${C.green}✓ Moteur WebGPU prêt et connecté.${C.reset}                                 \n\n`);
+  process.stderr.write(`\r${C.green}✓ Moteur WebGPU prêt et connecté [${engine.engineType}].${C.reset}                                 \n\n`);
 
   // État de session (stats, lastResponse)
   const sessionState = {
@@ -670,16 +913,24 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const targetModel = input.slice(6).trim();
       if (!targetModel) {
         printModels();
-        console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset}\n`);
+        console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
         rl.prompt();
         return;
       }
       process.stderr.write(`${C.dim}Changement de modèle vers ${targetModel}...${C.reset}`);
       await engine.close();
-      engine.modelKey = targetModel;
-      engine.resolveModelConfig();
-      await engine.init();
-      process.stderr.write(`\r${C.green}✓ Modèle actif : ${engine.displayName}${C.reset}                \n\n`);
+      try {
+        engine = await createCliEngine({
+          model: targetModel,
+          system: engine.systemPrompt,
+          maxTokens: engine.maxTokens,
+          temperature: engine.temperature,
+        });
+        await engine.init();
+        process.stderr.write(`\r${C.green}✓ Modèle actif : ${engine.displayName} [${engine.engineType}]${C.reset}                \n\n`);
+      } catch (err) {
+        process.stderr.write(`\r${C.red}✗ Échec du changement de modèle : ${err.message}${C.reset}\n\n`);
+      }
       rl.prompt();
       return;
     }
@@ -771,6 +1022,8 @@ async function main() {
   let maxTokens = 512;
   let temperature = 0.3;
   let raw = false;
+  let native = false;
+  let chromium = false;
   let promptParts = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -799,6 +1052,10 @@ async function main() {
       temperature = parseFloat(a.split('=')[1]);
     } else if (a === '-t' && args[i + 1]) {
       temperature = parseFloat(args[++i]);
+    } else if (a === '--native') {
+      native = true;
+    } else if (a === '--chromium' || a === '--headless') {
+      chromium = true;
     } else if (a === '--raw') {
       raw = true;
     } else {
@@ -837,12 +1094,14 @@ async function main() {
     }
   }
 
-  const engine = new BrimkernCliEngine({
+  const engine = await createCliEngine({
     model,
     system,
     maxTokens,
     temperature,
     raw,
+    native,
+    chromium,
   });
 
   const cleanup = async () => {
