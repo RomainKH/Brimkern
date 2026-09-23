@@ -370,27 +370,6 @@ export default function CliLanding() {
           </p>
         </section>
 
-        {/* ── 05 · installation ─────────────────────────────────────────────────────────── */}
-        <section id="install" className={`${s.wrap} ${s.section}`} aria-labelledby="install-h" style={{ scrollMarginTop: 16 }}>
-          <p className={s.cmdLabel}>05 · {t('install', 'installation')}</p>
-          <h2 id="install-h" className={s.h2} data-glitch>{t('One command.', 'Une commande.')}</h2>
-          <p className={s.body}>
-            {t(
-              'macOS or Linux, with Node.js 20+ and git. It installs into ~/.brimkern and adds a brimkern command; run it again to update. The first launch downloads the model once (2.53 GB).',
-              'macOS ou Linux, avec Node.js 20+ et git. Tout s’installe dans ~/.brimkern avec une commande brimkern ; relancez-la pour mettre à jour. Le premier lancement télécharge le modèle une fois (2,53 Go).'
-            )}
-          </p>
-          <div className={s.oneLine}>
-            <CopyLine text="curl -fsSL https://brimkern.com/install.sh | bash" />
-          </div>
-          <p className={s.body} style={{ marginTop: 18 }}>
-            {t('Then, in any project folder: ', 'Ensuite, dans n’importe quel dossier de projet : ')}<code>brimkern chat</code>
-          </p>
-          <p className={s.note} style={{ marginTop: 18 }}>
-            {t('Every command and option: ', 'Toutes les commandes et options : ')}
-            <Link href={href('/docs/cli')} style={{ color: 'var(--paper)' }}>{t('CLI reference', 'référence de la CLI')}</Link>
-          </p>
-        </section>
       </main>
 
       <footer className={`${s.wrap} ${s.foot}`}>
