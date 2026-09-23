@@ -197,8 +197,23 @@ function CopyLine({ text }: { text: string }) {
   );
 }
 
+// Sursaut des titres : une classe posée UNE fois quand le titre entre à l'écran (animation dans
+// le temps, transform/opacity) — jamais une animation liée au défilement.
+function useTitleGlitch(className: string) {
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const els = document.querySelectorAll<HTMLElement>('[data-glitch]');
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add(className); io.unobserve(e.target); }
+    }, { threshold: 0.6 });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [className]);
+}
+
 export default function CliLanding() {
   const t = useT();
+  useTitleGlitch(s.titleIn);
   const href = useHref();
   const { locale, setLocale } = useLocale();
   const statLine = lineText(SESSION[SESSION.length - 1]);
@@ -253,7 +268,7 @@ export default function CliLanding() {
           <div className={s.replayHead}>
             <div>
               <p className={s.cmdLabel}>01 · {t('a real session', 'une vraie session')}</p>
-              <h2 id="replay-h" className={s.h2}>{t('It answers as it goes, at the speed you will get.', 'Il répond au fil de l’eau, à la vitesse que vous aurez.')}</h2>
+              <h2 id="replay-h" className={s.h2} data-glitch>{t('It answers as it goes, at the speed you will get.', 'Il répond au fil de l’eau, à la vitesse que vous aurez.')}</h2>
             </div>
             <p className={s.body}>
               {t(
@@ -270,7 +285,7 @@ export default function CliLanding() {
           <div className={s.split}>
             <div className={s.splitSticky}>
               <p className={s.cmdLabel}>02 · {t('your project', 'votre projet')}</p>
-              <h2 id="repo-h" className={s.h2}>{t('Ask about your repo. It has read the README.', 'Posez une question sur votre dépôt. Il a lu le README.')}</h2>
+              <h2 id="repo-h" className={s.h2} data-glitch>{t('Ask about your repo. It has read the README.', 'Posez une question sur votre dépôt. Il a lu le README.')}</h2>
               <p className={s.body}>
                 {t(
                   'Started in a folder, Brimkern gives the model the README, the package description and the git branch. Mention a file with ',
@@ -292,7 +307,7 @@ export default function CliLanding() {
         {/* ── 03 · les modèles : tableau mesuré + sélecteur réel ────────────────────────── */}
         <section className={`${s.wrap} ${s.section}`} aria-labelledby="models-h">
           <p className={s.cmdLabel}>03 · {t('models', 'modèles')}</p>
-          <h2 id="models-h" className={s.h2}>{t('Switch models mid-session, or bring one from Hugging Face.', 'Changez de modèle en cours de session, ou amenez-en un de Hugging Face.')}</h2>
+          <h2 id="models-h" className={s.h2} data-glitch>{t('Switch models mid-session, or bring one from Hugging Face.', 'Changez de modèle en cours de session, ou amenez-en un de Hugging Face.')}</h2>
           <div className={s.models}>
             <div>
               <div className={s.tableWrap} tabIndex={0}>
@@ -329,7 +344,7 @@ export default function CliLanding() {
         {/* ── 04 · local : une phrase, la vraie ligne de stats ──────────────────────────── */}
         <section className={`${s.wrap} ${s.section}`} aria-labelledby="local-h">
           <p className={s.cmdLabel}>04 · local</p>
-          <h2 id="local-h" className={s.statement}>{t('Nothing leaves the machine.', 'Rien ne quitte la machine.')}</h2>
+          <h2 id="local-h" className={s.statement} data-glitch>{t('Nothing leaves the machine.', 'Rien ne quitte la machine.')}</h2>
           <div className={s.statLine} tabIndex={0}>
             {savedIdx > 0 ? <>{statLine.slice(0, savedIdx)}<span className={s.green}>{statLine.slice(savedIdx)}</span></> : statLine}
           </div>
@@ -344,7 +359,7 @@ export default function CliLanding() {
         {/* ── 05 · installation ─────────────────────────────────────────────────────────── */}
         <section id="install" className={`${s.wrap} ${s.section}`} aria-labelledby="install-h" style={{ scrollMarginTop: 16 }}>
           <p className={s.cmdLabel}>05 · {t('install', 'installation')}</p>
-          <h2 id="install-h" className={s.h2}>{t('One command.', 'Une commande.')}</h2>
+          <h2 id="install-h" className={s.h2} data-glitch>{t('One command.', 'Une commande.')}</h2>
           <p className={s.body}>
             {t(
               'macOS or Linux, with Node.js 20+ and git. It installs into ~/.brimkern and adds a brimkern command; run it again to update. The first launch downloads the model once (2.53 GB).',

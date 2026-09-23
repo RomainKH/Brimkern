@@ -22,7 +22,7 @@ const VERT = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`
 
 // fbm à domaine déformé (Quilez) : deux couches de bruit qui se tordent l'une l'autre.
 const FRAG = `precision mediump float;
-uniform vec2 res; uniform float t; uniform float scroll; uniform vec2 mouse;
+uniform vec2 res; uniform float t; uniform float scroll; uniform vec2 mouse; uniform vec2 mvel;
 float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
@@ -31,11 +31,14 @@ void main(){
   vec2 uv = gl_FragCoord.xy / res;
   // Le défilement (en hauteurs d'écran) décale le domaine du bruit : la fumée monte quand on descend.
   vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 1.6);
-  // La souris : autour du pointeur (lissé côté JS), la fumée tourbillonne et s'écarte un peu.
+  // La souris : c'est son MOUVEMENT qui agit (vitesse lissée, qui retombe à l'arrêt). Elle entraîne
+  // la fumée dans son sillage et creuse un trou plus clair sous le pointeur.
   vec2 aspect = vec2(res.x/res.y, 1.0);
   vec2 dm = (uv - mouse) * aspect;
-  float near = exp(-dot(dm, dm) * 7.0);
-  p += (vec2(-dm.y, dm.x) * 1.1 + dm * 0.7) * near;
+  float near = exp(-dot(dm, dm) * 9.0);
+  float speed = min(1.0, length(mvel) * 18.0);
+  p -= mvel * aspect * 22.0 * near;
+  p += vec2(-dm.y, dm.x) * near * speed * 1.4;
   float s = t * 0.045;
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
@@ -44,7 +47,8 @@ void main(){
   // (demande de Romain : « la fumée sur toute la page »). Le plafond bas protège le texte.
   float inPage = smoothstep(0.3, 0.9, scroll);
   float rise = mix(smoothstep(1.1, 0.0, uv.y), 0.85, inPage);
-  float d = smoothstep(0.30, 0.92, f) * rise * (1.0 + near * 0.35);
+  float d = smoothstep(0.30, 0.92, f) * rise * (1.0 - near * speed * 0.55);
+  float halo = near * speed;
   // Zone du texte (colonne de gauche sur grand écran, toute la largeur sur téléphone) : fumée
   // retenue. Ailleurs, elle a le droit d'être dense : c'est là qu'elle fait le « wow ».
   float wide = step(900.0, res.x / 0.5);
@@ -54,7 +58,8 @@ void main(){
   vec3 cyan = vec3(0.22, 0.74, 0.97);
   float gain = mix(mix(1.25, 0.32, textZone), 0.55, inPage);
   // Rouge carmin dominant, contre-jour froid dans les replis (r.x) : le néon bicolore.
-  vec3 col = ink + red * d * gain + cyan * smoothstep(0.5, 0.9, r.x) * d * gain * 0.42;
+  vec3 col = ink + red * d * gain + cyan * smoothstep(0.5, 0.9, r.x) * d * gain * 0.42
+            + (red * 0.10 + cyan * 0.05) * halo;
   // Plafonds : derrière le texte ~#491c19 (papier > 11:1, texte atténué > 5.6:1) ; ailleurs
   // plus haut, il n'y a rien à lire.
   vec3 capLow = vec3(0.29, 0.11, 0.10);
@@ -99,6 +104,8 @@ export default function Smoke({ className }: { className?: string }) {
     const uT = gl.getUniformLocation(prog, 't');
     const uScroll = gl.getUniformLocation(prog, 'scroll');
     const uMouse = gl.getUniformLocation(prog, 'mouse');
+    const uVel = gl.getUniformLocation(prog, 'mvel');
+    const vel = { x: 0, y: 0 };
     // Pointeur en coordonnées de la toile (0..1, y vers le haut), suivi avec retard : la fumée
     // réagit comme un fluide, pas comme un curseur collé.
     const target = { x: 0.7, y: 0.4 };
@@ -121,9 +128,14 @@ export default function Smoke({ className }: { className?: string }) {
     const draw = (sec: number) => {
       gl.uniform1f(uT, sec);
       gl.uniform1f(uScroll, window.scrollY / Math.max(1, window.innerHeight));
-      cur.x += (target.x - cur.x) * 0.08;
-      cur.y += (target.y - cur.y) * 0.08;
+      const nx = cur.x + (target.x - cur.x) * 0.12;
+      const ny = cur.y + (target.y - cur.y) * 0.12;
+      // Vitesse lissée : monte vite quand la souris bouge, retombe en ~1 s à l'arrêt.
+      vel.x = vel.x * 0.86 + (nx - cur.x) * 0.14 * 8;
+      vel.y = vel.y * 0.86 + (ny - cur.y) * 0.14 * 8;
+      cur.x = nx; cur.y = ny;
       gl.uniform2f(uMouse, cur.x, cur.y);
+      gl.uniform2f(uVel, vel.x, vel.y);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 

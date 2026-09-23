@@ -65,8 +65,9 @@
 }
 
 /* ── Glitch (demande de Romain) : décalages RVB brefs et rares, jamais un clignotement continu.
-   Deux copies sans halo (cyan / rouge) apparaissent quelques centièmes de seconde, découpées en
-   bandes (clip-path) et décalées (transform) : tout se passe sur le compositeur. */
+   Deux copies sans halo (cyan / rouge) apparaissent quelques centièmes de seconde, décalées :
+   transform + opacity seulement, donc entièrement sur le compositeur (un clip-path animé, lui,
+   repeint sur le fil principal). */
 .bannerWrap {
   position: relative;
   width: max-content;
@@ -77,7 +78,7 @@
   position: absolute;
   pointer-events: none;
   opacity: 0;
-  will-change: transform, opacity, clip-path;
+  will-change: transform, opacity;
 }
 
 .glitchA { color: rgba(56, 189, 248, 0.7); animation: glitchA 6.5s steps(1) 2.4s infinite; }
@@ -85,37 +86,36 @@
 
 @keyframes glitchA {
   0%, 100% { opacity: 0; }
-  1% { opacity: 1; transform: translate(-6px, 0); clip-path: inset(12% 0 62% 0); }
-  2% { opacity: 1; transform: translate(4px, 0); clip-path: inset(58% 0 18% 0); }
-  3% { opacity: 1; transform: translate(-3px, 0); clip-path: inset(34% 0 44% 0); }
+  1% { opacity: 1; transform: translate(-6px, 0); }
+  2% { opacity: 1; transform: translate(4px, 0); }
+  3% { opacity: 1; transform: translate(-3px, 0); }
   4% { opacity: 0; }
-  47% { opacity: 1; transform: translate(5px, 0); clip-path: inset(70% 0 6% 0); }
+  47% { opacity: 1; transform: translate(5px, 0); }
   48% { opacity: 0; }
 }
 
 @keyframes glitchB {
   0%, 100% { opacity: 0; }
-  1% { opacity: 1; transform: translate(5px, 0); clip-path: inset(40% 0 38% 0); }
-  2% { opacity: 1; transform: translate(-7px, 0); clip-path: inset(8% 0 76% 0); }
+  1% { opacity: 1; transform: translate(5px, 0); }
+  2% { opacity: 1; transform: translate(-7px, 0); }
   3% { opacity: 0; }
-  47% { opacity: 1; transform: translate(-4px, 0); clip-path: inset(22% 0 60% 0); }
+  47% { opacity: 1; transform: translate(-4px, 0); }
   48% { opacity: 0; }
 }
 
-/* Titres de section : un sursaut RVB une seule fois, quand ils entrent dans l'écran. */
-@supports (animation-timeline: view()) {
-  .h2, .statement {
-    animation: titleGlitch linear both;
-    animation-timeline: view();
-    animation-range: entry 20% entry 70%;
-  }
-}
+/* Titres de section : un sursaut une seule fois à leur apparition (classe posée par un
+   IntersectionObserver). Uniquement transform + opacity : l'ancienne version, liée au défilement
+   (animation-timeline) et animant text-shadow, repeignait les grands titres sur le fil principal à
+   CHAQUE image de défilement — c'était le lag « au niveau du titre » (trace : style/layout ~2 fois
+   par image, images jusqu'à 18,5 ms). */
+.titleIn { animation: titleGlitch 0.42s steps(1) both; }
 
 @keyframes titleGlitch {
-  0% { text-shadow: 3px 0 rgba(56, 189, 248, 0.7), -3px 0 rgba(239, 68, 68, 0.7); transform: translateX(-2px); }
-  30% { text-shadow: -2px 0 rgba(56, 189, 248, 0.6), 2px 0 rgba(239, 68, 68, 0.6); transform: translateX(2px); }
-  55% { text-shadow: 1px 0 rgba(56, 189, 248, 0.4), -1px 0 rgba(239, 68, 68, 0.4); transform: none; }
-  100% { text-shadow: none; transform: none; }
+  0% { transform: translateX(-3px) skewX(-6deg); opacity: 0.6; }
+  18% { transform: translateX(4px); opacity: 1; }
+  36% { transform: translateX(-2px) skewX(4deg); opacity: 0.8; }
+  54% { transform: translateX(1px); opacity: 1; }
+  100% { transform: none; opacity: 1; }
 }
 
 /* Écran de la session rejouée : un liseré néon discret, le reste des écrans reste mat. */
@@ -585,7 +585,7 @@
   .cursor { animation: none; }
   .neonCanvas { animation: none; }
   .glitchCanvas { animation: none; display: none; }
-  .h2, .statement { animation: none; }
+  .titleIn { animation: none; }
 }
 
 .oneLine {
