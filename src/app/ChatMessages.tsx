@@ -5,7 +5,7 @@
 // state come from the page. The trailing ref is the scroll anchor the page scrolls into view.
 
 import { memo, useEffect, useState, type RefObject } from 'react';
-import { User, Bot, Copy, Cpu, Zap, ChevronDown } from 'lucide-react';
+import { User, Bot, Copy, Cpu, Zap, ChevronDown, ArrowRight } from 'lucide-react';
 import { renderMessageContent } from './ChatMarkdown';
 import { useT } from '@/lib/i18n';
 import type { Message } from './types';
@@ -325,10 +325,28 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
             et on propose de reprendre. Avant, le texte s'arrêtait au milieu d'une phrase sans aucune
             explication — l'utilisateur en concluait que la génération avait planté. */}
         {msg.truncated && msg.role === 'assistant' && !showTyping && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>
-            <span>{t('Reply cut off at the token budget.', 'Réponse coupée au budget de tokens.')}</span>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            marginTop: 8,
+            padding: '6px 12px',
+            background: 'var(--bg-card, rgba(0,0,0,0.03))',
+            border: '1px solid var(--border-color)',
+            borderRadius: 8,
+            fontSize: 12,
+            color: 'var(--text-secondary)'
+          }}>
+            <span>{t('Reply cut off at token limit.', 'Réponse interrompue au plafond de tokens.')}</span>
             {onContinue && (
-              <button className="btn" style={{ fontSize: 11, padding: '3px 9px' }} onClick={onContinue} disabled={busy}>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                onClick={onContinue}
+                disabled={busy}
+              >
+                <ArrowRight size={12} />
                 {t('Continue', 'Continuer')}
               </button>
             )}

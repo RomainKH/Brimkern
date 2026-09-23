@@ -145,10 +145,11 @@ function App() {
   // Écrans étroits / tactiles — déclaré TÔT : maxTokens et systemPrompt ci-dessous en dépendent.
   const [isMobile, setIsMobile] = useState<boolean>(false);
 
-  // Generation Parameters (fixed for now — no UI to tune them). Mobile : plafond réduit — à ~6 t/s
-  // de décodage, 512 tokens dépassent la minute ; 256 borne le pire cas à ~40 s (la consigne de
-  // concision injectée dans le system prompt fait le reste).
-  const maxTokens = isMobile ? 256 : 512;
+  // Plafond de tokens de réponse (hors réflexion <think>).
+  // Par défaut : 1536 sur bureau (assez pour une réponse structurée/code sans coupure intempestive),
+  // 512 sur mobile. Configurable dans Réglages / Options avancées et persisté dans localStorage.
+  const [customMaxTokens, setCustomMaxTokens] = useState<number | null>(null);
+  const maxTokens = customMaxTokens ?? (isMobile ? 512 : 1536);
 
   // Skills: reusable system-prompt presets (built-ins + the user's custom ones, persisted). The
   // active skill's content IS the system prompt used for generation.
@@ -357,6 +358,8 @@ function App() {
       if (localStorage.getItem('brimkern-localtools') === '0') setLocalToolsOn(false);
       if (localStorage.getItem('brimkern-urlread') === '1') setUrlReadOn(true);
       if (localStorage.getItem('brimkern-showreasoning') === '1') setShowReasoning(true);
+      const mt = parseInt(localStorage.getItem('brimkern-maxtokens') || '', 10);
+      if ([512, 1024, 1536, 2048, 4096].includes(mt)) setCustomMaxTokens(mt);
     } catch { /* localStorage unavailable */ }
   }, []);
 
@@ -369,6 +372,11 @@ function App() {
   useEffect(() => { try { localStorage.setItem('brimkern-localtools', localToolsOn ? '1' : '0'); } catch { /* ignore */ } }, [localToolsOn]);
   useEffect(() => { try { localStorage.setItem('brimkern-urlread', urlReadOn ? '1' : '0'); } catch { /* ignore */ } }, [urlReadOn]);
   useEffect(() => { try { localStorage.setItem('brimkern-showreasoning', showReasoning ? '1' : '0'); } catch { /* ignore */ } }, [showReasoning]);
+  useEffect(() => {
+    if (customMaxTokens !== null) {
+      try { localStorage.setItem('brimkern-maxtokens', String(customMaxTokens)); } catch { /* ignore */ }
+    }
+  }, [customMaxTokens]);
 
   // Record a URL-loaded model (custom GGUF or streamed .brik) into the library, deduped — so it can be
   // reloaded later in one click. Presets already live in the library, so they're skipped.
@@ -2334,9 +2342,10 @@ function App() {
       // Reflection budget (reasoning models only). 'off' prefills an empty <think></think> so the
       // model answers directly; otherwise we allow `thinkBudget` tokens of reasoning, then force a
       // close. Non-reasoning archs ignore all of this (thinkBudget stays 0).
+      // Le budget de réponse (maxTokens) est STRICTEMENT DÉCOUPLÉ du budget de réflexion :
+      // le modèle dispose de l'intégralité de maxTokens pour sa réponse une fois <think> fermé.
       const isReasoning = modelArchType === 'deepseek' || modelArchType === 'qwen3'; // Qwen3 : <think> natif, même budget
       const thinkBudget = isReasoning ? THINK_BUDGETS[reflectionLevel] : 0;
-      const effectiveMaxTokens = maxTokens + thinkBudget;
       if (isReasoning && reflectionLevel === 'off') prompt += '<think>\n\n</think>\n\n';
       // Token ids that close the thinking phase (no BOS/specials), tokenized lazily on first use.
       let closeThinkIds: number[] | null = null;
@@ -2347,7 +2356,8 @@ function App() {
         }
         return closeThinkIds;
       };
-      let thinkClosed = false;
+      let thinkClosed = !isReasoning || reflectionLevel === 'off';
+      let answerStartIndex = thinkClosed ? 0 : -1;
 
       // 1. Encode prompt. transformers v4 returns input_ids as a BigInt64Array, so coerce each
       // id to a plain Number — the WebGPU engine indexes with it (BigInt × Number would throw).
@@ -2531,7 +2541,11 @@ function App() {
         } : m));
       };
 
-      while (stepCount < effectiveMaxTokens) {
+      // Plafond global absolu de tokens générés (sécurité VRAM / watchdog). Le modèle bénéficie
+      // de son budget de réflexion thinkBudget + son budget complet de réponse maxTokens.
+      const maxTotalTokens = Math.min(4096, (thinkBudget || 0) + maxTokens + 512);
+
+      while (generatedTokens.length < maxTotalTokens) {
         if (activeAbortController.signal.aborted) break;
 
         // Single token forward step utilizing the KV cache → GPU-side top-K (forward + softcap +
@@ -2558,37 +2572,64 @@ function App() {
         // Queue brute (marqueurs de tour non filtrés) pour la détection d'arrêt — coût constant.
         const tailRaw: string = await activeTokenizer.decode(generatedTokens.slice(-8), { skip_special_tokens: true });
 
-        // Reflection budget reached and the model is STILL inside <think> → force-close the thinking
-        // phase so it commits to an answer. We (1) flush the just-sampled pending token into the KV
-        // cache exactly as the next iteration would, (2) append the </think> tokens, then (3) sample
-        // the first answer token. KV invariant preserved: `currentToken` stays the unfed pending one.
-        // (Le décodage complet nécessaire au test n'arrive qu'une fois le budget atteint.)
-        if (isReasoning && thinkBudget > 0 && !thinkClosed && generatedTokens.length >= thinkBudget) {
-          const rawText = await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true });
-          if (rawText.includes('</think>') || !rawText.includes('<think>')) {
-            thinkClosed = true; // fermé tout seul (ou jamais ouvert) → plus rien à forcer
-          } else {
+        // Modèles avec réflexion : suivi de la transition pensée -> réponse.
+        if (isReasoning && !thinkClosed) {
+          if (tailRaw.includes('</think>')) {
             thinkClosed = true;
-            await activeModel.logitsKV([currentToken], promptTokens.length + generatedTokens.length - 1, sessionId);
-            fed.push(currentToken);
-            let closeLogits: Float32Array | null = null;
-            for (const tk of await getCloseThinkIds()) {
-              const pos = promptTokens.length + generatedTokens.length;
-              generatedTokens.push(tk);
-              pushPenalty(tk);
-              closeLogits = await activeModel.logitsKV([tk], pos, sessionId);
-              fed.push(tk);
+            answerStartIndex = generatedTokens.length;
+          } else if (thinkBudget > 0 && generatedTokens.length >= thinkBudget) {
+            // Budget de réflexion atteint sans fermeture spontanée : on force la fermeture </think>
+            const rawText = await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true });
+            if (rawText.includes('</think>') || !rawText.includes('<think>')) {
+              thinkClosed = true; // fermé tout seul (ou jamais ouvert) → plus rien à forcer
+              answerStartIndex = generatedTokens.length;
+            } else {
+              thinkClosed = true;
+              await activeModel.logitsKV([currentToken], promptTokens.length + generatedTokens.length - 1, sessionId);
+              fed.push(currentToken);
+              let closeLogits: Float32Array | null = null;
+              for (const tk of await getCloseThinkIds()) {
+                const p = promptTokens.length + generatedTokens.length;
+                generatedTokens.push(tk);
+                pushPenalty(tk);
+                closeLogits = await activeModel.logitsKV([tk], p, sessionId);
+                fed.push(tk);
+              }
+              currentToken = sampleNextToken(closeLogits!, {
+                ...SAMPLING,
+                recentTokens: penaltyWindow.slice(),
+              });
+              generatedTokens.push(currentToken);
+              pushPenalty(currentToken);
+              stepCount = generatedTokens.length;
+              answerStartIndex = generatedTokens.length;
+              assistantText = stripTurnMarkers(await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true }));
+              setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: assistantText } : m));
+              continue;
             }
-            currentToken = sampleNextToken(closeLogits!, {
-              ...SAMPLING,
-              recentTokens: penaltyWindow.slice(),
-            });
-            generatedTokens.push(currentToken);
-            pushPenalty(currentToken);
-            stepCount = generatedTokens.length;
-            assistantText = stripTurnMarkers(await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true }));
-            setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: assistantText } : m));
-            continue;
+          } else if (generatedTokens.length >= 16) {
+            // Si après 16 tokens aucun <think> n'est apparu, le modèle a répondu directement
+            const preview = await activeTokenizer.decode(generatedTokens.slice(0, 16), { skip_special_tokens: true });
+            if (!preview.includes('<think>')) {
+              thinkClosed = true;
+              answerStartIndex = 0;
+            }
+          }
+        }
+
+        // Check for stop tokens — scan the raw tail (markers can be ~22 chars wide). Les ids
+        // déclarés par le FICHIER passent en premier : la table par architecture s'oublie (cf.
+        // declaredStopIds), le manifeste, lui, est toujours là.
+        if (isStopToken(currentToken, tailRaw.slice(-48), modelArchType, stopIds)) {
+          stoppedNaturally = true;
+          break;
+        }
+
+        // Plafond de réponse : une fois la réflexion fermée, le modèle dispose du budget maxTokens.
+        if (thinkClosed) {
+          const answerTokens = generatedTokens.length - (answerStartIndex >= 0 ? answerStartIndex : 0);
+          if (answerTokens >= maxTokens) {
+            break; // plafond maxTokens atteint
           }
         }
 
@@ -2598,14 +2639,6 @@ function App() {
           lastUiMs = nowMs;
           assistantText = stripTurnMarkers(await activeTokenizer.decode(generatedTokens, { skip_special_tokens: true }));
           pushUi(assistantText);
-        }
-
-        // Check for stop tokens — scan the raw tail (markers can be ~22 chars wide). Les ids
-        // déclarés par le FICHIER passent en premier : la table par architecture s'oublie (cf.
-        // declaredStopIds), le manifeste, lui, est toujours là.
-        if (isStopToken(currentToken, tailRaw.slice(-48), modelArchType, stopIds)) {
-          stoppedNaturally = true;
-          break;
         }
 
         // Garde-fou anti-BOUCLE. La pénalité de répétition agit token par token : elle n'empêche pas
@@ -3240,6 +3273,25 @@ function App() {
                     </div>
                   </div>
 
+                  {/* Longueur max de réponse (tokens) */}
+                  <div>
+                    <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: 4 }}>{t('Max reply length (tokens)', 'Longueur max de réponse (tokens)')}</div>
+                    <div className="tabs-container" style={{ gap: '2px' }}>
+                      {[512, 1024, 1536, 2048, 4096].map((tk) => (
+                        <button
+                          key={tk}
+                          className={`tab-btn ${maxTokens === tk ? 'active' : ''}`}
+                          onClick={() => setCustomMaxTokens(tk)}
+                          disabled={modelState === 'generating' || benchRunning}
+                          title={`${tk} tokens`}
+                          style={{ fontSize: '11px', padding: '6px 4px', fontWeight: maxTokens === tk ? 700 : 500 }}
+                        >
+                          {tk}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Decode-throughput benchmark */}
                   <button
                     className="btn btn-secondary btn-block"
@@ -3701,6 +3753,7 @@ function App() {
         <OptionsPanel
           onClose={() => setOptionsOpen(false)}
           gpuDuty={gpuDuty} setGpuDuty={setGpuDuty}
+          maxTokens={maxTokens} setMaxTokens={setCustomMaxTokens}
           webSearchOn={webSearchOn} setWebSearchOn={setWebSearchOn}
           localToolsOn={localToolsOn} setLocalToolsOn={setLocalToolsOn}
           urlReadOn={urlReadOn} setUrlReadOn={setUrlReadOn}

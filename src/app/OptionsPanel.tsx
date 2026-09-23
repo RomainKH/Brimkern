@@ -5,7 +5,7 @@
 // status section about tools/web/MCP (studied in docs/mcp-feasibility.md, nothing active yet).
 // Opened from the sidebar, same modal pattern as StoragePanel.
 
-import { X, Settings, Flame, Globe } from 'lucide-react';
+import { X, Settings, Flame, Globe, MessageSquare } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 
 export interface GpuRegime { value: number; label: string; desc: string }
@@ -16,10 +16,20 @@ export const GPU_REGIMES = (t: (en: string, fr: string) => string): GpuRegime[] 
   { value: 1, label: '🔥 Max', desc: t('Full throttle: the fastest, but the GPU runs non-stop (heat).', 'Plein régime : le plus rapide, mais le GPU tourne en continu (chauffe).') },
 ];
 
+export const TOKEN_LIMIT_OPTIONS = (t: (en: string, fr: string) => string): { value: number; label: string; desc: string }[] => [
+  { value: 512, label: '512 tok', desc: t('Short (~350 words) · Fast & light on mobile devices.', 'Courte (~350 mots) · Rapide & léger sur mobile.') },
+  { value: 1024, label: '1024 tok', desc: t('Standard (~700 words) · Good daily balance.', 'Standard (~700 mots) · Bon équilibre au quotidien.') },
+  { value: 1536, label: '1536 tok', desc: t('Detailed (~1,100 words) · Recommended for desktop.', 'Détaillée (~1 100 mots) · Conseillé sur ordinateur.') },
+  { value: 2048, label: '2048 tok', desc: t('Long (~1,500 words) · Complete guides and long code blocks.', 'Longue (~1 500 mots) · Guides complets et longs blocs de code.') },
+  { value: 4096, label: '4096 tok', desc: t('Maximum (~3,000 words) · In-depth exhaustive replies.', 'Maximale (~3 000 mots) · Réponses approfondies et exhaustives.') },
+];
+
 interface Props {
   onClose: () => void;
   gpuDuty: number;
   setGpuDuty: (d: number) => void;
+  maxTokens: number;
+  setMaxTokens: (tokens: number) => void;
   webSearchOn: boolean;
   setWebSearchOn: (on: boolean) => void;
   localToolsOn: boolean;
@@ -50,7 +60,7 @@ function Check({ checked, onChange, title, desc }: { checked: boolean; onChange:
   );
 }
 
-export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, webSearchOn, setWebSearchOn, localToolsOn, setLocalToolsOn, urlReadOn, setUrlReadOn, showReasoning, setShowReasoning }: Props) {
+export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, maxTokens, setMaxTokens, webSearchOn, setWebSearchOn, localToolsOn, setLocalToolsOn, urlReadOn, setUrlReadOn, showReasoning, setShowReasoning }: Props) {
   const t = useT();
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -59,6 +69,37 @@ export default function OptionsPanel({ onClose, gpuDuty, setGpuDuty, webSearchOn
           <Settings size={20} style={{ color: 'var(--accent)' }} />
           <h2 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: 20, flex: 1 }}>{t('Settings', 'Réglages')}</h2>
           <button onClick={onClose} className="circle-btn" style={{ width: 30, height: 30 }} title={t('Close', 'Fermer')}><X size={16} /></button>
+        </div>
+
+        {/* ── Longueur des réponses ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <MessageSquare size={15} style={{ color: 'var(--accent)' }} />
+          <h3 style={{ margin: 0, fontSize: 14, fontFamily: 'var(--font-heading)' }}>{t('Max reply length', 'Longueur max des réponses')}</h3>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, margin: '0 0 10px' }}>
+          {t('Token budget dedicated to the answer (reasoning tokens are budgeted separately). Avoids truncations on long explanations or code.', 'Budget de tokens dédié à la réponse (la réflexion interne est budgétée séparément). Évite les coupures sur les explications longues ou le code.')}
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 6, marginBottom: 8 }}>
+          {TOKEN_LIMIT_OPTIONS(t).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={`tab-btn ${maxTokens === opt.value ? 'active' : ''}`}
+              onClick={() => setMaxTokens(opt.value)}
+              style={{
+                fontSize: 12,
+                fontWeight: maxTokens === opt.value ? 700 : 500,
+                padding: '7px 4px',
+                textAlign: 'center',
+                borderRadius: 8,
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.4 }}>
+          {TOKEN_LIMIT_OPTIONS(t).find((o) => o.value === maxTokens)?.desc}
         </div>
 
         {/* ── Puissance GPU ── */}
