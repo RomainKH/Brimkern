@@ -46,24 +46,20 @@
   pointer-events: none;
 }
 
-/* Néon de la bannière : un tube rouge (halo à trois rayons) qui s'allume en grésillant, une fois.
-   Seul élément à halo fort de la page (règle de dose : un point focal lumineux, pas dix). */
-.neon {
-  color: #ff6b5e;
-  text-shadow:
-    0 0 2px rgba(255, 190, 180, 0.9),
-    0 0 10px rgba(239, 68, 68, 0.85),
-    0 0 28px rgba(239, 68, 68, 0.55),
-    0 0 64px rgba(239, 68, 68, 0.35);
+/* Néon de la bannière : peint une fois dans une toile (NeonBanner.tsx) ; ici seulement la
+   position et l'allumage, qui ne touche QUE l'opacité (compositeur, aucune repeinture). */
+.neonCanvas {
+  position: absolute;
+  pointer-events: none;
   animation: ignite 1.6s steps(1) 0.2s both;
 }
 
 @keyframes ignite {
-  0% { opacity: 0.08; text-shadow: none; }
+  0% { opacity: 0.06; }
   8% { opacity: 1; }
-  12% { opacity: 0.2; text-shadow: none; }
+  12% { opacity: 0.18; }
   20% { opacity: 1; }
-  23% { opacity: 0.35; text-shadow: none; }
+  23% { opacity: 0.3; }
   34% { opacity: 1; }
   100% { opacity: 1; }
 }
@@ -77,20 +73,13 @@
   max-width: 100%;
 }
 
-.neon { transform: translateZ(0); } /* couche à part : une repeinture voisine ne repeint plus le néon */
-
-.glitch {
+.glitchCanvas {
   position: absolute;
-  inset: 0;
-  margin: 0;
   pointer-events: none;
   opacity: 0;
-  text-shadow: none;
   will-change: transform, opacity, clip-path;
 }
 
-/* Pas de mix-blend-mode : au-dessus d'une toile qui change 24 fois par seconde, il imposait une
-   passe de fusion à chaque image. Des couleurs semi-opaques suffisent pour quelques centièmes. */
 .glitchA { color: rgba(56, 189, 248, 0.7); animation: glitchA 6.5s steps(1) 2.4s infinite; }
 .glitchB { color: rgba(255, 70, 70, 0.75); animation: glitchB 6.5s steps(1) 2.4s infinite; }
 
@@ -594,8 +583,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cursor { animation: none; }
-  .neon { animation: none; }
-  .glitch { animation: none; display: none; }
+  .neonCanvas { animation: none; }
+  .glitchCanvas { animation: none; display: none; }
   .h2, .statement { animation: none; }
 }
 
