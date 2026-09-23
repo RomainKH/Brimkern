@@ -1,16 +1,20 @@
 "use client";
 
-// The chat input bar: collapsed-paste attachment chips, the reasoning-budget selector (reasoning
-// models only), the skills button, the textarea, send/stop, and the context-size notice + counter.
-// Pure UI — all state/handlers come from the page (props keep the page's names so the JSX is verbatim).
+// The chat input bar: Claude-inspired clean card container with integrated toolbar,
+// model switcher, reflection budget, skills, image attachments, auto-growing textarea and send button.
+// Works seamlessly in both hero mode (centered empty-state on /chat) and docked mode (bottom of conversation).
 
 import { useRef, type Dispatch, type SetStateAction, type RefObject, type ClipboardEvent as ReactClipboardEvent } from 'react';
-import { Brain, Sparkles, Square, Send, X, Copy, AlertTriangle, Image as ImageIcon, Paperclip, Film, Clock, Edit2, Plus } from 'lucide-react';
+import {
+  Brain, Sparkles, Square, ArrowUp, Send, X, Copy, AlertTriangle,
+  Image as ImageIcon, Paperclip, Film, Clock, Edit2, Plus, Settings
+} from 'lucide-react';
 import { THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
 import type { ArchType } from '@/lib/presets';
 import type { Skill } from '@/lib/skillStore';
 import { useT } from '@/lib/i18n';
 import { CONTEXT_SOFT_CAP, type PastedAttachment, type QueuedMessage } from './composer-shared';
+import { QuickModelPicker, type QuickModelOption } from './QuickModelPicker';
 
 import { planImage, type ImageRatio, type ImageQuality } from '@/lib/webgpu/diffusion/imageGen';
 
@@ -37,33 +41,32 @@ interface Props {
   contextTokens: number;
   // Image mode (SD-Turbo loaded): show the quality & ratio selectors instead of the reflection one.
   imageMode: boolean;
-  imageSize: number;                                  // latent side fallback (16/32/64/128)
+  imageSize: number;
   setImageSize: Dispatch<SetStateAction<number>>;
   imageRatio?: ImageRatio;
   setImageRatio?: Dispatch<SetStateAction<ImageRatio>>;
   imageQuality?: ImageQuality;
   setImageQuality?: Dispatch<SetStateAction<ImageQuality>>;
-  // Le modèle chargé sait-il composer nativement au-delà de 512 ? Non pour SD-Turbo/SDXS : hd est
-  // alors servi par un agrandissement ×2, ce que les libellés doivent dire.
   nativeHighRes?: boolean;
-  // Plafond de résolution de la machine : rien au-dessus n'est proposé (cf. ChatApp.imageCeiling).
   imageCeiling?: ImageQuality;
-  // Mode vidéo (AnimateDiff) : le placeholder décrit une SCÈNE, pas un message — et rappelle le coût.
   videoMode?: boolean;
-  // Nombre de frames UNIQUES du clip : il fixe à la fois la longueur du mouvement et le temps de
-  // calcul (l'un ne va pas sans l'autre), d'où un seul réglage plutôt que deux.
   videoFrames?: number;
   setVideoFrames?: Dispatch<SetStateAction<number>>;
-  webSearchOn: boolean;                               // la ligne de confidentialité doit dire la vérité
-  // Mode vision (Qwen2-VL) : bouton 📎 pour joindre une image + vignette de la pièce jointe.
+  webSearchOn: boolean;
   visionMode?: boolean;
   pendingImage?: { dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null;
   setPendingImage?: Dispatch<SetStateAction<{ dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null>>;
-  // File d'attente des messages soumis pendant qu'une réponse est en cours de calcul
   messageQueue?: QueuedMessage[];
   onRemoveQueued?: (id: string) => void;
   onEditQueued?: (id: string) => void;
   onClearQueue?: () => void;
+  // Claude layout & settings integration
+  variant?: 'hero' | 'docked';
+  activeModelName?: string;
+  activeModelUrl?: string;
+  onSelectQuickModel?: (model: QuickModelOption) => void;
+  onOpenModelBrowser?: () => void;
+  onOpenOptions?: () => void;
 }
 
 export function Composer({
@@ -75,15 +78,16 @@ export function Composer({
   webSearchOn, videoMode, videoFrames, setVideoFrames,
   visionMode, pendingImage, setPendingImage,
   messageQueue = [], onRemoveQueued, onEditQueued, onClearQueue,
+  variant = 'docked',
+  activeModelName,
+  activeModelUrl,
+  onSelectQuickModel,
+  onOpenModelBrowser,
+  onOpenOptions,
 }: Props) {
   const t = useT();
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Pièce jointe image (mode vision) : lue en data URL PLEINE (c'est elle qui part au ViT) + un
-  // aperçu qui, lui, est affiché ET persisté avec la conversation. L'aperçu est donc dimensionné pour
-  // son seul usage : la bulle l'affiche au plus à 384 px de large (cf. ChatMessages), d'où 448 px sur
-  // le grand côté — net à l'écran, ~40 Ko en base64. À 640 px et qualité 0,88 il pesait ~250 Ko, et
-  // il était recopié trois fois dans le message : ~750 Ko d'IndexedDB par image jointe.
   const APERCU_MAX = 448;
   const pickImage = (f: File) => {
     const reader = new FileReader();
@@ -108,13 +112,9 @@ export function Composer({
     reader.readAsDataURL(f);
   };
 
-  // `imageSize` (côté du latent) reste le repli quand la conversation restaurée n'a pas encore de
-  // qualité : on en déduit la marche la plus proche.
   const ratio = imageRatio ?? '1:1';
   const quality: ImageQuality = imageQuality
     ?? (imageSize <= 32 ? 'draft' : imageSize <= 48 ? 'fast' : imageSize >= 120 ? 'fhd' : imageSize >= 96 ? 'hd' : imageSize >= 72 ? 'plus' : 'standard');
-  // Chaque libellé annonce la taille de sortie RÉELLE (planImage), agrandissement compris — lire la
-  // table brute faisait promettre 1920×1088 à un rendu qui sortait en 1280×768.
   const planOf = (q: ImageQuality) => planImage(ratio, q, { nativeHighRes });
   const activeDim = planOf(quality);
   const ORDER: ImageQuality[] = ['draft', 'fast', 'standard', 'plus', 'hd', 'fhd'];
@@ -126,291 +126,171 @@ export function Composer({
     hd: nativeHighRes ? `✨ ${t('HD (native)', 'HD (natif)')}` : `✨ ${t('HD (2× upscaled)', 'HD (agrandi ×2)')}`,
     fhd: `🚀 ${t('Very high res', 'Très haute déf')}`,
   };
-  // Résolutions proposées : sous le plafond machine, et sans doublon — sur un modèle natif 512,
-  // « fhd » rendrait EXACTEMENT la même image que « hd » (standard puis ×2), donc on ne l'offre pas.
   const resOptions = ORDER
     .filter((q) => ORDER.indexOf(q) <= ORDER.indexOf(imageCeiling ?? 'fhd'))
     .filter((q) => nativeHighRes || q !== 'fhd');
 
+  const canSend = (modelState === 'ready' || modelState === 'idle') &&
+    (userInput.trim().length > 0 || attachments.length > 0 || pendingImage || messageQueue.length > 0);
+
   return (
-        <div className="chat-input-container">
-          {messageQueue.length > 0 && (
-            <div style={{
-              marginBottom: '10px',
-              padding: '8px 12px',
-              borderRadius: '10px',
-              background: 'var(--bg-card, rgba(127,127,127,0.06))',
-              border: '1px solid var(--border-color, #e0dccf)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  <Clock size={13} style={{ color: 'var(--accent)' }} />
-                  <span>{t('Message queue', "File d'attente")}</span>
-                  <span style={{
-                    background: 'var(--accent)',
-                    color: '#fff',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    borderRadius: '999px',
-                    padding: '1px 6px',
-                  }}>
-                    {messageQueue.length}
-                  </span>
-                </div>
-                {onClearQueue && (
-                  <button
-                    onClick={onClearQueue}
-                    title={t('Clear the queue', "Vider la file d'attente")}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--text-muted)',
-                      fontSize: '11px',
-                      cursor: 'pointer',
-                      padding: '2px 4px',
-                    }}
-                  >
-                    {t('Clear all', 'Tout effacer')}
-                  </button>
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '120px', overflowY: 'auto' }}>
-                {messageQueue.map((item, index) => (
-                  <div
-                    key={item.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '8px',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      background: 'var(--bg-page, rgba(0,0,0,0.03))',
-                      fontSize: '12px',
-                      border: '1px solid var(--border-color, rgba(0,0,0,0.05))',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
-                      <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>
-                        #{index + 1}
-                      </span>
-                      <span
-                        style={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          color: 'var(--text-secondary)',
-                        }}
-                        title={item.text}
-                      >
-                        {item.text || (item.pendingImage ? t('[Image attachment]', '[Pièce jointe image]') : t('[Attachment]', '[Pièce jointe]'))}
-                      </span>
-                      {item.attachments && item.attachments.length > 0 && (
-                        <span style={{ fontSize: '10px', color: 'var(--accent)', flexShrink: 0 }}>
-                          📎 {item.attachments.length}
-                        </span>
-                      )}
-                      {item.pendingImage && (
-                        <span style={{ fontSize: '10px', color: 'var(--accent)', flexShrink: 0 }}>
-                          🖼️
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                      {onEditQueued && (
-                        <button
-                          onClick={() => onEditQueued(item.id)}
-                          title={t('Edit this message', 'Modifier ce message')}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'var(--text-muted)',
-                            padding: '2px',
-                            display: 'flex',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                      )}
-                      {onRemoveQueued && (
-                        <button
-                          onClick={() => onRemoveQueued(item.id)}
-                          title={t('Remove from queue', "Retirer de la file d'attente")}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            color: 'var(--text-muted)',
-                            padding: '2px',
-                            display: 'flex',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <X size={12} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {attachments.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-              {attachments.map((a) => (
-                <span key={a.id} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                  padding: '4px 8px', borderRadius: '8px', fontSize: '11px',
-                  background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', border: '1px solid var(--border-color, #dfdfdf)',
-                  color: 'var(--text-secondary)',
-                }}>
-                  <Copy size={12} style={{ flexShrink: 0 }} />
-                  {a.label}
-                  <button
-                    onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                    title={t('Remove', 'Retirer')}
-                    style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}
-                  >
-                    <X size={12} />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-          {/* Format & Qualité de l'image (mode image uniquement) */}
-          {imageMode && (modelState === 'ready' || modelState === 'generating') && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <ImageIcon size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-                <span>{t('Ratio:', 'Format :')}</span>
-                <select
-                  value={ratio}
-                  onChange={(e) => setImageRatio?.(e.target.value as ImageRatio)}
-                  disabled={modelState === 'generating' || benchRunning}
-                  aria-label={t('Aspect ratio', 'Format d\'image')}
-                  style={{
-                    fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
-                    background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
-                  }}
-                >
-                  <option value="1:1">{t('1:1 (Square)', '1:1 (Carré)')}</option>
-                  <option value="16:9">{t('16:9 (Landscape)', '16:9 (Paysage)')}</option>
-                  <option value="9:16">{t('9:16 (Story/Reel)', '9:16 (Story/Portrait)')}</option>
-                  <option value="4:3">{t('4:3 (Photo)', '4:3 (Photo)')}</option>
-                  <option value="3:4">{t('3:4 (Portrait)', '3:4 (Portrait)')}</option>
-                  <option value="3:2">{t('3:2 (Classic 3:2)', '3:2 (Cinéma 3:2)')}</option>
-                  <option value="2:3">{t('2:3 (Classic 2:3)', '2:3 (Affiche 2:3)')}</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>{t('Resolution:', 'Résolution :')}</span>
-                <select
-                  value={quality}
-                  onChange={(e) => {
-                    const q = e.target.value as ImageQuality;
-                    setImageQuality?.(q);
-                    setImageSize(planOf(q).latentH);
-                  }}
-                  disabled={modelState === 'generating' || benchRunning}
-                  aria-label={t('Resolution', 'Résolution')}
-                  title={nativeHighRes
-                    ? t('The model composes natively at every size offered here.',
-                        'Le modèle compose nativement à toutes les tailles proposées ici.')
-                    : t('The model is trained at 512: below that it stops composing properly (tight crops, cut-off subjects), so smaller sizes are drafts. Above it, the image is rendered at 512 then upscaled 2× on the GPU — sharp, but not a native high-res render.',
-                        'Le modèle est entraîné en 512 : en dessous il ne compose plus correctement (cadrages serrés, sujets coupés), les tailles inférieures sont donc des brouillons. Au-dessus, l’image est rendue en 512 puis agrandie ×2 sur le GPU — net, mais ce n’est pas un rendu haute résolution natif.')}
-                  style={{
-                    fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
-                    background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
-                  }}
-                >
-                  {resOptions.map((q) => {
-                    const d = planOf(q);
-                    return <option key={q} value={q}>{RES_LABEL[q]} ({d.w}×{d.h})</option>;
-                  })}
-                </select>
-              </div>
-
-              <span style={{
-                fontSize: '11px', padding: '2px 6px', borderRadius: '4px',
-                background: 'var(--bg-card-hover, rgba(127,127,127,0.1))',
-                color: 'var(--text-secondary)', fontWeight: 500,
-              }}>
-                {activeDim.w} × {activeDim.h} px
+    <div className={`chat-input-container ${variant === 'hero' ? 'composer-hero-container' : 'composer-docked-container'}`}>
+      {messageQueue.length > 0 && (
+        <div className="composer-queue-box">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <Clock size={13} style={{ color: 'var(--accent)' }} />
+              <span>{t('Message queue', "File d'attente")}</span>
+              <span className="composer-queue-badge">
+                {messageQueue.length}
               </span>
             </div>
-          )}
-          {/* Durée du clip (mode vidéo) : même emplacement que la qualité en mode image. Les libellés
-              annoncent le COÛT, parce que c'est la vraie décision ici — 32 frames, c'est deux fois le
-              calcul de 16. */}
-          {videoMode && setVideoFrames && (modelState === 'ready' || modelState === 'generating') && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <Film size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <span>{t('Clip:', 'Clip :')}</span>
-              <select
-                value={videoFrames}
-                onChange={(e) => setVideoFrames(Number(e.target.value))}
-                disabled={modelState === 'generating' || benchRunning}
-                title={t('Every clip plays as a ~10 s loop; what changes here is how much unique motion happens before it repeats. More frames also means proportionally more compute.',
-                         'Tout clip est joué en boucle sur ~10 s ; ce qui change ici, c’est la quantité de mouvement unique avant que la boucle ne reprenne. Plus de frames demande aussi proportionnellement plus de calcul.')}
-                style={{
-                  fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
-                  background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
-                }}
-              >
-                <option value={8}>{t('8 frames · 0.7 s of motion', '8 frames · 0,7 s de mouvement')}</option>
-                <option value={16}>{t('16 frames · 1.3 s of motion', '16 frames · 1,3 s de mouvement')}</option>
-                <option value={24}>{t('24 frames · 2 s of motion', '24 frames · 2 s de mouvement')}</option>
-                <option value={32}>{t('32 frames · 2.7 s of motion', '32 frames · 2,7 s de mouvement')}</option>
-              </select>
-            </div>
-          )}
-          {/* Reflection level (reasoning models only) — a compact dropdown right above the composer. */}
-          {/* !videoMode : modelArchType est un résidu du DERNIER LLM chargé — en mode vidéo le
-              sélecteur de réflexion s'affichait au-dessus d'un pipeline qui ne raisonne pas. */}
-          {!imageMode && !videoMode && (modelArchType === 'deepseek' || modelArchType === 'qwen3') && (modelState === 'ready' || modelState === 'generating') && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <Brain size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <span>{t('Reasoning:', 'Réflexion :')}</span>
-              <select
-                value={reflectionLevel}
-                onChange={(e) => setReflectionLevel(e.target.value as ReflectionLevel)}
-                disabled={modelState === 'generating' || benchRunning}
-                title={t('<think> reasoning budget before answering', 'Budget de réflexion <think> avant de répondre')}
-                style={{
-                  fontSize: '12px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer',
-                  background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
-                }}
-              >
-                <option value="off">{t('off: direct answer', 'off : réponse directe')}</option>
-                <option value="low">low — ~{THINK_BUDGETS.low} tok</option>
-                <option value="medium">medium — ~{THINK_BUDGETS.medium} tok</option>
-                <option value="high">high — ~{THINK_BUDGETS.high} tok</option>
-              </select>
-            </div>
-          )}
-          {/* Vignette de l'image jointe (mode vision) */}
-          {visionMode && pendingImage && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={pendingImage.preview} alt={t('attached image', 'image jointe')} style={{ height: 40, borderRadius: 6, border: '1px solid var(--border-color)' }} />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('Image attached to the next message', 'Image jointe au prochain message')}</span>
+            {onClearQueue && (
               <button
-                onClick={() => setPendingImage?.(null)}
-                title={t('Remove', 'Retirer')}
-                style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}
+                onClick={onClearQueue}
+                title={t('Clear the queue', "Vider la file d'attente")}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer', padding: '2px 4px' }}
               >
-                <X size={13} />
+                {t('Clear all', 'Tout effacer')}
               </button>
-            </div>
-          )}
-          <div className="chat-input-wrapper">
-            {/* Pièce jointe image (mode vision uniquement) */}
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '120px', overflowY: 'auto' }}>
+            {messageQueue.map((item, index) => (
+              <div key={item.id} className="composer-queue-item">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>
+                    #{index + 1}
+                  </span>
+                  <span
+                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}
+                    title={item.text}
+                  >
+                    {item.text || (item.pendingImage ? t('[Image attachment]', '[Pièce jointe image]') : t('[Attachment]', '[Pièce jointe]'))}
+                  </span>
+                  {item.attachments && item.attachments.length > 0 && (
+                    <span style={{ fontSize: '10px', color: 'var(--accent)', flexShrink: 0 }}>
+                      📎 {item.attachments.length}
+                    </span>
+                  )}
+                  {item.pendingImage && (
+                    <span style={{ fontSize: '10px', color: 'var(--accent)', flexShrink: 0 }}>🖼️</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                  {onEditQueued && (
+                    <button
+                      onClick={() => onEditQueued(item.id)}
+                      title={t('Edit this message', 'Modifier ce message')}
+                      className="composer-queue-action"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                  )}
+                  {onRemoveQueued && (
+                    <button
+                      onClick={() => onRemoveQueued(item.id)}
+                      title={t('Remove from queue', "Retirer de la file d'attente")}
+                      className="composer-queue-action"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main card box (Claude-style unified card) */}
+      <div className={`claude-composer-card ${variant === 'hero' ? 'hero' : 'docked'}`}>
+        {/* Top attachments area */}
+        {attachments.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '10px 14px 0' }}>
+            {attachments.map((a) => (
+              <span key={a.id} className="composer-attachment-chip">
+                <Copy size={12} style={{ flexShrink: 0 }} />
+                <span>{a.label}</span>
+                <button
+                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                  title={t('Remove', 'Retirer')}
+                  style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Vision image pending preview */}
+        {visionMode && pendingImage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px 0' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={pendingImage.preview} alt={t('attached image', 'image jointe')} style={{ height: 42, borderRadius: 6, border: '1px solid var(--border-color)' }} />
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('Image attached to the next message', 'Image jointe au prochain message')}</span>
+            <button
+              onClick={() => setPendingImage?.(null)}
+              title={t('Remove', 'Retirer')}
+              style={{ display: 'inline-flex', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        {/* Textarea */}
+        <div className="composer-textarea-wrap">
+          <textarea
+            ref={textareaRef}
+            className={`claude-chat-textarea ${variant === 'hero' ? 'hero' : ''}`}
+            onPaste={handlePaste}
+            placeholder={
+              modelState === 'ready'
+                ? (videoMode
+                  ? t('Describe a scene to animate (a few minutes per clip)…', 'Décrivez une scène à animer (quelques minutes par clip)…')
+                  : imageMode
+                    ? t('Describe an image to generate…', 'Décrivez une image à générer…')
+                    : t('Type your message, ask a question, paste code…', 'Saisissez votre message, posez une question, collez du code…'))
+                : modelState === 'generating'
+                  ? (isMobile ? t('Generating… (Enter to queue)', 'Génération… (Entrée pour empiler)') : t('Generating… Type your message to queue it', 'Inférence en cours… Tapez votre message pour le mettre en file'))
+                  : modelState === 'idle'
+                    ? t('Ask anything (starts the local model automatically)…', 'Posez votre question (le modèle local démarre automatiquement)…')
+                    : (isMobile ? t('Loading model…', 'Chargement du modèle…') : t('Initializing local model…', 'Initialisation du modèle local…'))
+            }
+            rows={variant === 'hero' ? 3 : 1}
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'error'}
+          />
+        </div>
+
+        {/* Bottom integrated toolbar (Claude style) */}
+        <div className="claude-composer-toolbar">
+          <div className="composer-toolbar-left">
+            {/* Quick Model Selector Pill */}
+            {onSelectQuickModel && onOpenModelBrowser && (
+              <QuickModelPicker
+                activeModelName={activeModelName}
+                activeModelUrl={activeModelUrl}
+                imageMode={imageMode}
+                videoMode={videoMode}
+                visionMode={visionMode}
+                onSelectModel={onSelectQuickModel}
+                onOpenBrowser={onOpenModelBrowser}
+                isMobile={isMobile}
+                disabled={modelState === 'generating' || benchRunning}
+              />
+            )}
+
+            {/* Vision Mode Image Picker Button */}
             {visionMode && (
               <>
                 <input
@@ -421,124 +301,185 @@ export function Composer({
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) pickImage(f); e.target.value = ''; }}
                 />
                 <button
+                  type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="circle-btn"
+                  className="composer-tool-btn"
                   disabled={modelState !== 'ready'}
                   title={t('Attach an image', 'Joindre une image')}
-                  style={{ flexShrink: 0 }}
                 >
-                  <Paperclip size={18} />
+                  <Paperclip size={15} />
+                  {!isMobile && <span>{t('Image', 'Image')}</span>}
                 </button>
               </>
             )}
-            {/* Skills button (left of the chat bar): opens the popup to pick/compose/import skills. */}
+
+            {/* Skills button */}
             <button
+              type="button"
               onClick={() => setSkillsOpen(true)}
-              className="circle-btn"
+              className={`composer-tool-btn ${activeSkills.length ? 'active' : ''}`}
               title={activeSkills.length ? `${t('Active skills:', 'Skills actifs :')} ${activeSkills.map((s) => s.name).join(', ')}` : t('Skills (instructions)', 'Skills (consignes)')}
-              style={{ flexShrink: 0, position: 'relative' }}
             >
-              <Sparkles size={18} />
+              <Sparkles size={14} />
+              {!isMobile && <span>Skills</span>}
               {activeSkills.length > 0 && (
-                <span style={{ position: 'absolute', top: -3, right: -3, background: 'var(--accent)', color: '#fff', fontSize: 9, fontWeight: 700, borderRadius: '999px', minWidth: 15, height: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{activeSkills.length}</span>
+                <span className="composer-tool-badge">{activeSkills.length}</span>
               )}
             </button>
-            <textarea
-              ref={textareaRef}
-              className="chat-textarea"
-              onPaste={handlePaste}
-              placeholder={
-                modelState === 'ready'
-                  ? (videoMode
-                    ? t('Describe a scene to animate (a few minutes per clip)…', 'Décrivez une scène à animer (quelques minutes par clip)…')
-                    : imageMode
-                      ? t('Describe an image to generate…', 'Décrivez une image à générer…')
-                      : t('Type your message…', 'Saisissez votre message…'))
-                  : modelState === 'generating'
-                    ? (isMobile ? t('Generating… (Enter to queue)', 'Génération… (Entrée pour empiler)') : t('Generating… Type your message to queue it', 'Inférence en cours… Tapez votre message pour le mettre en file'))
-                    : modelState === 'idle'
-                      ? t('Ask a question (starts the local model automatically)…', 'Posez votre question (le modèle local démarre automatiquement)…')
-                      : (isMobile ? t('Loading model…', 'Chargement du modèle…') : t('Initializing local model…', 'Initialisation du modèle local…'))
-              }
-              rows={1}
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'error'}
-            />
 
-            <div className="chat-actions">
-              {modelState === 'generating' ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {(userInput.trim() || attachments.length > 0 || pendingImage) && (
-                    <button
-                      className="circle-btn"
-                      onClick={() => handleSendMessage()}
-                      title={t('Add to queue (Enter)', "Ajouter à la file d'attente (Entrée)")}
-                      style={{ background: 'var(--accent)', color: '#fff' }}
-                    >
-                      <Plus size={16} />
-                    </button>
-                  )}
-                  <button
-                    className="circle-btn"
-                    onClick={handleStopGeneration}
-                    title={t('Stop the computation', 'Interrompre les calculs')}
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
-                  >
-                    <Square size={16} fill="currentColor" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="circle-btn send-btn"
-                  onClick={() => handleSendMessage()}
-                  disabled={(modelState !== 'ready' && modelState !== 'idle') || (!userInput.trim() && attachments.length === 0 && !pendingImage && messageQueue.length === 0)}
-                  title={messageQueue.length > 0 && !userInput.trim() && attachments.length === 0 ? t('Run queued message', 'Lancer la file d’attente') : t('Send', 'Calculer')}
+            {/* Reflection selector (reasoning models: Qwen3, DeepSeek) */}
+            {!imageMode && !videoMode && (modelArchType === 'deepseek' || modelArchType === 'qwen3') && (modelState === 'ready' || modelState === 'generating') && (
+              <div className="composer-tool-select-wrap" title={t('<think> reasoning budget before answering', 'Budget de réflexion <think> avant de répondre')}>
+                <Brain size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <select
+                  value={reflectionLevel}
+                  onChange={(e) => setReflectionLevel(e.target.value as ReflectionLevel)}
+                  disabled={modelState === 'generating' || benchRunning}
+                  className="composer-inline-select"
                 >
-                  <Send size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-          {contextOver && (
-            <div style={{
-              display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '8px',
-              padding: '8px 12px', borderRadius: '8px',
-              background: 'rgba(245, 158, 11, 0.10)', border: '1px solid var(--warning, #f59e0b)',
-              fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.45,
-            }}>
-              <AlertTriangle size={14} style={{ color: 'var(--warning, #f59e0b)', flexShrink: 0, marginTop: '1px' }} />
-              <span>
-                {t(
-                  `Long context (~${contextTokens.toLocaleString()} tokens). Beyond ~${CONTEXT_SOFT_CAP.toLocaleString()}, a small local model loses coherence and prefill gets slow (O(n²) attention). For big chunks of code, prefer a targeted excerpt.`,
-                  `Contexte long (~${contextTokens.toLocaleString()} tokens). Au-delà de ~${CONTEXT_SOFT_CAP.toLocaleString()}, un petit modèle local perd en cohérence et le prefill devient lent (attention en O(n²)). Pour du code volumineux, privilégiez un extrait ciblé.`,
-                )}
-              </span>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-            {!isMobile && (
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', flex: 1, textAlign: 'center' }}>
-                {webSearchOn
-                  ? t('🌐 Web access on: your questions (or pasted links) are sent to an external service. Configurable in ⚙️ Settings.', '🌐 Accès web actif : vos questions (ou liens collés) partent vers un service externe. Réglable dans ⚙️ Réglages.')
-                  : t('Brimkern runs in isolation and never sends your data anywhere.', "Brimkern s'exécute de manière isolée sans transférer vos données à l'extérieur.")}
-              </span>
+                  <option value="off">{t('No think', 'Direct')}</option>
+                  <option value="low">~{THINK_BUDGETS.low} tok</option>
+                  <option value="medium">~{THINK_BUDGETS.medium} tok</option>
+                  <option value="high">~{THINK_BUDGETS.high} tok</option>
+                </select>
+              </div>
             )}
-            {modelState === 'ready' && (contextTokens > 0) && (
+
+            {/* Image mode options (Ratio & Quality) */}
+            {imageMode && (modelState === 'ready' || modelState === 'generating') && (
+              <div className="composer-tool-select-wrap">
+                <ImageIcon size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <select
+                  value={ratio}
+                  onChange={(e) => setImageRatio?.(e.target.value as ImageRatio)}
+                  disabled={modelState === 'generating' || benchRunning}
+                  aria-label={t('Aspect ratio', 'Format d\'image')}
+                  className="composer-inline-select"
+                >
+                  <option value="1:1">1:1</option>
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                  <option value="4:3">4:3</option>
+                  <option value="3:4">3:4</option>
+                </select>
+                <select
+                  value={quality}
+                  onChange={(e) => {
+                    const q = e.target.value as ImageQuality;
+                    setImageQuality?.(q);
+                    setImageSize(planOf(q).latentH);
+                  }}
+                  disabled={modelState === 'generating' || benchRunning}
+                  aria-label={t('Resolution', 'Résolution')}
+                  className="composer-inline-select"
+                >
+                  {resOptions.map((q) => (
+                    <option key={q} value={q}>{RES_LABEL[q]}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Video mode frames */}
+            {videoMode && setVideoFrames && (modelState === 'ready' || modelState === 'generating') && (
+              <div className="composer-tool-select-wrap">
+                <Film size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <select
+                  value={videoFrames}
+                  onChange={(e) => setVideoFrames(Number(e.target.value))}
+                  disabled={modelState === 'generating' || benchRunning}
+                  className="composer-inline-select"
+                >
+                  <option value={8}>8f (~0.7s)</option>
+                  <option value={16}>16f (~1.3s)</option>
+                  <option value={24}>24f (~2.0s)</option>
+                </select>
+              </div>
+            )}
+
+            {/* Quick settings button */}
+            {onOpenOptions && (
+              <button
+                type="button"
+                onClick={onOpenOptions}
+                className="composer-tool-btn"
+                title={t('Settings & parameters', 'Réglages & paramètres')}
+              >
+                <Settings size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="composer-toolbar-right">
+            {/* Tokens counter */}
+            {modelState === 'ready' && contextTokens > 0 && (
               <span
-                title={t('Estimated token count of the next prompt (history + draft)', 'Estimation du nombre de tokens du prochain prompt (historique + brouillon)')}
-                style={{ fontSize: '11px', color: contextOver ? 'var(--warning, #f59e0b)' : 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}
+                className="composer-token-pill"
+                title={t('Estimated prompt tokens', 'Tokens estimés du prompt')}
+                style={{ color: contextOver ? 'var(--warning, #f59e0b)' : 'var(--text-muted)' }}
               >
                 ~{contextTokens.toLocaleString()} tok
               </span>
             )}
+
+            {/* Actions: Send / Stop / Queue */}
+            {modelState === 'generating' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {(userInput.trim() || attachments.length > 0 || pendingImage) && (
+                  <button
+                    type="button"
+                    className="claude-send-btn queue"
+                    onClick={() => handleSendMessage()}
+                    title={t('Add to queue (Enter)', "Ajouter à la file d'attente (Entrée)")}
+                  >
+                    <Plus size={15} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="claude-send-btn stop"
+                  onClick={handleStopGeneration}
+                  title={t('Stop generation', 'Arrêter la génération')}
+                >
+                  <Square size={13} fill="currentColor" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className={`claude-send-btn ${canSend ? 'active' : ''}`}
+                onClick={() => handleSendMessage()}
+                disabled={!canSend}
+                title={messageQueue.length > 0 && !userInput.trim() ? t('Run queue', 'Lancer la file') : t('Send message', 'Envoyer le message')}
+              >
+                <ArrowUp size={16} strokeWidth={2.4} />
+              </button>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* Long context alert */}
+      {contextOver && (
+        <div className="composer-context-warning">
+          <AlertTriangle size={14} style={{ color: 'var(--warning, #f59e0b)', flexShrink: 0, marginTop: '1px' }} />
+          <span>
+            {t(
+              `Long context (~${contextTokens.toLocaleString()} tokens). Beyond ~${CONTEXT_SOFT_CAP.toLocaleString()}, a small local model loses coherence and prefill gets slow.`,
+              `Contexte long (~${contextTokens.toLocaleString()} tokens). Au-delà de ~${CONTEXT_SOFT_CAP.toLocaleString()}, le modèle perd en cohérence et le prefill ralentit.`,
+            )}
+          </span>
+        </div>
+      )}
+
+      {/* Subtle privacy & security reassurance */}
+      <div className="composer-privacy-line">
+        <span>
+          {webSearchOn
+            ? t('🌐 Web search active: queries are sent to external services (configurable in ⚙️ Settings).', '🌐 Recherche web active : les requêtes partent vers des services externes (réglable dans ⚙️).')
+            : t('100% on-device WebGPU · Zero server transmissions · Private & offline', '100% WebGPU local dans le navigateur · Zéro transmission serveur · Privé & hors-ligne')}
+        </span>
+      </div>
+    </div>
   );
 }

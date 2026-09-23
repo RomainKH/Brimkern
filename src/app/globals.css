@@ -914,94 +914,565 @@ a.welcome-card:hover, button.welcome-card:hover {
   border: 1px solid var(--border-color);
 }
 
-/* Chat Input Bar */
+/* Chat Input Bar (Claude-style unified container) */
 .chat-input-container {
-  padding: 20px 24px;
+  padding: 14px 20px 16px;
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.composer-docked-container {
   border-top: 1px solid var(--border-color);
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--bg-main) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.chat-input-wrapper {
-  max-width: 850px;
+.composer-hero-container {
+  width: 100%;
+  max-width: 760px;
   margin: 0 auto;
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  background: var(--bg-elevated);
+  padding: 0;
+  border-top: none;
+}
+
+.claude-composer-card {
+  width: 100%;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 14px;
-  padding: 10px 14px;
-  transition: all 0.2s;
-  box-shadow: var(--shadow-sm);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  position: relative;
 }
 
-.chat-input-wrapper:focus-within {
-  border-color: var(--border-focus);
-  box-shadow: var(--shadow-md);
+.claude-composer-card.hero {
+  max-width: 760px;
+  margin: 0 auto;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.08);
 }
 
-.chat-textarea {
-  flex: 1;
-  background: none;
+.claude-composer-card.docked {
+  max-width: 840px;
+  margin: 0 auto;
+}
+
+.claude-composer-card:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.composer-textarea-wrap {
+  width: 100%;
+  display: flex;
+}
+
+.claude-chat-textarea {
+  width: 100%;
+  background: transparent;
   border: none;
   outline: none;
   resize: none;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 15px;
-  /* Height is driven by the JS auto-grow effect (inline style.height = scrollHeight, capped). An
-     `height: auto !important` here used to override that inline height → the box never grew and
-     multi-line prompts scrolled inside instead. min/max-height keep it bounded. */
-  line-height: 1.5;
-  max-height: 200px;
-  min-height: 24px;
-  padding: 4px 0;
+  line-height: 1.55;
+  min-height: 38px;
+  max-height: 220px;
+  padding: 12px 16px 8px;
 }
 
-.chat-actions {
+.claude-chat-textarea.hero {
+  min-height: 72px;
+  padding: 16px 18px 10px;
+}
+
+.claude-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px 10px;
+  gap: 8px;
+}
+
+.composer-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.composer-toolbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-bottom: 2px;
+  flex-shrink: 0;
 }
 
-.circle-btn {
+/* Boutons d'outils du Composer */
+.composer-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.composer-tool-btn:hover:not(:disabled) {
+  background: var(--bg-card-hover, rgba(127,127,127,0.1));
+  color: var(--text-primary);
+}
+
+.composer-tool-btn.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.composer-tool-badge {
+  background: var(--accent);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 5px;
+  line-height: 1.2;
+}
+
+.composer-tool-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: var(--bg-card-hover, rgba(127,127,127,0.08));
+  border: 1px solid var(--border-color);
+}
+
+.composer-inline-select {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Bouton d'envoi circulaire style Claude */
+.claude-send-btn {
   width: 32px;
   height: 32px;
   border-radius: 50%;
+  border: none;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--border-color);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.claude-send-btn.active {
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.claude-send-btn.active:hover {
+  background: var(--accent-hover);
+  transform: scale(1.05);
+}
+
+.claude-send-btn.stop {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  cursor: pointer;
+}
+
+.claude-send-btn.stop:hover {
+  background: #ef4444;
+  color: #fff;
+}
+
+.claude-send-btn.queue {
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+/* Quick Model Picker Pill & Dropdown */
+.quick-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-hover, rgba(127,127,127,0.08));
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.quick-model-pill:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-card);
+}
+
+.quick-model-pill-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.quick-model-pill-label {
+  font-weight: 600;
+}
+
+.quick-model-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 340px;
+  max-width: 90vw;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  overflow: hidden;
+  animation: popoverFadeIn 0.15s ease-out;
+}
+
+@keyframes popoverFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.quick-model-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+.quick-model-menu-list {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.quick-model-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+  transition: all 0.15s ease;
 }
 
-.circle-btn:hover:not(:disabled) {
+.quick-model-item:hover {
+  background: var(--bg-card-hover, rgba(127,127,127,0.1));
+}
+
+.quick-model-item.active {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+
+.quick-model-item-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--accent);
-  background: var(--bg-sidebar);
+  flex-shrink: 0;
 }
 
-.circle-btn.send-btn {
+.quick-model-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-model-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.quick-model-item-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.quick-model-item-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.quick-model-item-size {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.quick-model-item-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-model-item-check {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.quick-model-menu-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 8px 10px;
+  background: var(--bg-card);
+}
+
+.quick-model-browse-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quick-model-browse-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Ligne de réassurance sous le Composer */
+.composer-privacy-line {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.composer-token-pill {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.composer-context-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid var(--warning, #f59e0b);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  max-width: 840px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.composer-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: var(--bg-card-hover, rgba(127,127,127,0.12));
+  border: 1px solid var(--border-color, #dfdfdf);
+  color: var(--text-secondary);
+}
+
+.composer-queue-box {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-card, rgba(127,127,127,0.06));
+  border: 1px solid var(--border-color, #e0dccf);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 840px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.composer-queue-badge {
   background: var(--accent);
-  color: white;
-  box-shadow: var(--shadow-sm);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 1px 6px;
 }
 
-.circle-btn.send-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
-  box-shadow: var(--shadow-md);
+.composer-queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-page, rgba(0,0,0,0.03));
+  font-size: 12px;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.05));
 }
 
-.circle-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.composer-queue-action {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px;
+  display: flex;
+  align-items: center;
 }
 
-.message-actions .circle-btn span {
-  white-space: nowrap !important;
+/* Accueil Claude épuré */
+.claude-hero-wrap {
+  width: 100%;
+  max-width: 800px;
+  margin: auto;
+  padding: 30px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.claude-hero-title {
+  font-family: var(--font-heading);
+  font-size: clamp(26px, 4vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 16px 0 8px;
+  color: var(--text-primary);
+}
+
+.claude-hero-subtitle {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 540px;
+  margin: 0 auto 28px;
+}
+
+.claude-hero-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  max-width: 720px;
+}
+
+.claude-prompt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.claude-prompt-pill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.claude-hero-secondary-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.claude-hero-secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.claude-hero-secondary-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
 
 /* Loading Overlay for Model Initializing — a real overlay: covers the chat area (anchored to

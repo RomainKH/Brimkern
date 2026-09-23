@@ -40,6 +40,7 @@ import BrandMark from './BrandMark';
 import { useModelEngine } from './useModelEngine';
 import { ModelBrowserModal } from './ModelBrowserModal';
 import { Composer } from './Composer';
+import type { QuickModelOption } from './QuickModelPicker';
 import { ChatMessages } from './ChatMessages';
 import { useConversations } from './useConversations';
 import { planImage, isNativeHighRes, type ImageGenerator, type ImageRatio, type ImageQuality } from '@/lib/webgpu/diffusion/imageGen';
@@ -2931,6 +2932,64 @@ function App() {
     attachments.reduce((a, at) => a + approxTokens(at.content), 0);
   const contextOver = contextTokens > CONTEXT_SOFT_CAP;
 
+  const handleSelectQuickModel = async (option: QuickModelOption) => {
+    if (option.type === 'image') {
+      await loadImageModel();
+    } else if (option.type === 'vision') {
+      await loadVisionModel();
+    } else if (option.type === 'brik' && option.url) {
+      await handleStreamBrik(option.url, 'quick-picker');
+    } else if (option.type === 'gguf' && option.url) {
+      await handleLoadModelFromUrl(option.url);
+    }
+  };
+
+  const composerProps = {
+    attachments,
+    setAttachments,
+    modelArchType,
+    modelState,
+    reflectionLevel,
+    setReflectionLevel,
+    benchRunning,
+    activeSkills,
+    setSkillsOpen,
+    textareaRef,
+    handlePaste,
+    isMobile,
+    userInput,
+    setUserInput,
+    handleSendMessage,
+    handleStopGeneration,
+    contextOver,
+    contextTokens,
+    imageMode: !!imageGen,
+    videoMode: !!videoGen,
+    videoFrames,
+    setVideoFrames,
+    imageSize,
+    setImageSize,
+    imageRatio,
+    setImageRatio,
+    imageQuality,
+    setImageQuality,
+    nativeHighRes: isNativeHighRes(imageGen),
+    imageCeiling,
+    webSearchOn: webSearchOn || urlReadOn,
+    visionMode: !!visionSession,
+    pendingImage,
+    setPendingImage,
+    messageQueue,
+    onRemoveQueued: handleRemoveQueued,
+    onEditQueued: handleEditQueued,
+    onClearQueue: handleClearQueue,
+    activeModelName: displayModelName,
+    activeModelUrl: loadedModelUrl,
+    onSelectQuickModel: handleSelectQuickModel,
+    onOpenModelBrowser: () => setBrowseOpen(true),
+    onOpenOptions: () => setOptionsOpen(true),
+  };
+
   // On mobile, only the light models are shown by default (phone GPUs/VRAM choke on the bigger
   // ones). The user can reveal the rest with "afficher tous". Desktop sees everything.
 
@@ -3364,7 +3423,7 @@ function App() {
       <main className="chat-area">
         {/* Header */}
         <header className="chat-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
             <button
               className="circle-btn"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -3373,45 +3432,64 @@ function App() {
             >
               {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
-          <div className="chat-header-info">
-            {displayModelName ? (
-              <>
-                <span className="loaded-model-name" title={displayModelName}>
-                  {isMobile
-                    ? (displayModelName.match(/^[A-Za-z]+/)?.[0] || displayModelName.slice(0, 10))
-                    : (displayModelName.length > 32 ? displayModelName.slice(0, 32) + '…' : displayModelName)}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => { handleNewChat(); if (isMobile) setIsSidebarOpen(false); }}
+              style={{ fontSize: '12px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 8, height: 32 }}
+              title={t('Start a new chat', 'Démarrer une nouvelle discussion')}
+            >
+              <Plus size={14} />
+              {!isMobile && <span>{t('New chat', 'Nouveau chat')}</span>}
+            </button>
+            <div className="chat-header-info">
+              {displayModelName ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="loaded-model-name" title={displayModelName}>
+                    {isMobile
+                      ? (displayModelName.match(/^[A-Za-z]+/)?.[0] || displayModelName.slice(0, 10))
+                      : (displayModelName.length > 30 ? displayModelName.slice(0, 30) + '…' : displayModelName)}
+                  </span>
+                  <span className="loaded-model-status" style={{ fontSize: '11px' }}>
+                    <span className={`pulse-dot ${modelState === 'generating' ? 'anim' : ''}`}></span>
+                    WGSL
+                  </span>
+                </div>
+              ) : (
+                <span className="loaded-model-name" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                  {t('WebGPU Ready', 'WebGPU Prêt')}
                 </span>
-                <span className="loaded-model-status">
-                  <span className={`pulse-dot ${modelState === 'generating' ? 'anim' : ''}`}></span>
-                  {t('Active · WGSL', 'Actif · WGSL')}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="loaded-model-name">{t('No model loaded', 'Aucun modèle chargé')}</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t('Configure the sidebar', 'Configurez la barre latérale')}</span>
-              </>
-            )}
+              )}
+            </div>
           </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             {displayModelName && !isMobile && (
               <button
                 className="btn btn-danger"
                 onClick={unloadActiveModel}
                 disabled={modelState === 'generating' || benchRunning}
                 title={t('Unload model', 'Décharger le modèle')}
-                style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center' }}
+                style={{ padding: '5px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', height: 32 }}
               >
                 {t('Unload', 'Décharger')}
               </button>
             )}
-            {/* Deux liens, pas quatre (arbitrage de Romain, 2026-08-14). « Pour les sites » et
-                « Convertir » sont des destinations de DÉCOUVERTE : leur place est sur la landing et
-                dans le hub /docs, pas dans une barre qu'on regarde en travaillant. Rien n'est
-                orphelin — les deux restent accessibles depuis /docs (cartes du hub) et depuis la
-                landing. Et l'en-tête du chat cesse de proposer quatre sorties à qui vient de
-                charger un modèle pour discuter. */}
+            <button
+              className="circle-btn"
+              onClick={() => setOptionsOpen(true)}
+              title={t('Settings', 'Réglages')}
+              style={{ flexShrink: 0 }}
+            >
+              <Settings size={16} />
+            </button>
+            <button
+              className="circle-btn"
+              onClick={() => setStorageOpen(true)}
+              title={t('Storage', 'Stockage')}
+              style={{ flexShrink: 0 }}
+            >
+              <HardDrive size={16} />
+            </button>
             <Link
               href={href('/docs')}
               title={t('Documentation', 'Documentation')}
@@ -3431,158 +3509,118 @@ function App() {
           </div>
         </header>
 
-        {/* Messages */}
+        {/* Messages / Welcome View */}
         <div className="messages-container" ref={messagesScrollRef} onScroll={onMessagesScroll}>
-          {modelState === 'idle' && messages.length === 0 && (
-            <div className="welcome-screen">
-              {/* La marque en tête d'accueil (la puce qui sourit, cf. BrandMark). */}
-              <BrandMark size={64} className="welcome-mark" />
-              <h2 className="welcome-title">{t('Brimkern · Local WebGPU inference', 'Brimkern · Inférence WebGPU locale')}</h2>
-              <div className="welcome-rule" />
-              {webGpuSupported === false ? (
-                /* Accueil dédié « navigateur incompatible » : sans WebGPU la page était un produit
-                   mort (seul un badge sidebar l'expliquait) — trafic Reddit/X in-app typiquement.
-                   Ici : la proposition, le chemin (Chrome/Edge), un lien à emporter. */
-                <>
-                  <p className="welcome-subtitle">
-                    {t("This browser has no WebGPU, so no model can run here. Everything Brimkern does: chat, image generation, vision. Runs 100% locally in a compatible browser, with no server.",
-                       "Ce navigateur ne prend pas en charge WebGPU : aucun modèle ne peut tourner ici. Tout ce que fait Brimkern : chat, génération d'images, vision. S'exécute pourtant 100 % en local dans un navigateur compatible, sans aucun serveur.")}
-                  </p>
-                  <div className="welcome-steps">
-                    <div className="welcome-step">
-                      <div className="welcome-step-num">{t('the fix', 'la solution')}</div>
-                      <div className="welcome-step-title">{t('Open in Chrome or Edge', 'Ouvrez dans Chrome ou Edge')}</div>
-                      <div className="welcome-step-desc">
-                        {t('A recent Chrome or Edge, on desktop or Android. From the Reddit or X in-app browser, pick “Open in browser”.',
-                           'Un Chrome ou Edge récent, sur ordinateur ou Android. Depuis le navigateur intégré de Reddit ou X, choisissez « Ouvrir dans le navigateur ».')}
-                      </div>
-                    </div>
-                    <div className="welcome-step">
-                      <div className="welcome-step-num">{t('already on Chrome?', 'déjà sur Chrome ?')}</div>
-                      <div className="welcome-step-title">{t('Check the acceleration', "Vérifiez l'accélération")}</div>
-                      <div className="welcome-step-desc">
-                        {t('Settings → System → “Use graphics acceleration when available”, then restart the browser (chrome://gpu to diagnose).',
-                           "Paramètres → Système → « Utiliser l'accélération graphique si disponible », puis redémarrez le navigateur (chrome://gpu pour diagnostiquer).")}
-                      </div>
+          {messages.length === 0 && modelState !== 'loading' && modelState !== 'initializing' && modelState !== 'error' && (
+            webGpuSupported === false ? (
+              <div className="welcome-screen">
+                <BrandMark size={64} className="welcome-mark" />
+                <h2 className="welcome-title">{t('Brimkern · Local WebGPU inference', 'Brimkern · Inférence WebGPU locale')}</h2>
+                <div className="welcome-rule" />
+                <p className="welcome-subtitle">
+                  {t("This browser has no WebGPU, so no model can run here. Everything Brimkern does: chat, image generation, vision. Runs 100% locally in a compatible browser, with no server.",
+                     "Ce navigateur ne prend pas en charge WebGPU : aucun modèle ne peut tourner ici. Tout ce que fait Brimkern : chat, génération d'images, vision. S'exécute pourtant 100 % en local dans un navigateur compatible, sans aucun serveur.")}
+                </p>
+                <div className="welcome-steps">
+                  <div className="welcome-step">
+                    <div className="welcome-step-num">{t('the fix', 'la solution')}</div>
+                    <div className="welcome-step-title">{t('Open in Chrome or Edge', 'Ouvrez dans Chrome ou Edge')}</div>
+                    <div className="welcome-step-desc">
+                      {t('A recent Chrome or Edge, on desktop or Android. From the Reddit or X in-app browser, pick “Open in browser”.',
+                         'Un Chrome ou Edge récent, sur ordinateur ou Android. Depuis le navigateur intégré de Reddit ou X, choisissez « Ouvrir dans le navigateur ».')}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '28px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                    <button className="btn btn-primary" style={{ fontSize: '13px', padding: '8px 16px' }} onClick={copyPageLink}>
-                      {linkCopied ? <><CheckCircle size={14} /> {t('Link copied', 'Lien copié')}</> : t('Copy the link for later', 'Copier le lien pour plus tard')}
-                    </button>
-                    <a className="btn" style={{ fontSize: '13px', padding: '8px 16px' }} href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer">
-                      {t('View the code on GitHub', 'Voir le code sur GitHub')}
-                    </a>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="welcome-subtitle">
-                    {t(
-                      'Run open-source AI directly on your device via WebGPU. Private, offline-capable, and completely free.',
-                      'Faites tourner des modèles d’IA directement sur votre machine grâce à WebGPU. Privé, gratuit et sans aucun serveur.'
-                    )}
-                  </p>
-
-                  {/* Choix direct du modèle : 2 cartes claires pour démarrer sans hésitation */}
-                  <div className="welcome-choice-grid">
-                    <div className="welcome-choice-card recommended">
-                      <div className="welcome-choice-badge">
-                        <Sparkles size={12} /> {t('Recommended · Instant start', 'Recommandé · Démarrage instantané')}
-                      </div>
-                      <h3 className="welcome-choice-title">LFM2.5 230M</h3>
-                      <p className="welcome-choice-desc">
-                        {t('149 MB · Extremely fast · Ideal for quick answers and chat.', '149 Mo · Ultra-rapide · Idéal pour des réponses vives au quotidien.')}
-                      </p>
-                      <button
-                        className="btn btn-primary welcome-choice-btn"
-                        onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
-                      >
-                        <Sparkles size={14} /> {t('Start chatting', 'Démarrer la discussion')}
-                      </button>
-                    </div>
-
-                    <div className="welcome-choice-card">
-                      <div className="welcome-choice-badge secondary">
-                        {t('Smart & Fluent', 'Polyvalent & Raisonnement')}
-                      </div>
-                      <h3 className="welcome-choice-title">Qwen 2.5 0.5B</h3>
-                      <p className="welcome-choice-desc">
-                        {t('378 MB · Strong at reasoning, coding and French.', '378 Mo · Très performant en français, code et logique.')}
-                      </p>
-                      <button
-                        className="btn btn-secondary welcome-choice-btn"
-                        onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL, 'welcome')}
-                      >
-                        {t('Start with Qwen', 'Démarrer avec Qwen')}
-                      </button>
+                  <div className="welcome-step">
+                    <div className="welcome-step-num">{t('already on Chrome?', 'déjà sur Chrome ?')}</div>
+                    <div className="welcome-step-title">{t('Check the acceleration', "Vérifiez l'accélération")}</div>
+                    <div className="welcome-step-desc">
+                      {t('Settings → System → “Use graphics acceleration when available”, then restart the browser (chrome://gpu to diagnose).',
+                         "Paramètres → Système → « Utiliser l'accélération graphique si disponible », puis redémarrez le navigateur (chrome://gpu pour diagnostiquer).")}
                     </div>
                   </div>
-
-                  {prefetchStatus(true)}
-
-                  {/* Suggestions d'inspiration en 1 clic */}
-                  <div className="welcome-prompts-section">
-                    <div className="welcome-prompts-label">
-                      {t('Or ask directly (model starts automatically):', 'Ou commencez directement avec une question :')}
-                    </div>
-                    <div className="welcome-prompts-pills">
-                      {[
-                        { title: t('Explain WebGPU', 'Expliquer le WebGPU'), text: t("Explain what WebGPU is and why running models locally in the browser is revolutionary.", "Explique-moi ce qu'est WebGPU et pourquoi exécuter des modèles en local dans l'onglet est révolutionnaire.") },
-                        { title: t('Write Python code', 'Écrire du code Python'), text: t('Write a simple Python script that sorts a list of users by descending score.', "Rédige un script Python simple qui trie une liste d'utilisateurs par score décroissant.") },
-                        { title: t('Creative ideas', 'Idées créatives'), text: t('Suggest 3 innovative project concepts using local AI in the browser.', "Propose-moi 3 concepts de projets innovants utilisant l'IA locale dans le navigateur.") },
-                      ].map((item, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          className="welcome-prompt-pill"
-                          onClick={() => handlePresetPromptClick(item.text)}
-                        >
-                          <span>💡 {item.title}</span>
-                          <ArrowRight size={11} style={{ opacity: 0.7 }} />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Actions secondaires discrètes */}
-                  <div className="welcome-secondary-actions">
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}
-                      onClick={() => setBrowseOpen(true)}
-                    >
-                      <Database size={13} /> {t('Browse all models (GGUF, Vision, Images…)', 'Parcourir tous les modèles (GGUF, Vision, Images…)')}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}
-                      onClick={() => setCustomModelOpen((o) => !o)}
-                    >
-                      <span>{customModelOpen ? '▲' : '▼'} {t('Paste a custom Hugging Face model', 'Coller un modèle Hugging Face personnalisé')}</span>
-                    </button>
-                  </div>
-
-                  {customModelOpen && (
-                    <div style={{ marginTop: '16px', textAlign: 'left', width: '100%', maxWidth: 540, marginLeft: 'auto', marginRight: 'auto', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
-                      <HfModelInput onLoad={loadModelFromInput} examples={HOME_HF_EXAMPLES} compact />
-                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '28px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <button className="btn btn-primary" style={{ fontSize: '13px', padding: '8px 16px' }} onClick={copyPageLink}>
+                    {linkCopied ? <><CheckCircle size={14} /> {t('Link copied', 'Lien copié')}</> : t('Copy the link for later', 'Copier le lien pour plus tard')}
+                  </button>
+                  <a className="btn" style={{ fontSize: '13px', padding: '8px 16px' }} href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer">
+                    {t('View the code on GitHub', 'Voir le code sur GitHub')}
+                  </a>
+                </div>
+              </div>
+            ) : (
+              /* Accueil épuré façon Claude */
+              <div className="claude-hero-wrap">
+                <BrandMark size={52} className="welcome-mark" />
+                <h2 className="claude-hero-title">
+                  {t('What would you like to explore?', 'Que souhaitez-vous explorer ?')}
+                </h2>
+                <p className="claude-hero-subtitle">
+                  {t(
+                    'Run open-source AI models directly on your device via WebGPU. Private, offline and free.',
+                    'Faites tourner des modèles d’IA directement sur votre machine grâce à WebGPU. Privé, gratuit et sans aucun serveur.'
                   )}
+                </p>
 
-                  <ByLine />
-                </>
-              )}
-            </div>
+                {prefetchStatus(true)}
+
+                {/* Boîte de saisie au centre (mode hero) */}
+                <div style={{ width: '100%', marginTop: '10px', marginBottom: '8px' }}>
+                  <Composer variant="hero" {...composerProps} />
+                </div>
+
+                {/* Suggestions d'inspiration en 1 clic */}
+                <div className="claude-hero-prompts">
+                  {[
+                    { title: t('Explain WebGPU', 'Expliquer le WebGPU'), text: t("Explain what WebGPU is and why running models locally in the browser is revolutionary.", "Explique-moi ce qu'est WebGPU et pourquoi exécuter des modèles en local dans l'onglet est révolutionnaire.") },
+                    { title: t('Write Python code', 'Écrire du code Python'), text: t('Write a simple Python script that sorts a list of users by descending score.', "Rédige un script Python simple qui trie une liste d'utilisateurs par score décroissant.") },
+                    { title: t('Creative ideas', 'Idées créatives'), text: t('Suggest 3 innovative project concepts using local AI in the browser.', "Propose-moi 3 concepts de projets innovants utilisant l'IA locale dans le navigateur.") },
+                  ].map((item, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="claude-prompt-pill"
+                      onClick={() => handlePresetPromptClick(item.text)}
+                    >
+                      <span>💡 {item.title}</span>
+                      <ArrowRight size={11} style={{ opacity: 0.7 }} />
+                    </button>
+                  ))}
+                </div>
+
+                {/* Actions secondaires discrètes */}
+                <div className="claude-hero-secondary-links">
+                  <button
+                    type="button"
+                    className="claude-hero-secondary-btn"
+                    onClick={() => setBrowseOpen(true)}
+                  >
+                    <Database size={13} /> {t('Browse all models (GGUF, Vision, Images…)', 'Parcourir tous les modèles (GGUF, Vision, Images…)')}
+                  </button>
+                  <button
+                    type="button"
+                    className="claude-hero-secondary-btn"
+                    onClick={() => setCustomModelOpen((o) => !o)}
+                  >
+                    <span>{customModelOpen ? '▲' : '▼'} {t('Custom Hugging Face model', 'Modèle Hugging Face personnalisé')}</span>
+                  </button>
+                </div>
+
+                {customModelOpen && (
+                  <div style={{ marginTop: '16px', textAlign: 'left', width: '100%', maxWidth: 540, marginLeft: 'auto', marginRight: 'auto', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                    <HfModelInput onLoad={loadModelFromInput} examples={HOME_HF_EXAMPLES} compact />
+                  </div>
+                )}
+
+                <ByLine />
+              </div>
+            )
           )}
 
           {(modelState === 'initializing' || modelState === 'loading') && (
             <div className="model-loading-overlay">
               <div className="spinner"></div>
               <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)' }}>{loadingStep}</h3>
-              {/* Journal des étapes : ce que le moteur fait vraiment (téléchargement, quantification,
-                  validation…) — l'étape courante en tête, les précédentes cochées. */}
               {loadingLog.length > 1 && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)', textAlign: 'left', width: '100%', maxWidth: 420 }}>
                   {loadingLog.map((l, i) => (
@@ -3594,11 +3632,6 @@ function App() {
               )}
               
               {loadingProgress && (
-                // Largeur alignée sur le journal des étapes au-dessus (420) : à 300 px les trois
-                // libellés (« 63 % », « 23,1 Mo/s · ~10 s restantes », « 383,23 Mo / 609,82 Mo »)
-                // ne tenaient pas et le dernier repassait à la ligne — le bloc sautait d'une ligne
-                // à l'autre pendant tout le téléchargement. nowrap + un seul chiffre après la
-                // virgule + l'unité une seule fois : la ligne reste courte ET stable.
                 <div style={{ width: '100%', maxWidth: '420px' }}>
                   <div className="progress-bar-container">
                     <div
@@ -3625,9 +3658,6 @@ function App() {
                   <p style={{ fontSize: '13px', lineHeight: '1.4', color: 'var(--text-secondary)', whiteSpace: 'pre-line' }}>
                     {errorMsg}
                   </p>
-                  {/* Vraies portes de sortie : recharger (le chemin nominal après une perte GPU),
-                      inspecter/vider le stockage (cache modèle corrompu ou saturé), et l'accueil
-                      en dernier recours — « Retour à l'accueil » seul laissait l'utilisateur bloqué. */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '16px' }}>
                     {(loadedModelUrl || isMobile) && (
                       <button
@@ -3658,95 +3688,57 @@ function App() {
             </div>
           )}
 
-          <ChatMessages
-            messages={messages}
-            modelState={modelState}
-            copiedIndex={copiedIndex}
-            copyToClipboard={copyToClipboard}
-            messagesEndRef={messagesEndRef}
-            onRevealImage={revealImage}
-            canReveal={!!imageGen}
-            onUpscaleImage={handleUpscaleImage}
-            upscalingId={upscalingId}
-            onRefineImage={imageGen ? handleRefineImage : undefined}
-            onContinue={handleContinue}
-            busy={modelState === 'generating'}
-            showReasoning={showReasoning}
-          />
+          {/* Fil de discussion */}
+          {messages.length > 0 && (
+            <ChatMessages
+              messages={messages}
+              modelState={modelState}
+              copiedIndex={copiedIndex}
+              copyToClipboard={copyToClipboard}
+              messagesEndRef={messagesEndRef}
+              onRevealImage={revealImage}
+              canReveal={!!imageGen}
+              onUpscaleImage={handleUpscaleImage}
+              upscalingId={upscalingId}
+              onRefineImage={imageGen ? handleRefineImage : undefined}
+              onContinue={handleContinue}
+              busy={modelState === 'generating'}
+              showReasoning={showReasoning}
+            />
+          )}
         </div>
 
-        {/* Suggestions card — adaptées à la modalité du modèle chargé (image / vision / texte). */}
-        {modelState === 'ready' && messages.length <= 1 && (() => {
+        {/* Suggestions cards adaptées (au début d'une discussion avec 1 message) */}
+        {modelState === 'ready' && messages.length === 1 && (() => {
           const promptMode: PromptMode = videoGen ? 'video' : imageGen ? 'image' : visionSession ? 'vision' : 'text';
           const suggestions = SUGGESTED_PROMPTS(t, promptMode);
           return (
-          <div style={{ maxWidth: '850px', width: '100%', margin: '0 auto 16px', padding: '0 24px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
-              {/* Mobile : UNE seule suggestion — trois cartes longues masquaient le message de
-                  bienvenue du modèle (specs) sur un petit écran. */}
-              {(isMobile ? suggestions.slice(0, 1) : suggestions).map((item, idx) => (
-                <div
-                  key={idx}
-                  className="card"
-                  style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' }}
-                  // Vision : on REMPLIT le champ (l'utilisateur doit joindre une image avant d'envoyer) ;
-                  // image/texte : envoi direct comme avant.
-                  onClick={() => promptMode === 'vision' ? setUserInput(item.text) : handlePresetPromptClick(item.text)}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    {item.title} <ArrowRight size={12} style={{ color: 'var(--accent)' }} />
+            <div style={{ maxWidth: '840px', width: '100%', margin: '0 auto 12px', padding: '0 20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                {(isMobile ? suggestions.slice(0, 1) : suggestions).map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="card"
+                    style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px' }}
+                    onClick={() => promptMode === 'vision' ? setUserInput(item.text) : handlePresetPromptClick(item.text)}
+                  >
+                    <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      {item.title} <ArrowRight size={12} style={{ color: 'var(--accent)' }} />
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                      "{item.text.length > 60 ? item.text.slice(0, 60) + '…' : item.text}"
+                    </div>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                    "{item.text.length > 70 ? item.text.slice(0, 70) + '…' : item.text}"
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
           );
         })()}
 
-        {/* Input bar */}
-        <Composer
-          attachments={attachments}
-          setAttachments={setAttachments}
-          modelArchType={modelArchType}
-          modelState={modelState}
-          reflectionLevel={reflectionLevel}
-          setReflectionLevel={setReflectionLevel}
-          benchRunning={benchRunning}
-          activeSkills={activeSkills}
-          setSkillsOpen={setSkillsOpen}
-          textareaRef={textareaRef}
-          handlePaste={handlePaste}
-          isMobile={isMobile}
-          userInput={userInput}
-          setUserInput={setUserInput}
-          handleSendMessage={handleSendMessage}
-          handleStopGeneration={handleStopGeneration}
-          contextOver={contextOver}
-          contextTokens={contextTokens}
-          imageMode={!!imageGen}
-          videoMode={!!videoGen}
-          videoFrames={videoFrames}
-          setVideoFrames={setVideoFrames}
-          imageSize={imageSize}
-          setImageSize={setImageSize}
-          imageRatio={imageRatio}
-          setImageRatio={setImageRatio}
-          imageQuality={imageQuality}
-          setImageQuality={setImageQuality}
-          nativeHighRes={isNativeHighRes(imageGen)}
-          imageCeiling={imageCeiling}
-          webSearchOn={webSearchOn || urlReadOn}
-          visionMode={!!visionSession}
-          pendingImage={pendingImage}
-          setPendingImage={setPendingImage}
-          messageQueue={messageQueue}
-          onRemoveQueued={handleRemoveQueued}
-          onEditQueued={handleEditQueued}
-          onClearQueue={handleClearQueue}
-        />
+        {/* Input bar docked (uniquement en cours de conversation) */}
+        {messages.length > 0 && (
+          <Composer variant="docked" {...composerProps} />
+        )}
       </main>
 
       {optionsOpen && (
