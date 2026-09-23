@@ -189,7 +189,7 @@ export default function CliClient() {
           </div>
 
           <div style={{ color: 'var(--text-muted)', fontSize: 11.5, margin: '6px 0' }}>
-            [Brimkern WGSL] {t('Model: LFM2.5 230M Coder (BRIK int4) • WebGPU inference...', 'Modèle : LFM2.5 230M Coder (BRIK int4) • Inférence WebGPU...')}
+            [Brimkern WGSL] {t('Model: Qwen 3 4B (BRIK int4) • WebGPU inference...', 'Modèle : Qwen 3 4B (BRIK int4) • Inférence WebGPU...')}
           </div>
 
           <div style={{ color: 'var(--text-primary)', marginTop: 8 }}>
@@ -375,58 +375,33 @@ export default function CliClient() {
       <Section id="presets" title={t('Models & the .brik Format', 'Modèles & format .brik')}>
         <P>
           {t(
-            'The CLI is pre-configured with curated, lightweight models packaged in the .brik format. Weights stream once over HTTP Range requests and are cached permanently in ~/.cache/brimkern/chrome-profile for instant offline reuse.',
-            'La CLI est pré-configurée avec des modèles sélectionnés, légers et empaquetés au format .brik. Les poids streamment une seule fois par plages HTTP et restent mis en cache dans ~/.cache/brimkern/chrome-profile pour un démarrage hors-ligne instantané.'
+            'The CLI ships with two presets, chosen by benchmark on real developer questions. Weights stream once over HTTP Range requests and stay cached in ~/.cache/brimkern: the next launch reads them from disk, offline included.',
+            'La CLI propose deux presets, retenus par banc sur de vraies questions de développeur. Les poids sont téléchargés une seule fois par plages HTTP et restent en cache dans ~/.cache/brimkern : le lancement suivant les relit depuis le disque, hors-ligne compris.'
           )}
         </P>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, margin: '18px 0' }}>
           <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--accent-text)' }}>coder (défaut)</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>149 Mo</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--accent-text)' }}>coder {t('(default)', '(défaut)')}</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{t('2.53 GB', '2,53 Go')}</span>
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('LFM2.5 230M Coder (BRIK int4). Tailored specifically for code generation, bug fixing, refactoring, and code review.',
-                 'LFM2.5 230M Coder (BRIK int4). Spécialisé pour la génération de code, la correction de bugs, le refactoring et la revue technique.')}
+              {t('Qwen 3 4B (BRIK int4), native Dawn engine. The most reliable of the models we tested on code questions, ~13-16 tok/s on an M-series Mac. Step-by-step reasoning on demand with /think deep.',
+                 'Qwen 3 4B (BRIK int4), moteur natif Dawn. Le plus fiable des modèles testés sur des questions de code, ~13-16 tok/s sur un Mac série M. Raisonnement pas à pas à la demande avec /think deep.')}
             </p>
             <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder &quot;...&quot;</code>
           </div>
-
           <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>coder-0.5b</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>491 Mo</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>fast</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{t('1.12 GB', '1,12 Go')}</span>
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('Qwen 2.5 Coder 0.5B (GGUF int4). Ultra-compact coder fine-tuned for scripting, quick fixes, and syntactic correctness.',
-                 'Qwen 2.5 Coder 0.5B (GGUF int4). Modèle compact spécialisé dev : scripts, petits correctifs et exactitude syntaxique.')}
+              {t('Qwen 2.5 Coder 1.5B (GGUF Q4_K_M). About twice as fast (~25 tok/s) and half the download; makes more mistakes, so review the code it suggests.',
+                 'Qwen 2.5 Coder 1.5B (GGUF Q4_K_M). Environ deux fois plus rapide (~25 tok/s) et deux fois plus léger ; se trompe plus souvent, relisez le code proposé.')}
             </p>
-            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder-0.5b &quot;...&quot;</code>
-          </div>
-
-          <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>coder-1.5b</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>1,12 Go</span>
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('Qwen 2.5 Coder 1.5B (GGUF int4). Advanced architectural reasoning, deeper refactoring, and test suite generation.',
-                 'Qwen 2.5 Coder 1.5B (GGUF int4). Raisonnement d’architecture avancé, refactoring profond et génération de suites de tests.')}
-            </p>
-            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder-1.5b &quot;...&quot;</code>
-          </div>
-
-          <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>rwkv</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>304 Mo</span>
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('RWKV-7 G1a 0.4B (BRIK). Linear attention recurrent architecture (Apache 2.0), constant memory state replacing KV cache.',
-                 'RWKV-7 G1a 0.4B (BRIK). Architecture RNN à attention linéaire (Apache 2.0), état mémoire constant remplaçant le cache KV.')}
-            </p>
-            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m rwkv &quot;...&quot;</code>
+            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m fast &quot;...&quot;</code>
           </div>
         </div>
 
@@ -450,8 +425,8 @@ export default function CliClient() {
 
         <Param name="-m, --model=<preset|url|path>" type="string">
           {t(
-            'Model to run. Preset name (coder, coder-0.5b, coder-1.5b, qwen-0.5b, rwkv, lfm2), remote URL to a .brik or .gguf file, or local path. Default: coder.',
-            'Modèle à exécuter. Nom de preset (coder, coder-0.5b, coder-1.5b, qwen-0.5b, rwkv, lfm2), URL vers un fichier .brik/.gguf, ou chemin local. Défaut : coder.'
+            'Model to run. Preset name (coder, fast), remote URL to a .brik or .gguf file, or local path. Default: coder.',
+            'Modèle à exécuter. Nom de preset (coder, fast), URL vers un fichier .brik/.gguf, ou chemin local. Défaut : coder.'
           )}
         </Param>
 

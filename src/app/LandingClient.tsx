@@ -420,7 +420,7 @@ export default function LandingClient() {
 cat src/app.ts | npx brimkern "Find potential bugs"
 
 # ${t('Interactive REPL with local GPU caching', 'REPL interactif avec cache GPU local')}
-npx brimkern chat --preset=coder`}</pre>
+npx brimkern chat --model=coder`}</pre>
         </section>
 
         {/* ── LES PORTES ───────────────────────────────────────────────────────────────────────── */}

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'CLI Brimkern : Inférence WebGPU accélérée matériellement dans votre terminal',
     description:
-      'Exécutez des LLMs orientés code directement depuis votre shell grâce aux kernels WGSL écrits à la main. Compatible pipes Unix, chaînage stdin et REPL interactif avec des modèles .brik de 149 Mo.',
+      'Exécutez des LLMs orientés code directement depuis votre shell grâce aux kernels WGSL écrits à la main. Compatible pipes Unix, chaînage stdin et REPL interactif, avec Qwen 3 4B exécuté sur votre GPU.',
     url: `${SITE_URL}/fr/cli`,
     type: 'article',
   },

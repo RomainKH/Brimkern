@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Brimkern CLI: Hardware-accelerated WebGPU inference in your terminal',
     description:
-      'Run coding LLMs directly from your shell using hand-written WGSL kernels. Supports Unix pipes, stdin chaining, and interactive REPL with 149 MB .brik weights.',
+      'Run coding LLMs directly from your shell using hand-written WGSL kernels. Supports Unix pipes, stdin chaining, and an interactive REPL, with Qwen 3 4B running on your GPU.',
     url: `${SITE_URL}/cli`,
     type: 'article',
   },

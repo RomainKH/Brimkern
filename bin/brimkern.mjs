@@ -41,73 +41,64 @@ function getSdkMjsPath() {
   return null;
 }
 
-// ── Modèles préconfigurés (spécifiques code & brik) ───────────────────────────────────
+// ── Modèles préconfigurés ──────────────────────────────────────────────────────────────
+// Liste COURTE et mesurée (banc 2026-09-23, Mac Metal, cache chaud, 3 questions dev : explication
+// TS, fonction de dédoublonnage, diagnostic `this` en fonction fléchée). Seuls restent les modèles
+// qui répondent juste ; les 230M / RWKV / 0.5B donnaient l'impression d'un outil cassé (réponses
+// hors sujet, présentations de soi en boucle). C'est la seule source : aide, sélecteur et /models
+// lisent cette table.
 const PRESET_CLI_MODELS = {
   'coder': {
-    name: 'LFM2.5 230M Coder (BRIK int4)',
-    url: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
+    name: 'Qwen 3 4B (BRIK int4)',
+    shortName: 'Qwen 3 4B',
+    url: 'https://huggingface.co/romainkh14/Qwen3-4B_BRIK/resolve/main/qwen3-4b-q4.brik',
     format: 'brik',
-    size: '149 Mo',
-    defaultSystem: 'You are Brimkern Code, an expert software engineer. Provide high-quality, production-ready, clean and concise code with minimal explanations. Format code blocks using markdown syntax.',
-    desc: 'Spécialisé pour le code : génération, refactoring, debug et revue technique.'
+    formatLabel: 'BRIK int4',
+    runtime: 'WebGPU (Natif Dawn)',
+    size: '2,53 Go',
+    badge: 'Recommandé',
+    qwen3Think: true,
+    defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
+    desc: 'Le plus fiable des modèles testés : explications et code justes, ~13-16 tok/s. Réflexion : /think deep.',
   },
-  'lfm2': {
-    name: 'LFM2.5 230M Généraliste (BRIK int4)',
-    url: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
-    format: 'brik',
-    size: '149 Mo',
-    defaultSystem: 'You are Brimkern, a fast and helpful local AI assistant running on WebGPU.',
-    desc: 'Ultra-léger, ultra-rapide, consommation VRAM minimale.'
-  },
-  'qwen-0.5b': {
-    name: 'Qwen 2.5 0.5B Instruct (BRIK mixte)',
-    url: 'https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik',
-    format: 'brik',
-    size: '377 Mo',
-    defaultSystem: 'You are Brimkern, a helpful and precise coding assistant running on WebGPU.',
-    desc: 'Qwen 2.5 en format BRIK streamé : léger, rapide et capable sur petit GPU.'
-  },
-  'coder-0.5b': {
-    name: 'Qwen 2.5 Coder 0.5B Instruct (GGUF)',
-    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
-    format: 'gguf',
-    size: '491 Mo',
-    defaultSystem: 'You are Brimkern Code, an expert software engineer. Provide high-quality code and concise explanations.',
-    desc: 'Qwen 2.5 Coder 0.5B spécialisé dev : scripts, fonctions, syntaxe et debug rapide.'
-  },
-  'coder-1.5b': {
+  'fast': {
     name: 'Qwen 2.5 Coder 1.5B Instruct (GGUF)',
+    shortName: 'Qwen 2.5 Coder 1.5B',
     url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
     format: 'gguf',
+    formatLabel: 'GGUF Q4_K_M',
+    runtime: 'WebGPU (Chromium)',
     size: '1,12 Go',
-    defaultSystem: 'You are Brimkern Code, an expert software architect and engineer. Provide comprehensive, production-ready code with best practices.',
-    desc: 'Qwen 2.5 Coder 1.5B : logique poussée, architecture, tests et refactoring lourd.'
-  },
-  'rwkv': {
-    name: 'RWKV-7 G1a 0.4B (BRIK int4)',
-    url: 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
-    format: 'brik',
-    size: '304 Mo',
-    defaultSystem: 'You are a helpful coding assistant.',
-    desc: 'Architecture RNN linéaire RWKV-7 en format BRIK (mémoire constante).'
-  },
-  'rwkv-0.4b': {
-    name: 'RWKV-7 G1a 0.4B (BRIK int4)',
-    url: 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
-    format: 'brik',
-    size: '304 Mo',
-    defaultSystem: 'You are a helpful coding assistant.',
-    desc: 'Architecture RNN linéaire RWKV-7 en format BRIK (mémoire constante).'
-  },
-  'rwkv-0.1b': {
-    name: 'RWKV-7 G1 0.1B (BRIK int4)',
-    url: 'https://huggingface.co/romainkh14/RWKV-7-G1-0.1B_BRIK/resolve/main/rwkv7-g1-0.1b-q4.brik',
-    format: 'brik',
-    size: '128 Mo',
-    defaultSystem: 'You are a helpful coding assistant.',
-    desc: 'Modèle RWKV-7 ultra-compact (128 Mo), état récurrent de ~1 Mo.'
+    badge: 'Rapide',
+    defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
+    desc: 'Deux fois plus rapide (~25 tok/s), plus léger ; relire le code proposé, il se trompe plus souvent.',
   },
 };
+
+// Anciennes clés : alias vers les nouvelles (qwen3-4b, coder-1.5b) ou retrait annoncé — jamais
+// un modèle différent chargé en silence sous un nom connu.
+const MODEL_ALIASES = { 'qwen3-4b': 'coder', 'coder-1.5b': 'fast' };
+const RETIRED_MODELS = new Set(['coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b']);
+
+function resolveModelKey(key) {
+  if (!key) return 'coder';
+  if (MODEL_ALIASES[key]) return MODEL_ALIASES[key];
+  if (RETIRED_MODELS.has(key)) {
+    process.stderr.write(`${C.yellow}ℹ Le preset « ${key} » a été retiré (réponses trop peu fiables) : utilisation de « coder » (${PRESET_CLI_MODELS.coder.shortName}). Pour le forcer, passez son URL avec --model=.${C.reset}\n`);
+    return 'coder';
+  }
+  return key;
+}
+
+// Suffixe de réflexion selon le modèle. Qwen 3 n'obéit qu'à ses interrupteurs /think et
+// /no_think : la consigne en français de « off » était ignorée et il consommait tout son budget
+// de tokens à réfléchir (300/300 au banc). Sans réflexion par défaut, /think deep la rend.
+function thinkSuffixFor(modelKey, level) {
+  if (PRESET_CLI_MODELS[modelKey]?.qwen3Think) {
+    return level === 'deep' ? ' /think' : ' /no_think';
+  }
+  return (THINKING_LEVELS[level] || THINKING_LEVELS.auto).promptSuffix;
+}
 
 // ── Palette ANSI "Le Kern" (rouge carmin, papier, encre) ─────────────────────────────
 const C = {
@@ -136,7 +127,11 @@ const CLI_MODES = {
     badge: `${C.cyan}[CODE]${C.reset}`,
     color: C.cyan,
     desc: 'Génération directe de code, syntaxe exacte et concision',
-    systemSuffix: '\n[MODE: CODE] Fournis du code propre, directement utilisable en production, avec des explications minimales et ciblées.'
+    // Pas de consigne ajoutée : c'est le mode par défaut et le prompt système dit déjà « code juste ».
+    // Collée à CHAQUE message, « Fournis du code propre… » faisait répondre `print("Bonjour")` à
+    // « dis bonjour » (3/3 sur Qwen 3 4B), et le modèle la récitait (« du code propre et
+    // directement utilisable en production »).
+    systemSuffix: ''
   },
   plan: {
     name: 'plan',
@@ -567,6 +562,49 @@ class ThinkStreamFilter {
   }
 }
 
+// Affichage d'un flux de génération (REPL et one-shot). Les en-têtes Réflexion/Réponse ne
+// s'impriment qu'au premier caractère non blanc : Qwen 3 en /no_think émet un bloc
+// <think></think> VIDE, qui laissait « 💭 [Réflexion] » suivi de lignes blanches.
+function createStreamPrinter(spinner, onChunk) {
+  let started = false;
+  let thinkOpen = false;      // <think> vu, en-tête pas encore imprimé
+  let thinkPrinted = false;
+  let answerStarted = false;  // les blancs en tête de réponse sont avalés
+  const firstOutput = () => {
+    if (!started) { started = true; spinner.stop(true); }
+  };
+  return new ThinkStreamFilter({
+    onToken: (tok, isThink) => {
+      onChunk();
+      if (isThink) {
+        if (!thinkPrinted) {
+          if (!tok.trim()) return;
+          firstOutput();
+          process.stdout.write(`\n${C.sand}💭 [Réflexion]${C.reset}\n`);
+          thinkPrinted = true;
+          tok = tok.replace(/^\s+/, '');
+        }
+        process.stdout.write(`${C.dim}${C.italic}${tok}${C.reset}`);
+        return;
+      }
+      if (!answerStarted) {
+        tok = tok.replace(/^\s+/, '');
+        if (!tok) return;
+        answerStarted = true;
+      }
+      firstOutput();
+      process.stdout.write(tok);
+    },
+    onThinkStart: () => { thinkOpen = true; },
+    onThinkEnd: () => {
+      if (thinkOpen && thinkPrinted) {
+        process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [Réponse]${C.reset}\n`);
+      }
+      thinkOpen = false;
+    },
+  });
+}
+
 // ── Génération de la ligne d'état dynamique au-dessus du prompt ─────────────────────
 function renderPromptStatus(engine, mode, thinkLevel) {
   const modeInfo = CLI_MODES[mode] || CLI_MODES.code;
@@ -896,9 +934,13 @@ class BrimkernNativeDawnEngine {
         signal,
         onToken: (acc) => {
           if (onToken) {
-            const delta = acc.slice(lastLen);
-            lastLen = acc.length;
-            onToken(delta);
+            // Un emoji découpé en plusieurs tokens arrive d'abord en « \uFFFD » que le SDK remplace
+            // au token suivant : on retient la queue non résolue, sinon « �� » restait à l'écran.
+            const stable = acc.replace(/\uFFFD+$/, '');
+            if (stable.length > lastLen) {
+              onToken(stable.slice(lastLen));
+              lastLen = stable.length;
+            }
           }
         },
       }));
@@ -1071,9 +1113,12 @@ class BrimkernChromiumEngine {
         const text = await window.session.ask(p, {
           signal: window._currentAbort.signal,
           onToken: (acc) => {
-            const delta = acc.slice(lastLen);
-            lastLen = acc.length;
-            if (delta) pending = window.onTokenBridge(delta);
+            // Queue « \uFFFD » retenue jusqu'à résolution (emoji sur plusieurs tokens).
+            const stable = acc.replace(/\uFFFD+$/, '');
+            if (stable.length > lastLen) {
+              pending = window.onTokenBridge(stable.slice(lastLen));
+              lastLen = stable.length;
+            }
           }
         });
         await pending;
@@ -1110,6 +1155,7 @@ class BrimkernChromiumEngine {
 
 // ── Fabrique unifiée de moteur CLI ───────────────────────────────────────────────────
 async function createCliEngine(options = {}) {
+  options = { ...options, model: resolveModelKey(options.model) };
   const forceChromium = !!options.chromium || !!options.headless || process.env.BRIMKERN_FORCE_CHROMIUM === '1';
   const forceNative = !!options.native || process.env.BRIMKERN_FORCE_NATIVE === '1';
   const modelKey = options.model || 'coder';
@@ -1219,7 +1265,7 @@ ${C.bold}UTILISATION${C.reset}
   ${C.green}brimkern${C.reset} "Explique @src/app/Composer.tsx:10-40"
 
 ${C.bold}OPTIONS${C.reset}
-  ${C.yellow}-m, --model=<nom|url|fichier>${C.reset}    Modèle (défaut: coder / LFM2.5 230M)
+  ${C.yellow}-m, --model=<nom|url|fichier>${C.reset}    Modèle (défaut: coder / ${PRESET_CLI_MODELS.coder.shortName})
   ${C.yellow}-s, --system=<prompt>${C.reset}            Prompt système
   ${C.yellow}-n, --max-tokens=<n>${C.reset}             Plafond de tokens générés (défaut: 512)
   ${C.yellow}-t, --temperature=<val>${C.reset}          Température (défaut: 0.3)
@@ -1230,14 +1276,8 @@ ${C.bold}OPTIONS${C.reset}
   ${C.yellow}--raw${C.reset}                              Sortie brute uniquement (sans en-tête ni stats)
   ${C.yellow}-h, --help${C.reset}                         Affiche cette aide
 
-${C.bold}MODÈLES DE DÉVELOPPEMENT & CODE${C.reset}
-  ${C.cyan}coder${C.reset}         LFM2.5 230M Coder (format BRIK, 149 Mo) — ${C.dim}spécialisé code & refactoring${C.reset}
-  ${C.cyan}coder-0.5b${C.reset}    Qwen 2.5 Coder 0.5B (format GGUF, 491 Mo) — ${C.dim}développement rapide & scripts${C.reset}
-  ${C.cyan}coder-1.5b${C.reset}    Qwen 2.5 Coder 1.5B (format GGUF, 1,12 Go) — ${C.dim}architecture, tests et logique${C.reset}
-  ${C.cyan}qwen-0.5b${C.reset}     Qwen 2.5 0.5B Instruct (format BRIK, 377 Mo) — ${C.dim}léger & capable sur tout GPU${C.reset}
-  ${C.cyan}rwkv${C.reset}          RWKV-7 G1a 0.4B (format BRIK, 304 Mo) — ${C.dim}RNN linéaire en WGSL (mémoire constante)${C.reset}
-  ${C.cyan}rwkv-0.1b${C.reset}     RWKV-7 G1 0.1B (format BRIK, 128 Mo) — ${C.dim}ultra-compact, RNN linéaire WGSL${C.reset}
-  ${C.cyan}lfm2${C.reset}          LFM2.5 230M Généraliste (format BRIK, 149 Mo) — ${C.dim}ultra-léger & rapide${C.reset}
+${C.bold}MODÈLES${C.reset}
+${Object.entries(PRESET_CLI_MODELS).map(([key, m]) => `  ${C.cyan}${key.padEnd(8)}${C.reset} ${m.shortName} (${m.formatLabel}, ${m.size}) — ${C.dim}${m.desc}${C.reset}`).join('\n')}
 `);
 }
 
@@ -1262,73 +1302,17 @@ async function selectModelInteractive(currentModelKey) {
     return null;
   }
 
-  const items = [
-    {
-      key: 'coder',
-      name: 'LFM2.5 230M Coder',
-      size: '149 Mo',
-      format: 'BRIK int4',
-      runtime: 'WebGPU (Natif Dawn)',
-      badge: 'Dev · Rapide',
-      desc: 'Spécialisé pour le code : génération, refactoring, debug & revue technique.',
-    },
-    {
-      key: 'coder-0.5b',
-      name: 'Qwen 2.5 Coder 0.5B Instruct',
-      size: '491 Mo',
-      format: 'GGUF Q4_K_M',
-      runtime: 'WebGPU (GGUF)',
-      badge: 'Scripts & Fonctions',
-      desc: 'Qwen 2.5 Coder 0.5B spécialisé dev : scripts, fonctions, syntaxe et debug rapide.',
-    },
-    {
-      key: 'coder-1.5b',
-      name: 'Qwen 2.5 Coder 1.5B Instruct',
-      size: '1,12 Go',
-      format: 'GGUF Q4_K_M',
-      runtime: 'WebGPU (GGUF)',
-      badge: 'Architecture & Logique',
-      desc: 'Qwen 2.5 Coder 1.5B : logique poussée, architecture, tests et refactoring lourd.',
-    },
-    {
-      key: 'qwen-0.5b',
-      name: 'Qwen 2.5 0.5B Instruct',
-      size: '377 Mo',
-      format: 'BRIK mixte',
-      runtime: 'WebGPU (Natif Dawn)',
-      badge: 'Polyvalent léger',
-      desc: 'Qwen 2.5 en format BRIK streamé : léger, rapide et capable sur tout GPU.',
-    },
-    {
-      key: 'rwkv',
-      name: 'RWKV-7 G1a 0.4B',
-      size: '304 Mo',
-      format: 'BRIK int4',
-      runtime: 'WebGPU (Natif Dawn)',
-      badge: 'RNN linéaire',
-      desc: 'Architecture RNN linéaire RWKV-7 en format BRIK (état fixe, mémoire constante).',
-    },
-    {
-      key: 'rwkv-0.1b',
-      name: 'RWKV-7 G1 0.1B',
-      size: '128 Mo',
-      format: 'BRIK int4',
-      runtime: 'WebGPU (Natif Dawn)',
-      badge: 'Ultra-compact (128 Mo)',
-      desc: 'Modèle RWKV-7 ultra-compact (128 Mo), état récurrent de ~1 Mo, vitesse maximale.',
-    },
-    {
-      key: 'lfm2',
-      name: 'LFM2.5 230M Généraliste',
-      size: '149 Mo',
-      format: 'BRIK int4',
-      runtime: 'WebGPU (Natif Dawn)',
-      badge: 'Généraliste rapide',
-      desc: 'Ultra-léger, ultra-rapide, consommation VRAM minimale.',
-    },
-  ];
+  const items = Object.entries(PRESET_CLI_MODELS).map(([key, m]) => ({
+    key,
+    name: m.shortName,
+    size: m.size,
+    format: m.formatLabel,
+    runtime: m.runtime,
+    badge: m.badge,
+    desc: m.desc,
+  }));
 
-  if (!items.some((it) => it.key === currentModelKey) && currentModelKey && currentModelKey !== 'rwkv-0.4b') {
+  if (!items.some((it) => it.key === currentModelKey) && currentModelKey) {
     items.unshift({
       key: currentModelKey,
       name: 'Modèle personnalisé actif',
@@ -1340,14 +1324,8 @@ async function selectModelInteractive(currentModelKey) {
     });
   }
 
-  let selectedIndex = items.findIndex((it) => it.key === currentModelKey);
-  if (selectedIndex === -1) {
-    if (currentModelKey === 'rwkv-0.4b') {
-      selectedIndex = items.findIndex((it) => it.key === 'rwkv');
-    } else {
-      selectedIndex = 0;
-    }
-  }
+  const selectedIndex0 = items.findIndex((it) => it.key === currentModelKey);
+  let selectedIndex = selectedIndex0 === -1 ? 0 : selectedIndex0;
 
   const terminalRows = process.stdout.rows || 24;
   const pageSize = Math.min(items.length, Math.max(4, terminalRows - 11));
@@ -1387,7 +1365,7 @@ async function selectModelInteractive(currentModelKey) {
     visibleItems.forEach((item, relIdx) => {
       const idx = scrollOffset + relIdx;
       const isSelected = idx === selectedIndex;
-      const isActive = item.key === currentModelKey || (item.key === 'rwkv' && currentModelKey === 'rwkv-0.4b');
+      const isActive = item.key === currentModelKey;
 
       const pointer = isSelected ? `${C.boldRed}❯${C.reset}` : ' ';
       const keyFormatted = isSelected ? `${C.bold}${C.cyan}${item.key.padEnd(11)}${C.reset}` : `${C.cyan}${item.key.padEnd(11)}${C.reset}`;
@@ -1787,7 +1765,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
             resumeAndPrompt();
             return;
           }
-          if (choice.key === engine.modelKey || (choice.key === 'rwkv' && engine.modelKey === 'rwkv-0.4b')) {
+          if (choice.key === engine.modelKey) {
             console.log(`${C.yellow}ℹ Le modèle ${choice.name} est déjà actif.${C.reset}\n`);
             resumeAndPrompt();
             return;
@@ -1865,37 +1843,13 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
     isGenerating = true;
     currentAbortController = new AbortController();
     let tokenCount = 0;
-    let firstTokenReceived = false;
 
     spinner.start('Préparation du prompt & contexte...');
     if (files.length > 0) {
       spinner.setPhase(`Chargement de ${files.length} fichier(s) de contexte...`);
     }
 
-    const thinkFilter = new ThinkStreamFilter({
-      onToken: (tok, isThink) => {
-        tokenCount++;
-        if (!firstTokenReceived) {
-          firstTokenReceived = true;
-          spinner.stop(true);
-        }
-        if (isThink) {
-          process.stdout.write(`${C.dim}${C.italic}${tok}${C.reset}`);
-        } else {
-          process.stdout.write(tok);
-        }
-      },
-      onThinkStart: () => {
-        if (!firstTokenReceived) {
-          firstTokenReceived = true;
-          spinner.stop(true);
-        }
-        process.stdout.write(`\n${C.sand}💭 [Réflexion]${C.reset}\n${C.dim}${C.italic}`);
-      },
-      onThinkEnd: () => {
-        process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [Réponse]${C.reset}\n`);
-      }
-    });
+    const thinkFilter = createStreamPrinter(spinner, () => { tokenCount++; });
 
     try {
       spinner.setPhase('Calcul des logits WebGPU (TTFT)...');
@@ -1905,10 +1859,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       if (modeConfig.systemSuffix) {
         composedPrompt += modeConfig.systemSuffix;
       }
-      const thinkConfig = THINKING_LEVELS[thinkLevel] || THINKING_LEVELS.auto;
-      if (thinkConfig.promptSuffix) {
-        composedPrompt += thinkConfig.promptSuffix;
-      }
+      composedPrompt += thinkSuffixFor(engine.modelKey, thinkLevel);
 
       const res = await engine.ask(composedPrompt, {
         signal: currentAbortController.signal,
@@ -2082,9 +2033,7 @@ async function main() {
   if (CLI_MODES[mode]?.systemSuffix) {
     prompt += CLI_MODES[mode].systemSuffix;
   }
-  if (THINKING_LEVELS[think]?.promptSuffix) {
-    prompt += THINKING_LEVELS[think].promptSuffix;
-  }
+  prompt += thinkSuffixFor(engine.modelKey, think);
 
   // Mode One-shot
   const spinner = new ActivitySpinner();
@@ -2093,32 +2042,8 @@ async function main() {
   }
 
   let tokenCount = 0;
-  let firstTokenReceived = false;
 
-  const thinkFilter = new ThinkStreamFilter({
-    onToken: (tok, isThink) => {
-      tokenCount++;
-      if (!firstTokenReceived) {
-        firstTokenReceived = true;
-        spinner.stop(true);
-      }
-      if (isThink) {
-        process.stdout.write(`${C.dim}${C.italic}${tok}${C.reset}`);
-      } else {
-        process.stdout.write(tok);
-      }
-    },
-    onThinkStart: () => {
-      if (!firstTokenReceived) {
-        firstTokenReceived = true;
-        spinner.stop(true);
-      }
-      process.stdout.write(`\n${C.sand}💭 [Réflexion]${C.reset}\n${C.dim}${C.italic}`);
-    },
-    onThinkEnd: () => {
-      process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [Réponse]${C.reset}\n`);
-    }
-  });
+  const thinkFilter = createStreamPrinter(spinner, () => { tokenCount++; });
 
   try {
     const res = await engine.ask(prompt, {
