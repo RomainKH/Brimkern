@@ -377,6 +377,7 @@ function createCliCompleter() {
     '/think',
     '/status',
     '/model',
+    '/models',
     '/diff',
     '/commit',
     '/review',
@@ -417,8 +418,8 @@ function createCliCompleter() {
       return [hits.map((l) => `/think ${l}`), line];
     }
 
-    if (line.startsWith('/model ')) {
-      const sub = line.slice(7).trim().toLowerCase();
+    if (line.startsWith('/model ') || line.startsWith('/models ')) {
+      const sub = line.startsWith('/models ') ? line.slice(8).trim().toLowerCase() : line.slice(7).trim().toLowerCase();
       const models = Object.keys(PRESET_CLI_MODELS);
       const hits = models.filter((m) => m.startsWith(sub));
       return [hits.map((m) => `/model ${m}`), line];
@@ -1137,7 +1138,7 @@ ${C.boldRed}MODES & CONTRÔLE DE L'IA${C.reset}
   ${C.bold}${C.cyan}/status${C.reset}              État complet (modèle, GPU, mode, cache, git)
 
 ${C.boldRed}CONVERSATION & SESSION${C.reset}
-  ${C.bold}${C.cyan}/model [nom|chemin]${C.reset}  Affiche ou change de modèle actif à chaud
+  ${C.bold}${C.cyan}/model, /models${C.reset}       Sélecteur interactif scrollable (flèches ↑/↓) ou changement à chaud
   ${C.bold}${C.cyan}/reset${C.reset}               Efface l'historique et libère le cache KV GPU
   ${C.bold}${C.cyan}/stats${C.reset}               Statistiques de session (tokens, tok/s, coût 0$)
   ${C.bold}${C.cyan}/clear${C.reset}               Efface l'écran du terminal
@@ -1198,6 +1199,277 @@ function printModels() {
   console.log(`${C.gray}Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik${C.reset}\n`);
 }
 
+function stripAnsi(str) {
+  return typeof str === 'string' ? str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') : '';
+}
+
+// ── Sélecteur interactif et scrollable de modèles (Flèches ↑/↓, Entrée, Échap) ───────
+async function selectModelInteractive(currentModelKey) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    printModels();
+    return null;
+  }
+
+  const items = [
+    {
+      key: 'coder',
+      name: 'LFM2.5 230M Coder',
+      size: '149 Mo',
+      format: 'BRIK int4',
+      runtime: 'WebGPU (Natif Dawn)',
+      badge: 'Dev · Rapide',
+      desc: 'Spécialisé pour le code : génération, refactoring, debug & revue technique.',
+    },
+    {
+      key: 'coder-0.5b',
+      name: 'Qwen 2.5 Coder 0.5B Instruct',
+      size: '491 Mo',
+      format: 'GGUF Q4_K_M',
+      runtime: 'WebGPU (GGUF)',
+      badge: 'Scripts & Fonctions',
+      desc: 'Qwen 2.5 Coder 0.5B spécialisé dev : scripts, fonctions, syntaxe et debug rapide.',
+    },
+    {
+      key: 'coder-1.5b',
+      name: 'Qwen 2.5 Coder 1.5B Instruct',
+      size: '1,12 Go',
+      format: 'GGUF Q4_K_M',
+      runtime: 'WebGPU (GGUF)',
+      badge: 'Architecture & Logique',
+      desc: 'Qwen 2.5 Coder 1.5B : logique poussée, architecture, tests et refactoring lourd.',
+    },
+    {
+      key: 'qwen-0.5b',
+      name: 'Qwen 2.5 0.5B Instruct',
+      size: '377 Mo',
+      format: 'BRIK mixte',
+      runtime: 'WebGPU (Natif Dawn)',
+      badge: 'Polyvalent léger',
+      desc: 'Qwen 2.5 en format BRIK streamé : léger, rapide et capable sur tout GPU.',
+    },
+    {
+      key: 'rwkv',
+      name: 'RWKV-7 G1a 0.4B',
+      size: '304 Mo',
+      format: 'BRIK int4',
+      runtime: 'WebGPU (Natif Dawn)',
+      badge: 'RNN linéaire',
+      desc: 'Architecture RNN linéaire RWKV-7 en format BRIK (état fixe, mémoire constante).',
+    },
+    {
+      key: 'rwkv-0.1b',
+      name: 'RWKV-7 G1 0.1B',
+      size: '128 Mo',
+      format: 'BRIK int4',
+      runtime: 'WebGPU (Natif Dawn)',
+      badge: 'Ultra-compact (128 Mo)',
+      desc: 'Modèle RWKV-7 ultra-compact (128 Mo), état récurrent de ~1 Mo, vitesse maximale.',
+    },
+    {
+      key: 'lfm2',
+      name: 'LFM2.5 230M Généraliste',
+      size: '149 Mo',
+      format: 'BRIK int4',
+      runtime: 'WebGPU (Natif Dawn)',
+      badge: 'Généraliste rapide',
+      desc: 'Ultra-léger, ultra-rapide, consommation VRAM minimale.',
+    },
+  ];
+
+  if (!items.some((it) => it.key === currentModelKey) && currentModelKey && currentModelKey !== 'rwkv-0.4b') {
+    items.unshift({
+      key: currentModelKey,
+      name: 'Modèle personnalisé actif',
+      size: 'Local',
+      format: 'brik/gguf',
+      runtime: 'WebGPU',
+      badge: 'Fichier local',
+      desc: `Fichier ou URL personnalisé en cours d'utilisation : ${currentModelKey}`,
+    });
+  }
+
+  let selectedIndex = items.findIndex((it) => it.key === currentModelKey);
+  if (selectedIndex === -1) {
+    if (currentModelKey === 'rwkv-0.4b') {
+      selectedIndex = items.findIndex((it) => it.key === 'rwkv');
+    } else {
+      selectedIndex = 0;
+    }
+  }
+
+  const terminalRows = process.stdout.rows || 24;
+  const pageSize = Math.min(items.length, Math.max(4, terminalRows - 11));
+  let scrollOffset = 0;
+
+  function ensureVisible() {
+    if (selectedIndex < scrollOffset) {
+      scrollOffset = selectedIndex;
+    } else if (selectedIndex >= scrollOffset + pageSize) {
+      scrollOffset = selectedIndex - pageSize + 1;
+    }
+  }
+  ensureVisible();
+
+  const terminalCols = Math.min(80, Math.max(64, (process.stdout.columns || 80) - 4));
+  const innerWidth = terminalCols - 6;
+
+  function boxLine(content) {
+    const visLen = stripAnsi(content).length;
+    const pad = Math.max(0, innerWidth - visLen);
+    return `  ${C.darkGray}│${C.reset} ${content}${' '.repeat(pad)} ${C.darkGray}│${C.reset}`;
+  }
+
+  function render() {
+    const lines = [];
+    lines.push(`${C.darkGray}┌─${C.reset} ${C.boldRed}Brimkern${C.reset} ${C.dim}·${C.reset} ${C.bold}Sélecteur de modèles on-device${C.reset} ${C.darkGray}${'─'.repeat(Math.max(2, innerWidth - 30))}┐${C.reset}`);
+    lines.push(`${C.dim}  Utilisez les flèches ↑/↓ pour faire défiler · Entrée pour activer · Échap pour annuler${C.reset}`);
+    lines.push('');
+
+    if (scrollOffset > 0) {
+      lines.push(`${C.dim}    ▲ ... (${scrollOffset} modèle(s) au-dessus)${C.reset}`);
+    } else {
+      lines.push(`${C.darkGray}    ┄${C.reset}`);
+    }
+
+    const visibleItems = items.slice(scrollOffset, scrollOffset + pageSize);
+    visibleItems.forEach((item, relIdx) => {
+      const idx = scrollOffset + relIdx;
+      const isSelected = idx === selectedIndex;
+      const isActive = item.key === currentModelKey || (item.key === 'rwkv' && currentModelKey === 'rwkv-0.4b');
+
+      const pointer = isSelected ? `${C.boldRed}❯${C.reset}` : ' ';
+      const keyFormatted = isSelected ? `${C.bold}${C.cyan}${item.key.padEnd(11)}${C.reset}` : `${C.cyan}${item.key.padEnd(11)}${C.reset}`;
+      const nameFormatted = isSelected ? `${C.bold}${item.name.padEnd(30)}${C.reset}` : `${C.gray}${item.name.padEnd(30)}${C.reset}`;
+      const sizeFormatted = `${C.yellow}${item.size.padStart(7)}${C.reset}`;
+      const formatBadge = `${C.darkGray}[${C.reset}${C.sand}${item.format.padEnd(10)}${C.reset}${C.darkGray}]${C.reset}`;
+      const activeBadge = isActive ? ` ${C.boldGreen}● actif${C.reset}` : '';
+
+      lines.push(`  ${pointer} ${keyFormatted} ${nameFormatted} ${formatBadge} ${sizeFormatted}${activeBadge}`);
+    });
+
+    const remainingBelow = items.length - (scrollOffset + pageSize);
+    if (remainingBelow > 0) {
+      lines.push(`${C.dim}    ▼ ... (${remainingBelow} modèle(s) en-dessous)${C.reset}`);
+    } else {
+      lines.push(`${C.darkGray}    ┄${C.reset}`);
+    }
+
+    const cur = items[selectedIndex];
+    lines.push('');
+    const cardTitle = `Fiche technique : ${cur.name} `;
+    lines.push('  ' + C.darkGray + '┌─ ' + C.yellow + cardTitle + C.darkGray + '─'.repeat(Math.max(2, innerWidth - stripAnsi(cardTitle).length - 1)) + '┐' + C.reset);
+    lines.push(boxLine(`${C.bold}Architecture :${C.reset} ${C.yellow}${cur.name}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}VRAM :${C.reset} ${C.yellow}${cur.size}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}[${cur.badge}]${C.reset}`));
+    lines.push(boxLine(`${C.gray}${cur.desc}${C.reset}`));
+    lines.push(boxLine(`${C.bold}Format :${C.reset} ${C.sand}${cur.format}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}Moteur :${C.reset} ${C.green}${cur.runtime}${C.reset}  ${C.dim}·${C.reset}  ${C.dim}Commande : /model ${cur.key}${C.reset}`));
+    lines.push('  ' + C.darkGray + '└' + '─'.repeat(innerWidth + 2) + '┘' + C.reset);
+
+    return lines.join('\n') + '\n';
+  }
+
+  return new Promise((resolve) => {
+    process.stdout.write('\x1b[?25l');
+
+    const initialRender = render();
+    process.stdout.write(initialRender);
+    const totalLines = initialRender.split('\n').length - 1;
+
+    const wasRaw = process.stdin.isRaw;
+    if (process.stdin.setRawMode) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      process.stdin.removeListener('keypress', onKey);
+      process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+      process.stdout.write('\x1b[?25h');
+      if (process.stdin.setRawMode) {
+        process.stdin.setRawMode(wasRaw);
+      }
+    };
+
+    const onKey = (char, key) => {
+      if (!key) return;
+
+      if (key.name === 'up' || key.name === 'k') {
+        selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      if (key.name === 'down' || key.name === 'j') {
+        selectedIndex = (selectedIndex + 1) % items.length;
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      if (key.name === 'pageup') {
+        selectedIndex = Math.max(0, selectedIndex - pageSize);
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      if (key.name === 'pagedown') {
+        selectedIndex = Math.min(items.length - 1, selectedIndex + pageSize);
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      if (key.name === 'home') {
+        selectedIndex = 0;
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      if (key.name === 'end') {
+        selectedIndex = items.length - 1;
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      // Raccourcis numériques 1 à items.length
+      if (char && char >= '1' && char <= String(Math.min(9, items.length))) {
+        selectedIndex = parseInt(char, 10) - 1;
+        ensureVisible();
+        process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
+        process.stdout.write(render());
+        return;
+      }
+
+      // Validation
+      if (key.name === 'return' || key.name === 'enter') {
+        cleanup();
+        resolve(items[selectedIndex]);
+        return;
+      }
+
+      // Annulation
+      if (key.name === 'escape' || char === 'q' || (key.ctrl && key.name === 'c')) {
+        cleanup();
+        resolve(null);
+        return;
+      }
+    };
+
+    process.stdin.on('keypress', onKey);
+  });
+}
+
 // ── Mode REPL interactif ──────────────────────────────────────────────────────────────
 async function runInteractiveChat(initialEngine) {
   let engine = initialEngine;
@@ -1232,13 +1504,14 @@ async function runInteractiveChat(initialEngine) {
   rl.prompt();
 
   let isGenerating = false;
+  let inInteractiveMenu = false;
   let currentAbortController = null;
   const spinner = new ActivitySpinner();
 
   readline.emitKeypressEvents(process.stdin);
 
   process.stdin.on('keypress', (char, key) => {
-    if (!key) return;
+    if (!key || inInteractiveMenu) return;
 
     // 1. Pendant la génération : Escape ou Ctrl+C interrompt immédiatement l'inférence
     if (isGenerating) {
@@ -1264,6 +1537,7 @@ async function runInteractiveChat(initialEngine) {
   });
 
   rl.on('SIGINT', () => {
+    if (inInteractiveMenu) return;
     if (isGenerating) {
       if (currentAbortController) {
         currentAbortController.abort();
@@ -1437,13 +1711,30 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       resumeAndPrompt();
       return;
     }
-    if (input === '/model' || input.startsWith('/model ')) {
-      const targetModel = input.slice(6).trim();
+    if (input === '/model' || input.startsWith('/model ') || input === '/models' || input.startsWith('/models ')) {
+      let targetModel = input.startsWith('/models') ? input.slice(7).trim() : input.slice(6).trim();
       if (!targetModel) {
-        printModels();
-        console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
-        resumeAndPrompt();
-        return;
+        if (process.stdin.isTTY && process.stdout.isTTY) {
+          inInteractiveMenu = true;
+          const choice = await selectModelInteractive(engine.modelKey);
+          inInteractiveMenu = false;
+          if (!choice) {
+            console.log(`${C.dim}Sélection annulée.${C.reset}\n`);
+            resumeAndPrompt();
+            return;
+          }
+          if (choice.key === engine.modelKey || (choice.key === 'rwkv' && engine.modelKey === 'rwkv-0.4b')) {
+            console.log(`${C.yellow}ℹ Le modèle ${choice.name} est déjà actif.${C.reset}\n`);
+            resumeAndPrompt();
+            return;
+          }
+          targetModel = choice.key;
+        } else {
+          printModels();
+          console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
+          resumeAndPrompt();
+          return;
+        }
       }
       process.stderr.write(`${C.dim}Changement de modèle vers ${targetModel}...${C.reset}`);
       await engine.close();

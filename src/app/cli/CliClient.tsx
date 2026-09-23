@@ -289,6 +289,17 @@ export default function CliClient() {
           )}
         </P>
         <Code lang="sh">{'kern › /copy'}</Code>
+
+        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
+          {t('5. Interactive Model Selector (/model)', '5. Sélecteur de modèle interactif (/model)')}
+        </h3>
+        <P>
+          {t(
+            'Type /model in the REPL to open a scrollable interactive picker. Browse available models with keyboard arrow keys (↑/↓), inspect VRAM requirements and technical specs, and press Enter to hot-swap models without restarting your session:',
+            'Tapez /model dans le REPL pour ouvrir un sélecteur déroulant interactif. Naviguez entre les modèles avec les flèches du clavier (↑/↓), inspectez la consommation VRAM et les détails techniques, et appuyez sur Entrée pour changer de modèle à chaud sans relancer votre session :'
+          )}
+        </P>
+        <Code lang="sh">{'kern › /model'}</Code>
       </Section>
 
       {/* ── SECTION PIPES UNIX & CODE ────────────────────────────────────────── */}
