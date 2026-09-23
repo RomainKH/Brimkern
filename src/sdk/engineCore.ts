@@ -18,6 +18,7 @@ import { tokenizerFromGguf } from '../lib/ggufTokenizer';
 import { sampleFromTopK } from '../lib/webgpu/sampling';
 import { parseGguf, type Manifest } from '../lib/webgpu/ggufParser';
 import type { ArchType } from '../lib/presets';
+import { ggufArchFamilyFor } from '../lib/modelCatalog';
 
 // Dédit de prompt selon l'architecture
 function inferArchType(manifest: { arch?: string; metadata?: Record<string, unknown>; tensors?: Record<string, any>; config?: any }): ArchType {
@@ -252,13 +253,24 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     } else {
       console.warn('[brimkern] tokenizer GGUF non-BPE : repli transformers.js (CDN)');
       const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
-      const tokId = (manifest.metadata?.['tokenizer.ggml.id'] as string) || (archType === 'llama3' ? 'unsloth/Llama-3.2-1B-Instruct' : 'Qwen/Qwen2.5-Coder-0.5B-Instruct');
+      // Le tokenizer de repli DOIT être celui de la famille du vocabulaire (même table que le site,
+      // ggufArchFamilyFor). Gemma 3 (SentencePiece sans merges) tombe toujours ici, et il recevait
+      // celui de Qwen 2.5 par défaut : des ids hors vocabulaire → charabia (« rem(d rem(d »).
+      const emb = (manifest as any).tensors?.['token_embd.weight'];
+      const vocab = emb && (manifest as any).config?.d ? emb.nElems / (manifest as any).config.d : null;
+      const family = ggufArchFamilyFor(String((manifest as any).arch || ''), vocab);
+      const tokId = family?.tokenizerId || (manifest.metadata?.['tokenizer.ggml.id'] as string) || (archType === 'llama3' ? 'unsloth/Llama-3.2-1B-Instruct' : 'Qwen/Qwen2.5-Coder-0.5B-Instruct');
       const hf = await tf.AutoTokenizer.from_pretrained(tokId);
       tok = {
         encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
         decode: (ids: number[]) => hf.decode(ids, { skip_special_tokens: true }) as string,
       };
     }
+
+    // Fin de tour propre à Gemma, absente des métadonnées : sans elle la génération enchaîne un
+    // faux tour suivant (mêmes ids que isStopToken dans chatFormat).
+    if (archType === 'gemma3') stopIds.push(106, 1);
+    if (archType === 'gemma') stopIds.push(107, 1);
 
     const customModel = new CustomWebModel(engine, source, manifest);
     onProgress('gpu');
