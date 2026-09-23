@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import BrandMark from '../BrandMark';
 import { useHref, useLocale, useT } from '@/lib/i18n';
 import s from './landing.module.css';
 import { SESSION, PICKER, REPO, STATUS, type Capture, type Seg } from './captures';
@@ -191,7 +192,7 @@ export default function CliLanding() {
   return (
     <div className={s.page}>
       <header className={`${s.wrap} ${s.top}`}>
-        <Link href={href('/')} className={s.home}><span aria-hidden="true">▌</span>Brimkern</Link>
+        <Link href={href('/')} className={s.home}><BrandMark size={26} style={{ marginRight: 10, ['--accent' as string]: 'var(--red)' }} />Brimkern</Link>
         <nav className={s.topLinks} aria-label={t('CLI page', 'Page CLI')}>
           <Link href={href('/docs/cli')} className={s.topLink}>{t('Reference', 'Référence')}</Link>
           <a href={`${REPO_URL}/blob/main/bin/brimkern.mjs`} className={s.topLink} target="_blank" rel="noopener noreferrer">{t('Source', 'Source')}</a>

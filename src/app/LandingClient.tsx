@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import BrandMark from './BrandMark';
 import Image from 'next/image';
 // Import STATIQUE (et non un chemin dans /public) : Next en déduit les dimensions et fabrique un
 // flou de chargement, donc pas de saut de mise en page ni de valeurs à tenir à jour à la main.
@@ -157,10 +158,7 @@ export default function LandingClient() {
     <div className="lp">
       <header className="lp-nav">
         <Link href={href('/')} className="lp-brand" aria-label="Brimkern">
-          <svg width="26" height="26" viewBox="0 0 100 100" aria-hidden>
-            <defs><clipPath id="lp-kern" clipPathUnits="userSpaceOnUse"><path clipRule="evenodd" d="M0 0H100V100H0Z M62 -10 L34 112 L46 112 L74 -10 Z" /></clipPath></defs>
-            <text x="50" y="86" textAnchor="middle" fontFamily="var(--font-heading), Georgia, serif" fontSize="100" fontWeight="900" fill="currentColor" clipPath="url(#lp-kern)">B</text>
-          </svg>
+          <BrandMark size={28} />
           <span>Brimkern</span>
         </Link>
         <nav className="lp-nav-links" aria-label={t('Main', 'Principale')}>

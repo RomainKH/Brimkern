@@ -1,22 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 300" width="1280" height="300" role="img" aria-label="Brimkern — local WebGPU inference, real AI models in your browser">
   <!-- Bannière README aux couleurs du DARK THEME de l'app (encre chaude #171614, accent rouge éclairci
-       #d9463a, texte papier #ece9e1) — réutilise le mark « kern-B » (icon.svg) : tuile rouge, B papier
-       entaillé d'un crénage diagonal. Identité « Le Kern ». -->
-  <defs>
-    <clipPath id="kernNotch" clipPathUnits="userSpaceOnUse">
-      <path clip-rule="evenodd" d="M0 0H100V100H0Z M64 -10 L36 112 L47 112 L75 -10 Z"/>
-    </clipPath>
-  </defs>
+       #d9463a, texte papier #ece9e1) — avec la marque « puce qui sourit » (src/app/BrandMark.tsx, 2026-09-23). -->
 
   <!-- Fond encre + coins arrondis -->
   <rect width="1280" height="300" rx="24" fill="#171614"/>
   <!-- Filet rouge (élément d'identité) -->
   <rect width="1280" height="6" rx="3" fill="#d9463a"/>
 
-  <!-- Mark kern-B (0..100 mis à l'échelle 1.4 → 140 px) -->
-  <g transform="translate(80,72) scale(1.4)">
-    <rect width="100" height="100" rx="20" fill="#c72c1e"/>
-    <text x="50" y="84" text-anchor="middle" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="92" font-weight="900" fill="#f2efe8" clip-path="url(#kernNotch)">B</text>
+  <!-- La marque : la puce qui sourit (cf. src/app/BrandMark.tsx), trait papier, œil-curseur rouge -->
+  <g transform="translate(78,70) scale(1.6)" fill="none" stroke="#ece9e1" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <g transform="rotate(-8 50 50)">
+      <rect x="24" y="24" width="52" height="52" rx="10"/>
+      <path d="M37 24 V15 M50 24 V13 M63 24 V15 M37 76 V85 M50 76 V87 M63 76 V85 M24 37 H15 M24 50 H13 M24 63 H15 M76 37 H85 M76 50 H87 M76 63 H85"/>
+      <circle cx="40" cy="45" r="3" fill="#ece9e1" stroke="none"/>
+      <rect x="56" y="38.5" width="6.5" height="12" rx="1" fill="#d9463a" stroke="none"/>
+      <path d="M40 59 C45 65 55 65 60 59"/>
+    </g>
   </g>
 
   <!-- Wordmark : Brim (papier) + kern (rouge) -->

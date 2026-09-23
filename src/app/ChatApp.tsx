@@ -36,6 +36,7 @@ import ByLine from './ByLine';
 import GithubMark from './GithubMark';
 import ThemeToggle from './ThemeToggle';
 import Link from 'next/link';
+import BrandMark from './BrandMark';
 import { useModelEngine } from './useModelEngine';
 import { ModelBrowserModal } from './ModelBrowserModal';
 import { Composer } from './Composer';
@@ -2894,10 +2895,7 @@ function App() {
             title={t('Back to home', "Retour à l'accueil")}
             style={{ display: 'flex', alignItems: 'center', gap: 1, textDecoration: 'none', color: 'inherit', minWidth: 0 }}
           >
-            <svg width="40" height="40" viewBox="0 0 100 100" aria-hidden className="logo-image" style={{ flexShrink: 0, color: 'var(--text-primary)' }}>
-              <defs><clipPath id="brimkern-kern" clipPathUnits="userSpaceOnUse"><path clipRule="evenodd" d="M0 0H100V100H0Z M62 -10 L34 112 L46 112 L74 -10 Z" /></clipPath></defs>
-              <text x="50" y="86" textAnchor="middle" fontFamily="var(--font-heading), Georgia, serif" fontSize="100" fontWeight="900" fill="currentColor" clipPath="url(#brimkern-kern)">B</text>
-            </svg>
+            <BrandMark size={36} className="logo-image" style={{ flexShrink: 0, color: 'var(--text-primary)', marginRight: 6 }} />
             <div className="logo-text">Brimkern</div>
           </Link>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -3354,11 +3352,8 @@ function App() {
         <div className="messages-container" ref={messagesScrollRef} onScroll={onMessagesScroll}>
           {modelState === 'idle' && messages.length === 0 && (
             <div className="welcome-screen">
-              {/* La marque kern-B en tête d'accueil : page de spécimen, pas d'icône « IA » générique. */}
-              <svg width="64" height="64" viewBox="0 0 100 100" aria-hidden className="welcome-mark">
-                <defs><clipPath id="welcome-kern" clipPathUnits="userSpaceOnUse"><path clipRule="evenodd" d="M0 0H100V100H0Z M62 -10 L34 112 L46 112 L74 -10 Z" /></clipPath></defs>
-                <text x="50" y="86" textAnchor="middle" fontFamily="var(--font-heading), Georgia, serif" fontSize="100" fontWeight="900" fill="currentColor" clipPath="url(#welcome-kern)">B</text>
-              </svg>
+              {/* La marque en tête d'accueil (la puce qui sourit, cf. BrandMark). */}
+              <BrandMark size={64} className="welcome-mark" />
               <h2 className="welcome-title">{t('Brimkern · Local WebGPU inference', 'Brimkern · Inférence WebGPU locale')}</h2>
               <div className="welcome-rule" />
               {webGpuSupported === false ? (
