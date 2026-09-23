@@ -761,6 +761,20 @@ function initDiskCache() {
   globalThis.__brimkern_disk_cache = true;
 }
 
+// Le SDK trace ses selfValidate en console.log (« [selfValidate] … OK ») au premier ask : en
+// moteur natif ils sortaient au milieu de la réponse. On les tait pendant les appels au SDK ;
+// warn/error (gate tombé, repli) restent visibles, BRIMKERN_DEBUG=1 rend tout.
+async function withQuietSdkLogs(fn) {
+  if (process.env.BRIMKERN_DEBUG === '1') return fn();
+  const saved = { log: console.log, info: console.info, debug: console.debug };
+  console.log = console.info = console.debug = () => {};
+  try {
+    return await fn();
+  } finally {
+    Object.assign(console, saved);
+  }
+}
+
 // ── Moteur Natif Dawn (in-process, 0ms de démarrage, aucun navigateur requis) ────────
 class BrimkernNativeDawnEngine {
   constructor(options = {}) {
@@ -834,12 +848,12 @@ class BrimkernNativeDawnEngine {
     }
 
     const sdk = await import(sdkPath);
-    this.session = await sdk.createSession({
+    this.session = await withQuietSdkLogs(() => sdk.createSession({
       model: targetUrl,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
       system: this.systemPrompt,
-    });
+    }));
 
     this.isReady = true;
   }
@@ -851,7 +865,7 @@ class BrimkernNativeDawnEngine {
     const t0 = performance.now();
     let lastLen = 0;
     try {
-      const text = await this.session.ask(prompt, {
+      const text = await withQuietSdkLogs(() => this.session.ask(prompt, {
         signal,
         onToken: (acc) => {
           if (onToken) {
@@ -860,7 +874,7 @@ class BrimkernNativeDawnEngine {
             onToken(delta);
           }
         },
-      });
+      }));
       const t1 = performance.now();
       return { text: text || '', elapsedMs: t1 - t0, aborted: !!signal?.aborted };
     } catch (err) {
@@ -1387,6 +1401,11 @@ async function selectModelInteractive(currentModelKey) {
     if (process.stdin.setRawMode) {
       process.stdin.setRawMode(true);
     }
+    // Le menu reprend stdin alors que readline est en pause : sans détacher ses écouteurs,
+    // readline recevait aussi les touches (↑/↓ = historique, Entrée = envoi de la ligne
+    // rappelée) et lançait une génération en parallèle du changement de modèle.
+    const foreignKeypress = process.stdin.listeners('keypress');
+    process.stdin.removeAllListeners('keypress');
     process.stdin.resume();
 
     let cleanedUp = false;
@@ -1394,6 +1413,7 @@ async function selectModelInteractive(currentModelKey) {
       if (cleanedUp) return;
       cleanedUp = true;
       process.stdin.removeListener('keypress', onKey);
+      for (const l of foreignKeypress) process.stdin.on('keypress', l);
       process.stdout.write(`\x1b[${totalLines}A\r\x1b[0J`);
       process.stdout.write('\x1b[?25h');
       if (process.stdin.setRawMode) {
@@ -1570,9 +1590,15 @@ async function runInteractiveChat(initialEngine) {
     rl.prompt();
   });
 
+  // Un seul tour à la fois : une ligne arrivée pendant un tour (génération, changement de
+  // modèle, menu) est ignorée plutôt que lancée sur un moteur en cours de fermeture.
+  let turnInProgress = false;
   rl.on('line', async (line) => {
+    if (turnInProgress) return;
+    turnInProgress = true;
     rl.pause();
     const resumeAndPrompt = () => {
+      turnInProgress = false;
       updatePrompt();
       rl.resume();
       rl.prompt();
