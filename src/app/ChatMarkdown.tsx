@@ -78,50 +78,134 @@ function ReasoningBlock({ text, streaming, interrupted = false }: { text: string
   );
 }
 
-// Inline markdown within a line: **bold**, *italic*, `code`. (Underscore-italic is intentionally
-// unsupported so identifiers like q8_0 aren't mangled.)
-function renderInline(text: string, keyBase: string) {
+// Ferme proprement les balises inline laissées ouvertes en bout de flux (streaming / coupure)
+function completeUnclosedMarkdown(s: string): string {
+  let res = s;
+  const backtickCount = (res.match(/`/g) || []).length;
+  if (backtickCount % 2 !== 0) res += '`';
+  const doubleStarCount = (res.match(/\*\*/g) || []).length;
+  if (doubleStarCount % 2 !== 0) res += '**';
+  return res;
+}
+
+// Inline markdown within a line: links [title](url), **bold**, *italic*, `code`.
+function renderInline(rawText: string, keyBase: string) {
+  const text = completeUnclosedMarkdown(rawText);
   const out: ReactNode[] = [];
-  const re = /(\*\*[\s\S]+?\*\*|`[^`]+?`|\*[^*\s][\s\S]*?\*)/g;
+  const re = /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*[\s\S]+?\*\*|`[^`]+?`|\*[^*\s][\s\S]*?\*)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let k = 0;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    const t = m[0];
-    if (t.startsWith('**')) out.push(<strong key={`${keyBase}-${k++}`}>{t.slice(2, -2)}</strong>);
-    else if (t.startsWith('`')) out.push(<code key={`${keyBase}-${k++}`}>{t.slice(1, -1)}</code>);
-    else out.push(<em key={`${keyBase}-${k++}`}>{t.slice(1, -1)}</em>);
-    last = m.index + t.length;
+    const token = m[0];
+    if (token.startsWith('[')) {
+      const linkLabel = m[2];
+      const linkUrl = m[3];
+      out.push(
+        <a
+          key={`${keyBase}-${k++}`}
+          href={linkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px', wordBreak: 'break-all' }}
+        >
+          {linkLabel}
+        </a>
+      );
+    } else if (token.startsWith('**')) {
+      out.push(<strong key={`${keyBase}-${k++}`}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`')) {
+      out.push(<code key={`${keyBase}-${k++}`}>{token.slice(1, -1)}</code>);
+    } else {
+      out.push(<em key={`${keyBase}-${k++}`}>{token.slice(1, -1)}</em>);
+    }
+    last = m.index + token.length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
 }
 
-// A non-code markdown segment: handles line breaks, `- `/`* ` bullet lists, and `#` headings,
-// with inline formatting per line.
+// A non-code markdown segment: handles line breaks, lists (bullet `- ` and numbered `1. `),
+// horizontal rules (`---`), quotes (`> `), and `#` headings, with inline formatting per line.
 function renderRichText(text: string, keyBase: string) {
   const lines = text.split('\n');
   const blocks: ReactNode[] = [];
   let bullets: ReactNode[] = [];
+  let numItems: { num: string; content: string }[] = [];
+
   const flush = () => {
     if (bullets.length) {
       blocks.push(<ul key={`${keyBase}-ul-${blocks.length}`} style={{ margin: '4px 0', paddingLeft: '22px' }}>{bullets}</ul>);
       bullets = [];
     }
+    if (numItems.length) {
+      blocks.push(
+        <ol key={`${keyBase}-ol-${blocks.length}`} style={{ margin: '4px 0', paddingLeft: '22px' }}>
+          {numItems.map((item, idx) => (
+            <li key={`${keyBase}-oli-${idx}`} value={parseInt(item.num, 10) || undefined} style={{ margin: '2px 0', lineHeight: 1.55 }}>
+              {renderInline(item.content, `${keyBase}-ol-${idx}`)}
+            </li>
+          ))}
+        </ol>
+      );
+      numItems = [];
+    }
   };
+
   lines.forEach((line, i) => {
+    // Séparateur horizontal (--- ou *** ou ___)
+    if (/^\s*([-*_]\s*){3,}$/.test(line)) {
+      flush();
+      blocks.push(<hr key={`${keyBase}-hr-${i}`} style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '10px 0' }} />);
+      return;
+    }
+
+    // Liste à puces (- ou *)
     const bullet = line.match(/^\s*[-*]\s+(.*)/);
-    if (bullet) { bullets.push(<li key={`${keyBase}-li-${i}`} style={{ margin: '2px 0', lineHeight: 1.55 }}>{renderInline(bullet[1], `${keyBase}-${i}`)}</li>); return; }
+    if (bullet) {
+      if (numItems.length) flush();
+      bullets.push(<li key={`${keyBase}-li-${i}`} style={{ margin: '2px 0', lineHeight: 1.55 }}>{renderInline(bullet[1], `${keyBase}-${i}`)}</li>);
+      return;
+    }
+
+    // Liste ordonnée (1. ou 2.)
+    const numList = line.match(/^\s*(\d+)\.\s+(.*)/);
+    if (numList) {
+      if (bullets.length) flush();
+      numItems.push({ num: numList[1], content: numList[2] });
+      return;
+    }
+
     flush();
+
+    // Titres #, ##, ###
     const heading = line.match(/^(#{1,4})\s+(.*)/);
     if (heading) {
       blocks.push(<div key={`${keyBase}-h-${i}`} style={{ fontWeight: 700, fontSize: heading[1].length <= 2 ? '16px' : '14px', margin: '10px 0 4px' }}>{renderInline(heading[2], `${keyBase}-${i}`)}</div>);
       return;
     }
-    if (line.trim() === '') { blocks.push(<div key={`${keyBase}-sp-${i}`} style={{ height: '6px' }} />); return; }
+
+    // Citation >
+    const quote = line.match(/^\s*>\s*(.*)/);
+    if (quote) {
+      blocks.push(
+        <blockquote key={`${keyBase}-q-${i}`} style={{ borderLeft: '3px solid var(--accent)', margin: '6px 0', paddingLeft: '10px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+          {renderInline(quote[1], `${keyBase}-${i}`)}
+        </blockquote>
+      );
+      return;
+    }
+
+    // Ligne vide
+    if (line.trim() === '') {
+      blocks.push(<div key={`${keyBase}-sp-${i}`} style={{ height: '6px' }} />);
+      return;
+    }
+
     blocks.push(<div key={`${keyBase}-p-${i}`} style={{ lineHeight: 1.6 }}>{renderInline(line, `${keyBase}-${i}`)}</div>);
   });
+
   flush();
   return blocks;
 }
