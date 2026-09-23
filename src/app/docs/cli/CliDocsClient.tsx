@@ -193,20 +193,19 @@ export default function CliDocsClient() {
       <H2 id="install" n="02">{t('Install', 'Installation')}</H2>
       <P>
         {t(
-          'From the repository, with Node.js and npm. The first launch downloads the model once, then it is read from ~/.cache/brimkern, offline included.',
-          'Depuis le dépôt, avec Node.js et npm. Le premier lancement télécharge le modèle une fois, ensuite il est relu depuis ~/.cache/brimkern, hors-ligne compris.'
+          'On macOS or Linux, with Node.js 20+ and git. The script clones the repository into ~/.brimkern, installs the dependencies, builds the engine and adds a brimkern command to ~/.local/bin. Run it again to update.',
+          'Sur macOS ou Linux, avec Node.js 20+ et git. Le script clone le dépôt dans ~/.brimkern, installe les dépendances, construit le moteur et ajoute une commande brimkern dans ~/.local/bin. Relancez-le pour mettre à jour.'
         )}
       </P>
-      <ol className={s.steps}>
-        <li><span className={s.stepNum} aria-hidden="true">01</span><div><CopySnippet text={`git clone ${REPO} && cd Brimkern`} /></div></li>
-        <li><span className={s.stepNum} aria-hidden="true">02</span><div><CopySnippet text="npm install && npm run build:sdk" label={t('Install dependencies and build the engine', 'Installer les dépendances et construire le moteur')} /></div></li>
-        <li><span className={s.stepNum} aria-hidden="true">03</span><div><CopySnippet text="node bin/brimkern.mjs chat" label={t('Start the REPL', 'Lancer le REPL')} /></div></li>
-      </ol>
+      <CopySnippet text="curl -fsSL https://brimkern.com/install.sh | bash" label={t('Copy the install command', 'Copier la commande d’installation')} />
       <P>
         {t(
-          'The GPU is used directly: Metal on macOS, Vulkan on Linux. The default model is 2.53 GB; the next launches skip the download (measured on the 491 MB model: 35.4 s the first time, 3.4 s the second).',
-          'Le GPU est utilisé directement : Metal sur macOS, Vulkan sur Linux. Le modèle par défaut pèse 2,53 Go ; les lancements suivants sautent le téléchargement (mesuré sur le modèle de 491 Mo : 35,4 s la première fois, 3,4 s la seconde).'
+          'Then run brimkern chat in any project folder. The GPU is used directly: Metal on macOS, Vulkan on Linux. The first launch downloads the default model once (2.53 GB); the next launches read it from ~/.cache/brimkern (measured on the 491 MB model: 35.4 s the first time, 3.4 s the second).',
+          'Lancez ensuite brimkern chat dans n’importe quel dossier de projet. Le GPU est utilisé directement : Metal sur macOS, Vulkan sur Linux. Le premier lancement télécharge le modèle par défaut une fois (2,53 Go) ; les suivants le relisent depuis ~/.cache/brimkern (mesuré sur le modèle de 491 Mo : 35,4 s la première fois, 3,4 s la seconde).'
         )}
+      </P>
+      <P>
+        {t('Uninstall: ', 'Désinstaller : ')}<code>rm -rf ~/.brimkern ~/.local/bin/brimkern</code>
       </P>
 
       {/* ── LE REPL ───────────────────────────────────────────────────────────────────────── */}
@@ -249,7 +248,7 @@ export default function CliDocsClient() {
           'L’entrée standard est lue automatiquement : Brimkern s’enchaîne avec les outils habituels. --raw ne garde que le texte du modèle sur stdout (ni en-tête, ni temps, ni couleurs), prêt à rediriger.'
         )}
       </P>
-      <Code lang="sh">{'git diff | node bin/brimkern.mjs "Write a conventional commit title"\ncat crash.log | node bin/brimkern.mjs "Find the root cause"\nnode bin/brimkern.mjs --raw "Write a .gitignore for a Next.js app" > .gitignore'}</Code>
+      <Code lang="sh">{'git diff | brimkern "Write a conventional commit title"\ncat crash.log | brimkern "Find the root cause"\nbrimkern --raw "Write a .gitignore for a Next.js app" > .gitignore'}</Code>
 
       {/* ── MODÈLES ───────────────────────────────────────────────────────────────────────── */}
       <H2 id="models" n="06">{t('Models', 'Modèles')}</H2>
@@ -290,7 +289,7 @@ export default function CliDocsClient() {
       <P>
         {t('Any single-file .gguf or .brik also works, by URL or local path (served to the engine with HTTP range requests, never loaded whole in RAM):', 'Tout .gguf mono-fichier ou .brik fonctionne aussi, par URL ou chemin local (servi au moteur par plages HTTP, jamais chargé entier en RAM) :')}
       </P>
-      <Code lang="sh">{'node bin/brimkern.mjs --model=./models/custom.brik "Explain this code"'}</Code>
+      <Code lang="sh">{'brimkern --model=./models/custom.brik "Explain this code"'}</Code>
 
       {/* ── OPTIONS ───────────────────────────────────────────────────────────────────────── */}
       <H2 id="options" n="07">{t('Options', 'Options')}</H2>

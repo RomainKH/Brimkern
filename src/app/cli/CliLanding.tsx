@@ -3,13 +3,14 @@
 // Page produit de la CLI (/cli). Tout ce qui ressemble à un écran est une CAPTURE réelle du
 // terminal (captures.ts, généré depuis pyte) : aucune sortie inventée, aucun chiffre non mesuré.
 // La session rejouée l'est au rythme ENREGISTRÉ, lu dans sa propre ligne de stats (« ⏱ 10.67s »).
-// Mouvement : une seule animation, qui montre le comportement réel (le flux de tokens), coupée si
-// l'OS demande moins de mouvement. On ne met en vitrine que ce qui distingue le produit : pas
+// Mouvement : la session rejouée (le vrai flux de tokens), la fumée du hero (shader, cf. Smoke.tsx)
+// et l'allumage du néon de la bannière ; tout est coupé si l'OS demande moins de mouvement. On ne met en vitrine que ce qui distingue le produit : pas
 // l'autocomplétion, pas le pourquoi du choix des modèles (retour de Romain, 2026-09-23).
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import BrandMark from '../BrandMark';
+import Smoke from './Smoke';
 import { useHref, useLocale, useT } from '@/lib/i18n';
 import s from './landing.module.css';
 import { SESSION, PICKER, REPO, STATUS, type Capture, type Seg } from './captures';
@@ -58,6 +59,9 @@ function CaptureView({ cap, visible, caretLine }: { cap: Capture; visible?: numb
     <>
       {cap.map((line, i) => {
         let budget = visible ? visible[i] : Infinity;
+        // Le curseur se place JUSTE après le dernier caractère montré — pas en fin de ligne : le
+        // texte masqué occupe sa place, et un curseur posé après lui flottait dans le vide.
+        let caretDone = caretLine !== i;
         return (
           <span key={i}>
             {line.map((seg, j) => {
@@ -65,14 +69,17 @@ function CaptureView({ cap, visible, caretLine }: { cap: Capture; visible?: numb
               const shown = budget >= text.length ? text : text.slice(0, Math.max(0, budget));
               const rest = text.slice(shown.length);
               budget -= text.length;
+              const caretHere = !caretDone && (rest.length > 0 || j === line.length - 1);
+              if (caretHere) caretDone = true;
               return (
                 <span key={j} className={clsOf(cls)}>
                   {shown}
+                  {caretHere && <span className={s.caret} />}
                   {rest && <span style={{ visibility: 'hidden' }}>{rest}</span>}
                 </span>
               );
             })}
-            {caretLine === i && <span className={s.caret} />}
+            {!caretDone && <span className={s.caret} />}
             {'\n'}
           </span>
         );
@@ -146,7 +153,7 @@ function Replay() {
 
   return (
     <div ref={ref}>
-      <figure className={s.shot} style={{ margin: 0 }}>
+      <figure className={`${s.shot} ${s.shotNeon}`} style={{ margin: 0 }}>
         <figcaption className={s.shotTitle}>brimkern chat</figcaption>
         <pre className={`${s.shotBody} ${s.wrapText}`} tabIndex={0}>
           <CaptureView cap={SESSION} visible={visible} caretLine={caretLine} />
@@ -191,6 +198,7 @@ export default function CliLanding() {
 
   return (
     <div className={s.page}>
+      <Smoke className={s.smoke} />
       <header className={`${s.wrap} ${s.top}`}>
         <Link href={href('/')} className={s.home}><BrandMark size={26} style={{ marginRight: 10, ['--accent' as string]: 'var(--red)' }} />Brimkern</Link>
         <nav className={s.topLinks} aria-label={t('CLI page', 'Page CLI')}>
@@ -206,7 +214,7 @@ export default function CliLanding() {
         {/* ── Hero : la bannière du terminal est le point focal ─────────────────────────── */}
         <section className={`${s.wrap} ${s.hero}`}>
           <p className={s.prompt}>~/your-project <b>$</b> brimkern chat<span className={s.cursor} aria-hidden="true" /></p>
-          <pre className={s.banner} aria-hidden="true">{BANNER}</pre>
+          <pre className={`${s.banner} ${s.neon}`} aria-hidden="true">{BANNER}</pre>
           <h1 className={s.h1}>
             {t('Your coding assistant runs ', 'Votre assistant de code tourne ')}
             <em>{t('on your GPU', 'sur votre GPU')}</em>
@@ -219,7 +227,7 @@ export default function CliLanding() {
             )}
           </p>
           <div className={s.ctas}>
-            <a href="#install" className={`${s.btn} ${s.btnPrimary}`}>{t('Install from the repo', 'Installer depuis le dépôt')}</a>
+            <a href="#install" className={`${s.btn} ${s.btnPrimary}`}>{t('Install in one command', 'Installer en une commande')}</a>
             <Link href={href('/docs/cli')} className={`${s.btn} ${s.btnGhost}`}>{t('Read the reference', 'Lire la référence')}</Link>
           </div>
         </section>
@@ -320,18 +328,19 @@ export default function CliLanding() {
         {/* ── 05 · installation ─────────────────────────────────────────────────────────── */}
         <section id="install" className={`${s.wrap} ${s.section}`} aria-labelledby="install-h" style={{ scrollMarginTop: 16 }}>
           <p className={s.cmdLabel}>05 · {t('install', 'installation')}</p>
-          <h2 id="install-h" className={s.h2}>{t('Three commands, from the repository.', 'Trois commandes, depuis le dépôt.')}</h2>
+          <h2 id="install-h" className={s.h2}>{t('One command.', 'Une commande.')}</h2>
           <p className={s.body}>
             {t(
-              'Node.js and npm, a GPU with Metal (macOS) or Vulkan (Linux). The first launch downloads the model once (2.53 GB), then it is read from ~/.cache/brimkern.',
-              'Node.js et npm, un GPU Metal (macOS) ou Vulkan (Linux). Le premier lancement télécharge le modèle une fois (2,53 Go), ensuite il est relu depuis ~/.cache/brimkern.'
+              'macOS or Linux, with Node.js 20+ and git. It installs into ~/.brimkern and adds a brimkern command; run it again to update. The first launch downloads the model once (2.53 GB).',
+              'macOS ou Linux, avec Node.js 20+ et git. Tout s’installe dans ~/.brimkern avec une commande brimkern ; relancez-la pour mettre à jour. Le premier lancement télécharge le modèle une fois (2,53 Go).'
             )}
           </p>
-          <ol className={s.steps}>
-            <li className={s.step}><span className={s.stepNum} aria-hidden="true">01</span><CopyLine text={`git clone ${REPO_URL} && cd Brimkern`} /></li>
-            <li className={s.step}><span className={s.stepNum} aria-hidden="true">02</span><CopyLine text="npm install && npm run build:sdk" /></li>
-            <li className={s.step}><span className={s.stepNum} aria-hidden="true">03</span><CopyLine text="node bin/brimkern.mjs chat" /></li>
-          </ol>
+          <div className={s.oneLine}>
+            <CopyLine text="curl -fsSL https://brimkern.com/install.sh | bash" />
+          </div>
+          <p className={s.body} style={{ marginTop: 18 }}>
+            {t('Then, in any project folder: ', 'Ensuite, dans n’importe quel dossier de projet : ')}<code>brimkern chat</code>
+          </p>
           <p className={s.note} style={{ marginTop: 18 }}>
             {t('Every command and option: ', 'Toutes les commandes et options : ')}
             <Link href={href('/docs/cli')} style={{ color: 'var(--paper)' }}>{t('CLI reference', 'référence de la CLI')}</Link>

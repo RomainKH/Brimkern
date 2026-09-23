@@ -31,6 +31,49 @@
   min-height: 100vh;
   font-family: var(--font-sans);
   overflow-x: clip;
+  position: relative;
+  isolation: isolate;
+}
+
+/* ── Fumée néon (Smoke.tsx) : derrière l'en-tête et le hero, fondue vers le bas ───────────── */
+.smoke {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: min(1100px, 125vh);
+  z-index: -1;
+  display: block;
+  -webkit-mask-image: linear-gradient(#000 55%, transparent);
+  mask-image: linear-gradient(#000 55%, transparent);
+}
+
+/* Néon de la bannière : un tube rouge (halo à trois rayons) qui s'allume en grésillant, une fois.
+   Seul élément à halo fort de la page (règle de dose : un point focal lumineux, pas dix). */
+.neon {
+  color: #ff6b5e;
+  text-shadow:
+    0 0 2px rgba(255, 190, 180, 0.9),
+    0 0 10px rgba(239, 68, 68, 0.85),
+    0 0 28px rgba(239, 68, 68, 0.55),
+    0 0 64px rgba(239, 68, 68, 0.35);
+  animation: ignite 1.6s steps(1) 0.2s both;
+}
+
+@keyframes ignite {
+  0% { opacity: 0.08; text-shadow: none; }
+  8% { opacity: 1; }
+  12% { opacity: 0.2; text-shadow: none; }
+  20% { opacity: 1; }
+  23% { opacity: 0.35; text-shadow: none; }
+  34% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* Écran de la session rejouée : un liseré néon discret, le reste des écrans reste mat. */
+.shotNeon {
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.12), 0 0 42px rgba(239, 68, 68, 0.14), 0 0 120px rgba(56, 189, 248, 0.05);
 }
 
 /* Le `code` global du site (fond papier clair) donnait des blocs blancs illisibles sur l'encre. */
@@ -346,28 +389,6 @@
 .statLine .green { color: var(--green); }
 
 /* ── Installation ─────────────────────────────────────────────────────────────────────── */
-.steps {
-  list-style: none;
-  margin: 26px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 12px;
-  max-width: 760px;
-}
-
-.step {
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-}
-
-.stepNum {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--red-text);
-}
-
 .copy {
   display: flex;
   align-items: center;
@@ -513,4 +534,18 @@
 
 @media (prefers-reduced-motion: reduce) {
   .cursor { animation: none; }
+  .neon { animation: none; }
+}
+
+.oneLine {
+  margin-top: 22px;
+  max-width: 640px;
+}
+
+.oneLine .copy {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 28px rgba(239, 68, 68, 0.12);
+  font-size: 15px;
 }
