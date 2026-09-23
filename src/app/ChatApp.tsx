@@ -46,7 +46,7 @@ import type { VideoGenerator } from '@/lib/webgpu/video/videoGen';
 import type { WebGpuEngine as WebGpuEngineT } from '@/lib/webgpu/kernels';
 import type { VisionSession as VisionSessionT } from '@/lib/webgpu/vision/qwen2vl';
 import { nextMsgId } from './ids';
-import { CONTEXT_SOFT_CAP, approxTokens, type PastedAttachment } from './composer-shared';
+import { CONTEXT_SOFT_CAP, approxTokens, type PastedAttachment, type QueuedMessage } from './composer-shared';
 import type { Message } from './types';
 
 // Decoding params for the chat loop. Greedy argmax loops on small quantized models; a repetition
@@ -228,6 +228,27 @@ function App() {
   // Large pastes collapsed into chips (see PASTE_COLLAPSE_CHARS) — kept out of the textarea but
   // concatenated into the outgoing message on send.
   const [attachments, setAttachments] = useState<PastedAttachment[]>([]);
+  // File d'attente des messages soumis pendant qu'une réponse est en cours de calcul
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const stoppedByUserRef = useRef<boolean>(false);
+
+  const handleRemoveQueued = (id: string) => {
+    setMessageQueue(prev => prev.filter(m => m.id !== id));
+  };
+
+  const handleEditQueued = (id: string) => {
+    const item = messageQueue.find(m => m.id === id);
+    if (!item) return;
+    setMessageQueue(prev => prev.filter(m => m.id !== id));
+    setUserInput(item.text);
+    if (item.attachments?.length) setAttachments(item.attachments);
+    if (item.pendingImage) setPendingImage(item.pendingImage);
+    textareaRef.current?.focus();
+  };
+
+  const handleClearQueue = () => {
+    setMessageQueue([]);
+  };
 
   // Conversation history. Only currentConvId lives here — the model engine needs it and the on-mount
   // auto-resume needs the engine's loader, so owning it here keeps the two hooks from going circular.
@@ -2156,10 +2177,47 @@ function App() {
     }
   };
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = async (
+    textToSend?: string,
+    customAttachments?: PastedAttachment[],
+    customPendingImage?: { dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null
+  ) => {
+    // Si l'inférence est déjà en cours, on empile le message dans la file d'attente
+    if (modelState === 'generating') {
+      const typed = (textToSend ?? userInput).trim();
+      const sentAttachments = customAttachments ?? attachments;
+      const curPendingImage = customPendingImage ?? pendingImage;
+      if (!typed && sentAttachments.length === 0 && !curPendingImage) return;
+
+      const qItem: QueuedMessage = {
+        id: nextMsgId(),
+        text: typed,
+        attachments: [...sentAttachments],
+        pendingImage: curPendingImage ? { ...curPendingImage } : null,
+        createdAt: Date.now(),
+      };
+      setMessageQueue(prev => [...prev, qItem]);
+      setUserInput('');
+      setAttachments([]);
+      setPendingImage(null);
+      return;
+    }
+
+    // Si clic direct sur Envoyer alors que le champ est vide mais qu'il y a une file d'attente
+    if (textToSend === undefined && !userInput.trim() && attachments.length === 0 && !pendingImage) {
+      if (messageQueue.length > 0) {
+        const [nextMsg, ...remaining] = messageQueue;
+        setMessageQueue(remaining);
+        stoppedByUserRef.current = false;
+        void handleSendMessage(nextMsg.text, nextMsg.attachments, nextMsg.pendingImage);
+      }
+      return;
+    }
+
     // Vision mode: image + texte → texte (Qwen2-VL).
     if (visionSession) {
       const prompt = (textToSend ?? userInput).trim();
+      if (customPendingImage) setPendingImage(customPendingImage);
       if (prompt && modelState === 'ready') void handleVisionMessage(prompt);
       return;
     }
@@ -2176,10 +2234,11 @@ function App() {
       return;
     }
     const typed = textToSend ?? userInput;
-    const sentAttachments = textToSend ? [] : attachments;
+    const sentAttachments = customAttachments ?? (textToSend ? [] : attachments);
     const text = composeOutgoing(typed, sentAttachments);
     if (!text.trim() || modelState !== 'ready' || !activeModel || !activeTokenizer) return;
     
+    stoppedByUserRef.current = false;
     const activeAbortController = new AbortController();
     abortControllerRef.current = activeAbortController;
 
@@ -2619,11 +2678,28 @@ function App() {
     // Image et vidéo : le drapeau est lu au bloc suivant. Une génération vidéo dure des minutes,
     // le bouton stop ne pouvait pas rester décoratif pour elle.
     genCancelRef.current = true;
+    stoppedByUserRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       setModelState('ready');
     }
   };
+
+  // Réinitialise la file d'attente lors d'un changement de conversation
+  useEffect(() => {
+    setMessageQueue([]);
+    stoppedByUserRef.current = false;
+  }, [currentConvId]);
+
+  // Dépilement automatique de la file d'attente dès que l'inférence précédente est terminée
+  useEffect(() => {
+    if (modelState === 'ready' && messageQueue.length > 0 && !stoppedByUserRef.current) {
+      const [nextMsg, ...remaining] = messageQueue;
+      setMessageQueue(remaining);
+      void handleSendMessage(nextMsg.text, nextMsg.attachments, nextMsg.pendingImage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelState, messageQueue]);
 
   // Benchmark decode throughput with f32 vs f16 layer weights (the core of the BRIK idea).
   // Prefill a fixed prompt (untimed, also warms the weight cache at each precision), then time
@@ -3589,6 +3665,10 @@ function App() {
           visionMode={!!visionSession}
           pendingImage={pendingImage}
           setPendingImage={setPendingImage}
+          messageQueue={messageQueue}
+          onRemoveQueued={handleRemoveQueued}
+          onEditQueued={handleEditQueued}
+          onClearQueue={handleClearQueue}
         />
       </main>
 

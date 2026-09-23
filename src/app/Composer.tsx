@@ -5,12 +5,12 @@
 // Pure UI — all state/handlers come from the page (props keep the page's names so the JSX is verbatim).
 
 import { useRef, type Dispatch, type SetStateAction, type RefObject, type ClipboardEvent as ReactClipboardEvent } from 'react';
-import { Brain, Sparkles, Square, Send, X, Copy, AlertTriangle, Image as ImageIcon, Paperclip, Film } from 'lucide-react';
+import { Brain, Sparkles, Square, Send, X, Copy, AlertTriangle, Image as ImageIcon, Paperclip, Film, Clock, Edit2, Plus } from 'lucide-react';
 import { THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
 import type { ArchType } from '@/lib/presets';
 import type { Skill } from '@/lib/skillStore';
 import { useT } from '@/lib/i18n';
-import { CONTEXT_SOFT_CAP, type PastedAttachment } from './composer-shared';
+import { CONTEXT_SOFT_CAP, type PastedAttachment, type QueuedMessage } from './composer-shared';
 
 import { planImage, type ImageRatio, type ImageQuality } from '@/lib/webgpu/diffusion/imageGen';
 
@@ -59,6 +59,11 @@ interface Props {
   visionMode?: boolean;
   pendingImage?: { dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null;
   setPendingImage?: Dispatch<SetStateAction<{ dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null>>;
+  // File d'attente des messages soumis pendant qu'une réponse est en cours de calcul
+  messageQueue?: QueuedMessage[];
+  onRemoveQueued?: (id: string) => void;
+  onEditQueued?: (id: string) => void;
+  onClearQueue?: () => void;
 }
 
 export function Composer({
@@ -69,6 +74,7 @@ export function Composer({
   nativeHighRes, imageCeiling,
   webSearchOn, videoMode, videoFrames, setVideoFrames,
   visionMode, pendingImage, setPendingImage,
+  messageQueue = [], onRemoveQueued, onEditQueued, onClearQueue,
 }: Props) {
   const t = useT();
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -128,6 +134,132 @@ export function Composer({
 
   return (
         <div className="chat-input-container">
+          {messageQueue.length > 0 && (
+            <div style={{
+              marginBottom: '10px',
+              padding: '8px 12px',
+              borderRadius: '10px',
+              background: 'var(--bg-card, rgba(127,127,127,0.06))',
+              border: '1px solid var(--border-color, #e0dccf)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  <Clock size={13} style={{ color: 'var(--accent)' }} />
+                  <span>{t('Message queue', "File d'attente")}</span>
+                  <span style={{
+                    background: 'var(--accent)',
+                    color: '#fff',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    borderRadius: '999px',
+                    padding: '1px 6px',
+                  }}>
+                    {messageQueue.length}
+                  </span>
+                </div>
+                {onClearQueue && (
+                  <button
+                    onClick={onClearQueue}
+                    title={t('Clear the queue', "Vider la file d'attente")}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      padding: '2px 4px',
+                    }}
+                  >
+                    {t('Clear all', 'Tout effacer')}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '120px', overflowY: 'auto' }}>
+                {messageQueue.map((item, index) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      background: 'var(--bg-page, rgba(0,0,0,0.03))',
+                      fontSize: '12px',
+                      border: '1px solid var(--border-color, rgba(0,0,0,0.05))',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0 }}>
+                        #{index + 1}
+                      </span>
+                      <span
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          color: 'var(--text-secondary)',
+                        }}
+                        title={item.text}
+                      >
+                        {item.text || (item.pendingImage ? t('[Image attachment]', '[Pièce jointe image]') : t('[Attachment]', '[Pièce jointe]'))}
+                      </span>
+                      {item.attachments && item.attachments.length > 0 && (
+                        <span style={{ fontSize: '10px', color: 'var(--accent)', flexShrink: 0 }}>
+                          📎 {item.attachments.length}
+                        </span>
+                      )}
+                      {item.pendingImage && (
+                        <span style={{ fontSize: '10px', color: 'var(--accent)', flexShrink: 0 }}>
+                          🖼️
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                      {onEditQueued && (
+                        <button
+                          onClick={() => onEditQueued(item.id)}
+                          title={t('Edit this message', 'Modifier ce message')}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--text-muted)',
+                            padding: '2px',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                      )}
+                      {onRemoveQueued && (
+                        <button
+                          onClick={() => onRemoveQueued(item.id)}
+                          title={t('Remove from queue', "Retirer de la file d'attente")}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--text-muted)',
+                            padding: '2px',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {attachments.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
               {attachments.map((a) => (
@@ -323,7 +455,7 @@ export function Composer({
                       ? t('Describe an image to generate…', 'Décrivez une image à générer…')
                       : t('Type your message…', 'Saisissez votre message…'))
                   : modelState === 'generating'
-                    ? (isMobile ? t('Generating…', 'Génération…') : t('WebGPU matrix inference in progress…', 'Inférence matricielle WebGPU en cours…'))
+                    ? (isMobile ? t('Generating… (Enter to queue)', 'Génération… (Entrée pour empiler)') : t('Generating… Type your message to queue it', 'Inférence en cours… Tapez votre message pour le mettre en file'))
                     : (isMobile ? t('Load a model to begin', 'Chargez un modèle pour commencer') : t('Select and load a model from the sidebar to begin.', 'Sélectionnez et chargez un modèle dans le menu latéral pour commencer.'))
               }
               rows={1}
@@ -340,20 +472,32 @@ export function Composer({
 
             <div className="chat-actions">
               {modelState === 'generating' ? (
-                <button
-                  className="circle-btn"
-                  onClick={handleStopGeneration}
-                  title={t('Stop the computation', 'Interrompre les calculs')}
-                  style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
-                >
-                  <Square size={16} fill="currentColor" />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {(userInput.trim() || attachments.length > 0 || pendingImage) && (
+                    <button
+                      className="circle-btn"
+                      onClick={() => handleSendMessage()}
+                      title={t('Add to queue (Enter)', "Ajouter à la file d'attente (Entrée)")}
+                      style={{ background: 'var(--accent)', color: '#fff' }}
+                    >
+                      <Plus size={16} />
+                    </button>
+                  )}
+                  <button
+                    className="circle-btn"
+                    onClick={handleStopGeneration}
+                    title={t('Stop the computation', 'Interrompre les calculs')}
+                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
+                  >
+                    <Square size={16} fill="currentColor" />
+                  </button>
+                </div>
               ) : (
                 <button
                   className="circle-btn send-btn"
                   onClick={() => handleSendMessage()}
-                  disabled={modelState !== 'ready' || (!userInput.trim() && attachments.length === 0)}
-                  title={t('Send', 'Calculer')}
+                  disabled={modelState !== 'ready' || (!userInput.trim() && attachments.length === 0 && !pendingImage && messageQueue.length === 0)}
+                  title={messageQueue.length > 0 && !userInput.trim() && attachments.length === 0 ? t('Run queued message', 'Lancer la file d’attente') : t('Send', 'Calculer')}
                 >
                   <Send size={16} />
                 </button>

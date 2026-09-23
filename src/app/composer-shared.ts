@@ -10,3 +10,13 @@ export const approxTokens = (text: string) => Math.ceil((text || '').length / 4)
 
 // A long paste collapses into one of these chips instead of flooding the textarea.
 export interface PastedAttachment { id: string; label: string; content: string; }
+
+// Message en attente dans la file d'attente (quand une génération est déjà en cours)
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  attachments: PastedAttachment[];
+  pendingImage?: { dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null;
+  createdAt: number;
+}
+
