@@ -7,9 +7,11 @@
 // Pourquoi un shader et pas des dégradés CSS : c'est un produit qui fait calculer le GPU, la fumée
 // est littéralement calculée par votre GPU ; et un bruit fbm à domaine déformé donne des volutes
 // qui bougent comme une fumée, ce qu'aucun dégradé ne fait.
+// Suit le défilement (demande de Romain) : toile FIXE plein écran, et le défilement entre dans le
+// shader (`scroll`) — la fumée dérive vers le haut quand on descend, au lieu d'un décor collé au hero.
 // Garde-fous :
-// - demi-résolution (le flou naturel de la fumée cache le sous-échantillonnage), ~30 i/s ;
-// - arrêt quand le hero sort de l'écran ou que l'onglet est caché ;
+// - 40 % de la résolution CSS, 4 octaves, ~24 i/s (le flou naturel de la fumée cache tout ça) ;
+// - arrêt quand l'onglet est caché ; kill-switch ?fx=0 (témoin des bancs, convention du dépôt) ;
 // - prefers-reduced-motion : UNE image fixe, aucune animation ;
 // - luminosité plafonnée dans le shader : le texte papier garde son contraste au pire endroit ;
 // - pas de WebGL → rien (le fond d'encre suffit), jamais d'erreur à l'écran.
@@ -20,19 +22,22 @@ const VERT = `attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }`
 
 // fbm à domaine déformé (Quilez) : deux couches de bruit qui se tordent l'une l'autre.
 const FRAG = `precision mediump float;
-uniform vec2 res; uniform float t;
+uniform vec2 res; uniform float t; uniform float scroll;
 float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
-float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 5; k++){ v += a*n(p); p = p*2.03 + 7.1; a *= 0.5; } return v; }
+float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a*n(p); p = p*2.03 + 7.1; a *= 0.5; } return v; }
 void main(){
-  vec2 uv = gl_FragCoord.xy / res; vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2;
+  vec2 uv = gl_FragCoord.xy / res;
+  // Le défilement (en hauteurs d'écran) décale le domaine du bruit : la fumée monte quand on descend.
+  vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 1.6);
   float s = t * 0.045;
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
   float f = fbm(p + 2.6*r);
-  // La fumée monte du bas et se dissipe vers le haut.
-  float rise = smoothstep(1.1, 0.0, uv.y);
+  // La fumée monte du bas et se dissipe vers le haut ; passé le hero, elle s'éclaircit (un voile,
+  // plus un rideau : on est dans le contenu).
+  float rise = smoothstep(1.1, 0.0, uv.y) * mix(1.0, 0.55, smoothstep(0.4, 1.4, scroll));
   float d = smoothstep(0.30, 0.92, f) * rise;
   // Zone du texte (colonne de gauche sur grand écran, toute la largeur sur téléphone) : fumée
   // retenue. Ailleurs, elle a le droit d'être dense : c'est là qu'elle fait le « wow ».
@@ -48,7 +53,10 @@ void main(){
   // plus haut, il n'y a rien à lire.
   vec3 capLow = vec3(0.29, 0.11, 0.10);
   vec3 capHigh = vec3(0.62, 0.22, 0.22);
-  col = min(col, mix(capHigh, capLow, textZone));
+  // Passé le hero, du texte peut être n'importe où (paragraphe aligné à droite, tableau) : le
+  // plafond bas s'applique partout.
+  float inContent = smoothstep(0.45, 0.95, scroll);
+  col = min(col, mix(mix(capHigh, capLow, textZone), capLow, inContent));
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -58,6 +66,7 @@ export default function Smoke({ className }: { className?: string }) {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
+    if (new URLSearchParams(window.location.search).get('fx') === '0') { canvas.style.display = 'none'; return; }
     const gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power' });
     if (!gl) return;
     const compile = (type: number, src: string) => {
@@ -83,8 +92,9 @@ export default function Smoke({ className }: { className?: string }) {
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const uRes = gl.getUniformLocation(prog, 'res');
     const uT = gl.getUniformLocation(prog, 't');
+    const uScroll = gl.getUniformLocation(prog, 'scroll');
 
-    const SCALE = 0.5;
+    const SCALE = 0.4;
     const resize = () => {
       const w = Math.max(1, Math.round(canvas.clientWidth * SCALE));
       const h = Math.max(1, Math.round(canvas.clientHeight * SCALE));
@@ -92,7 +102,11 @@ export default function Smoke({ className }: { className?: string }) {
       gl.viewport(0, 0, w, h);
       gl.uniform2f(uRes, w, h);
     };
-    const draw = (sec: number) => { gl.uniform1f(uT, sec); gl.drawArrays(gl.TRIANGLES, 0, 3); };
+    const draw = (sec: number) => {
+      gl.uniform1f(uT, sec);
+      gl.uniform1f(uScroll, window.scrollY / Math.max(1, window.innerHeight));
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
 
     resize();
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -100,20 +114,20 @@ export default function Smoke({ className }: { className?: string }) {
 
     let raf = 0;
     let last = 0;
-    let visible = true;
     const t0 = performance.now();
     const loop = (now: number) => {
+      if (document.hidden) { raf = 0; return; } // reprend à visibilitychange
       raf = requestAnimationFrame(loop);
-      if (!visible || document.hidden || now - last < 33) return; // ~30 i/s
+      if (now - last < 41) return; // ~24 i/s
       last = now;
       draw((now - t0) / 1000 + 12);
     };
-    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; });
-    io.observe(canvas);
+    const onVis = () => { if (!document.hidden && !raf) raf = requestAnimationFrame(loop); };
+    document.addEventListener('visibilitychange', onVis);
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); io.disconnect(); ro.disconnect(); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
   return <canvas ref={ref} className={className} aria-hidden="true" />;

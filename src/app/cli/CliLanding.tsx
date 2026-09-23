@@ -214,7 +214,13 @@ export default function CliLanding() {
         {/* ── Hero : la bannière du terminal est le point focal ─────────────────────────── */}
         <section className={`${s.wrap} ${s.hero}`}>
           <p className={s.prompt}>~/your-project <b>$</b> brimkern chat<span className={s.cursor} aria-hidden="true" /></p>
-          <pre className={`${s.banner} ${s.neon}`} aria-hidden="true">{BANNER}</pre>
+          {/* Le néon (halos lourds) est peint UNE fois sur sa propre couche ; le glitch anime deux
+              copies légères par-dessus (transform + clip-path, côté compositeur), jamais le néon. */}
+          <div className={s.bannerWrap} aria-hidden="true">
+            <pre className={`${s.banner} ${s.neon}`}>{BANNER}</pre>
+            <pre className={`${s.banner} ${s.glitch} ${s.glitchA}`}>{BANNER}</pre>
+            <pre className={`${s.banner} ${s.glitch} ${s.glitchB}`}>{BANNER}</pre>
+          </div>
           <h1 className={s.h1}>
             {t('Your coding assistant runs ', 'Votre assistant de code tourne ')}
             <em>{t('on your GPU', 'sur votre GPU')}</em>

@@ -35,17 +35,15 @@
   isolation: isolate;
 }
 
-/* ── Fumée néon (Smoke.tsx) : derrière l'en-tête et le hero, fondue vers le bas ───────────── */
+/* ── Fumée néon (Smoke.tsx) : toile fixe plein écran, la fumée suit le défilement ─────────── */
 .smoke {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: min(1100px, 125vh);
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: -1;
   display: block;
-  -webkit-mask-image: linear-gradient(#000 55%, transparent);
-  mask-image: linear-gradient(#000 55%, transparent);
+  pointer-events: none;
 }
 
 /* Néon de la bannière : un tube rouge (halo à trois rayons) qui s'allume en grésillant, une fois.
@@ -68,6 +66,65 @@
   23% { opacity: 0.35; text-shadow: none; }
   34% { opacity: 1; }
   100% { opacity: 1; }
+}
+
+/* ── Glitch (demande de Romain) : décalages RVB brefs et rares, jamais un clignotement continu.
+   Deux copies sans halo (cyan / rouge) apparaissent quelques centièmes de seconde, découpées en
+   bandes (clip-path) et décalées (transform) : tout se passe sur le compositeur. */
+.bannerWrap {
+  position: relative;
+  width: max-content;
+  max-width: 100%;
+}
+
+.neon { transform: translateZ(0); } /* couche à part : une repeinture voisine ne repeint plus le néon */
+
+.glitch {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0;
+  text-shadow: none;
+  will-change: transform, opacity, clip-path;
+}
+
+.glitchA { color: rgba(56, 189, 248, 0.85); mix-blend-mode: screen; animation: glitchA 6.5s steps(1) 2.4s infinite; }
+.glitchB { color: rgba(255, 60, 60, 0.9); mix-blend-mode: screen; animation: glitchB 6.5s steps(1) 2.4s infinite; }
+
+@keyframes glitchA {
+  0%, 100% { opacity: 0; }
+  1% { opacity: 1; transform: translate(-6px, 0); clip-path: inset(12% 0 62% 0); }
+  2% { opacity: 1; transform: translate(4px, 0); clip-path: inset(58% 0 18% 0); }
+  3% { opacity: 1; transform: translate(-3px, 0); clip-path: inset(34% 0 44% 0); }
+  4% { opacity: 0; }
+  47% { opacity: 1; transform: translate(5px, 0); clip-path: inset(70% 0 6% 0); }
+  48% { opacity: 0; }
+}
+
+@keyframes glitchB {
+  0%, 100% { opacity: 0; }
+  1% { opacity: 1; transform: translate(5px, 0); clip-path: inset(40% 0 38% 0); }
+  2% { opacity: 1; transform: translate(-7px, 0); clip-path: inset(8% 0 76% 0); }
+  3% { opacity: 0; }
+  47% { opacity: 1; transform: translate(-4px, 0); clip-path: inset(22% 0 60% 0); }
+  48% { opacity: 0; }
+}
+
+/* Titres de section : un sursaut RVB une seule fois, quand ils entrent dans l'écran. */
+@supports (animation-timeline: view()) {
+  .h2, .statement {
+    animation: titleGlitch linear both;
+    animation-timeline: view();
+    animation-range: entry 20% entry 70%;
+  }
+}
+
+@keyframes titleGlitch {
+  0% { text-shadow: 3px 0 rgba(56, 189, 248, 0.7), -3px 0 rgba(239, 68, 68, 0.7); transform: translateX(-2px); }
+  30% { text-shadow: -2px 0 rgba(56, 189, 248, 0.6), 2px 0 rgba(239, 68, 68, 0.6); transform: translateX(2px); }
+  55% { text-shadow: 1px 0 rgba(56, 189, 248, 0.4), -1px 0 rgba(239, 68, 68, 0.4); transform: none; }
+  100% { text-shadow: none; transform: none; }
 }
 
 /* Écran de la session rejouée : un liseré néon discret, le reste des écrans reste mat. */
@@ -173,6 +230,7 @@
 }
 
 @keyframes blink { 50% { opacity: 0; } }
+.cursor { will-change: opacity; } /* clignotement sur le compositeur : ne repeint pas le néon voisin */
 
 .banner {
   margin: 0;
@@ -535,6 +593,8 @@
 @media (prefers-reduced-motion: reduce) {
   .cursor { animation: none; }
   .neon { animation: none; }
+  .glitch { animation: none; display: none; }
+  .h2, .statement { animation: none; }
 }
 
 .oneLine {
