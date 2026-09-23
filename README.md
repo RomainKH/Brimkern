@@ -1,364 +1,159 @@
 <div align="center">
 
-![Brimkern: run real AI models natively in the browser](docs/brimkern-banner.svg)
+![Brimkern: run real AI models natively on your GPU](docs/brimkern-banner.svg)
 
-### Paste a Hugging Face model. Watch it run on **your own GPU**, in a tab.
+### Run open-source AI directly on your GPU — in the browser or terminal.
 
-No conversion. No compile step. No server, no account, no API key.
-The weights stream in once, stay on your device, and keep working offline.
+No server. No API key. No per-token bill. Zero remote inference.  
+Weights stream once by HTTP ranges, stay on your device, and run 100% offline.
 
-`WebGPU` · `hand-written WGSL` · `single-file GGUF` · `.brik streaming` · `100% local` · `embeddable SDK`
+`WebGPU` · `hand-written WGSL` · `single-file GGUF` · `.brik streaming` · `CLI` · `Embeddable SDK`
 
-**[brimkern.com](https://brimkern.com)** · [open the chat](https://brimkern.com/chat) · [docs](https://brimkern.com/docs)
-
-![The Brimkern landing page](docs/screenshots/landing.png)
+**[brimkern.com](https://brimkern.com)** · [Web Chat](https://brimkern.com/chat) · [CLI Tool](https://brimkern.com/cli) · [Documentation](https://brimkern.com/docs)
 
 </div>
 
 ---
 
-## The one-sentence version
+## What is Brimkern?
 
-Every "AI in your browser" either wraps a remote API, or asks you to **pre-compile** the weights into
-its own artifact before it will touch them. Brimkern reads the format the Hub already hosts, 
-**single-file GGUF**, and executes it with WGSL compute shaders we wrote by hand.
+Most "browser AI" solutions either wrap a remote API or require heavy pre-compilation of weights into opaque proprietary blobs.
 
-That's the whole bet: the Hub holds tens of thousands of single-file GGUFs, and here every one of
-them is one paste away.
+**Brimkern runs models directly on device via WebGPU and hand-crafted WGSL compute shaders.**
+It reads single-file **GGUFs** directly from the Hugging Face Hub, as well as **`.brik`** streamable containers designed for instant GPU execution.
 
-```
-https://brimkern.com/chat?model=Qwen/Qwen3-0.6B-GGUF
-https://brimkern.com/chat?model=unsloth/gemma-3-270m-it-GGUF
-https://brimkern.com/chat?gguf=https://example.com/your-own.gguf
-```
-
-The best quantization is picked for you, the tokenizer is read out of the file, and the architecture
-is inferred: there is nothing to configure. Sharded GGUFs and vision projectors are refused with an
-explicit message rather than half-loaded.
-
----
-
-## What you get
-
-![The chat: a real answer, with the measured throughput under it](docs/screenshots/chat.png)
-
-Every reply carries its own measurements (above: **460 tok/s prefill, 47.5 tok/s decode** on a
-Qwen 2.5 0.5B int4, Apple-silicon laptop). Nothing is estimated in this README: every number below
-comes from a run we can reproduce.
-
-| Modality | What you get | How |
+| Surface | What it does | How to use |
 | --- | --- | --- |
-| 💬 **Chat** | Multi-turn, reasoning models (`<think>`), English & French | Streamed decode on a resident GPU KV-cache |
-| 👁️ **Vision** | Ask questions about an image you attach | Qwen2-VL (ViT + projector), desktop |
-| 🎨 **Image** | Text-to-image, in-browser | SD-Turbo / SDXS + TAESD, WebGPU diffusion |
-| 🎬 **Video** *(beta)* | Short animated clips from a prompt | AnimateDiff-Lightning on the diffusion stack |
-| 🧩 **SDK** | On-device AI on *your* site, one `<script>` | See “Embed it” below |
-
-One WGSL kernel library drives all four.
+| 💬 **Web App** | Multi-turn chat, reasoning (`<think>`), vision & diffusion | [brimkern.com/chat](https://brimkern.com/chat) |
+| ⚡ **CLI** | Hardware GPU inference directly in your terminal | `brimkern chat` or Unix pipe |
+| 🧩 **SDK** | Drop on-device AI into your website in one line | `<script src="https://brimkern.com/sdk.js">` |
+| 🔄 **Converter** | Convert any GGUF to streamable `.brik` in your browser | [brimkern.com/convert](https://brimkern.com/convert) |
 
 ---
 
-## The engine
+## ⚡ Command Line (CLI)
 
-No `onnxruntime`, no `transformers.js` inference. The forward pass is **hand-written WGSL**:
+Run lightweight local models directly from your terminal using WebGPU hardware acceleration:
 
-- Fused quantized matmuls (`matmul_t_q4/q8/q3`), resident KV-cache, single-submit decode.
-- A dedicated **decode GEMV**: one 64-thread workgroup per output row, threads splitting the
-  quantization groups, shared-memory reduction.
-- Per-architecture kernels: RoPE variants, QK-norm, SwiGLU/GEGLU, GroupNorm, causal & temporal
-  attention, short-conv (hybrid models), direct conv2d for diffusion.
+```bash
+# Install the CLI
+curl -fsSL https://brimkern.com/install.sh | bash
 
-Two rules make that safe to ship, and they're worth stealing:
+# Interactive REPL session
+brimkern chat
 
-1. **Every kernel self-validates at load** against a CPU reference, and falls back to the slower,
-   simpler path if a GPU miscompiles. A wrong answer is a bug; a slow answer is a Tuesday.
-   There is also a second, independent CPU reference for the *whole* forward pass, written from the
-   architecture rather than from our pipeline, which compares logits and the hidden state after every
-   layer. It is what caught the last real correctness bug: an optimization that prefetched a layer in
-   one HTTP range was filling the weight cache directly and skipping the row fix Llama's Q/K matrices
-   need, so the chat path read mis-ordered weights while a colder path read correct ones.
-2. **Every risky optimization has a URL kill-switch.** `?gemv=0`, `?f16shared=0`, `?qshared=0`,
-   `?warmup=0`, `?ggufstream=0`, `?kvq=0`, `?timing=1`. The output must be identical with the switch
-   off: only slower. It's how each of the speedups below was attributed to a cause instead of a
-   guess.
+# Or pipe code / text directly
+cat main.rs | brimkern "Review this code for memory safety"
+```
 
-Architecture notes live in [`docs/`](docs/): [`perf-webgpu.md`](docs/perf-webgpu.md) has the
-roofline analysis and the measurements behind every number on this page, and
-[`engine-v2-linear-attention.md`](docs/engine-v2-linear-attention.md) covers the recurrent
-(constant-memory) path.
+Features:
+- Fast startup via Google Dawn native engine (or headless Chromium fallback).
+- Multi-mode support: `/mode [code|plan|review|auto]`.
+- Native reasoning tokens (`/think [off|auto|deep]`).
+- Persistent local range cache in `~/.cache/brimkern/ranges/`.
 
 ---
 
-## The `.brik` format
+## 🧩 Embeddable SDK
 
-GGUF is built for native runtimes; a browser needs something it can **stream, cache, and hand to a
-GPU without a decompression pass**. `.brik` is that:
-
-- **Self-describing**: architecture, tokenizer and config travel *inside* the file.
-- **Pre-quantized for the GPU**: int8 / int4 / int3 (or a mixed tier), in the exact layout the fused
-  matmul kernels read. No dequantize-on-load, no CPU stall.
-- **Range-streamable**: a layer is one contiguous HTTP range. The header lands first (UI in
-  seconds), tensors follow on demand, partial downloads resume for free.
-- **Embedded tokenizer**: genuinely offline after the first load.
-
-A 4B model ships as a single ~2.5 GB `.brik`; the smallest chat model is **149 MB**. A 4.7 GB model
-comes back from cache in **15.8 s**.
-
-You can convert a GGUF into one yourself, in the browser, at
-[brimkern.com/convert](https://brimkern.com/convert). The file never leaves your machine.
-
-### Pre-quantized models on Hugging Face
-
-| Repo | What |
-| --- | --- |
-| [`romainkh14/LFM2.5-230M_BRIK`](https://huggingface.co/romainkh14/LFM2.5-230M_BRIK) | 149 MB hybrid chat model (the default) |
-| [`romainkh14/Qwen2.5-0.5B-Instruct_BRIK`](https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK) | small general chat |
-| [`romainkh14/Qwen3-4B_BRIK`](https://huggingface.co/romainkh14/Qwen3-4B_BRIK) | the most capable text model (desktop) |
-| [`romainkh14/brimkern-image-BRIK`](https://huggingface.co/romainkh14/brimkern-image-BRIK) | SD-Turbo / SDXS image weights |
-| [`romainkh14/brimkern-video-BRIK`](https://huggingface.co/romainkh14/brimkern-video-BRIK) | AnimateDiff-Lightning video weights |
-
----
-
-## Picking a model, honestly
-
-The browser reads your GPU and your connection and tells you what will actually run: with the
-download time, the fit verdict, and whether it's already on disk: before you commit to gigabytes.
-
-![The model browser: GPU- and connection-aware recommendations](docs/screenshots/model-browser.png)
-
-Presets are one click. Your own GGUF is one paste. Both end up in the same place.
-
----
-
-## Storage & privacy
-
-100% local. Prompts, files and computation never leave the tab; there is no inference server to send
-them to. Optional web features (a Wikipedia lookup, link reading) are **opt-in** and labelled: the
-default is zero network once the model is cached.
-
-Weights live in the browser cache, per site, and you can see and manage every byte. Models unused for
-30 days are cleaned up automatically (adjustable, or off); conversations and locally converted
-`.brik` files are never touched.
-
-![On-device storage: cached models, converted BRIKs, and history, all local](docs/screenshots/storage.png)
-
----
-
-## Embed it: free SDK
-
-Brimkern isn't only an app; it's an engine you can drop into your own product. One `<script>`, a
-system prompt, and it runs on **your visitor's GPU**. Which makes it free at any scale: no inference
-bill, no rate limit, private by construction, offline after first load.
+Add on-device AI to any website with zero backend infrastructure. Free at any scale because inference runs on your visitor's GPU:
 
 ```html
+<!-- One script tag, no build step -->
 <script src="https://brimkern.com/sdk.js"></script>
 <script>
   Brimkern.embed({
-    model: 'lfm2.5-230m',                                      // 149 MB, streamed on first engagement
-    system: 'You are a friendly support assistant for Acme.',   // behaviour = a prompt, no fine-tuning
+    model: 'lfm2.5-230m',                                      // 149 MB streamable hybrid model
+    system: 'You are a helpful customer support assistant.',   // Customized instructions
+    knowledge: [                                               // In-browser local RAG
+      { title: 'Pricing', text: 'Plans start at $10/mo with a 14-day free trial.' }
+    ]
   });
 </script>
 ```
 
-Or as a package, types included. Importing it on a server is a no-op, so Next/Remix/Astro are safe:
+Or install via npm:
 
 ```bash
-npm i brimkern
-```
-```js
-import { embed, createSession } from 'brimkern';
+npm install brimkern
 ```
 
-It answers from **your** content, ranked in the browser. Nothing is sent anywhere — and you can see
-which passages produced each answer, which is how you tell a bad note from a bad reading of a good
-one:
+```typescript
+import { embed } from 'brimkern';
 
-```js
 const widget = embed({
-  system: 'You are the assistant of the Ferblanc store.',
-  knowledge: [{ title: 'Shipping', text: 'Free in France from 60 euros. Switzerland: flat 8 euros.' }],
-  showSources: true,                       // the cards behind each answer, under the bubble
-});
-
-widget.on('message', ({ role, content, sources }) => log(role, content, sources));
-widget.on('error', (err) => report(err));  // e.g. this visitor's browser has no WebGPU
-await widget.ask('Do you ship to Canada?');
-widget.destroy();                          // and the engine stays loaded for the next one
-```
-
-`embed()` returns a handle — `open/close/toggle`, `ask()`, `setHistory()`, `setKnowledge()`, `on()`,
-`destroy()` — so the widget fits an app with client-side routing (a React effect's cleanup calls
-`destroy()`), and a visitor's conversation survives a reload if you store `widget.history` and hand
-it back as `history`. Sessions carry the same surface plus `lastSources`.
-
-Tools work the only way that measurably holds at this model size: the model **never decides to call
-one**. Detection is deterministic, your function runs in your page, and the model receives the
-result as a fact — like a knowledge note:
-
-```js
-embed({
-  tools: ['calc', 'date', { name: 'stock', match: /stock/i, run: (q) => api.stockFor(q) }],
-  theme: 'auto',            // 'light' | 'dark' | 'auto' — follows the visitor's system, live
-  position: 'bottom-left',  // and width/height/labels: the widget stops imposing its look
+  model: 'lfm2.5-230m',
+  tools: ['calc', 'date'],
+  showSources: true
 });
 ```
 
-The model downloads only when a visitor actually opens the widget, so your page speed is untouched.
-Pin a version with `https://brimkern.com/sdk-0.3.0.js` if you don't want the widget changing under
-your feet. Live pitch page and working demo at
-[brimkern.com/local-ai](https://brimkern.com/local-ai).
-*(SDK 0.2: widget and handle, LFM2 `.brik` model URL, theme/position/size/labels, few-shot examples,
-knowledge documents with traceable sources, local tools, events. Write short factual notes: the
-default 230M quotes them well, but it can mix up two numbers sharing a paragraph.)*
+---
+
+## 🚀 Supported Models & The `.brik` Format
+
+Brimkern loads single-file GGUFs from Hugging Face or `.brik` files optimized for the web:
+
+- **LFM2.5 230M** (~149 MB) : Ultra-fast hybrid RNN/Transformer, runs on any phone or laptop.
+- **Qwen 2.5 Coder 0.5B / 1.5B** : Specialized coding models with strong syntax generation.
+- **Qwen 2.5 0.5B / Qwen 3 0.6B / 4B** : General chat and deep reasoning models.
+- **SD-Turbo / SDXS** : Text-to-image diffusion in real-time.
+
+```
+# Launch any model directly by URL:
+https://brimkern.com/chat?model=Qwen/Qwen3-0.6B-GGUF
+https://brimkern.com/chat?model=romainkh14/LFM2.5-230M_BRIK
+```
+
+The `.brik` format enables:
+- **Zero-CPU overhead**: Tensors pre-quantized (int8 / int4 / int3) for GPU layout.
+- **HTTP Range Streaming**: Layers stream on demand; inference starts in seconds.
+- **Embedded Tokenizer**: True offline operation once cached in the browser.
 
 ---
 
-## Performance: measured, not claimed
+## 🛠️ The Engine
 
-Throughput is hardware-dependent; everything below was measured on the same Apple-silicon laptop.
+The inference engine relies entirely on hand-written WGSL shaders:
+- **Fused quantized matmuls** (`matmul_t_q4`, `matmul_t_q8`, `matmul_t_q3`).
+- **Decode GEMV** with subgroup & shared-memory reductions.
+- **Self-validation at runtime**: every kernel checks against a CPU reference on initialization and falls back gracefully if hardware limitations are detected.
+- **Diagnostic URL flags**: `?gputopk=0`, `?kvreuse=0`, `?kvq=0`, `?timing=1`.
 
-| Model | `.brik` size | Precision | Runs on |
-| --- | --- | --- | --- |
-| LFM2.5 230M · hybrid | 149 MB | int4 | mobile + desktop |
-| Qwen 3 0.6B | 639 MB | int8 | mobile + desktop |
-| Qwen 2.5 0.5B | 396 MB | mixed int4/int8 | mobile + desktop |
-| Qwen 3 4B | 2.5 GB | int4 | desktop (discrete GPU) |
-| SD-Turbo / SDXS · image | 0.4–1.3 GB | int4/int8 | desktop · SDXS-light on mobile |
-
-Three fixes from 2026-08-13, each found by measuring rather than guessing:
-
-| What was wrong | Before | After |
-| --- | --- | --- |
-| Decode reused a kernel shaped for *many* token rows: an 8×8 workgroup with a `ceil(m/8)` grid, so at `m = 1` **seven of eight threads exited immediately**. The tell: q8 ran no slower than q4 while reading 70 % more bytes. A kernel not saturating memory. | 3.4 tok/s · 15 GB/s | **14.4 tok/s · 63.8 GB/s** (7B q4 ceiling) |
-| `queue.writeBuffer` is deferred: the driver materialises the weights on the first shader that reads them, so the *first message* paid for the whole model. A throwaway forward pass in `warmup()` moves that cost off the user's first prompt. | 10.9 s | **1.1 s** (first reply, 7B) |
-| Prefill GEMMs streamed weights from global memory per row. Register-blocked tiles (f16/q8/q4) cut the traffic. |: | **×2–2.7** kernel-level |
-| RMSNorm ran **one row per thread** (2026-08-14). Fine for prefill: hundreds of rows, but decode has *one* row, so 63 of 64 threads exited and the 64th walked the model dimension alone, twice. The same shape of bug as the GEMV above, in a different pass; a per-pass GPU profiler surfaced it at 51.9 % of decode time. | 36.0 tok/s | **49.5 tok/s** (×1.38, Qwen3 0.6B end-to-end) |
-| Prefill attention (2026-08-16): the counter-example to every row above. Here the kernel had *plenty* of threads (467 tokens × 16 heads ≈ 7 500); what it lacked was **reuse**. Each thread re-read its whole slice of K **twice**. Once for the max pass, once for softmax, and V once, *for its own single query*: ~1.5 GB re-read per attention pass, ≈14 ms against the machine's measured 106.9 GB/s ceiling. Tiling **4 queries per workgroup** lets one sweep of K/V serve all four. Bandwidth-bound, not parallelism-bound: the opposite diagnosis, found by profiling the prefill phase on its own. The int8-KV path (long contexts) got the same treatment: ×11.5. **Read the numbers on the right as small-model numbers**: they are measured at d=1024, where attention is 60.5 % of prefill. Re-profiled on a 7B (d=3584, Qwen2 shapes) the same kernel wins ×8.8, but attention is only 18.7 % of prefill there, so the phase gain falls to **×1.20**: Amdahl, not a regression. On big shapes the remaining prefill cost is the matmuls, not attention. | 267 tok/s | **600 tok/s** (×2.25 prefill end-to-end at d=1024; ×1.20 at d=3584) |
+Benchmark reports and architectural deep dives are documented in [`docs/`](docs/).
 
 ---
 
-## How it compares to WebLLM
+## 📦 Quickstart for Developers
 
-[MLC WebLLM](https://github.com/mlc-ai/web-llm) is the reference in-browser LLM engine and is **more
-mature than this project**: TVM-generated and auto-tuned kernels, an OpenAI-compatible API,
-Web/Service Worker support, structured output, a large catalogue. If you want the most battle-tested
-way to run a *known* model list in a browser today, use it: that's an honest recommendation.
-
-The difference is not speed, it's **what you're allowed to load**:
-
-| | Brimkern | WebLLM |
-| --- | --- | --- |
-| **Model input** | Any single-file GGUF, straight from the Hub or your own URL | Weights **pre-compiled by MLC** (TVM model library + sharded weights) |
-| **Adding a model** | Paste `author/model` | Publish a compiled artifact, or compile it yourself |
-| **Weight delivery** | `.brik` by HTTP ranges: partial, resumable, offline after first load | Sharded weight files |
-| **Embedding it** | One `<script>` + `Brimkern.embed({...})` | A JS library you wire into your own UI |
-| **Maturity** | Younger | **Ahead** |
-
-On the same 7B (DeepSeek-R1-Distill-Qwen-7B, int4), same laptop, both engines: **prefill 47.2 vs
-18.7 tok/s** (ahead), **decode 10.2 vs 14.0 tok/s** (behind). Not a rout in either direction, and the
-decode gap was 4x wider before the GEMV fix above, and narrowed again on 2026-08-15 (8.1 to 10.2 tok/s) when RMSNorm stopped running on a single thread.
-
-Neither gap is where we first looked. Two hypotheses died on measurement: the chat loop
-(detokenization, repetition penalty, React) costs 4–11 %, and recording the GPU passes in JS costs
-3 % (1.4 ms against 43.6 ms of GPU time per token). Decode re-reads **every weight for every token**,
-so it is bound by memory bandwidth. Which makes the stored precision the dominant lever:
-
-| Llama 3.2 1B, same machine, same question | prefill | decode |
-| --- | --- | --- |
-| f16 | 220.4 tok/s | 21.5 tok/s |
-| **int8** | 221.8 tok/s | **32.2 tok/s** |
-
-Prefill is compute-bound and doesn't move; decode gains 50 % and VRAM halves. int8 is now the
-default for non-quantized sources: f16 only survives where no int8 path exists.
-
-Kernel ceilings, measured in isolation on 7B shapes (`__decodeBench` / `__prefillBench` in the
-console. They allocate correctly-shaped random weights, so no 4.7 GB download is needed):
-
-| 7B int4, matmul ceiling | ours | end-to-end |
-| --- | --- | --- |
-| Prefill (512 tokens at once) | **74.4 tok/s** · 971 GFLOP/s | 47.2 tok/s |
-| Decode (one token) | **17.5 tok/s** · 77.3 GB/s | 10.2 tok/s |
-
-Decode is bound by memory bandwidth, so the number that matters is what the machine can actually
-deliver. A pure-read kernel (`scripts/e2e/bandwidth.mjs`) puts this laptop's ceiling at **106.9 GB/s**
-, against which the decode GEMVs sit at **92 % (int8, ~99 GB/s)** and **79 % (int4, ~85 GB/s)**,
-median of five runs. There is no large win left in decode: the remaining headroom is ~8 % and ~20 %
-respectively, and no badly-parallelised kernel is left on that path.
-
-The GEMM holds ~1 TFLOP/s across every shape of the layer, so prefill is compute-bound and already
-saturating the GPU. Int8 even edges out int4 there (1003 vs 971 GFLOP/s: unpacking costs more than
-the bandwidth it saves when you're not bandwidth-bound).
-
-Levers still untouched, in order of expected value: **subgroups**, **per-GPU tile selection**
-(a cheap approximation of TVM's auto-tuning: `engine.benchMatmul` already exists), **operator
-fusion**, **ring-buffer KV + tiled attention**.
-
----
-
-## Documentation
-
-Everything: how to load a model, the instant test links, the converter, the SDK, storage, the
-diagnostic switches. Lives at **[brimkern.com/docs](https://brimkern.com/docs)** (English and
-French, same URL structure).
-
-![The documentation hub](docs/screenshots/docs-hub.png)
-
----
-
-## Quickstart
+Clone and run the complete web application locally:
 
 ```bash
-git clone <this-repo> brimkern
-cd brimkern
+git clone https://github.com/RomainKH/Brimkern.git
+cd Brimkern
 npm install
-npm run dev          # http://localhost:3000
-npm run build && npm run start   # production
+
+# Run dev server
+npm run dev
+
+# Or build and start production server
+npm run build && npm run start
 ```
 
-Requirements: a **WebGPU-capable browser** (Chrome/Edge 121+, or Safari 18+). A discrete GPU helps
-for the larger models; the light presets run on integrated GPUs and phones.
+Requires a browser supporting WebGPU (Chrome/Edge 121+, Safari 18+).
 
-The logic that can be tested without a GPU is, and each suite is a plain Node script: no framework,
-no watcher, nothing to learn:
+### Unit & E2E Tests
 
 ```bash
-npm run test:brik       # .brik container: codec (q3/q4/q8), manifest round-trip, zip, loader
-npm run test:bpe        # our BPE tokenizer vs transformers.js, token-exact
-npm run test:ggtok      # tokenizer rebuilt FROM a GGUF vs the reference repo
-npm run test:deeplink   # what a pasted model string resolves to (42 cases)
-npm run test:evict      # which cached models the 30-day policy would remove
-npm run test:ranges     # which cached HTTP ranges are redundant and safe to drop
-npm run test:websearch  # when a message should (not) trigger a web lookup
-npm run test:knowledge  # the SDK's lightweight RAG chunker
-npm run test:tools      # the SDK's local tools: detection, execution, guardrails
-npm run test:sdkfresh   # is the built SDK still in sync with the engine's kernels?
-```
-
-Anything GPU-shaped is validated differently: every kernel checks itself against a CPU reference at
-load (see “The engine” above), and behaviour is measured in a real Chrome against a production
-build: never the dev server.
-
-```
-src/
-  app/                 Next.js App Router — landing (/), chat (/chat), docs, SDK page, converter
-  lib/
-    webgpu/            the engine: kernels.ts (WGSL), per-arch models, diffusion, video
-    brik/              the .brik container: parser, codec (q3/q4/q8), streaming loader
-    presets.ts         one-click model catalog
-docs/                  architecture + feasibility studies
+npm run test:brik       # .brik container codec, loader & container tests
+npm run test:bpe        # BPE tokenizer tests
+npm run test:ggtok      # GGUF tokenizer verification
+npm run test:sdkfresh   # Verify SDK bundle alignment
 ```
 
 ---
 
 ## License
 
-Code under the [MIT License](LICENSE) © 2026 Romain Khanoyan.
-
-Model **weights** are not covered by it: each carries its own terms (the LFM2 weights are under the
-LFM 1.0 license). Check a model's license before commercial use.
-
----
-
-<div align="center">
-<sub>Built with hand-written WebGPU kernels. Made, not generated.</sub>
-</div>
+Code is licensed under the [MIT License](LICENSE) © 2026 Romain Khanoyan.  
+Model weights carry their respective upstream open-source licenses.
