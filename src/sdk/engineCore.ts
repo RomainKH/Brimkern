@@ -9,19 +9,169 @@
 import { WebGpuEngine } from '../lib/webgpu/kernels';
 import { Lfm2Model } from '../lib/webgpu/lfm2Model';
 import { RwkvModel } from '../lib/webgpu/rwkvModel';
-import { loadBrikStream } from '../lib/webgpu/source';
+import { CustomWebModel, type TensorSource } from '../lib/webgpu/model';
+import { loadBrikStream, loadGgufStream, prefetchGguf, fetchFullCached, fetchRange } from '../lib/webgpu/source';
 import { spanRawTensor } from '../lib/webgpu/layerSpans';
-import { formatPrompt, TURN_MARKERS } from '../lib/chatFormat';
+import { formatPrompt, declaredStopIds, TURN_MARKERS } from '../lib/chatFormat';
 import { BpeTokenizer } from '../lib/bpeTokenizer';
+import { tokenizerFromGguf } from '../lib/ggufTokenizer';
+import { sampleFromTopK } from '../lib/webgpu/sampling';
+import { parseGguf, type Manifest } from '../lib/webgpu/ggufParser';
+import type { ArchType } from '../lib/presets';
 
-// Les deux classes pures partagent le même contrat (load/residentAvailable/generate/
-// generateResident/classify) — c'est ce qui rend le dispatch trivial. Le reste du fichier ne
-// dépend d'aucun détail d'architecture : formatPrompt et l'arrêt textuel portent la différence.
-export type PureModel = Lfm2Model | RwkvModel;
+// Dédit de prompt selon l'architecture
+function inferArchType(manifest: { arch?: string; metadata?: Record<string, unknown>; tensors?: Record<string, any>; config?: any }): ArchType {
+  const arch = manifest.arch || '';
+  if (arch === 'lfm2' || manifest.config?.lfm2) return 'lfm2';
+  if (arch === 'rwkv7' || manifest.config?.rwkv) return 'rwkv7';
+  if (arch === 'qwen2' || arch.includes('qwen2')) return 'qwen';
+  if (arch === 'qwen3' || arch.includes('qwen3')) return 'qwen3';
+  if (arch === 'smollm3' || arch.includes('smollm')) return 'smollm3';
+  if (arch === 'mistral3' || arch.includes('mistral')) return 'mistral3';
+  if (arch === 'gemma3') return 'gemma3';
+  if (arch === 'gemma' || arch === 'gemma2') return 'gemma';
+  if (arch === 'deepseek') return 'deepseek';
+  if (arch === 'llama') {
+    const emb = manifest.tensors?.['token_embd.weight'];
+    const d = manifest.config?.d;
+    const vocab = emb && d ? emb.nElems / d : null;
+    return vocab && vocab < 100000 ? 'llama2' : 'llama3';
+  }
+  return 'qwen';
+}
+
+// ── Modèle Transformer WebGPU (Qwen 2.5, Qwen Coder, Llama, Gemma, etc.) ─────────
+export class TransformerWebModel {
+  readonly arch: ArchType;
+  private stops: Set<number>;
+
+  constructor(
+    private engine: WebGpuEngine,
+    private model: CustomWebModel,
+    private tok: { encode(s: string): number[]; decode(ids: number[]): string },
+    arch: ArchType,
+    stops?: number[],
+  ) {
+    this.arch = arch;
+    this.stops = new Set(stops || []);
+  }
+
+  residentAvailable(): boolean {
+    return true;
+  }
+
+  reset(): void {
+    this.model.reset();
+  }
+
+  unload(): void {
+    this.model.unload();
+  }
+
+  async generate(
+    prompt: string,
+    maxTokens: number,
+    onToken?: (text: string) => void,
+    stop?: () => boolean,
+    opts?: { temperature?: number; topK?: number; repeatPenalty?: number; sample?: boolean },
+  ): Promise<string> {
+    return this.generateResident(prompt, maxTokens, onToken, stop, opts);
+  }
+
+  async generateResident(
+    prompt: string,
+    maxTokens: number,
+    onToken?: (text: string) => void,
+    stop?: () => boolean,
+    opts?: { temperature?: number; topK?: number; repeatPenalty?: number; sample?: boolean },
+  ): Promise<string> {
+    const sid = 'sdk-gen';
+    const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1.0);
+    const temp = opts?.temperature ?? 0.55;
+    const topK = opts?.topK ?? 40;
+    const REPEAT_WINDOW = 64;
+
+    this.model.reset();
+    const promptTokens = this.tok.encode(prompt);
+    if (!promptTokens.length) return '';
+
+    // 1. Prefill par tranches bornées (256 tokens max par batch)
+    const PREFILL_CHUNK = 256;
+    let feedPos = 0;
+    let currentToken = 0;
+
+    for (let i = 0; i < promptTokens.length; i += PREFILL_CHUNK) {
+      if (stop?.()) return '';
+      const chunk = promptTokens.slice(i, i + PREFILL_CHUNK);
+      const isLast = i + PREFILL_CHUNK >= promptTokens.length;
+      if (isLast) {
+        const pre = await this.model.topKKV(chunk, feedPos, sid, promptTokens.slice(-REPEAT_WINDOW), penalty);
+        currentToken = sampleFromTopK(pre.ids, pre.vals, { temperature: opts?.sample === false ? 0 : temp, topK });
+      } else {
+        await this.model.topKKV(chunk, feedPos, sid, [], 1.0);
+      }
+      feedPos += chunk.length;
+    }
+
+    if (!Number.isInteger(currentToken) || currentToken < 0) {
+      return '';
+    }
+
+    if (this.stops.has(currentToken)) {
+      return '';
+    }
+
+    // 2. Décodage autorégressif
+    const generatedTokens: number[] = [currentToken];
+    const penaltyWindow: number[] = [...promptTokens.slice(-REPEAT_WINDOW), currentToken].slice(-REPEAT_WINDOW);
+    const penaltyCounts = new Map<number, number>();
+    for (const id of penaltyWindow) penaltyCounts.set(id, (penaltyCounts.get(id) ?? 0) + 1);
+
+    const pushPenalty = (id: number) => {
+      penaltyWindow.push(id);
+      penaltyCounts.set(id, (penaltyCounts.get(id) ?? 0) + 1);
+      if (penaltyWindow.length > REPEAT_WINDOW) {
+        const old = penaltyWindow.shift()!;
+        const c = penaltyCounts.get(old)! - 1;
+        if (c === 0) penaltyCounts.delete(old); else penaltyCounts.set(old, c);
+      }
+    };
+
+    if (onToken) onToken(this.tok.decode(generatedTokens));
+
+    for (let step = 1; step < maxTokens; step++) {
+      if (stop?.()) break;
+
+      const pos = promptTokens.length + step - 1;
+      const stepOut = await this.model.topKKV([currentToken], pos, sid, [...penaltyCounts.keys()], penalty);
+      if (!stepOut.ids || !stepOut.ids.length) break;
+      const nextToken = sampleFromTopK(stepOut.ids, stepOut.vals, { temperature: opts?.sample === false ? 0 : temp, topK });
+      if (!Number.isInteger(nextToken) || nextToken < 0) break;
+
+      if (this.stops.has(nextToken)) break;
+
+      currentToken = nextToken;
+      generatedTokens.push(currentToken);
+      pushPenalty(currentToken);
+
+      if (onToken) onToken(this.tok.decode(generatedTokens));
+    }
+
+    return this.tok.decode(generatedTokens);
+  }
+}
+
+// Les classes pures partagent le même contrat (load/residentAvailable/generate/generateResident).
+export type PureModel = Lfm2Model | RwkvModel | TransformerWebModel;
 
 const TRANSFORMERS_CDN = 'https://esm.sh/@huggingface/transformers@4.2.0';
 export const MODELS: Record<string, string> = {
   'lfm2.5-230m': 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
+  'qwen-0.5b': 'https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik',
+  'coder-0.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+  'coder-1.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+  'rwkv-0.4b': 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
+  'rwkv-0.1b': 'https://huggingface.co/romainkh14/RWKV-7-G1-0.1B_BRIK/resolve/main/rwkv7-g1-0.1b-q4.brik',
 };
 const GG: Record<string, string> = { F16: 'f16', F32: 'f32', Q4W: 'q4', Q8W: 'q8', Q3W: 'q3' };
 
@@ -41,7 +191,7 @@ export interface LoadProgress { loaded: number; total: number }
 // via preload({ onProgress }) reçoit la clé et la traduit chez lui.
 export type LoadPhase = 'init' | 'download' | 'tokenizer' | 'gpu';
 
-// ── Chargement du modèle LFM2 (même recette que l'app : BRIK streamé + tokenizer embarqué) ──
+// ── Chargement du modèle LFM2, RWKV-7, ou Transformer (GGUF streamé ou BRIK) ──
 async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgress) => void) {
   const engine = new WebGpuEngine();
   // `code` porte la CAUSE, indépendamment de la langue du message : c'est le seul échec que le
@@ -58,21 +208,108 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
   };
   await engine.selfValidate();
   onProgress('download');
+
+  // Sonde des premiers octets pour détecter le format du fichier (BRIK vs GGUF)
+  const probe = await fetchRange(url, 0, 12).catch(() => null);
+  const magic = probe?.bytes && probe.bytes.length >= 4 ? String.fromCharCode(...probe.bytes.subarray(0, 4)) : '';
+  const isGguf = magic === 'GGUF' || url.toLowerCase().includes('.gguf');
+
+  if (isGguf) {
+    // ── Chemin GGUF streamé (Qwen 2.5 Coder, Llama, etc.) ──────────────────────
+    await prefetchGguf(url, (p) => {
+      onProgress('download', { loaded: p.doneBytes, total: p.totalBytes });
+    }).catch((e) => {
+      console.warn('[gguf] préchargement par plages indisponible :', e);
+    });
+
+    const stream = await loadGgufStream(url).catch((e) => {
+      console.warn('[gguf] streaming par plages échoué, repli complet :', e);
+      return null;
+    });
+
+    let manifest: Manifest;
+    let source: TensorSource;
+    if (stream) {
+      manifest = stream.manifest as unknown as Manifest;
+      source = stream.source;
+    } else {
+      const full = await fetchFullCached(url);
+      manifest = await parseGguf(new Blob([full.buffer as ArrayBuffer])) as unknown as Manifest;
+      source = { bytes: async (o, l) => full.subarray(o, o + l) };
+    }
+
+    const archType = inferArchType(manifest);
+
+    onProgress('tokenizer');
+    const ggTok = tokenizerFromGguf(manifest);
+    let tok: { encode(s: string): number[]; decode(ids: number[]): string };
+    const stopIds: number[] = declaredStopIds(manifest.metadata);
+
+    if (ggTok) {
+      tok = ggTok.tokenizer;
+      if (ggTok.eosId != null) stopIds.push(ggTok.eosId);
+      if (ggTok.controlIds?.length) stopIds.push(...ggTok.controlIds);
+    } else {
+      console.warn('[brimkern] tokenizer GGUF non-BPE : repli transformers.js (CDN)');
+      const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
+      const tokId = (manifest.metadata?.['tokenizer.ggml.id'] as string) || (archType === 'llama3' ? 'unsloth/Llama-3.2-1B-Instruct' : 'Qwen/Qwen2.5-Coder-0.5B-Instruct');
+      const hf = await tf.AutoTokenizer.from_pretrained(tokId);
+      tok = {
+        encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
+        decode: (ids: number[]) => hf.decode(ids, { skip_special_tokens: true }) as string,
+      };
+    }
+
+    const customModel = new CustomWebModel(engine, source, manifest);
+    onProgress('gpu');
+    await customModel.prewarmGpu((done, total) => {
+      onProgress('gpu', { loaded: done, total });
+    });
+
+    const core = new TransformerWebModel(engine, customModel, tok, archType, stopIds);
+    return { core, engine };
+  }
+
   const loadable: any = await loadBrikStream(url);
   const m = loadable.manifest;
-  // Garde EXPLICITE avant de construire quoi que ce soit. Sans elle, l'erreur venait du fond du
-  // moteur (« manifest sans profil lfm2 ») : exacte, mais illisible pour un intégrateur qui a juste
-  // pointé une URL. On dit ce qui a été trouvé, ce qui est supporté, et où aller.
-  // Depuis 0.3.0 : lfm2 ET rwkv7 (le moteur RWKV — kernels, drivers — était déjà dans le bundle ;
-  // seule cette garde et la classe pure manquaient). Même dispatch que l'app (useModelEngine).
-  const kind: 'lfm2' | 'rwkv7' | null = m?.config?.lfm2 ? 'lfm2' : m?.config?.rwkv ? 'rwkv7' : null;
-  if (!kind) {
-    const arch = m?.arch ?? m?.config?.arch ?? 'unknown';
-    throw new Error(
-      `Brimkern SDK runs LFM2 and RWKV-7 .brik models only: this file's architecture is "${arch}". ` +
-      'Use the default model (omit `model`), or convert/pick an LFM2 or RWKV-7 .brik. ' +
-      'Full model support lives in the app: https://brimkern.com/chat',
-    );
+  const kind: 'lfm2' | 'rwkv7' | 'transformer' = m?.config?.lfm2 ? 'lfm2' : m?.config?.rwkv ? 'rwkv7' : 'transformer';
+
+  if (kind === 'transformer') {
+    onProgress('tokenizer');
+    let tok: { encode(s: string): number[]; decode(ids: number[]): string };
+    if (loadable.tokenizer?.json) {
+      try {
+        const bpe = new BpeTokenizer(loadable.tokenizer.json);
+        tok = { encode: (s) => bpe.encode(s), decode: (ids) => bpe.decode(ids) };
+      } catch (e) {
+        console.warn('[brimkern] tokenizer.json non couvert par le BPE bundlé : repli transformers.js (CDN)', e);
+        const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
+        const hf = new tf.PreTrainedTokenizer(JSON.parse(loadable.tokenizer.json), JSON.parse(loadable.tokenizer.config));
+        tok = {
+          encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
+          decode: (ids: number[]) => hf.decode(ids, { skip_special_tokens: true }) as string,
+        };
+      }
+    } else {
+      const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
+      const tokId = loadable.tokenizerId || 'Qwen/Qwen2.5-0.5B-Instruct';
+      const hf = await tf.AutoTokenizer.from_pretrained(tokId);
+      tok = {
+        encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
+        decode: (ids: number[]) => hf.decode(ids, { skip_special_tokens: true }) as string,
+      };
+    }
+
+    const customModel = new CustomWebModel(engine, loadable.source, m);
+    onProgress('gpu');
+    await customModel.prewarmGpu((done, total) => {
+      onProgress('gpu', { loaded: done, total });
+    });
+
+    const archType = inferArchType(m);
+    const stopIds = m.chat?.stopTokenIds || [151645, 151643];
+    const core = new TransformerWebModel(engine, customModel, tok, archType, stopIds);
+    return { core, engine };
   }
   const emb = m.tensors['token_embd.weight'];
   const bm: any = {
@@ -246,7 +483,7 @@ export async function runTurn(
   pinned: Msg[] = [],
 ): Promise<string> {
   // Les exemples few-shot restent EN TÊTE quoi qu'il arrive ; seule la conversation glisse.
-  const arch = core instanceof RwkvModel ? 'rwkv7' : 'lfm2';
+  const arch: ArchType = (core as any).arch || (core instanceof RwkvModel ? 'rwkv7' : 'lfm2');
   const prompt = formatPrompt([...pinned, ...history.slice(-HISTORY_WINDOW)] as any, arch as any, system);
   const greeted = pinned.some((m) => m.role === 'assistant') || history.some((m) => m.role === 'assistant');
   let acc = '';

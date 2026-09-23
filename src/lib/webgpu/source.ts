@@ -29,7 +29,7 @@ async function openCache(): Promise<Cache | null> {
 // Fetch [offset, offset+length) via a Range request, served from the Cache API when present. Returns
 // { bytes, ranged } — `ranged` is false when the server ignored Range and sent the whole body.
 // `signal` (préchargement) : annulation immédiate, y compris en plein milieu d'une plage.
-async function fetchRange(url: string, offset: number, length: number, signal?: AbortSignal): Promise<{ bytes: Uint8Array; ranged: boolean }> {
+export async function fetchRange(url: string, offset: number, length: number, signal?: AbortSignal): Promise<{ bytes: Uint8Array; ranged: boolean }> {
 	const end = offset + length - 1;
 	const cache = await openCache();
 	const key = rangeKey(url, offset, end);

@@ -672,8 +672,8 @@ function startLocalServer(localBrikFile = null) {
       return;
     }
 
-    // 2. Modèle local .brik avec support HTTP Range (206 Partial Content)
-    if (req.url === '/local-model.brik' && localBrikFile && existsSync(localBrikFile)) {
+    // 2. Modèle local .brik ou .gguf avec support HTTP Range (206 Partial Content)
+    if ((req.url === '/local-model.brik' || req.url === '/local-model.gguf') && localBrikFile && existsSync(localBrikFile)) {
       const stat = statSync(localBrikFile);
       const range = req.headers.range;
       if (range) {
@@ -824,7 +824,8 @@ class BrimkernNativeDawnEngine {
     if (this.localBrikFile) {
       const { server, port } = await startLocalServer(this.localBrikFile);
       this.server = server;
-      targetUrl = `http://127.0.0.1:${port}/local-model.brik`;
+      const ext = this.format === 'gguf' ? 'gguf' : 'brik';
+      targetUrl = `http://127.0.0.1:${port}/local-model.${ext}`;
     }
 
     const sdkPath = getSdkMjsPath();
@@ -940,7 +941,8 @@ class BrimkernChromiumEngine {
     this.port = port;
 
     if (this.localBrikFile) {
-      this.modelUrl = `http://127.0.0.1:${port}/local-model.brik`;
+      const ext = this.format === 'gguf' ? 'gguf' : 'brik';
+      this.modelUrl = `http://127.0.0.1:${port}/local-model.${ext}`;
     }
 
     // Profil persistant pour mettre en cache les modèles téléchargés (IndexedDB / CacheStorage)
