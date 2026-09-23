@@ -1,69 +1,59 @@
 "use client";
 
-// Page de promotion et de documentation de la CLI Brimkern — inférence WebGPU en WGSL
-// directement dans le terminal.
-// Bilingue via useT() et useHref(), intégrée dans DocsShell pour un accès immédiat
-// depuis la navigation de documentation.
+// Page de la CLI Brimkern. Direction artistique reprise du terminal lui-même : la bannière en
+// blocs de `brimkern chat`, les cadres, la chasse fixe, et une VRAIE session capturée (cf.
+// session.ts) plutôt qu'une réponse inventée. Aucun effet de fond : les écrans sombres sont du
+// contenu (ils représentent le terminal), la page reste sur le papier du site.
+//
+// Tout chiffre ici vient d'un banc rejouable (ROADMAP §16) — ne pas en ajouter sans mesure.
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Copy, Check, Zap, Code2, Play, HardDrive, Shield, Cpu } from 'lucide-react';
+import { Copy, Check, Code2, Terminal } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
-import DocsShell, { Code, P, Section } from '../docs/DocsShell';
+import DocsShell, { Code, P } from '../docs/DocsShell';
+import s from './cli.module.css';
+import { SESSION, type Seg } from './session';
 
-// Bouton de copie avec confirmation temporaire
+const BANNER = `██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
+██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
+██████╔╝██████╔╝██║██╔████╔██║█████═╝ █████╗  ██████╔╝██╔██╗ ██║
+██╔══██╗██╔══██╗██║██║╚██╔╝██║██╔═██╗ ██╔══╝  ██╔══██╗██║╚██╗██║
+██████╔╝██║  ██║██║██║ ╚═╝ ██║██║ ╚██╗███████╗██║  ██║██║ ╚████║
+╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝`;
+
+const REPO = 'https://github.com/RomainKH/Brimkern';
+
 function CopySnippet({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   const t = useT();
-
-  const handleCopy = async () => {
+  const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // repli silencieux
-    }
+    } catch { /* presse-papier refusé : sans effet */ }
   };
-
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        background: 'var(--bg-code)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 10,
-        padding: '10px 14px',
-        margin: '10px 0',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 13,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 8,
+        padding: '8px 10px 8px 14px', fontFamily: 'var(--font-mono)', fontSize: 13,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto', minWidth: 0 }}>
-        <span style={{ color: 'var(--accent)', userSelect: 'none' }}>$</span>
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', minWidth: 0 }} tabIndex={0}>
+        <span style={{ color: 'var(--accent-text)', userSelect: 'none' }} aria-hidden="true">$</span>
         <span style={{ color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{text}</span>
       </div>
       <button
-        onClick={handleCopy}
+        onClick={copy}
         type="button"
         aria-label={label || t('Copy command', 'Copier la commande')}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          background: copied ? 'var(--accent)' : 'transparent',
-          color: copied ? '#fff' : 'var(--text-secondary)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 6,
-          padding: '4px 8px',
-          fontSize: 11,
-          fontFamily: 'var(--font-mono)',
-          cursor: 'pointer',
-          flexShrink: 0,
-          transition: 'all 0.15s ease',
+          display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, cursor: 'pointer',
+          background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-color)',
+          borderRadius: 6, padding: '4px 8px', fontSize: 11, fontFamily: 'var(--font-mono)',
         }}
       >
         {copied ? <Check size={12} /> : <Copy size={12} />}
@@ -73,7 +63,33 @@ function CopySnippet({ text, label }: { text: string; label?: string }) {
   );
 }
 
-// Paramètre de documentation CLI
+function Screen({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`${s.screen} ${className || ''}`}>
+      <div className={s.bar}>
+        <span><span className={s.barDot} aria-hidden="true" />{title}</span>
+      </div>
+      {/* tabIndex : sur téléphone le contenu défile horizontalement, il doit rester atteignable au clavier (axe scrollable-region-focusable). */}
+      <div className={s.body} tabIndex={0}>{children}</div>
+    </div>
+  );
+}
+
+function H2({ id, n, children }: { id: string; n: string; children: React.ReactNode }) {
+  return (
+    <h2 id={id} className={s.h2} style={{ scrollMarginTop: 24 }}>
+      <span className={s.h2Num} aria-hidden="true">{n}</span>
+      {children}
+    </h2>
+  );
+}
+
+function Seg({ seg }: { seg: Seg }) {
+  const [text, cls] = seg;
+  if (!cls) return <>{text}</>;
+  return <span className={cls.split(' ').map((c) => s[c]).join(' ')}>{text}</span>;
+}
+
 function Param({ name, type, children }: { name: string; type: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '9px 0', borderBottom: '1px solid var(--border-color)' }}>
@@ -90,480 +106,231 @@ export default function CliClient() {
   const t = useT();
   const href = useHref();
 
-  const toc: { id: string; label: string }[] = [
-    { id: 'quickstart', label: t('Quickstart & Install', 'Démarrage rapide & Install') },
-    { id: 'context', label: t('File Context & Git', 'Contexte @fichier & Git') },
-    { id: 'chat', label: t('Interactive REPL', 'REPL interactif') },
-    { id: 'pipes', label: t('Unix Pipes & Code', 'Pipes Unix & Code') },
-    { id: 'presets', label: t('Models & .brik Format', 'Modèles & format .brik') },
-    { id: 'options', label: t('Options Reference', 'Référence des options') },
-    { id: 'architecture', label: t('WGSL Architecture', 'Architecture WGSL') },
+  const toc = [
+    { id: 'session', label: t('A real session', 'Une vraie session') },
+    { id: 'install', label: t('Install', 'Installation') },
+    { id: 'repl', label: t('The REPL', 'Le REPL') },
+    { id: 'context', label: t('Files, git & shell', 'Fichiers, git & shell') },
+    { id: 'pipes', label: t('Pipes & scripts', 'Pipes & scripts') },
+    { id: 'models', label: t('Models', 'Modèles') },
+    { id: 'options', label: t('Options', 'Options') },
+    { id: 'engine', label: t('Under the hood', 'Sous le capot') },
+  ];
+
+  const commands: [string, string][] = [
+    ['@path/file:10-40', t('Injects a file (or a line range) into the prompt. Tab completes paths.', 'Injecte un fichier (ou une plage de lignes) dans le prompt. Tab complète les chemins.')],
+    ['/model', t('Interactive picker (↑/↓, Enter) to hot-swap the model.', 'Sélecteur interactif (↑/↓, Entrée) pour changer de modèle à chaud.')],
+    ['/mode code|plan|review|auto', t('Changes how the assistant intervenes.', 'Change la manière dont l’assistant intervient.')],
+    ['/think off|auto|deep', t('Step-by-step reasoning, shown in its own block.', 'Raisonnement pas à pas, affiché dans son propre bloc.')],
+    ['/diff · /commit', t('Review of your git changes · commit message proposals.', 'Revue de vos modifications git · propositions de messages de commit.')],
+    ['/review <file>', t('Deep review of one file.', 'Revue approfondie d’un fichier.')],
+    ['/copy · /accept', t('Copies the last answer · extracts its code blocks.', 'Copie la dernière réponse · extrait ses blocs de code.')],
+    ['/status · /stats', t('Session state · tokens, speed, estimated savings.', 'État de la session · tokens, vitesse, économies estimées.')],
+    ['/reset · /clear', t('Forgets the conversation · clears the screen.', 'Oublie la conversation · efface l’écran.')],
+    ['!git status', t('Runs a shell command without leaving the REPL.', 'Exécute une commande shell sans quitter le REPL.')],
+    ['Esc · Ctrl+C', t('Stops the generation in progress (the session survives).', 'Arrête la génération en cours (la session survit).')],
   ];
 
   return (
     <DocsShell toc={toc}>
-      {/* ── EN-TÊTE HERO ──────────────────────────────────────────────────────── */}
-      <div style={{ borderTop: '2px solid var(--accent)', paddingTop: 18, marginTop: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11.5,
-              fontWeight: 700,
-              color: 'var(--accent-text)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}
-          >
-            {t('Terminal Inference · WebGPU WGSL', 'Inférence Terminal · WebGPU WGSL')}
-          </span>
-          <span style={{ fontSize: 11, background: 'var(--accent-bg, rgba(239,68,68,0.1))', color: 'var(--accent)', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>
-            v0.4.0
-          </span>
-        </div>
+      {/* ── EN-TÊTE : la bannière du terminal ─────────────────────────────────────────────── */}
+      <div style={{ marginTop: 12 }}>
+        <p className={s.eyebrow}>$ brimkern chat</p>
+        <Screen title="brimkern — zsh">
+          <pre className={s.banner} aria-hidden="true">{BANNER}</pre>
+          <p className={s.tagline}>{t('On-device WebGPU & WGSL inference engine', 'Moteur d’inférence WebGPU & WGSL on-device')}</p>
+          <div className={s.box}>
+            <span className={s.boxTitle}>Brimkern WGSL</span>
+            <div className={s.kv}>
+              <span className={s.kvKey}>{t('Model', 'Modèle')}</span><span className={s.sand}>Qwen 3 4B (BRIK int4)</span>
+              <span className={s.kvKey}>{t('Engine', 'Moteur')}</span><span className={s.green}>{t('Native Dawn (in-process)', 'Natif Dawn (in-process)')}</span>
+              <span className={s.kvKey}>WebGPU</span><span className={s.cyan}>Dawn (Metal)</span>
+              <span className={s.kvKey}>{t('Status', 'Statut')}</span><span className={s.green}>{t('100% local', '100 % local')}</span>
+            </div>
+          </div>
+        </Screen>
 
-        <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 800, lineHeight: 1.15, margin: '6px 0 14px', color: 'var(--text-primary)' }}>
-          {t('WebGPU LLMs in your terminal, written in WGSL', 'Des LLMs WebGPU dans votre terminal, écrits en WGSL')}
+        <h1 className={s.h1}>
+          {t('A coding assistant in your terminal, running on your own GPU', 'Un assistant de code dans votre terminal, sur votre propre GPU')}
         </h1>
-
-        <p style={{ color: 'var(--text-secondary)', fontSize: 16, lineHeight: 1.6, margin: '0 0 20px', maxWidth: 720 }}>
+        <p className={s.lede}>
           {t(
-            'Run lightweight coding models on your hardware GPU directly from the command line. No Python, no CUDA drivers, no server: hand-written WGSL compute shaders, Unix pipe integration, and instant streaming of .brik files.',
-            'Exécutez des modèles de code légers sur votre GPU matériel directement depuis la ligne de commande. Sans Python, sans pilotes CUDA, sans serveur : kernels WGSL écrits à la main, intégration des pipes Unix et streaming instantané de fichiers .brik.'
+            'The same hand-written WGSL kernels as the browser engine, driven from your shell. Qwen 3 4B by default, no Python, no CUDA, no server, no API key: your code never leaves the machine.',
+            'Les mêmes kernels WGSL écrits à la main que le moteur du navigateur, pilotés depuis votre shell. Qwen 3 4B par défaut, sans Python, sans CUDA, sans serveur, sans clé d’API : votre code ne quitte jamais la machine.'
           )}
         </p>
-
-        {/* Boutons d'action rapide */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 28 }}>
-          <Link href={`${href('/chat')}?start=1`} className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
-            <Play size={14} /> {t('Try in browser first', 'Tester d’abord dans le navigateur')}
-          </Link>
-          <a
-            href="https://github.com/RomainKH/Brimkern/blob/main/bin/brimkern.mjs"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-secondary"
-            style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}
-          >
-            <Code2 size={14} /> {t('View CLI source', 'Voir le code source')}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <a href="#install" className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+            <Terminal size={14} /> {t('Install', 'Installer')}
+          </a>
+          <a href={`${REPO}/blob/main/bin/brimkern.mjs`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+            <Code2 size={14} /> {t('Read the source', 'Lire le code source')}
           </a>
         </div>
       </div>
 
-      {/* ── PREVIEW CONSOLE RÉALISTE ─────────────────────────────────────────── */}
-      <div
-        style={{
-          background: 'var(--bg-code)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 12,
-          overflow: 'hidden',
-          marginBottom: 36,
-          boxShadow: '0 12px 30px rgba(0,0,0,0.18)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '9px 14px',
-            borderBottom: '1px solid var(--border-color)',
-            background: 'color-mix(in srgb, var(--bg-code) 90%, black 10%)',
-          }}
-        >
-          <div style={{ display: 'flex', gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef4444' }} />
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#eab308' }} />
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e' }} />
+      {/* ── UNE VRAIE SESSION ─────────────────────────────────────────────────────────────── */}
+      <H2 id="session" n="01">{t('A real session', 'Une vraie session')}</H2>
+      <P>
+        {t(
+          'Captured as is from the terminal, colours included: Markdown is rendered while it streams (bold, code, lists), and every answer ends with its timing and an estimate of what a paid API would have charged.',
+          'Capturée telle quelle depuis le terminal, couleurs comprises : le Markdown est rendu pendant le flux (gras, code, listes), et chaque réponse se termine par son temps et une estimation de ce qu’une API payante aurait facturé.'
+        )}
+      </P>
+      <Screen title="brimkern chat">
+        <pre className={`${s.pre} ${s.wrap}`}>
+          {SESSION.lines.map((line, i) => (
+            <span key={i}>
+              {line.map((seg, j) => <Seg key={j} seg={seg} />)}
+              {'\n'}
+            </span>
+          ))}
+        </pre>
+      </Screen>
+      <p className={s.caption}>{t(SESSION.caption.en, SESSION.caption.fr)}</p>
+
+      {/* ── INSTALLATION ──────────────────────────────────────────────────────────────────── */}
+      <H2 id="install" n="02">{t('Install', 'Installation')}</H2>
+      <P>
+        {t(
+          'From the repository, with Node.js and npm. The first launch downloads the model once, then it is read from ~/.cache/brimkern — offline included.',
+          'Depuis le dépôt, avec Node.js et npm. Le premier lancement télécharge le modèle une fois, ensuite il est relu depuis ~/.cache/brimkern — hors-ligne compris.'
+        )}
+      </P>
+      <ol className={s.steps}>
+        <li><span className={s.stepNum} aria-hidden="true">01</span><div><CopySnippet text={`git clone ${REPO} && cd Brimkern`} /></div></li>
+        <li><span className={s.stepNum} aria-hidden="true">02</span><div><CopySnippet text="npm install && npm run build:sdk" label={t('Install dependencies and build the engine', 'Installer les dépendances et construire le moteur')} /></div></li>
+        <li><span className={s.stepNum} aria-hidden="true">03</span><div><CopySnippet text="node bin/brimkern.mjs chat" label={t('Start the REPL', 'Lancer le REPL')} /></div></li>
+      </ol>
+      <P>
+        {t(
+          'The GPU is used directly: Metal on macOS, Vulkan on Linux. The default model is 2.53 GB; the next launches skip the download (measured on the 491 MB model: 35.4 s the first time, 3.4 s the second).',
+          'Le GPU est utilisé directement : Metal sur macOS, Vulkan sur Linux. Le modèle par défaut pèse 2,53 Go ; les lancements suivants sautent le téléchargement (mesuré sur le modèle de 491 Mo : 35,4 s la première fois, 3,4 s la seconde).'
+        )}
+      </P>
+
+      {/* ── LE REPL ───────────────────────────────────────────────────────────────────────── */}
+      <H2 id="repl" n="03">{t('The REPL', 'Le REPL')}</H2>
+      <P>
+        {t(
+          'Type / and the matching commands appear under the prompt as you type, the rest of the first one greyed out: → or Tab accepts it. The assistant knows which project you are in (it reads the README, the package description and the git branch), so “what is this project for?” gets a real answer.',
+          'Tapez / et les commandes correspondantes s’affichent sous le prompt pendant la frappe, la fin de la première en grisé : → ou Tab l’accepte. L’assistant sait dans quel projet vous êtes (il lit le README, la description du paquet et la branche git) : « à quoi sert ce projet ? » obtient une vraie réponse.'
+        )}
+      </P>
+      <div className={s.cmds}>
+        {commands.map(([cmd, desc]) => (
+          <div key={cmd} style={{ display: 'contents' }}>
+            <code className={s.cmd}>{cmd}</code>
+            <span className={s.cmdDesc}>{desc}</span>
           </div>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
-            brimkern — bash
-          </span>
-          <div style={{ width: 40 }} />
+        ))}
+      </div>
+      <P>
+        {t(
+          'The savings figure is an estimate, and presented as one: tokens ≈ characters / 4, the conversation history counted on every turn as an API would bill it, at a reference price of $3 / $15 per million input / output tokens — set BRIMKERN_PRICE_IN and BRIMKERN_PRICE_OUT to use your own.',
+          'Le chiffre d’économies est une estimation, présentée comme telle : tokens ≈ caractères / 4, l’historique compté à chaque tour comme le facturerait une API, à un tarif de référence de 3 $ / 15 $ par million de tokens en entrée / sortie — BRIMKERN_PRICE_IN et BRIMKERN_PRICE_OUT pour mettre le vôtre.'
+        )}
+      </P>
+
+      {/* ── FICHIERS, GIT & SHELL ─────────────────────────────────────────────────────────── */}
+      <H2 id="context" n="04">{t('Files, git & shell', 'Fichiers, git & shell')}</H2>
+      <h3 className={s.h3}>@file</h3>
+      <P>{t('Mention a file, optionally with a line range: it is read from disk and inserted in the prompt.', 'Mentionnez un fichier, éventuellement avec une plage de lignes : il est lu sur le disque et inséré dans le prompt.')}</P>
+      <Code lang="sh">{'kern › explain the state handling in @src/app/Composer.tsx:10-60'}</Code>
+      <h3 className={s.h3}>/diff · /commit · /review</h3>
+      <P>{t('Reads your uncommitted changes to review them or propose three conventional commit messages; /review takes one file.', 'Lit vos modifications non commitées pour les relire ou proposer trois messages de commit conventionnels ; /review prend un fichier.')}</P>
+      <Code lang="sh">{'kern › /diff\nkern › /commit\nkern › /review src/lib/storage.ts'}</Code>
+
+      {/* ── PIPES & SCRIPTS ───────────────────────────────────────────────────────────────── */}
+      <H2 id="pipes" n="05">{t('Pipes & scripts', 'Pipes & scripts')}</H2>
+      <P>
+        {t(
+          'Standard input is read automatically, so Brimkern chains with the usual tools. --raw keeps only the model’s text on stdout (no header, no timing, no colours), ready to redirect.',
+          'L’entrée standard est lue automatiquement : Brimkern s’enchaîne avec les outils habituels. --raw ne garde que le texte du modèle sur stdout (ni en-tête, ni temps, ni couleurs), prêt à rediriger.'
+        )}
+      </P>
+      <Code lang="sh">{'git diff | node bin/brimkern.mjs "Write a conventional commit title"\ncat crash.log | node bin/brimkern.mjs "Find the root cause"\nnode bin/brimkern.mjs --raw "Write a .gitignore for a Next.js app" > .gitignore'}</Code>
+
+      {/* ── MODÈLES ───────────────────────────────────────────────────────────────────────── */}
+      <H2 id="models" n="06">{t('Models', 'Modèles')}</H2>
+      <P>
+        {t(
+          'Two presets, kept because they answered correctly on a bench of developer questions (explaining TypeScript, deduplicating an array by key, diagnosing `this` in an arrow function; M-series Mac, warm cache). Smaller models were faster but drifted off-topic, so they were removed.',
+          'Deux presets, retenus parce qu’ils ont répondu juste sur un banc de questions de développeur (expliquer TypeScript, dédoublonner un tableau par clé, diagnostiquer `this` dans une fonction fléchée ; Mac série M, cache chaud). Les modèles plus petits allaient plus vite mais partaient hors sujet : ils ont été retirés.'
+        )}
+      </P>
+      <div className={s.models}>
+        <Screen title="coder · default" className={s.modelCard}>
+          <div className={s.modelHead}>
+            <span className={s.boldRed}>Qwen 3 4B</span>
+            <span className={s.dim}>{t('2.53 GB', '2,53 Go')}</span>
+          </div>
+          <div className={s.kv}>
+            <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>BRIK int4</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
+            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>13–16 tok/s</span>
+            <span className={s.kvKey}>{t('bench', 'banc')}</span><span>{t('correct code and diagnosis', 'code et diagnostic justes')}</span>
+          </div>
+          <p className={s.tagline}>{t('Reasoning on demand: /think deep.', 'Raisonnement à la demande : /think deep.')}</p>
+        </Screen>
+        <Screen title="fast" className={s.modelCard}>
+          <div className={s.modelHead}>
+            <span className={s.boldRed}>Qwen 2.5 Coder 1.5B</span>
+            <span className={s.dim}>{t('1.12 GB', '1,12 Go')}</span>
+          </div>
+          <div className={s.kv}>
+            <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_K_M</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>Chromium</span>
+            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>~25 tok/s</span>
+            <span className={s.kvKey}>{t('bench', 'banc')}</span><span>{t('on topic, more mistakes', 'dans le sujet, plus d’erreurs')}</span>
+          </div>
+          <p className={s.tagline}>{t('Review the code it proposes.', 'Relisez le code proposé.')}</p>
+        </Screen>
+      </div>
+      <P>
+        {t('Any single-file .gguf or .brik also works, by URL or local path (served to the engine with HTTP range requests, never loaded whole in RAM):', 'Tout .gguf mono-fichier ou .brik fonctionne aussi, par URL ou chemin local (servi au moteur par plages HTTP, jamais chargé entier en RAM) :')}
+      </P>
+      <Code lang="sh">{'node bin/brimkern.mjs --model=./models/custom.brik "Explain this code"'}</Code>
+
+      {/* ── OPTIONS ───────────────────────────────────────────────────────────────────────── */}
+      <H2 id="options" n="07">{t('Options', 'Options')}</H2>
+      <Param name="-m, --model=<coder|fast|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
+      <Param name="--mode=<code|plan|review|auto>" type="string">{t('How the assistant intervenes. Default: code.', 'Manière d’intervenir de l’assistant. Défaut : code.')}</Param>
+      <Param name="--think=<off|auto|deep>" type="string">{t('Step-by-step reasoning. Default: auto (direct answers; deep turns reasoning on).', 'Raisonnement pas à pas. Défaut : auto (réponses directes ; deep l’active).')}</Param>
+      <Param name="--lang=<en|fr>" type="string">{t('Interface language. Default: en (or BRIMKERN_LANG).', 'Langue de l’interface. Défaut : en (ou BRIMKERN_LANG).')}</Param>
+      <Param name="-s, --system=<prompt>" type="string">{t('Replaces the default system prompt (the project context is then not added).', 'Remplace le prompt système par défaut (le contexte du projet n’est alors pas ajouté).')}</Param>
+      <Param name="-n, --max-tokens=<n>" type="number">{t('Cap on generated tokens. Default: 512.', 'Plafond de tokens générés. Défaut : 512.')}</Param>
+      <Param name="-t, --temperature=<value>" type="number">{t('Sampling temperature. Default: 0.3.', 'Température d’échantillonnage. Défaut : 0.3.')}</Param>
+      <Param name="--raw" type="flag">{t('Model text only on stdout: no header, timing or colours.', 'Seulement le texte du modèle sur stdout : ni en-tête, ni temps, ni couleurs.')}</Param>
+      <Param name="--native · --chromium" type="flag">{t('Forces the in-process Dawn engine, or the headless Chromium one (used automatically for GGUF).', 'Force le moteur Dawn in-process, ou Chromium headless (utilisé automatiquement pour les GGUF).')}</Param>
+      <Param name="chat" type="command">{t('Starts the multi-turn REPL.', 'Lance le REPL multi-tours.')}</Param>
+
+      {/* ── SOUS LE CAPOT ─────────────────────────────────────────────────────────────────── */}
+      <H2 id="engine" n="08">{t('Under the hood', 'Sous le capot')}</H2>
+      <div className={s.points}>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Hand-written WGSL', 'WGSL écrit à la main')}</p>
+          <p className={s.pointText}>{t('The compute shaders of the browser engine, compiled by the platform WebGPU driver — Metal on macOS, Vulkan on Linux.', 'Les compute shaders du moteur navigateur, compilés par le pilote WebGPU de la plateforme — Metal sur macOS, Vulkan sur Linux.')}</p>
         </div>
-
-        <div style={{ padding: '14px 18px', fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.65 }}>
-          <div style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-            <span style={{ color: 'var(--accent)' }}>$ </span>
-            <span style={{ color: 'var(--text-primary)' }}>cat src/kernel.wgsl | npx brimkern &quot;Check for memory race conditions&quot;</span>
-          </div>
-
-          <div style={{ color: 'var(--text-muted)', fontSize: 11.5, margin: '6px 0' }}>
-            [Brimkern WGSL] {t('Model: Qwen 3 4B (BRIK int4) • WebGPU inference...', 'Modèle : Qwen 3 4B (BRIK int4) • Inférence WebGPU...')}
-          </div>
-
-          <div style={{ color: 'var(--text-primary)', marginTop: 8 }}>
-            {t(
-              'No race condition detected. The `workgroupBarrier()` at line 42 properly synchronizes shared memory before reading tile coordinates. Recommendation: align `vec4<f32>` accesses to avoid uncoalesced memory fetches.',
-              'Aucune race condition détectée. Le `workgroupBarrier()` à la ligne 42 synchronise correctement la mémoire partagée avant la lecture des tuiles. Recommandation : aligner les accès `vec4<f32>` pour maximiser le coalescing mémoire.'
-            )}
-          </div>
-
-          <div style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 12, borderTop: '1px dashed var(--border-color)', paddingTop: 8 }}>
-            ⏱ 1.38s · ~59.2 tok/s · 76 tokens {t('generated on Apple Metal', 'générés sur Apple Metal')}
-          </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Native Dawn', 'Dawn natif')}</p>
+          <p className={s.pointText}>{t('.brik models run in-process through Node bindings to Google Dawn, without starting a browser.', 'Les modèles .brik tournent in-process via des bindings Node vers Google Dawn, sans lancer de navigateur.')}</p>
+        </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Self-validating kernels', 'Kernels auto-validés')}</p>
+          <p className={s.pointText}>{t('Every kernel is checked against a CPU reference at startup; if a GPU gets it wrong, the engine falls back to a portable path.', 'Chaque kernel est comparé à une référence CPU au démarrage ; si un GPU se trompe, le moteur retombe sur un chemin portable.')}</p>
+        </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Streamed once, cached', 'Streamé une fois, en cache')}</p>
+          <p className={s.pointText}>{t('Weights arrive by HTTP byte ranges and stay on disk: the next launch reads them locally.', 'Les poids arrivent par plages d’octets HTTP et restent sur le disque : le lancement suivant les relit en local.')}</p>
         </div>
       </div>
-
-      {/* ── SECTION DÉMARRAGE RAPIDE ────────────────────────────────────────── */}
-      <Section id="quickstart" title={t('Quickstart & Universal Install', 'Démarrage rapide & Installation universelle')}>
-        <P>
-          {t(
-            'Install Brimkern on any device (macOS Apple Silicon & Intel, Linux, WSL) in a single command. The installer configures Node, global bins, and the hardware WebGPU environment automatically:',
-            'Installez Brimkern sur n’importe quel appareil (macOS Apple Silicon & Intel, Linux, WSL) en une seule commande. Le script configure Node, les binaires globaux et l’environnement WebGPU matériel automatiquement :'
-          )}
-        </P>
-
-        <CopySnippet text="curl -fsSL https://brimkern.com/install.sh | bash" label={t('Universal installer', 'Installateur universel')} />
-
-        <P>
-          {t('Or run it on demand without permanent installation using npx:', 'Ou lancez-le à la demande sans installation permanente avec npx :')}
-        </P>
-
-        <CopySnippet text='npx brimkern "Write a quicksort function in TypeScript"' />
-
-        <P>
-          {t('Or via npm global install:', 'Ou via npm global :')}
-        </P>
-
-        <CopySnippet text="npm install -g brimkern" label={t('Install globally via npm', 'Installer globalement via npm')} />
-
-        <P>
-          <strong>{t('Hardware GPU Acceleration: ', 'Accélération matérielle GPU : ')}</strong>
-          {t(
-            'Brimkern runs directly on your physical GPU hardware (Apple Metal on macOS, Vulkan on Linux, D3D12/Vulkan on Windows). No CUDA toolkit, no Python, and no heavy background daemons are required.',
-            'Brimkern s’exécute directement sur votre GPU physique (Apple Metal sur macOS, Vulkan sur Linux, D3D12/Vulkan sur Windows). Aucun toolkit CUDA, aucun environnement Python ni démon d’arrière-plan n’est requis.'
-          )}
-        </P>
-      </Section>
-
-      {/* ── SECTION CONTEXTE FICHIER & GIT ──────────────────────────────────── */}
-      <Section id="context" title={t('File Context & Git Integration (@file, /diff, /commit)', 'Contexte fichier & Intégration Git (@fichier, /diff, /commit')}>
-        <P>
-          {t(
-            'Like Claude Code or Gemini CLI, Brimkern brings direct awareness of your project files and git repository right to your terminal:',
-            'À la manière de Claude Code ou de Gemini CLI, Brimkern apporte une conscience directe de vos fichiers de projet et de votre dépôt git dans votre terminal :'
-          )}
-        </P>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('1. Inline file context with @filepath', '1. Injection de contexte avec @fichier')}
-        </h3>
-        <P>
-          {t(
-            'Mention any file with @path/to/file or specify line ranges with @path/to/file:start-end. Brimkern automatically reads the file from disk, counts lines, and embeds it into the prompt with language-tagged markdown fences:',
-            'Mentionnez n’importe quel fichier avec @chemin/vers/fichier ou spécifiez des lignes avec @chemin/vers/fichier:début-fin. Brimkern charge automatiquement le fichier depuis le disque, compte les lignes et l’injecte dans le prompt avec la coloration syntaxique :'
-          )}
-        </P>
-        <Code lang="sh">{'brimkern "Explique la logique de ce composant @src/app/Composer.tsx:10-60"'}</Code>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('2. Instant Git code reviews (/diff)', '2. Revue de code Git instantanée (/diff)')}
-        </h3>
-        <P>
-          {t(
-            'In chat mode or via pipe, ask for a review of your current branch changes. In REPL, simply type /diff:',
-            'En mode chat ou via pipe, demandez une relecture de vos modifications git en cours. Dans le REPL, tapez simplement /diff :'
-          )}
-        </P>
-        <Code lang="sh">{'kern › /diff'}</Code>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('3. Conventional commit message generator (/commit)', '3. Générateur de messages de commit (/commit)')}
-        </h3>
-        <P>
-          {t(
-            'Inspects git status and uncommitted diffs to generate 3 conventional commit proposals in French and English with diagnostic context:',
-            'Inspecte git status et les diffs non commités pour générer 3 propositions de messages de commit conventionnels en français et anglais avec leur diagnostic :'
-          )}
-        </P>
-        <Code lang="sh">{'kern › /commit'}</Code>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('4. Direct clipboard copying (/copy)', '4. Copie directe dans le presse-papier (/copy)')}
-        </h3>
-        <P>
-          {t(
-            'Never select terminal text manually again: /copy sends the assistant’s latest response directly to your system clipboard (macOS pbcopy, Linux xclip/wl-copy, Windows clip):',
-            'Plus besoin de sélectionner du texte dans la console : /copy envoie la dernière réponse de l’assistant directement dans votre presse-papier système (macOS pbcopy, Linux xclip/wl-copy, Windows clip) :'
-          )}
-        </P>
-        <Code lang="sh">{'kern › /copy'}</Code>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('5. Interactive Model Selector (/model)', '5. Sélecteur de modèle interactif (/model)')}
-        </h3>
-        <P>
-          {t(
-            'Type /model in the REPL to open a scrollable interactive picker. Browse available models with keyboard arrow keys (↑/↓), inspect VRAM requirements and technical specs, and press Enter to hot-swap models without restarting your session:',
-            'Tapez /model dans le REPL pour ouvrir un sélecteur déroulant interactif. Naviguez entre les modèles avec les flèches du clavier (↑/↓), inspectez la consommation VRAM et les détails techniques, et appuyez sur Entrée pour changer de modèle à chaud sans relancer votre session :'
-          )}
-        </P>
-        <Code lang="sh">{'kern › /model'}</Code>
-      </Section>
-
-      {/* ── SECTION PIPES UNIX & CODE ────────────────────────────────────────── */}
-      <Section id="pipes" title={t('Unix Pipes & Code Automation', 'Pipes Unix & Automatisation de code')}>
-        <P>
-          {t(
-            'Brimkern reads standard input (stdin) automatically. You can chain it with your favorite Unix tools (cat, git diff, curl, pbpaste) to analyze code, explain stack traces, or generate documentation directly from your shell scripts.',
-            'Brimkern lit l’entrée standard (stdin) automatiquement. Vous pouvez l’enchaîner avec vos outils Unix habituels (cat, git diff, curl, pbpaste) pour analyser du code, expliquer des stack traces ou générer de la documentation directement depuis vos scripts shell.'
-          )}
-        </P>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('1. Reviewing git changes', '1. Relire les modifications git')}
-        </h3>
-        <Code lang="sh">{'git diff | brimkern "Draft a concise French commit title following conventional commits"'}</Code>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('2. Debugging a file or stack trace', '2. Déboguer un fichier ou une stack trace')}
-        </h3>
-        <Code lang="sh">{'cat crash.log | brimkern "Identify the root cause and propose a fix"'}</Code>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('3. Scripting with clean output (--raw)', '3. Scripts automatisés avec sortie brute (--raw)')}
-        </h3>
-        <P>
-          {t(
-            'The --raw flag suppresses progress bars, headers, and performance statistics on stderr. Only the model’s generated output is emitted to stdout, perfect for piping into files or other tools:',
-            'Le drapeau --raw supprime la barre de progression, les en-têtes et les statistiques de performance sur stderr. Seul le texte généré par le modèle sort sur stdout, idéal pour rediriger vers un fichier ou un autre outil :'
-          )}
-        </P>
-        <Code lang="sh">{'brimkern --raw "Generate a .gitignore for a Next.js project with Turborepo" > .gitignore'}</Code>
-      </Section>
-
-      {/* ── SECTION REPL INTERACTIF ─────────────────────────────────────────── */}
-      <Section id="chat" title={t('Interactive REPL (Chat Mode)', 'REPL interactif (Mode Chat)')}>
-        <P>
-          {t(
-            'To talk to the model with multi-turn conversation memory, simply start the chat mode or run brimkern without arguments in an interactive terminal:',
-            'Pour dialoguer avec le modèle avec mémoire conversationnelle multi-tours, lancez simplement le mode chat ou exécutez brimkern sans argument dans un terminal interactif :'
-          )}
-        </P>
-
-        <CopySnippet text="brimkern chat" />
-
-        <P>
-          {t(
-            'The KV cache stays resident on your GPU across turns: follow-up questions evaluate only new tokens, yielding instant answers. In chat mode, the following slash commands are available:',
-            'Le cache KV reste résident sur votre GPU d’un tour à l’autre : les questions suivantes n’évaluent que les nouveaux tokens, garantissant des réponses immédiates. En mode chat, les commandes suivantes sont disponibles :'
-          )}
-        </P>
-
-        <ul style={{ paddingLeft: 20, margin: '10px 0', fontSize: 13.5, lineHeight: 1.8, color: 'var(--text-secondary)' }}>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>@chemin/fichier</code> : {t('Injects source code or specific line ranges into prompt (supports Tab completion)', 'Injecte du code source ou des plages de lignes dans le prompt (avec complétion Tab)')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/mode [code|plan|review|auto]</code> : {t('Switches operating mode (direct code, architecture planning, strict review, or autonomous edits)', 'Bascule le mode d’intervention (code direct, planification, audit strict ou mode auto/agent)')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/think [off|auto|deep]</code> : {t('Adjusts chain-of-thought and streaming reasoning blocks with <think>', 'Ajuste la réflexion pas à pas et le flux de raisonnement stylisé <think>')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/status</code> : {t('Displays active model, physical WebGPU adapter, operating mode, and KV cache', 'Affiche l’état complet : modèle actif, GPU physique, mode actif et cache KV')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/diff [args]</code> : {t('Analyzes git diff and provides an automated code review', 'Analyse le diff git et génère une revue de code automatique')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/commit</code> : {t('Drafts 3 conventional commit message proposals with rationale', 'Rédige 3 propositions de messages de commit conventionnels')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/accept, /apply</code> : {t('Extracts proposed code blocks or diffs and copies them for seamless integration', 'Extrait les blocs de code ou diffs proposés et les copie pour intégration')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/copy</code> : {t('Copies the latest assistant response directly to system clipboard', 'Copie la dernière réponse de l’assistant dans le presse-papier')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/model [nom]</code> : {t('Displays or live-switches active model without restarting', 'Affiche ou change le modèle actif à la volée')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/stats</code> : {t('Displays session statistics, token velocity and $0 on-device cost', 'Affiche les statistiques de session, le débit en tok/s et le coût nul')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>!commande</code> : {t('Executes a local shell command directly from REPL (e.g. !git status)', 'Exécute une commande shell locale depuis le REPL (ex: !git status)')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Tab</code> : {t('Smart autocompletion for slash commands, mode names, and filesystem paths', 'Auto-complétion intelligente des commandes (/), des modes et des chemins de fichiers (@)')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Escape</code> : {t('Instantly cancels in-flight GPU generation via AbortController, or clears input draft', 'Interrompt immédiatement la génération GPU via AbortController, ou efface la saisie')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/clear</code> : {t('Clears terminal screen', 'Efface l’écran du terminal')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/reset</code> : {t('Resets conversation history and frees GPU KV cache', 'Réinitialise l’historique et vide le cache KV GPU')}</li>
-          <li><code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>/exit</code> {t('or', 'ou')} <code style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>Ctrl+D</code> : {t('Exits the REPL session', 'Quitte la session REPL')}</li>
-        </ul>
-      </Section>
-
-      {/* ── SECTION MODÈLES & FORMAT BRIK ────────────────────────────────────── */}
-      <Section id="presets" title={t('Models & the .brik Format', 'Modèles & format .brik')}>
-        <P>
-          {t(
-            'The CLI ships with two presets, chosen by benchmark on real developer questions. Weights stream once over HTTP Range requests and stay cached in ~/.cache/brimkern: the next launch reads them from disk, offline included.',
-            'La CLI propose deux presets, retenus par banc sur de vraies questions de développeur. Les poids sont téléchargés une seule fois par plages HTTP et restent en cache dans ~/.cache/brimkern : le lancement suivant les relit depuis le disque, hors-ligne compris.'
-          )}
-        </P>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, margin: '18px 0' }}>
-          <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--accent-text)' }}>coder {t('(default)', '(défaut)')}</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{t('2.53 GB', '2,53 Go')}</span>
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('Qwen 3 4B (BRIK int4), native Dawn engine. The most reliable of the models we tested on code questions, ~13-16 tok/s on an M-series Mac. Step-by-step reasoning on demand with /think deep.',
-                 'Qwen 3 4B (BRIK int4), moteur natif Dawn. Le plus fiable des modèles testés sur des questions de code, ~13-16 tok/s sur un Mac série M. Raisonnement pas à pas à la demande avec /think deep.')}
-            </p>
-            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m coder &quot;...&quot;</code>
-          </div>
-          <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>fast</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{t('1.12 GB', '1,12 Go')}</span>
-            </div>
-            <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('Qwen 2.5 Coder 1.5B (GGUF Q4_K_M). About twice as fast (~25 tok/s) and half the download; makes more mistakes, so review the code it suggests.',
-                 'Qwen 2.5 Coder 1.5B (GGUF Q4_K_M). Environ deux fois plus rapide (~25 tok/s) et deux fois plus léger ; se trompe plus souvent, relisez le code proposé.')}
-            </p>
-            <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m fast &quot;...&quot;</code>
-          </div>
-        </div>
-
-        <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: 16, fontWeight: 700, margin: '20px 0 8px', color: 'var(--text-primary)' }}>
-          {t('Using local or custom .brik files', 'Utiliser un fichier .brik local ou personnalisé')}
-        </h3>
-        <P>
-          {t(
-            'You can pass a local file path directly. The CLI automatically spawns an ephemeral loopback HTTP server with RFC 7233 byte-range support so your weights stream to the GPU without loading the entire file in RAM:',
-            'Vous pouvez passer directement le chemin d’un fichier local. La CLI démarre automatiquement un serveur HTTP local éphémère gérant les requêtes de plages d’octets (RFC 7233) pour streamer les poids vers le GPU sans saturer la RAM :'
-          )}
-        </P>
-        <Code lang="sh">{'brimkern --model=./models/custom-model.brik "Explain this code"'}</Code>
-      </Section>
-
-      {/* ── SECTION RÉFÉRENCE DES OPTIONS ───────────────────────────────────── */}
-      <Section id="options" title={t('Options Reference', 'Référence des options')}>
-        <P>
-          {t('Full syntax and command-line flags accepted by brimkern:', 'Syntaxe complète et drapeaux acceptés par brimkern :')}
-        </P>
-
-        <Param name="-m, --model=<preset|url|path>" type="string">
-          {t(
-            'Model to run. Preset name (coder, fast), remote URL to a .brik or .gguf file, or local path. Default: coder.',
-            'Modèle à exécuter. Nom de preset (coder, fast), URL vers un fichier .brik/.gguf, ou chemin local. Défaut : coder.'
-          )}
-        </Param>
-
-        <Param name="-s, --system=<prompt>" type="string">
-          {t(
-            'System instructions given to the model. Defaults to an expert coding persona for coder.',
-            'Consignes système données au modèle. Défaut : profil d’ingénieur logiciel expert pour coder.'
-          )}
-        </Param>
-
-        <Param name="-n, --max-tokens=<count>" type="number">
-          {t(
-            'Maximum number of generated tokens in the response. Default: 512.',
-            'Nombre maximal de tokens générés dans la réponse. Défaut : 512.'
-          )}
-        </Param>
-
-        <Param name="-t, --temperature=<value>" type="number">
-          {t(
-            'Sampling temperature between 0.0 (deterministic) and 1.0. Default: 0.3 for coding accuracy.',
-            'Température d’échantillonnage entre 0.0 (déterministe) et 1.0. Défaut : 0.3 pour la précision de code.'
-          )}
-        </Param>
-
-        <Param name="--native" type="flag">
-          {t(
-            'Forces in-process native WebGPU execution via Google Dawn bindings. Boots in <1s with 0-browser overhead.',
-            'Force l’exécution native WebGPU in-process via les bindings Google Dawn. Démarre en moins d’une seconde sans ouvrir de navigateur.'
-          )}
-        </Param>
-
-        <Param name="--chromium, --headless" type="flag">
-          {t(
-            'Forces the universal headless Chromium runtime (used as automatic fallback for full GGUF dequantization or environments without native bindings).',
-            'Force l’exécution via le runtime universel Chromium headless (utilisé comme repli automatique pour les GGUF complets ou les OS sans binaire natif).'
-          )}
-        </Param>
-
-        <Param name="--raw" type="boolean">
-          {t(
-            'Outputs only the model tokens to stdout. Suppresses all progress bars, headers, and timing statistics.',
-            'Sort uniquement les tokens générés sur stdout. Supprime la barre de progression, les en-têtes et les statistiques de vitesse.'
-          )}
-        </Param>
-
-        <Param name="chat" type="command">
-          {t(
-            'Launches the multi-turn interactive REPL session.',
-            'Lance la session REPL interactive multi-tours.'
-          )}
-        </Param>
-
-        <Param name="models" type="command">
-          {t(
-            'Lists the preconfigured models with their sizes and descriptions.',
-            'Liste les modèles pré-configurés avec leur taille et description.'
-          )}
-        </Param>
-
-        <Param name="-h, --help" type="flag">
-          {t(
-            'Displays the command-line help message.',
-            'Affiche l’aide de la ligne de commande.'
-          )}
-        </Param>
-      </Section>
-
-      {/* ── SECTION ARCHITECTURE WGSL ────────────────────────────────────────── */}
-      <Section id="architecture" title={t('WGSL Architecture & Performance', 'Architecture WGSL & Performance')}>
-        <P>
-          {t(
-            'Most local LLM tools require heavy Python dependencies, gigabytes of CUDA packages, or specialized daemons. Brimkern takes a fundamentally different path:',
-            'La plupart des outils de LLM locaux exigent de lourdes dépendances Python, des gigaoctets de packages CUDA ou des démons en tâche de fond. Brimkern adopte une approche radicalement différente :'
-          )}
-        </P>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14, margin: '20px 0' }}>
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-code)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--accent)' }}>
-              <Zap size={18} />
-              <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{t('Zero Compilation', 'Zéro compilation')}</strong>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.55 }}>
-              {t(
-                'Hand-written WGSL compute shaders compile on the fly in milliseconds via the platform WebGPU driver (Metal on macOS, Vulkan on Linux).',
-                'Les compute shaders WGSL écrits à la main compilent à la volée en quelques millisecondes via le pilote WebGPU de la plateforme (Metal sur macOS, Vulkan sur Linux).'
-              )}
-            </p>
-          </div>
-
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-code)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--accent)' }}>
-              <HardDrive size={18} />
-              <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{t('.brik HTTP Streaming', 'Streaming HTTP .brik')}</strong>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.55 }}>
-              {t(
-                'One layer = one contiguous byte range. The model streams directly into GPU memory buffers without inflating system RAM.',
-                'Une couche = une plage d’octets contiguë. Le modèle streame directement dans les buffers de la mémoire GPU sans saturer la RAM système.'
-              )}
-            </p>
-          </div>
-
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-code)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--accent)' }}>
-              <Shield size={18} />
-              <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{t('Self-Validating Kernels', 'Kernels auto-validés')}</strong>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.55 }}>
-              {t(
-                'Every kernel validates against a CPU reference at launch. If a GPU miscompiles a subgroup shader, it safely falls back to a portable path.',
-                'Chaque kernel se valide contre une référence CPU au démarrage. Si un GPU compile mal un shader de sous-groupe, il retombe en toute sécurité sur un chemin portable.'
-              )}
-            </p>
-          </div>
-
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-code)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--accent)' }}>
-              <Cpu size={18} />
-              <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{t('Native Dawn Runtime', 'Moteur Natif Dawn')}</strong>
-            </div>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.55 }}>
-              {t(
-                'Direct Node.js N-API bindings to Google Dawn run WebGPU shaders in-process. <1s startup latency, zero Chromium overhead, and native Metal/Vulkan GPU performance.',
-                'Bindings N-API Node.js directs vers Google Dawn pour exécuter les shaders WebGPU in-process. Démarrage en <1s, 0 surcharge navigateur, et performances Metal/Vulkan natives.'
-              )}
-            </p>
-          </div>
-        </div>
-
-        <P>
-          {t('To learn more about the WebGPU engine internals and comparisons with other engines: ', 'Pour en savoir plus sur les entrailles du moteur WebGPU et les comparaisons avec d’autres moteurs : ')}
-          <Link href={href('/vs-webllm')} style={{ color: 'var(--accent-text)' }}>{t('Brimkern vs WebLLM measured benchmarks', 'Mesures comparatives Brimkern vs WebLLM')}</Link>
-          {t(' or ', ' ou ')}
-          <Link href={href('/docs/models')} style={{ color: 'var(--accent-text)' }}>{t('how the .brik container works', 'le fonctionnement du conteneur .brik')}</Link>.
-        </P>
-      </Section>
+      <P>
+        {t('More on the engine: ', 'Plus sur le moteur : ')}
+        <Link href={href('/vs-webllm')} style={{ color: 'var(--accent-text)' }}>{t('measured comparison with WebLLM', 'comparaison mesurée avec WebLLM')}</Link>
+        {t(' · ', ' · ')}
+        <Link href={href('/docs/models')} style={{ color: 'var(--accent-text)' }}>{t('the .brik container', 'le conteneur .brik')}</Link>.
+      </P>
     </DocsShell>
   );
 }
