@@ -994,16 +994,20 @@ class BrimkernChromiumEngine {
       await this.init();
     }
 
-    if (onToken) {
+    // exposeFunction ne s'enregistre qu'une fois par page : les ponts sont posés au premier
+    // appel et redirigent vers les callbacks du tour courant. Les ré-enregistrer à chaque tour
+    // échouait en silence et livrait les tokens aux closures du PREMIER tour (spinner jamais
+    // arrêté, compteur à 0).
+    this.currentOnToken = onToken;
+    this.currentOnProgress = onProgress;
+    if (!this.bridgesExposed) {
       await this.page.exposeFunction('onTokenBridge', (delta) => {
-        onToken(delta);
-      }).catch(() => {});
-    }
-
-    if (onProgress) {
+        if (this.currentOnToken) this.currentOnToken(delta);
+      });
       await this.page.exposeFunction('onProgressBridge', (phase, loaded, total) => {
-        onProgress(phase, loaded, total);
-      }).catch(() => {});
+        if (this.currentOnProgress) this.currentOnProgress(phase, loaded, total);
+      });
+      this.bridgesExposed = true;
     }
 
     if (signal) {
@@ -1017,6 +1021,9 @@ class BrimkernChromiumEngine {
     const result = await this.page.evaluate(async (p) => {
       window._currentAbort = new AbortController();
       let lastLen = 0;
+      // Chaque appel de pont est asynchrone : on attend qu'ils soient tous livrés avant de
+      // rendre la main, sinon les derniers tokens s'impriment après la ligne de stats.
+      let pending = Promise.resolve();
       const t0 = performance.now();
       try {
         const text = await window.session.ask(p, {
@@ -1024,9 +1031,10 @@ class BrimkernChromiumEngine {
           onToken: (acc) => {
             const delta = acc.slice(lastLen);
             lastLen = acc.length;
-            window.onTokenBridge(delta);
+            if (delta) pending = window.onTokenBridge(delta);
           }
         });
+        await pending;
         const t1 = performance.now();
         return { text: text || '', elapsedMs: t1 - t0, aborted: window._currentAbort.signal.aborted };
       } catch (err) {
