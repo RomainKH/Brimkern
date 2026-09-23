@@ -41,6 +41,35 @@ function getSdkMjsPath() {
   return null;
 }
 
+// ── Configuration locale persistante (~/.config/brimkern/config.json) ────────────────
+function getCliConfigPath() {
+  const configBase = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  return join(configBase, 'brimkern', 'config.json');
+}
+
+function loadCliConfig() {
+  try {
+    const file = getCliConfigPath();
+    if (existsSync(file)) {
+      return JSON.parse(readFileSync(file, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
+
+function saveCliConfig(updates) {
+  try {
+    const file = getCliConfigPath();
+    const dir = resolve(file, '..');
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const current = loadCliConfig();
+    const next = { ...current, ...updates, updatedAt: new Date().toISOString() };
+    writeFileSync(file, JSON.stringify(next, null, 2) + '\n', 'utf8');
+  } catch {}
+}
+
 // ── Langue de l'interface ──────────────────────────────────────────────────────────────
 // Anglais par défaut (version canonique, règle 3 du dépôt) ; français via --lang=fr ou
 // BRIMKERN_LANG=fr. Lu au chargement : les tables figées ci-dessous appellent t() directement.
@@ -170,7 +199,10 @@ const MODEL_ALIASES = {
 const RETIRED_MODELS = new Set(['coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b']);
 
 function resolveModelKey(key) {
-  if (!key) return 'coder';
+  if (!key) {
+    const cfg = loadCliConfig();
+    key = cfg.lastModel || 'coder';
+  }
   if (MODEL_ALIASES[key]) return MODEL_ALIASES[key];
   if (RETIRED_MODELS.has(key)) {
     process.stderr.write(`${C.yellow}ℹ ${t(
@@ -548,6 +580,8 @@ const SLASH_COMMANDS = [
   ['/accept', t('Extract the suggested code blocks', 'Extraire les blocs de code proposés')],
   ['/reset', t('Clear the conversation history', 'Effacer l’historique de la conversation')],
   ['/clear', t('Clear the screen', 'Effacer l’écran')],
+  ['/update', t('Check and install CLI updates', 'Vérifier et installer les mises à jour')],
+  ['/upgrade', t('Check and install CLI updates', 'Vérifier et installer les mises à jour')],
   ['/exit', t('Quit', 'Quitter')],
 ];
 const SUBCOMMAND_DESCS = () => ({
@@ -1265,7 +1299,8 @@ class BrimkernNativeDawnEngine {
     }
   }
 
-  async init() {
+  async init({ onProgress = null } = {}) {
+    if (this.isReady) return;
     initDiskCache();
 
     const { create, globals } = await import('webgpu');
@@ -1292,6 +1327,14 @@ class BrimkernNativeDawnEngine {
     }
 
     const sdk = await import(sdkPath);
+    if (typeof sdk.preload === 'function') {
+      await withQuietSdkLogs(() => sdk.preload({
+        model: targetUrl,
+        onProgress: (status, p) => {
+          if (onProgress) onProgress(status, p?.loaded, p?.total);
+        },
+      }));
+    }
     this.session = await withQuietSdkLogs(() => sdk.createSession({
       model: targetUrl,
       maxTokens: this.maxTokens,
@@ -1368,6 +1411,9 @@ class BrimkernChromiumEngine {
     this.browserCtx = null;
     this.page = null;
     this.isReady = false;
+    this.bridgesExposed = false;
+    this.currentOnToken = null;
+    this.currentOnProgress = null;
     this.engineType = 'Chromium headless';
     this.gpuBackend = process.platform === 'darwin' ? 'Chromium (Metal)' : 'Chromium (Vulkan)';
   }
@@ -1388,7 +1434,20 @@ class BrimkernChromiumEngine {
     }
   }
 
-  async init() {
+  async ensureBridges() {
+    if (!this.bridgesExposed && this.page) {
+      await this.page.exposeFunction('onTokenBridge', (delta) => {
+        if (this.currentOnToken) this.currentOnToken(delta);
+      });
+      await this.page.exposeFunction('onProgressBridge', (phase, loaded, total) => {
+        if (this.currentOnProgress) this.currentOnProgress(phase, loaded, total);
+      });
+      this.bridgesExposed = true;
+    }
+  }
+
+  async init({ onProgress = null } = {}) {
+    if (this.isReady) return;
     const chromeExe = findChromium();
     if (!chromeExe) {
       throw new Error(t(
@@ -1432,9 +1491,12 @@ class BrimkernChromiumEngine {
     });
 
     this.page = await this.browserCtx.newPage();
+    this.currentOnProgress = onProgress;
+    await this.ensureBridges();
+
     await this.page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
 
-    // Initialisation de la session Brimkern dans le contexte WebGPU
+    // Initialisation de la session Brimkern dans le contexte WebGPU et préchauffage en VRAM
     await this.page.evaluate(async ({ modelUrl, maxTokens, temperature, systemPrompt }) => {
       window.session = await window.Brimkern.createSession({
         model: modelUrl,
@@ -1442,6 +1504,31 @@ class BrimkernChromiumEngine {
         temperature,
         system: systemPrompt,
       });
+
+      if (window.session && typeof window.session.on === 'function') {
+        window.session.on('progress', (phase, p) => {
+          if (window.onProgressBridge) {
+            window.onProgressBridge(phase, p?.loaded || 0, p?.total || 0);
+          }
+        });
+      }
+
+      // Préchargement explicite en VRAM (évite le freeze au premier prompt)
+      if (window.Brimkern && typeof window.Brimkern.preload === 'function') {
+        let lastReport = 0;
+        await window.Brimkern.preload({
+          model: modelUrl,
+          onProgress: (status, p) => {
+            const now = performance.now();
+            if (now - lastReport > 80 || status !== 'download') {
+              lastReport = now;
+              if (window.onProgressBridge) {
+                window.onProgressBridge(status, p?.loaded || 0, p?.total || 0);
+              }
+            }
+          },
+        });
+      }
     }, {
       modelUrl: this.modelUrl,
       maxTokens: this.maxTokens,
@@ -1454,7 +1541,7 @@ class BrimkernChromiumEngine {
 
   async ask(prompt, { onToken = null, onProgress = null, signal = null } = {}) {
     if (!this.isReady) {
-      await this.init();
+      await this.init({ onProgress });
     }
 
     // exposeFunction ne s'enregistre qu'une fois par page : les ponts sont posés au premier
@@ -1463,15 +1550,7 @@ class BrimkernChromiumEngine {
     // arrêté, compteur à 0).
     this.currentOnToken = onToken;
     this.currentOnProgress = onProgress;
-    if (!this.bridgesExposed) {
-      await this.page.exposeFunction('onTokenBridge', (delta) => {
-        if (this.currentOnToken) this.currentOnToken(delta);
-      });
-      await this.page.exposeFunction('onProgressBridge', (phase, loaded, total) => {
-        if (this.currentOnProgress) this.currentOnProgress(phase, loaded, total);
-      });
-      this.bridgesExposed = true;
-    }
+    await this.ensureBridges();
 
     if (signal) {
       signal.addEventListener('abort', () => {
@@ -1620,6 +1699,76 @@ async function createCliEngine(options = {}) {
   return new BrimkernChromiumEngine(options);
 }
 
+// ── Mise à jour de la CLI (brimkern update / /update) ─────────────────────────────────
+async function runCliUpdate() {
+  console.log(`\n${C.boldRed}Brimkern CLI${C.reset} — ${t('Update & Upgrade', 'Mise à jour')}\n`);
+
+  const isGitRepo = existsSync(join(ROOT, '.git'));
+  if (isGitRepo) {
+    try {
+      const currentCommit = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+      const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+      const isClean = !execSync('git status --porcelain', { cwd: ROOT, encoding: 'utf8' }).trim();
+
+      process.stdout.write(`${C.dim}▸ ${t('Checking for updates...', 'Vérification des mises à jour...')}${C.reset}\n`);
+      execSync('git fetch --quiet origin', { cwd: ROOT });
+
+      const targetRef = currentBranch === 'HEAD' ? 'origin/main' : `origin/${currentBranch}`;
+      let remoteCommit = '';
+      try {
+        remoteCommit = execSync(`git rev-parse --short ${targetRef}`, { cwd: ROOT, encoding: 'utf8' }).trim();
+      } catch {
+        remoteCommit = execSync('git rev-parse --short origin/main', { cwd: ROOT, encoding: 'utf8' }).trim();
+      }
+
+      if (currentCommit === remoteCommit) {
+        console.log(`${C.green}✓ ${t('Brimkern is already up to date', 'Brimkern est déjà à jour')} (${currentCommit}).${C.reset}\n`);
+        return false;
+      }
+
+      if (!isClean && ROOT !== join(homedir(), '.brimkern')) {
+        console.log(`${C.yellow}⚠ ${t(
+          `Local repository has uncommitted modifications. Please stash or commit them before updating:\n  git -C "${ROOT}" stash`,
+          `Le dépôt local a des modifications non commitées. Mettez-les de côté (stash) avant de mettre à jour :\n  git -C "${ROOT}" stash`
+        )}${C.reset}\n`);
+        return false;
+      }
+
+      console.log(`${C.cyan}▸ ${t(`Updating: ${currentCommit} → ${remoteCommit}...`, `Mise à jour : ${currentCommit} → ${remoteCommit}...`)}${C.reset}`);
+
+      if (ROOT === join(homedir(), '.brimkern')) {
+        execSync(`git checkout --quiet --force ${remoteCommit}`, { cwd: ROOT });
+      } else {
+        execSync('git pull --ff-only', { cwd: ROOT });
+      }
+
+      process.stdout.write(`${C.dim}▸ ${t('Updating dependencies...', 'Mise à jour des dépendances...')}${C.reset}\n`);
+      execSync('npm install --no-audit --no-fund --loglevel=error', { cwd: ROOT, stdio: 'inherit' });
+
+      process.stdout.write(`${C.dim}▸ ${t('Rebuilding engine & SDK...', 'Recompilation du moteur et SDK...')}${C.reset}\n`);
+      execSync('npm run build:sdk', { cwd: ROOT, stdio: 'inherit' });
+
+      const newCommit = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
+      console.log(`\n${C.boldGreen}✓ ${t('Brimkern CLI updated successfully to', 'Brimkern CLI mis à jour avec succès vers')} ${newCommit} !${C.reset}\n`);
+      return true;
+    } catch (err) {
+      console.error(`\n${C.red}✗ ${t('Update failed:', 'Échec de la mise à jour :')} ${err.message}${C.reset}\n`);
+      return false;
+    }
+  }
+
+  // Cas installation hors git : réexécution du script officiel
+  try {
+    process.stdout.write(`${C.dim}▸ ${t('Running official installer...', 'Exécution du script d’installation officiel...')}${C.reset}\n`);
+    execSync('curl -fsSL https://brimkern.com/install.sh | bash', { stdio: 'inherit' });
+    console.log(`\n${C.boldGreen}✓ ${t('Brimkern CLI updated successfully!', 'Brimkern CLI mis à jour avec succès !')}${C.reset}\n`);
+    return true;
+  } catch (err) {
+    console.error(`\n${C.red}✗ ${t('Update failed:', 'Échec de la mise à jour :')} ${err.message}${C.reset}\n`);
+    return false;
+  }
+}
+
 // ── Bannière de marque "Le Kern" ─────────────────────────────────────────────────────
 function printBrandBanner(engine, mode = 'code', think = 'auto') {
   const git = getGitInfo();
@@ -1627,6 +1776,9 @@ function printBrandBanner(engine, mode = 'code', think = 'auto') {
   const gpuStr = engine.gpuBackend || (process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)');
   const engineStr = engine.engineType || t('Native Dawn (in-process)', 'Natif Dawn (in-process)');
   const modeBadge = CLI_MODES[mode]?.badge || '[CODE]';
+  const cfg = loadCliConfig();
+  const isDefault = cfg.lastModel === engine.modelKey || (!cfg.lastModel && engine.modelKey === 'coder');
+  const defaultSuffix = isDefault ? ` ${C.dim}(${t('default', 'défaut')})${C.reset}` : '';
 
   console.log(`
 ${C.boldRed}██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
@@ -1638,7 +1790,7 @@ ${C.boldRed}██████╗ ██████╗ ██╗███╗   
 ${C.dim}${t('On-device WebGPU & WGSL inference engine', "Moteur d'inférence WebGPU & WGSL on-device")}${C.reset}
 
 ${drawBox(`${C.boldRed}Brimkern WGSL${C.reset}`, [
-  `${t('Model:', 'Modèle :')} ${C.yellow}${engine.displayName}${C.reset}`,
+  `${t('Model:', 'Modèle :')} ${C.yellow}${engine.displayName}${C.reset}${defaultSuffix}`,
   `${t('Engine:', 'Moteur :')} ${C.green}${engineStr}${C.reset}  ${C.dim}·${C.reset}  WebGPU${t(':', ' :')} ${C.cyan}${gpuStr}${C.reset}`,
   `Mode${t(':', ' :')} ${modeBadge}  ${C.dim}·${C.reset}  Think${t(':', ' :')} ${C.sand}${think}${C.reset}  ${C.dim}·${C.reset}  ${C.green}${t('100% local', '100 % local')}${C.reset}${gitStr}`,
 ], { color: C.red })}
@@ -1677,9 +1829,10 @@ ${row('Tab, →', t('Accepts the suggestion: commands (/), modes, files (@)', 'A
 ${row('Escape', t('Stops the running inference / clears the input', "Interrompt l'inférence en cours / efface la saisie"), C.yellow)}
 ${row('Ctrl+C', t('Cancels generation without killing the REPL session', 'Annule la génération sans tuer la session REPL'), C.yellow)}
 
-${head(t('SYSTEM COMMANDS', 'COMMANDES SYSTÈME'))}
+${head(t('SYSTEM & UPDATES', 'SYSTÈME & MISES À JOUR'))}
+${row('/update, /upgrade', t('Checks and installs CLI updates', 'Vérifie et installe les mises à jour de la CLI'))}
 ${row(t('!command', '!commande'), t(`Runs a local shell command (e.g. ${C.dim}!git status${C.reset})`, `Exécute une commande shell locale (ex: ${C.dim}!git status${C.reset})`))}
-${row('/exit', t('Quits the session', 'Quitte la session'))}
+${row('/exit, /quit', t('Quits the session', 'Quitte la session'))}
 `);
 }
 
@@ -1687,6 +1840,8 @@ ${row('/exit', t('Quits the session', 'Quitte la session'))}
 function printHelp() {
   const opt = (flag, desc) => `  ${C.yellow}${flag.padEnd(33)}${C.reset}${desc}`;
   const use = (cmd, note = '') => `  ${C.green}${cmd}${C.reset}${note ? ` ${C.gray}# ${note}${C.reset}` : ''}`;
+  const cfg = loadCliConfig();
+  const defaultModel = cfg.lastModel || 'coder';
   console.log(`
 ${C.boldRed}BRIMKERN CLI${C.reset} — ${t('Local AI inference on WebGPU (WGSL) from your terminal', 'Inférence IA locale en WebGPU (WGSL) depuis le terminal')}
 
@@ -1694,11 +1849,12 @@ ${C.bold}${t('USAGE', 'UTILISATION')}${C.reset}
 ${use('brimkern [options] [prompt]')}
 ${use('brimkern chat                   ', t('Interactive REPL', 'Mode REPL interactif'))}
 ${use('brimkern models                 ', t('Lists the preset models', 'Liste les modèles pré-configurés'))}
+${use('brimkern update                 ', t('Updates the CLI to the latest version', 'Met à jour la CLI vers la dernière version'))}
 ${use(`cat file.ts | brimkern "${t('Find the bugs', 'Trouve les bugs')}"`)}
 ${use(`brimkern "${t('Explain', 'Explique')} @src/app/Composer.tsx:10-40"`)}
 
 ${C.bold}OPTIONS${C.reset}
-${opt(t('-m, --model=<name|url|file>', '-m, --model=<nom|url|fichier>'), t(`Model (default: coder / ${PRESET_CLI_MODELS.coder.shortName})`, `Modèle (défaut : coder / ${PRESET_CLI_MODELS.coder.shortName})`))}
+${opt(t('-m, --model=<name|url|file>', '-m, --model=<nom|url|fichier>'), t(`Model (default: ${defaultModel})`, `Modèle (défaut : ${defaultModel})`))}
 ${opt('-s, --system=<prompt>', t('System prompt', 'Prompt système'))}
 ${opt('-n, --max-tokens=<n>', t('Max generated tokens (default: 512)', 'Plafond de tokens générés (défaut : 512)'))}
 ${opt('-t, --temperature=<val>', t('Temperature (default: 0.3)', 'Température (défaut : 0.3)'))}
@@ -2026,9 +2182,32 @@ async function runInteractiveChat(initialEngine) {
 
   printBrandBanner(engine, currentMode, thinkLevel);
 
-  process.stderr.write(`${C.dim}${t('Initializing the GPU and loading the model...', 'Initialisation du GPU et chargement du modèle...')}${C.reset}`);
-  await engine.init();
-  process.stderr.write(`\r${C.green}✓ ${t('WebGPU engine ready', 'Moteur WebGPU prêt et connecté')} [${engine.engineType}].${C.reset}                                 \n\n`);
+  const formatProgress = (phase, loaded, total) => {
+    if (total && total > 0) {
+      const mbLoaded = Math.round(loaded / 1048576);
+      const mbTotal = Math.round(total / 1048576);
+      const pct = Math.min(100, Math.round((loaded / total) * 100));
+      return `${mbLoaded} / ${mbTotal} Mo (${pct}%)`;
+    }
+    if (phase === 'init') return t('Initializing...', 'Initialisation...');
+    if (phase === 'download') return t('Downloading weights...', 'Téléchargement des poids...');
+    if (phase === 'gpu') return t('Loading tensors into VRAM & compiling shaders...', 'Chargement VRAM & compilation shaders...');
+    if (phase === 'tokenizer') return t('Loading tokenizer...', 'Chargement du tokenizer...');
+    return phase ? `Phase: ${phase}` : '';
+  };
+
+  process.stderr.write(`${C.dim}▸ ${t('Initializing GPU and preloading model...', 'Initialisation du GPU et préchargement du modèle...')}${C.reset}`);
+  let lastProgressStr = '';
+  await engine.init({
+    onProgress: (phase, loaded, total) => {
+      const detail = formatProgress(phase, loaded, total);
+      if (detail && detail !== lastProgressStr) {
+        lastProgressStr = detail;
+        process.stderr.write(`\r\x1b[2K${C.dim}▸ ${t('Loading model into GPU VRAM...', 'Chargement du modèle dans la mémoire VRAM GPU...')} ${C.yellow}${detail}${C.reset}`);
+      }
+    }
+  });
+  process.stderr.write(`\r\x1b[2K${C.green}✓ ${t('WebGPU engine ready', 'Moteur WebGPU prêt et connecté')} [${engine.engineType}].${C.reset}\n\n`);
 
   // État de session (stats, lastResponse)
   const sessionState = {
@@ -2281,6 +2460,14 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
       resumeAndPrompt();
       return;
     }
+    if (input === '/update' || input === '/upgrade') {
+      const updated = await runCliUpdate();
+      if (updated) {
+        console.log(`${C.yellow}ℹ ${t('Please restart brimkern to use the new version.', 'Veuillez redémarrer brimkern pour appliquer la nouvelle version.')}${C.reset}\n`);
+      }
+      resumeAndPrompt();
+      return;
+    }
     if (input === '/model' || input.startsWith('/model ') || input === '/models' || input.startsWith('/models ')) {
       let targetModel = input.startsWith('/models') ? input.slice(7).trim() : input.slice(6).trim();
       if (!targetModel) {
@@ -2306,7 +2493,7 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
           return;
         }
       }
-      process.stderr.write(`${C.dim}${t(`Switching model to ${targetModel}...`, `Changement de modèle vers ${targetModel}...`)}${C.reset}`);
+      process.stderr.write(`${C.dim}▸ ${t(`Switching model to ${targetModel}...`, `Changement de modèle vers ${targetModel}...`)}${C.reset}`);
       await engine.close();
       try {
         engine = await createCliEngine({
@@ -2315,11 +2502,21 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
           maxTokens: engine.maxTokens,
           temperature: engine.temperature,
         });
-        await engine.init();
+        let lastSwitchProgress = '';
+        await engine.init({
+          onProgress: (phase, loaded, total) => {
+            const detail = formatProgress(phase, loaded, total);
+            if (detail && detail !== lastSwitchProgress) {
+              lastSwitchProgress = detail;
+              process.stderr.write(`\r\x1b[2K${C.dim}▸ ${t('Loading model into GPU VRAM...', 'Chargement du modèle dans la mémoire VRAM GPU...')} ${C.yellow}${detail}${C.reset}`);
+            }
+          }
+        });
+        saveCliConfig({ lastModel: engine.modelKey });
         sessionState.historyChars = 0; // nouveau moteur = nouvelle conversation
-        process.stderr.write(`\r${C.green}✓ ${t('Active model:', 'Modèle actif :')} ${engine.displayName} [${engine.engineType}]${C.reset}                \n\n`);
+        process.stderr.write(`\r\x1b[2K${C.green}✓ ${t('Active model:', 'Modèle actif :')} ${engine.displayName} [${engine.engineType}] ${C.dim}(${t('saved as default', 'mémorisé par défaut')})${C.reset}\n\n`);
       } catch (err) {
-        process.stderr.write(`\r${C.red}✗ ${t('Model switch failed:', 'Échec du changement de modèle :')} ${err.message}${C.reset}\n\n`);
+        process.stderr.write(`\r\x1b[2K${C.red}✗ ${t('Model switch failed:', 'Échec du changement de modèle :')} ${err.message}${C.reset}\n\n`);
       }
       resumeAndPrompt();
       return;
@@ -2446,8 +2643,9 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
 // ── Point d'entrée principal ──────────────────────────────────────────────────────────
 async function main() {
   const args = process.argv.slice(2);
+  const cfg = loadCliConfig();
 
-  let model = 'coder';
+  let model = cfg.lastModel || 'coder';
   let system = null;
   let maxTokens = 512;
   let temperature = 0.3;
@@ -2468,6 +2666,10 @@ async function main() {
     }
     if (a === 'models' || a === 'list') {
       printModels();
+      return;
+    }
+    if (a === 'update' || a === 'upgrade') {
+      await runCliUpdate();
       return;
     }
     if (a === 'chat') {
@@ -2547,6 +2749,9 @@ async function main() {
     native,
     chromium,
   });
+
+  // Sauvegarde du modèle sélectionné pour les prochaines sessions
+  saveCliConfig({ lastModel: engine.modelKey });
 
   const abortController = new AbortController();
   const cleanup = async () => {
