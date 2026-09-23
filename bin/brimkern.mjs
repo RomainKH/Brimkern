@@ -41,6 +41,13 @@ function getSdkMjsPath() {
   return null;
 }
 
+// ── Langue de l'interface ──────────────────────────────────────────────────────────────
+// Anglais par défaut (version canonique, règle 3 du dépôt) ; français via --lang=fr ou
+// BRIMKERN_LANG=fr. Lu au chargement : les tables figées ci-dessous appellent t() directement.
+const argLang = (process.argv.find((a) => a.startsWith('--lang=')) || '').slice(7);
+const LANG = (process.env.BRIMKERN_LANG || argLang || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+const t = (en, fr) => (LANG === 'fr' ? fr : en);
+
 // ── Modèles préconfigurés ──────────────────────────────────────────────────────────────
 // Liste COURTE et mesurée (banc 2026-09-23, Mac Metal, cache chaud, 3 questions dev : explication
 // TS, fonction de dédoublonnage, diagnostic `this` en fonction fléchée). Seuls restent les modèles
@@ -54,12 +61,13 @@ const PRESET_CLI_MODELS = {
     url: 'https://huggingface.co/romainkh14/Qwen3-4B_BRIK/resolve/main/qwen3-4b-q4.brik',
     format: 'brik',
     formatLabel: 'BRIK int4',
-    runtime: 'WebGPU (Natif Dawn)',
-    size: '2,53 Go',
-    badge: 'Recommandé',
+    runtime: t('WebGPU (native Dawn)', 'WebGPU (Natif Dawn)'),
+    size: t('2.53 GB', '2,53 Go'),
+    badge: t('Recommended', 'Recommandé'),
     qwen3Think: true,
     defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
-    desc: 'Le plus fiable des modèles testés : explications et code justes, ~13-16 tok/s. Réflexion : /think deep.',
+    desc: t('The most reliable of the models tested: correct explanations and code, ~13-16 tok/s. Reasoning: /think deep.',
+      'Le plus fiable des modèles testés : explications et code justes, ~13-16 tok/s. Réflexion : /think deep.'),
   },
   'fast': {
     name: 'Qwen 2.5 Coder 1.5B Instruct (GGUF)',
@@ -68,10 +76,11 @@ const PRESET_CLI_MODELS = {
     format: 'gguf',
     formatLabel: 'GGUF Q4_K_M',
     runtime: 'WebGPU (Chromium)',
-    size: '1,12 Go',
-    badge: 'Rapide',
+    size: t('1.12 GB', '1,12 Go'),
+    badge: t('Fast', 'Rapide'),
     defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
-    desc: 'Deux fois plus rapide (~25 tok/s), plus léger ; relire le code proposé, il se trompe plus souvent.',
+    desc: t('Twice as fast (~25 tok/s) and lighter; review the code it suggests, it makes more mistakes.',
+      'Deux fois plus rapide (~25 tok/s), plus léger ; relire le code proposé, il se trompe plus souvent.'),
   },
 };
 
@@ -84,7 +93,10 @@ function resolveModelKey(key) {
   if (!key) return 'coder';
   if (MODEL_ALIASES[key]) return MODEL_ALIASES[key];
   if (RETIRED_MODELS.has(key)) {
-    process.stderr.write(`${C.yellow}ℹ Le preset « ${key} » a été retiré (réponses trop peu fiables) : utilisation de « coder » (${PRESET_CLI_MODELS.coder.shortName}). Pour le forcer, passez son URL avec --model=.${C.reset}\n`);
+    process.stderr.write(`${C.yellow}ℹ ${t(
+      `The "${key}" preset was retired (answers too unreliable): using "coder" (${PRESET_CLI_MODELS.coder.shortName}). To force it, pass its URL with --model=.`,
+      `Le preset « ${key} » a été retiré (réponses trop peu fiables) : utilisation de « coder » (${PRESET_CLI_MODELS.coder.shortName}). Pour le forcer, passez son URL avec --model=.`,
+    )}${C.reset}\n`);
     return 'coder';
   }
   return key;
@@ -126,7 +138,7 @@ const CLI_MODES = {
     label: 'CODE',
     badge: `${C.cyan}[CODE]${C.reset}`,
     color: C.cyan,
-    desc: 'Génération directe de code, syntaxe exacte et concision',
+    desc: t('Direct code generation, exact syntax, concise', 'Génération directe de code, syntaxe exacte et concision'),
     // Pas de consigne ajoutée : c'est le mode par défaut et le prompt système dit déjà « code juste ».
     // Collée à CHAQUE message, « Fournis du code propre… » faisait répondre `print("Bonjour")` à
     // « dis bonjour » (3/3 sur Qwen 3 4B), et le modèle la récitait (« du code propre et
@@ -138,24 +150,33 @@ const CLI_MODES = {
     label: 'PLAN',
     badge: `${C.yellow}[PLAN]${C.reset}`,
     color: C.yellow,
-    desc: 'Conception architecturale et analyse étape par étape avant toute écriture',
-    systemSuffix: '\n[MODE: PLAN] Ne génère pas tout le code immédiatement. Analyse les besoins, décompose l\'architecture, évalue les compromis, les cas limites et propose un plan d\'implémentation étape par étape.'
+    desc: t('Architecture design and step-by-step analysis before writing code', 'Conception architecturale et analyse étape par étape avant toute écriture'),
+    systemSuffix: t(
+      '\n[MODE: PLAN] Do not generate all the code right away. Analyze the requirements, break down the architecture, weigh trade-offs and edge cases, and propose a step-by-step implementation plan.',
+      '\n[MODE: PLAN] Ne génère pas tout le code immédiatement. Analyse les besoins, décompose l\'architecture, évalue les compromis, les cas limites et propose un plan d\'implémentation étape par étape.',
+    )
   },
   review: {
     name: 'review',
     label: 'REVIEW',
     badge: `${C.boldRed}[REVIEW]${C.reset}`,
     color: C.boldRed,
-    desc: 'Audit de sécurité, détection de régressions, bugs et goulots d’étranglement',
-    systemSuffix: '\n[MODE: REVIEW] Agis comme un reviewer senior intraitable. Cherche activement les bugs, failles de sécurité, régressions, fuites de mémoire et problèmes de performance dans le code fourni.'
+    desc: t('Security audit, regressions, bugs and bottlenecks', 'Audit de sécurité, détection de régressions, bugs et goulots d’étranglement'),
+    systemSuffix: t(
+      '\n[MODE: REVIEW] Act as an uncompromising senior reviewer. Actively look for bugs, security flaws, regressions, memory leaks and performance problems in the code provided.',
+      '\n[MODE: REVIEW] Agis comme un reviewer senior intraitable. Cherche activement les bugs, failles de sécurité, régressions, fuites de mémoire et problèmes de performance dans le code fourni.',
+    )
   },
   auto: {
     name: 'auto',
     label: 'AUTO',
     badge: `${C.boldGreen}[AUTO]${C.reset}`,
     color: C.boldGreen,
-    desc: 'Mode autonome / agent : propositions de diffs unifiés et actions atomiques',
-    systemSuffix: '\n[MODE: AUTO] Propose des modifications de code atomiques sous forme de blocs ou diffs unifiés clairs, en expliquant la raison de chaque modification et la validation à exécuter.'
+    desc: t('Agent mode: unified diffs and atomic changes', 'Mode autonome / agent : propositions de diffs unifiés et actions atomiques'),
+    systemSuffix: t(
+      '\n[MODE: AUTO] Propose atomic code changes as clear code blocks or unified diffs, explaining the reason for each change and the check to run.',
+      '\n[MODE: AUTO] Propose des modifications de code atomiques sous forme de blocs ou diffs unifiés clairs, en expliquant la raison de chaque modification et la validation à exécuter.',
+    )
   }
 };
 
@@ -165,22 +186,25 @@ const THINKING_LEVELS = {
     name: 'off',
     label: 'off',
     color: C.gray,
-    desc: 'Réponses directes sans affichage des étapes de réflexion',
-    promptSuffix: '\nRéponds directement sans balises de réflexion interne ni <think>.'
+    desc: t('Direct answers, no reasoning steps shown', 'Réponses directes sans affichage des étapes de réflexion'),
+    promptSuffix: t('\nAnswer directly, without internal reasoning or <think> tags.', '\nRéponds directement sans balises de réflexion interne ni <think>.')
   },
   auto: {
     name: 'auto',
     label: 'auto',
     color: C.cyan,
-    desc: 'Détection et mise en page soignée des balises <think>...</think>',
+    desc: t('Detects and formats <think>...</think> blocks', 'Détection et mise en page soignée des balises <think>...</think>'),
     promptSuffix: ''
   },
   deep: {
     name: 'deep',
     label: 'deep',
     color: C.sand,
-    desc: 'Réflexion étape par étape explicite dans des balises <think>',
-    promptSuffix: '\nRéfléchis étape par étape avant de répondre. Encadre ton analyse détaillée et tes hésitations à l\'intérieur de balises <think>...</think>, puis donne la solution finale en dehors.'
+    desc: t('Explicit step-by-step reasoning inside <think> tags', 'Réflexion étape par étape explicite dans des balises <think>'),
+    promptSuffix: t(
+      '\nThink step by step before answering. Put your detailed analysis and hesitations inside <think>...</think> tags, then give the final solution outside them.',
+      '\nRéfléchis étape par étape avant de répondre. Encadre ton analyse détaillée et tes hésitations à l\'intérieur de balises <think>...</think>, puis donne la solution finale en dehors.',
+    )
   }
 };
 
@@ -238,12 +262,11 @@ function estimateSavings(inChars, outTokens) {
   return (approxTokens(inChars) * REF_PRICE.in + outTokens * REF_PRICE.out) / 1e6;
 }
 function fmtUsd(x) {
-  if (x >= 1) return `${x.toFixed(2)} $`;
-  if (x >= 0.01) return `${x.toFixed(3)} $`;
-  return `${x.toFixed(4)} $`;
+  const n = x.toFixed(x >= 1 ? 2 : x >= 0.01 ? 3 : 4);
+  return t(`$${n}`, `${n.replace('.', ',')} $`);
 }
 function savingsLabel(x) {
-  return `${C.green}≈ ${fmtUsd(x)} économisés${C.reset}`;
+  return `${C.green}${t(`≈ ${fmtUsd(x)} saved`, `≈ ${fmtUsd(x)} économisés`)}${C.reset}`;
 }
 
 // ── Utilitaires Git ──────────────────────────────────────────────────────────────────
@@ -350,7 +373,7 @@ function resolveFileReferences(rawPrompt) {
 
     // Garde-fou sécurité : blocage des fichiers de clés, secrets ou identifiants
     if (isSensitivePath(resolved)) {
-      process.stderr.write(`${C.yellow}⚠ Sécurité : Fichier sensible bloqué pour protéger vos secrets : @${filePath}${C.reset}\n`);
+      process.stderr.write(`${C.yellow}⚠ ${t(`Security: sensitive file blocked to protect your secrets: @${filePath}`, `Sécurité : Fichier sensible bloqué pour protéger vos secrets : @${filePath}`)}${C.reset}\n`);
       continue;
     }
 
@@ -359,13 +382,13 @@ function resolveFileReferences(rawPrompt) {
         const rawContent = readFileSync(resolved, 'utf8');
         const lines = rawContent.split('\n');
         let slice = lines;
-        let lineNote = `${lines.length} lignes`;
+        let lineNote = t(`${lines.length} lines`, `${lines.length} lignes`);
 
         if (startLine !== null) {
           const s = Math.max(1, startLine) - 1;
           const e = endLine !== null ? Math.min(lines.length, endLine) : lines.length;
           slice = lines.slice(s, e);
-          lineNote = `lignes ${startLine}-${endLine || lines.length} sur ${lines.length}`;
+          lineNote = t(`lines ${startLine}-${endLine || lines.length} of ${lines.length}`, `lignes ${startLine}-${endLine || lines.length} sur ${lines.length}`);
         }
 
         let truncated = false;
@@ -376,7 +399,7 @@ function resolveFileReferences(rawPrompt) {
 
         const ext = filePath.split('.').pop() || '';
         additions.push(
-          `\n\n--- Fichier : ${filePath} (${lineNote}${truncated ? ', tronqué à 800 lignes' : ''}) ---\n\`\`\`${ext}\n${slice.join('\n')}\n\`\`\``
+          `\n\n--- ${t('File', 'Fichier')} : ${filePath} (${lineNote}${truncated ? t(', truncated to 800 lines', ', tronqué à 800 lignes') : ''}) ---\n\`\`\`${ext}\n${slice.join('\n')}\n\`\`\``
         );
         loadedFiles.push({ path: filePath, lineCount: slice.length });
       } catch {}
@@ -429,21 +452,21 @@ function findFileCompletions(partial) {
 // ── Auto-compléteur readline avancé (commandes /, modes, think et fichiers @) ────────
 // Commandes slash : une seule table pour la complétion Tab ET les suggestions en direct.
 const SLASH_COMMANDS = [
-  ['/help', 'Liste des commandes'],
-  ['/model', 'Choisir le modèle (sélecteur ↑/↓)'],
-  ['/models', 'Choisir le modèle (sélecteur ↑/↓)'],
-  ['/mode', 'Mode : code, plan, review, auto'],
-  ['/think', 'Réflexion : off, auto, deep'],
-  ['/status', 'État de la session'],
-  ['/stats', 'Tokens, vitesse, économies estimées'],
-  ['/diff', 'Revue de vos modifications git'],
-  ['/commit', 'Propositions de messages de commit'],
-  ['/review', 'Revue de code d’un fichier'],
-  ['/copy', 'Copier la dernière réponse'],
-  ['/accept', 'Extraire les blocs de code proposés'],
-  ['/reset', 'Effacer l’historique de la conversation'],
-  ['/clear', 'Effacer l’écran'],
-  ['/exit', 'Quitter'],
+  ['/help', t('List commands', 'Liste des commandes')],
+  ['/model', t('Pick the model (↑/↓ selector)', 'Choisir le modèle (sélecteur ↑/↓)')],
+  ['/models', t('Pick the model (↑/↓ selector)', 'Choisir le modèle (sélecteur ↑/↓)')],
+  ['/mode', t('Mode: code, plan, review, auto', 'Mode : code, plan, review, auto')],
+  ['/think', t('Reasoning: off, auto, deep', 'Réflexion : off, auto, deep')],
+  ['/status', t('Session status', 'État de la session')],
+  ['/stats', t('Tokens, speed, estimated savings', 'Tokens, vitesse, économies estimées')],
+  ['/diff', t('Review your git changes', 'Revue de vos modifications git')],
+  ['/commit', t('Suggest commit messages', 'Propositions de messages de commit')],
+  ['/review', t('Code review of a file', 'Revue de code d’un fichier')],
+  ['/copy', t('Copy the last answer', 'Copier la dernière réponse')],
+  ['/accept', t('Extract the suggested code blocks', 'Extraire les blocs de code proposés')],
+  ['/reset', t('Clear the conversation history', 'Effacer l’historique de la conversation')],
+  ['/clear', t('Clear the screen', 'Effacer l’écran')],
+  ['/exit', t('Quit', 'Quitter')],
 ];
 const SUBCOMMAND_DESCS = () => ({
   '/mode': Object.fromEntries(Object.entries(CLI_MODES).map(([k, m]) => [k, m.desc])),
@@ -514,12 +537,12 @@ class ActivitySpinner {
     this.frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     this.frameIdx = 0;
     this.timer = null;
-    this.phase = 'Traitement...';
+    this.phase = t('Working...', 'Traitement...');
     this.startTime = 0;
     this.active = false;
   }
 
-  start(initialPhase = 'Traitement...') {
+  start(initialPhase = t('Working...', 'Traitement...')) {
     this.phase = initialPhase;
     this.startTime = Date.now();
     this.active = true;
@@ -723,7 +746,7 @@ class MarkdownStream {
     this.bold = false;
     this.code = false;
     this.heading = false;
-    this.pendStar = false;
+    this.starRun = 0; // « * » consécutifs en attente
   }
   style() {
     let st = C.reset;
@@ -796,13 +819,17 @@ class MarkdownStream {
     this.lineBuf = '';
     for (const c of rest) this.inline(c);
   }
+  // Une suite de 2 « * » ou plus = UN basculement du gras. Qwen 3 4B écrit « - ****Titre** » :
+  // compté par paires, le gras s'ouvrait et se refermait aussitôt, et tout s'inversait.
+  resolveStars() {
+    if (!this.starRun) return;
+    if (this.starRun === 1) this.out('*');
+    else { this.bold = !this.bold; this.out(this.style()); }
+    this.starRun = 0;
+  }
   inline(ch) {
-    if (this.pendStar) {
-      this.pendStar = false;
-      if (ch === '*') { this.bold = !this.bold; this.out(this.style()); return; }
-      this.out('*');
-    }
-    if (ch === '*' && !this.code) { this.pendStar = true; return; }
+    if (ch === '*' && !this.code) { this.starRun++; return; }
+    this.resolveStars();
     if (ch === '`') { this.code = !this.code; this.out(this.style()); return; }
     if (ch === '\n') {
       this.bold = this.code = this.heading = false;
@@ -820,7 +847,7 @@ class MarkdownStream {
       this.lineStart = false;
       if (!/^\s*```/.test(b)) for (const c of b) this.inline(c);
     }
-    if (this.pendStar) { this.pendStar = false; this.out('*'); }
+    this.resolveStars();
     this.out(C.reset);
   }
 }
@@ -845,7 +872,7 @@ function createStreamPrinter(spinner, onChunk, { markdown = process.stdout.isTTY
         if (!thinkPrinted) {
           if (!tok.trim()) return;
           firstOutput();
-          process.stdout.write(`\n${C.sand}💭 [Réflexion]${C.reset}\n`);
+          process.stdout.write(`\n${C.sand}💭 [${t('Reasoning', 'Réflexion')}]${C.reset}\n`);
           thinkPrinted = true;
           tok = tok.replace(/^\s+/, '');
         }
@@ -863,7 +890,7 @@ function createStreamPrinter(spinner, onChunk, { markdown = process.stdout.isTTY
     onThinkStart: () => { thinkOpen = true; },
     onThinkEnd: () => {
       if (thinkOpen && thinkPrinted) {
-        process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [Réponse]${C.reset}\n`);
+        process.stdout.write(`${C.reset}\n\n${C.boldGreen}💡 [${t('Answer', 'Réponse')}]${C.reset}\n`);
       }
       thinkOpen = false;
     },
@@ -889,18 +916,19 @@ function printStatusCard(engine, currentMode, thinkLevel, sessionState) {
   const modeInfo = CLI_MODES[currentMode] || CLI_MODES.code;
   const thinkInfo = THINKING_LEVELS[thinkLevel] || THINKING_LEVELS.auto;
   const git = getGitInfo();
-  const gitBranch = git ? `${git.branch}${git.dirty ? ' (modifié *)' : ' (propre)'}` : 'Non versionné';
+  const gitBranch = git ? `${git.branch}${git.dirty ? t(' (modified *)', ' (modifié *)') : t(' (clean)', ' (propre)')}` : t('Not versioned', 'Non versionné');
   const elapsedSec = (sessionState.totalElapsedMs / 1000).toFixed(1);
   const avgSpeed = sessionState.totalElapsedMs > 0 ? ((sessionState.totalTokens / sessionState.totalElapsedMs) * 1000).toFixed(1) : '0';
 
   const saved = estimateSavings(sessionState.totalInChars || 0, sessionState.totalTokens);
-  console.log('\n' + drawBox(`${C.boldRed}État de la session Brimkern${C.reset}`, [
-    `${C.bold}Modèle actif${C.reset} : ${C.yellow}${engine.displayName}${C.reset}`,
-    `${C.bold}Moteur & GPU${C.reset} : ${C.cyan}${engine.engineType} · ${engine.gpuBackend}${C.reset}`,
-    `${C.bold}Mode IA${C.reset}      : ${modeInfo.badge} ${C.gray}${modeInfo.desc}${C.reset}`,
-    `${C.bold}Réflexion${C.reset}    : ${thinkInfo.color}${thinkInfo.name}${C.reset} ${C.dim}(${thinkInfo.desc})${C.reset}`,
-    `${C.bold}Dépôt Git${C.reset}    : ${C.sand}${gitBranch}${C.reset}`,
-    `${C.bold}Inférence${C.reset}    : ${C.green}100 % local${C.reset} · ${sessionState.totalTokens} tokens · ~${avgSpeed} tok/s (${elapsedSec}s) · ${savingsLabel(saved)}`,
+  const label = (en, fr) => `${C.bold}${t(en, fr).padEnd(12)}${C.reset}`;
+  console.log('\n' + drawBox(`${C.boldRed}${t('Brimkern session status', 'État de la session Brimkern')}${C.reset}`, [
+    `${label('Active model', 'Modèle actif')} : ${C.yellow}${engine.displayName}${C.reset}`,
+    `${label('Engine & GPU', 'Moteur & GPU')} : ${C.cyan}${engine.engineType} · ${engine.gpuBackend}${C.reset}`,
+    `${label('AI mode', 'Mode IA')} : ${modeInfo.badge} ${C.gray}${modeInfo.desc}${C.reset}`,
+    `${label('Reasoning', 'Réflexion')} : ${thinkInfo.color}${thinkInfo.name}${C.reset} ${C.dim}(${thinkInfo.desc})${C.reset}`,
+    `${label('Git repo', 'Dépôt Git')} : ${C.sand}${gitBranch}${C.reset}`,
+    `${label('Inference', 'Inférence')} : ${C.green}${t('100% local', '100 % local')}${C.reset} · ${sessionState.totalTokens} tokens · ~${avgSpeed} tok/s (${elapsedSec}s) · ${savingsLabel(saved)}`,
   ], { color: C.boldRed }) + '\n');
 }
 
@@ -1122,7 +1150,7 @@ class BrimkernNativeDawnEngine {
     this.session = null;
     this.server = null;
     this.isReady = false;
-    this.engineType = 'Natif Dawn (in-process)';
+    this.engineType = t('Native Dawn (in-process)', 'Natif Dawn (in-process)');
     this.gpuBackend = process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)';
   }
 
@@ -1145,7 +1173,7 @@ class BrimkernNativeDawnEngine {
       this.format = PRESET_CLI_MODELS[this.modelKey].format;
     } else if (existsSync(this.modelKey)) {
       this.localBrikFile = resolve(this.modelKey);
-      this.displayName = `Fichier local (${this.modelKey})`;
+      this.displayName = t(`Local file (${this.modelKey})`, `Fichier local (${this.modelKey})`);
       this.format = 'brik';
     } else {
       this.modelUrl = this.modelKey;
@@ -1177,7 +1205,7 @@ class BrimkernNativeDawnEngine {
 
     const sdkPath = getSdkMjsPath();
     if (!sdkPath) {
-      throw new Error('Bundle ESM du SDK introuvable (packages/sdk/dist/brimkern.mjs). Exécutez npm run build:sdk.');
+      throw new Error(t('SDK ESM bundle not found (packages/sdk/dist/brimkern.mjs). Run npm run build:sdk.', 'Bundle ESM du SDK introuvable (packages/sdk/dist/brimkern.mjs). Exécutez npm run build:sdk.'));
     }
 
     const sdk = await import(sdkPath);
@@ -1267,7 +1295,7 @@ class BrimkernChromiumEngine {
       this.format = PRESET_CLI_MODELS[this.modelKey].format;
     } else if (existsSync(this.modelKey)) {
       this.localBrikFile = resolve(this.modelKey);
-      this.displayName = `Fichier local (${this.modelKey})`;
+      this.displayName = t(`Local file (${this.modelKey})`, `Fichier local (${this.modelKey})`);
       this.format = 'brik';
     } else {
       this.modelUrl = this.modelKey;
@@ -1279,11 +1307,10 @@ class BrimkernChromiumEngine {
   async init() {
     const chromeExe = findChromium();
     if (!chromeExe) {
-      throw new Error(
-        'Chromium avec support WebGPU introuvable.\n' +
-        'Installez-le avec : npx playwright install chromium\n' +
-        'Ou installez Google Chrome sur votre système.'
-      );
+      throw new Error(t(
+        'Chromium with WebGPU support not found.\nInstall it with: npx playwright install chromium\nOr install Google Chrome on your system.',
+        'Chromium avec support WebGPU introuvable.\nInstallez-le avec : npx playwright install chromium\nOu installez Google Chrome sur votre système.',
+      ));
     }
 
     // Démarrage du serveur local
@@ -1453,11 +1480,11 @@ async function createCliEngine(options = {}) {
   }
 
   if (forceNative) {
-    throw new Error('Moteur natif Dawn demandé (--native) mais indisponible sur ce système.');
+    throw new Error(t('Native Dawn engine requested (--native) but unavailable on this system.', 'Moteur natif Dawn demandé (--native) mais indisponible sur ce système.'));
   }
 
   if (!options.raw) {
-    process.stderr.write(`${C.dim}[Notice] Repli sur Chromium headless (support WebGPU universel)...${C.reset}\n`);
+    process.stderr.write(`${C.dim}[Notice] ${t('Falling back to headless Chromium (universal WebGPU support)...', 'Repli sur Chromium headless (support WebGPU universel)...')}${C.reset}\n`);
   }
   return new BrimkernChromiumEngine(options);
 }
@@ -1465,9 +1492,9 @@ async function createCliEngine(options = {}) {
 // ── Bannière de marque "Le Kern" ─────────────────────────────────────────────────────
 function printBrandBanner(engine, mode = 'code', think = 'auto') {
   const git = getGitInfo();
-  const gitStr = git ? `  ${C.dim}·${C.reset}  Git : ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.reset}` : '';
+  const gitStr = git ? `  ${C.dim}·${C.reset}  Git${t(':', ' :')} ${C.sand}${git.branch}${git.dirty ? '*' : ''}${C.reset}` : '';
   const gpuStr = engine.gpuBackend || (process.platform === 'darwin' ? 'Dawn (Metal)' : 'Dawn (Vulkan)');
-  const engineStr = engine.engineType || 'Natif Dawn (in-process)';
+  const engineStr = engine.engineType || t('Native Dawn (in-process)', 'Natif Dawn (in-process)');
   const modeBadge = CLI_MODES[mode]?.badge || '[CODE]';
 
   console.log(`
@@ -1477,89 +1504,94 @@ ${C.boldRed}██████╗ ██████╗ ██╗███╗   
 ██╔══██╗██╔══██╗██║██║╚██╔╝██║██╔═██╗ ██╔══╝  ██╔══██╗██║╚██╗██║
 ██████╔╝██║  ██║██║██║ ╚═╝ ██║██║ ╚██╗███████╗██║  ██║██║ ╚████║
 ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝${C.reset}
-${C.dim}Moteur d'inférence WebGPU & WGSL on-device${C.reset}
+${C.dim}${t('On-device WebGPU & WGSL inference engine', "Moteur d'inférence WebGPU & WGSL on-device")}${C.reset}
 
 ${drawBox(`${C.boldRed}Brimkern WGSL${C.reset}`, [
-  `Modèle : ${C.yellow}${engine.displayName}${C.reset}`,
-  `Moteur : ${C.green}${engineStr}${C.reset}  ${C.dim}·${C.reset}  WebGPU : ${C.cyan}${gpuStr}${C.reset}`,
-  `Mode : ${modeBadge}  ${C.dim}·${C.reset}  Think : ${C.sand}${think}${C.reset}  ${C.dim}·${C.reset}  ${C.green}100 % local${C.reset}${gitStr}`,
+  `${t('Model:', 'Modèle :')} ${C.yellow}${engine.displayName}${C.reset}`,
+  `${t('Engine:', 'Moteur :')} ${C.green}${engineStr}${C.reset}  ${C.dim}·${C.reset}  WebGPU${t(':', ' :')} ${C.cyan}${gpuStr}${C.reset}`,
+  `Mode${t(':', ' :')} ${modeBadge}  ${C.dim}·${C.reset}  Think${t(':', ' :')} ${C.sand}${think}${C.reset}  ${C.dim}·${C.reset}  ${C.green}${t('100% local', '100 % local')}${C.reset}${gitStr}`,
 ], { color: C.red })}
-${C.dim}Tapez ${C.boldRed}/help${C.reset}${C.dim} pour les commandes · ${C.yellow}Tab${C.reset}${C.dim} pour compléter · ${C.yellow}Esc${C.reset}${C.dim} pour annuler${C.reset}
+${C.dim}${t('Type', 'Tapez')} ${C.boldRed}/help${C.reset}${C.dim} ${t('for commands', 'pour les commandes')} · ${C.yellow}Tab${C.reset}${C.dim} ${t('to complete', 'pour compléter')} · ${C.yellow}Esc${C.reset}${C.dim} ${t('to cancel', 'pour annuler')}${C.reset}
 `);
 }
 
 // ── Aide REPL complète ────────────────────────────────────────────────────────────────
 function printReplHelp() {
+  const row = (cmd, desc, color = C.cyan) => `  ${C.bold}${color}${cmd.padEnd(21)}${C.reset}${desc}`;
+  const head = (txt) => `${C.boldRed}${txt}${C.reset}`;
   console.log(`
-${C.bold}Commandes interactives Brimkern (style Claude Code / Gemini CLI) :${C.reset}
+${C.bold}${t('Brimkern interactive commands:', 'Commandes interactives Brimkern :')}${C.reset}
 
-${C.boldRed}ASSISTANT & CONTEXTE${C.reset}
-  ${C.bold}${C.cyan}@chemin/fichier${C.reset}      Injecte le fichier dans le prompt (ex: ${C.dim}@src/app.ts:1-50${C.reset})
-  ${C.bold}${C.cyan}/diff [args]${C.reset}         Analyse vos modifications git et propose une revue
-  ${C.bold}${C.cyan}/commit${C.reset}              Génère 3 propositions de messages de commit conventionnels
-  ${C.bold}${C.cyan}/review <fichier>${C.reset}    Revue de code approfondie (bugs, sécurité, perf)
-  ${C.bold}${C.cyan}/copy${C.reset}                Copie la dernière réponse dans le presse-papier
-  ${C.bold}${C.cyan}/accept, /apply${C.reset}      Extrait et copie/affiche les blocs de code proposés
+${head(t('ASSISTANT & CONTEXT', 'ASSISTANT & CONTEXTE'))}
+${row(t('@path/file', '@chemin/fichier'), t(`Injects the file into the prompt (e.g. ${C.dim}@src/app.ts:1-50${C.reset})`, `Injecte le fichier dans le prompt (ex: ${C.dim}@src/app.ts:1-50${C.reset})`))}
+${row('/diff [args]', t('Reviews your git changes', 'Analyse vos modifications git et propose une revue'))}
+${row('/commit', t('Suggests 3 conventional commit messages', 'Génère 3 propositions de messages de commit conventionnels'))}
+${row(t('/review <file>', '/review <fichier>'), t('In-depth code review (bugs, security, perf)', 'Revue de code approfondie (bugs, sécurité, perf)'))}
+${row('/copy', t('Copies the last answer to the clipboard', 'Copie la dernière réponse dans le presse-papier'))}
+${row('/accept, /apply', t('Extracts and copies the suggested code blocks', 'Extrait et copie/affiche les blocs de code proposés'))}
 
-${C.boldRed}MODES & CONTRÔLE DE L'IA${C.reset}
-  ${C.bold}${C.cyan}/mode [nom]${C.reset}          Bascule le mode (${C.yellow}code, plan, review, auto${C.reset})
-  ${C.bold}${C.cyan}/think [niveau]${C.reset}      Niveau de réflexion pas à pas (${C.sand}off, auto, deep${C.reset})
-  ${C.bold}${C.cyan}/status${C.reset}              État complet (modèle, GPU, mode, cache, git)
+${head(t('AI MODES & CONTROL', "MODES & CONTRÔLE DE L'IA"))}
+${row(t('/mode [name]', '/mode [nom]'), t(`Switches mode (${C.yellow}code, plan, review, auto${C.reset})`, `Bascule le mode (${C.yellow}code, plan, review, auto${C.reset})`))}
+${row(t('/think [level]', '/think [niveau]'), t(`Step-by-step reasoning level (${C.sand}off, auto, deep${C.reset})`, `Niveau de réflexion pas à pas (${C.sand}off, auto, deep${C.reset})`))}
+${row('/status', t('Full status (model, GPU, mode, git)', 'État complet (modèle, GPU, mode, git)'))}
 
-${C.boldRed}CONVERSATION & SESSION${C.reset}
-  ${C.bold}${C.cyan}/model, /models${C.reset}       Sélecteur interactif scrollable (flèches ↑/↓) ou changement à chaud
-  ${C.bold}${C.cyan}/reset${C.reset}               Efface l'historique et libère le cache KV GPU
-  ${C.bold}${C.cyan}/stats${C.reset}               Statistiques de session (tokens, tok/s, coût 0$)
-  ${C.bold}${C.cyan}/clear${C.reset}               Efface l'écran du terminal
+${head(t('CONVERSATION & SESSION', 'CONVERSATION & SESSION'))}
+${row('/model, /models', t('Interactive model selector (↑/↓ arrows) or hot switch', 'Sélecteur interactif de modèles (flèches ↑/↓) ou changement à chaud'))}
+${row('/reset', t('Clears the history and frees the GPU KV cache', "Efface l'historique et libère le cache KV GPU"))}
+${row('/stats', t('Session stats (tokens, tok/s, estimated savings)', 'Statistiques de session (tokens, tok/s, économies estimées)'))}
+${row('/clear', t('Clears the terminal screen', "Efface l'écran du terminal"))}
 
-${C.boldRed}RACCOURCIS CLAVIER${C.reset}
-  ${C.bold}${C.yellow}Tab${C.reset}                  Auto-complétion des commandes (/), modes et fichiers (@)
-  ${C.bold}${C.yellow}Escape${C.reset}               Interrompt l'inférence en cours / efface la saisie
-  ${C.bold}${C.yellow}Ctrl+C${C.reset}               Annule la génération sans tuer la session REPL
+${head(t('KEYBOARD SHORTCUTS', 'RACCOURCIS CLAVIER'))}
+${row('Tab, →', t('Accepts the suggestion: commands (/), modes, files (@)', 'Accepte la suggestion : commandes (/), modes, fichiers (@)'), C.yellow)}
+${row('Escape', t('Stops the running inference / clears the input', "Interrompt l'inférence en cours / efface la saisie"), C.yellow)}
+${row('Ctrl+C', t('Cancels generation without killing the REPL session', 'Annule la génération sans tuer la session REPL'), C.yellow)}
 
-${C.boldRed}COMMANDES SYSTÈME${C.reset}
-  ${C.bold}${C.cyan}!commande${C.reset}            Exécute une commande shell locale (ex: ${C.dim}!git status${C.reset})
-  ${C.bold}${C.cyan}/exit${C.reset}                Quitte la session
+${head(t('SYSTEM COMMANDS', 'COMMANDES SYSTÈME'))}
+${row(t('!command', '!commande'), t(`Runs a local shell command (e.g. ${C.dim}!git status${C.reset})`, `Exécute une commande shell locale (ex: ${C.dim}!git status${C.reset})`))}
+${row('/exit', t('Quits the session', 'Quitte la session'))}
 `);
 }
 
 // ── Aide CLI One-shot ─────────────────────────────────────────────────────────────────
 function printHelp() {
+  const opt = (flag, desc) => `  ${C.yellow}${flag.padEnd(33)}${C.reset}${desc}`;
+  const use = (cmd, note = '') => `  ${C.green}${cmd}${C.reset}${note ? ` ${C.gray}# ${note}${C.reset}` : ''}`;
   console.log(`
-${C.boldRed}BRIMKERN CLI${C.reset} — Inférence IA locale en WebGPU (WGSL) depuis le terminal
+${C.boldRed}BRIMKERN CLI${C.reset} — ${t('Local AI inference on WebGPU (WGSL) from your terminal', 'Inférence IA locale en WebGPU (WGSL) depuis le terminal')}
 
-${C.bold}UTILISATION${C.reset}
-  ${C.green}brimkern${C.reset} [options] [prompt]
-  ${C.green}brimkern${C.reset} chat                     ${C.gray}# Mode REPL interactif${C.reset}
-  ${C.green}brimkern${C.reset} models                   ${C.gray}# Liste les modèles pré-configurés${C.reset}
-  ${C.green}cat file.ts | brimkern${C.reset} "Trouve les bugs"
-  ${C.green}brimkern${C.reset} "Explique @src/app/Composer.tsx:10-40"
+${C.bold}${t('USAGE', 'UTILISATION')}${C.reset}
+${use('brimkern [options] [prompt]')}
+${use('brimkern chat                   ', t('Interactive REPL', 'Mode REPL interactif'))}
+${use('brimkern models                 ', t('Lists the preset models', 'Liste les modèles pré-configurés'))}
+${use(`cat file.ts | brimkern "${t('Find the bugs', 'Trouve les bugs')}"`)}
+${use(`brimkern "${t('Explain', 'Explique')} @src/app/Composer.tsx:10-40"`)}
 
 ${C.bold}OPTIONS${C.reset}
-  ${C.yellow}-m, --model=<nom|url|fichier>${C.reset}    Modèle (défaut: coder / ${PRESET_CLI_MODELS.coder.shortName})
-  ${C.yellow}-s, --system=<prompt>${C.reset}            Prompt système
-  ${C.yellow}-n, --max-tokens=<n>${C.reset}             Plafond de tokens générés (défaut: 512)
-  ${C.yellow}-t, --temperature=<val>${C.reset}          Température (défaut: 0.3)
-  ${C.yellow}--mode=<code|plan|review|auto>${C.reset}       Mode d'intervention IA (défaut: code)
-  ${C.yellow}--think=<off|auto|deep>${C.reset}              Niveau de réflexion pas à pas (défaut: auto)
-  ${C.yellow}--native${C.reset}                              Force l'exécution native Dawn (in-process, 0ms overhead)
-  ${C.yellow}--chromium, --headless${C.reset}               Force l'exécution via Chromium headless (repli universel)
-  ${C.yellow}--raw${C.reset}                              Sortie brute uniquement (sans en-tête ni stats)
-  ${C.yellow}-h, --help${C.reset}                         Affiche cette aide
+${opt(t('-m, --model=<name|url|file>', '-m, --model=<nom|url|fichier>'), t(`Model (default: coder / ${PRESET_CLI_MODELS.coder.shortName})`, `Modèle (défaut : coder / ${PRESET_CLI_MODELS.coder.shortName})`))}
+${opt('-s, --system=<prompt>', t('System prompt', 'Prompt système'))}
+${opt('-n, --max-tokens=<n>', t('Max generated tokens (default: 512)', 'Plafond de tokens générés (défaut : 512)'))}
+${opt('-t, --temperature=<val>', t('Temperature (default: 0.3)', 'Température (défaut : 0.3)'))}
+${opt('--mode=<code|plan|review|auto>', t('AI mode (default: code)', "Mode d'intervention IA (défaut : code)"))}
+${opt('--think=<off|auto|deep>', t('Step-by-step reasoning level (default: auto)', 'Niveau de réflexion pas à pas (défaut : auto)'))}
+${opt('--lang=<en|fr>', t('Interface language (default: en; also BRIMKERN_LANG)', 'Langue de l’interface (défaut : en ; aussi BRIMKERN_LANG)'))}
+${opt('--native', t('Forces the native Dawn engine (in-process)', "Force l'exécution native Dawn (in-process)"))}
+${opt('--chromium, --headless', t('Forces headless Chromium (universal fallback)', "Force l'exécution via Chromium headless (repli universel)"))}
+${opt('--raw', t('Raw output only (no header or stats)', 'Sortie brute uniquement (sans en-tête ni stats)'))}
+${opt('-h, --help', t('Shows this help', 'Affiche cette aide'))}
 
-${C.bold}MODÈLES${C.reset}
+${C.bold}${t('MODELS', 'MODÈLES')}${C.reset}
 ${Object.entries(PRESET_CLI_MODELS).map(([key, m]) => `  ${C.cyan}${key.padEnd(8)}${C.reset} ${m.shortName} (${m.formatLabel}, ${m.size}) — ${C.dim}${m.desc}${C.reset}`).join('\n')}
 `);
 }
 
 function printModels() {
-  console.log(`\n${C.boldRed}Modèles disponibles pour la CLI Brimkern :${C.reset}\n`);
+  console.log(`\n${C.boldRed}${t('Models available in the Brimkern CLI:', 'Modèles disponibles pour la CLI Brimkern :')}${C.reset}\n`);
   for (const [key, m] of Object.entries(PRESET_CLI_MODELS)) {
     console.log(`  ${C.bold}${C.cyan}${key.padEnd(12)}${C.reset} ${C.bold}${m.name}${C.reset} [${C.yellow}${m.size}${C.reset}]`);
     console.log(`               ${C.gray}${m.desc}${C.reset}`);
-    console.log(`               ${C.dim}URL : ${m.url}${C.reset}\n`);
+    console.log(`               ${C.dim}URL${t(':', ' :')} ${m.url}${C.reset}\n`);
   }
-  console.log(`${C.gray}Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik${C.reset}\n`);
+  console.log(`${C.gray}${t('You can also pass a local file: --model=/path/to/model.brik', 'Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik')}${C.reset}\n`);
 }
 
 function stripAnsi(str) {
@@ -1668,12 +1700,12 @@ async function selectModelInteractive(currentModelKey) {
   if (!items.some((it) => it.key === currentModelKey) && currentModelKey) {
     items.unshift({
       key: currentModelKey,
-      name: 'Modèle personnalisé actif',
+      name: t('Active custom model', 'Modèle personnalisé actif'),
       size: 'Local',
       format: 'brik/gguf',
       runtime: 'WebGPU',
-      badge: 'Fichier local',
-      desc: `Fichier ou URL personnalisé en cours d'utilisation : ${currentModelKey}`,
+      badge: t('Local file', 'Fichier local'),
+      desc: t(`Custom file or URL in use: ${currentModelKey}`, `Fichier ou URL personnalisé en cours d'utilisation : ${currentModelKey}`),
     });
   }
 
@@ -1696,20 +1728,15 @@ async function selectModelInteractive(currentModelKey) {
   const terminalCols = Math.min(80, Math.max(64, (process.stdout.columns || 80) - 4));
   const innerWidth = terminalCols - 6;
 
-  function boxLine(content) {
-    const visLen = stripAnsi(content).length;
-    const pad = Math.max(0, innerWidth - visLen);
-    return `  ${C.darkGray}│${C.reset} ${content}${' '.repeat(pad)} ${C.darkGray}│${C.reset}`;
-  }
-
   function render() {
     const lines = [];
-    lines.push(`${C.darkGray}┌─${C.reset} ${C.boldRed}Brimkern${C.reset} ${C.dim}·${C.reset} ${C.bold}Sélecteur de modèles on-device${C.reset} ${C.darkGray}${'─'.repeat(Math.max(2, innerWidth - 30))}┐${C.reset}`);
-    lines.push(`${C.dim}  Utilisez les flèches ↑/↓ pour faire défiler · Entrée pour activer · Échap pour annuler${C.reset}`);
+    const header = `${C.darkGray}┌─${C.reset} ${C.boldRed}Brimkern${C.reset} ${C.dim}·${C.reset} ${C.bold}${t('On-device model selector', 'Sélecteur de modèles on-device')}${C.reset} `;
+    lines.push(`${header}${C.darkGray}${'─'.repeat(Math.max(2, terminalCols - stripAnsi(header).length - 1))}┐${C.reset}`);
+    lines.push(`${C.dim}  ${t('Use ↑/↓ to scroll · Enter to activate · Esc to cancel', 'Utilisez les flèches ↑/↓ pour faire défiler · Entrée pour activer · Échap pour annuler')}${C.reset}`);
     lines.push('');
 
     if (scrollOffset > 0) {
-      lines.push(`${C.dim}    ▲ ... (${scrollOffset} modèle(s) au-dessus)${C.reset}`);
+      lines.push(`${C.dim}    ▲ ... (${t(`${scrollOffset} model(s) above`, `${scrollOffset} modèle(s) au-dessus`)})${C.reset}`);
     } else {
       lines.push(`${C.darkGray}    ┄${C.reset}`);
     }
@@ -1725,25 +1752,25 @@ async function selectModelInteractive(currentModelKey) {
       const nameFormatted = isSelected ? `${C.bold}${item.name.padEnd(30)}${C.reset}` : `${C.gray}${item.name.padEnd(30)}${C.reset}`;
       const sizeFormatted = `${C.yellow}${item.size.padStart(7)}${C.reset}`;
       const formatBadge = `${C.darkGray}[${C.reset}${C.sand}${item.format.padEnd(10)}${C.reset}${C.darkGray}]${C.reset}`;
-      const activeBadge = isActive ? ` ${C.boldGreen}● actif${C.reset}` : '';
+      const activeBadge = isActive ? ` ${C.boldGreen}● ${t('active', 'actif')}${C.reset}` : '';
 
       lines.push(`  ${pointer} ${keyFormatted} ${nameFormatted} ${formatBadge} ${sizeFormatted}${activeBadge}`);
     });
 
     const remainingBelow = items.length - (scrollOffset + pageSize);
     if (remainingBelow > 0) {
-      lines.push(`${C.dim}    ▼ ... (${remainingBelow} modèle(s) en-dessous)${C.reset}`);
+      lines.push(`${C.dim}    ▼ ... (${t(`${remainingBelow} model(s) below`, `${remainingBelow} modèle(s) en-dessous`)})${C.reset}`);
     } else {
       lines.push(`${C.darkGray}    ┄${C.reset}`);
     }
 
     const cur = items[selectedIndex];
     lines.push('');
-    lines.push(drawBox(`Fiche technique : ${cur.name}`, [
-      `${C.bold}Architecture :${C.reset} ${C.yellow}${cur.name}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}Taille :${C.reset} ${C.yellow}${cur.size}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}[${cur.badge}]${C.reset}`,
+    lines.push(drawBox(t(`Spec sheet: ${cur.name}`, `Fiche technique : ${cur.name}`), [
+      `${C.bold}${t('Architecture:', 'Architecture :')}${C.reset} ${C.yellow}${cur.name}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}${t('Size:', 'Taille :')}${C.reset} ${C.yellow}${cur.size}${C.reset}  ${C.dim}·${C.reset}  ${C.cyan}[${cur.badge}]${C.reset}`,
       `${C.gray}${cur.desc}${C.reset}`,
-      `${C.bold}Format :${C.reset} ${C.sand}${cur.format}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}Moteur :${C.reset} ${C.green}${cur.runtime}${C.reset}`,
-      `${C.dim}Commande : /model ${cur.key}${C.reset}`,
+      `${C.bold}${t('Format:', 'Format :')}${C.reset} ${C.sand}${cur.format}${C.reset}  ${C.dim}·${C.reset}  ${C.bold}${t('Engine:', 'Moteur :')}${C.reset} ${C.green}${cur.runtime}${C.reset}`,
+      `${C.dim}${t('Command:', 'Commande :')} /model ${cur.key}${C.reset}`,
     ], { indent: '  ', width: terminalCols }));
 
     return lines.join('\n') + '\n';
@@ -1868,9 +1895,9 @@ async function runInteractiveChat(initialEngine) {
 
   printBrandBanner(engine, currentMode, thinkLevel);
 
-  process.stderr.write(`${C.dim}Initialisation du GPU et chargement du modèle...${C.reset}`);
+  process.stderr.write(`${C.dim}${t('Initializing the GPU and loading the model...', 'Initialisation du GPU et chargement du modèle...')}${C.reset}`);
   await engine.init();
-  process.stderr.write(`\r${C.green}✓ Moteur WebGPU prêt et connecté [${engine.engineType}].${C.reset}                                 \n\n`);
+  process.stderr.write(`\r${C.green}✓ ${t('WebGPU engine ready', 'Moteur WebGPU prêt et connecté')} [${engine.engineType}].${C.reset}                                 \n\n`);
 
   // État de session (stats, lastResponse)
   const sessionState = {
@@ -1922,7 +1949,7 @@ async function runInteractiveChat(initialEngine) {
           currentAbortController.abort();
         }
         spinner.stop(true);
-        process.stdout.write(`\n${C.yellow}⚠ Interrompu (${key.name === 'escape' ? 'Escape' : 'Ctrl+C'})${C.reset}\n`);
+        process.stdout.write(`\n${C.yellow}⚠ ${t('Interrupted', 'Interrompu')} (${key.name === 'escape' ? 'Escape' : 'Ctrl+C'})${C.reset}\n`);
       }
       return;
     }
@@ -1945,7 +1972,7 @@ async function runInteractiveChat(initialEngine) {
         currentAbortController.abort();
       }
       spinner.stop(true);
-      process.stdout.write(`\n${C.yellow}⚠ Interrompu (Ctrl+C)${C.reset}\n`);
+      process.stdout.write(`\n${C.yellow}⚠ ${t('Interrupted', 'Interrompu')} (Ctrl+C)${C.reset}\n`);
       return;
     }
     if (rl.line.length > 0) {
@@ -1957,7 +1984,7 @@ async function runInteractiveChat(initialEngine) {
       rl.prompt();
       return;
     }
-    console.log(`\n${C.dim}(Pour quitter, tapez /exit ou Ctrl+D)${C.reset}`);
+    console.log(`\n${C.dim}${t('(To quit, type /exit or Ctrl+D)', '(Pour quitter, tapez /exit ou Ctrl+D)')}${C.reset}`);
     updatePrompt();
     rl.prompt();
   });
@@ -1990,7 +2017,7 @@ async function runInteractiveChat(initialEngine) {
       try {
         execSync(cmd, { stdio: 'inherit' });
       } catch (e) {
-        console.error(`${C.red}Erreur d'exécution : ${e.message}${C.reset}`);
+        console.error(`${C.red}${t('Execution error:', "Erreur d'exécution :")} ${e.message}${C.reset}`);
       }
       console.log('');
       resumeAndPrompt();
@@ -2016,7 +2043,7 @@ async function runInteractiveChat(initialEngine) {
     if (input === '/reset') {
       await engine.reset();
       sessionState.historyChars = 0;
-      console.log(`${C.yellow}✓ Historique conversationnel et cache KV réinitialisés.${C.reset}\n`);
+      console.log(`${C.yellow}✓ ${t('Conversation history and KV cache reset.', 'Historique conversationnel et cache KV réinitialisés.')}${C.reset}\n`);
       resumeAndPrompt();
       return;
     }
@@ -2028,20 +2055,20 @@ async function runInteractiveChat(initialEngine) {
     if (input === '/mode' || input.startsWith('/mode ')) {
       const targetMode = input.slice(5).trim().toLowerCase();
       if (!targetMode) {
-        console.log(`\n${C.bold}Modes d'utilisation disponibles :${C.reset}\n`);
+        console.log(`\n${C.bold}${t('Available modes:', "Modes d'utilisation disponibles :")}${C.reset}\n`);
         for (const [key, m] of Object.entries(CLI_MODES)) {
           const isActive = key === currentMode;
-          console.log(`  ${m.badge} ${C.bold}${m.name.padEnd(8)}${C.reset} ${m.desc}${isActive ? ` ${C.boldGreen}◀ (Actif)${C.reset}` : ''}`);
+          console.log(`  ${m.badge} ${C.bold}${m.name.padEnd(8)}${C.reset} ${m.desc}${isActive ? ` ${C.boldGreen}◀ (${t('Active', 'Actif')})${C.reset}` : ''}`);
         }
-        console.log(`\n${C.dim}Usage : /mode <code|plan|review|auto>${C.reset}\n`);
+        console.log(`\n${C.dim}Usage${t(':', ' :')} /mode <code|plan|review|auto>${C.reset}\n`);
         resumeAndPrompt();
         return;
       }
       if (CLI_MODES[targetMode]) {
         currentMode = targetMode;
-        console.log(`${C.green}✓ Mode basculé vers ${CLI_MODES[targetMode].badge} : ${CLI_MODES[targetMode].desc}${C.reset}\n`);
+        console.log(`${C.green}✓ ${t('Mode switched to', 'Mode basculé vers')} ${CLI_MODES[targetMode].badge}${t(':', ' :')} ${CLI_MODES[targetMode].desc}${C.reset}\n`);
       } else {
-        console.log(`${C.red}Mode inconnu : "${targetMode}". Choix : code, plan, review, auto${C.reset}\n`);
+        console.log(`${C.red}${t(`Unknown mode: "${targetMode}". Choices: code, plan, review, auto`, `Mode inconnu : "${targetMode}". Choix : code, plan, review, auto`)}${C.reset}\n`);
       }
       resumeAndPrompt();
       return;
@@ -2049,33 +2076,33 @@ async function runInteractiveChat(initialEngine) {
     if (input === '/think' || input.startsWith('/think ')) {
       const targetThink = input.slice(6).trim().toLowerCase();
       if (!targetThink) {
-        console.log(`\n${C.bold}Niveaux de réflexion disponibles :${C.reset}\n`);
-        for (const [key, t] of Object.entries(THINKING_LEVELS)) {
+        console.log(`\n${C.bold}${t('Available reasoning levels:', 'Niveaux de réflexion disponibles :')}${C.reset}\n`);
+        for (const [key, lvl] of Object.entries(THINKING_LEVELS)) {
           const isActive = key === thinkLevel;
-          console.log(`  ${C.bold}${t.color}${key.padEnd(8)}${C.reset} : ${t.desc}${isActive ? ` ${C.boldGreen}◀ (Actif)${C.reset}` : ''}`);
+          console.log(`  ${C.bold}${lvl.color}${key.padEnd(8)}${C.reset} : ${lvl.desc}${isActive ? ` ${C.boldGreen}◀ (${t('Active', 'Actif')})${C.reset}` : ''}`);
         }
-        console.log(`\n${C.dim}Usage : /think <off|auto|deep>${C.reset}\n`);
+        console.log(`\n${C.dim}Usage${t(':', ' :')} /think <off|auto|deep>${C.reset}\n`);
         resumeAndPrompt();
         return;
       }
       if (THINKING_LEVELS[targetThink]) {
         thinkLevel = targetThink;
-        console.log(`${C.green}✓ Niveau de réflexion défini sur [${targetThink}] : ${THINKING_LEVELS[targetThink].desc}${C.reset}\n`);
+        console.log(`${C.green}✓ ${t('Reasoning level set to', 'Niveau de réflexion défini sur')} [${targetThink}]${t(':', ' :')} ${THINKING_LEVELS[targetThink].desc}${C.reset}\n`);
       } else {
-        console.log(`${C.red}Niveau inconnu : "${targetThink}". Choix : off, auto, deep${C.reset}\n`);
+        console.log(`${C.red}${t(`Unknown level: "${targetThink}". Choices: off, auto, deep`, `Niveau inconnu : "${targetThink}". Choix : off, auto, deep`)}${C.reset}\n`);
       }
       resumeAndPrompt();
       return;
     }
     if (input === '/copy') {
       if (!sessionState.lastResponse) {
-        console.log(`${C.dim}Aucune réponse précédente à copier.${C.reset}\n`);
+        console.log(`${C.dim}${t('No previous answer to copy.', 'Aucune réponse précédente à copier.')}${C.reset}\n`);
       } else {
         const ok = copyToClipboard(sessionState.lastResponse);
         if (ok) {
-          console.log(`${C.green}✓ Dernière réponse copiée dans le presse-papier système.${C.reset}\n`);
+          console.log(`${C.green}✓ ${t('Last answer copied to the system clipboard.', 'Dernière réponse copiée dans le presse-papier système.')}${C.reset}\n`);
         } else {
-          console.log(`${C.yellow}Impossible de copier dans le presse-papier.${C.reset}\n`);
+          console.log(`${C.yellow}${t('Could not copy to the clipboard.', 'Impossible de copier dans le presse-papier.')}${C.reset}\n`);
         }
       }
       resumeAndPrompt();
@@ -2083,24 +2110,24 @@ async function runInteractiveChat(initialEngine) {
     }
     if (input === '/accept' || input === '/apply') {
       if (!sessionState.lastResponse) {
-        console.log(`${C.dim}Aucune proposition d'édition récente à appliquer.${C.reset}\n`);
+        console.log(`${C.dim}${t('No recent edit suggestion to apply.', "Aucune proposition d'édition récente à appliquer.")}${C.reset}\n`);
         resumeAndPrompt();
         return;
       }
       const codeBlockRegex = /```(?:[a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/g;
       const matches = [...sessionState.lastResponse.matchAll(codeBlockRegex)];
       if (matches.length === 0) {
-        console.log(`${C.yellow}Aucun bloc de code détecté dans la dernière réponse.${C.reset}\n`);
+        console.log(`${C.yellow}${t('No code block found in the last answer.', 'Aucun bloc de code détecté dans la dernière réponse.')}${C.reset}\n`);
       } else {
-        console.log(`\n${C.bold}Blocs de code détectés dans la dernière réponse :${C.reset}`);
+        console.log(`\n${C.bold}${t('Code blocks found in the last answer:', 'Blocs de code détectés dans la dernière réponse :')}${C.reset}`);
         matches.forEach((m, idx) => {
           const snippet = m[1].trim();
           const firstLine = snippet.split('\n')[0] || '';
-          console.log(`  ${C.cyan}#${idx + 1}${C.reset} (${snippet.split('\n').length} lignes) — ${C.dim}${firstLine.slice(0, 50)}${C.reset}`);
+          console.log(`  ${C.cyan}#${idx + 1}${C.reset} (${snippet.split('\n').length} ${t('lines', 'lignes')}) — ${C.dim}${firstLine.slice(0, 50)}${C.reset}`);
         });
         const copied = copyToClipboard(sessionState.lastResponse);
         if (copied) {
-          console.log(`\n${C.green}✓ Code extrait et copié dans le presse-papier système pour intégration.${C.reset}\n`);
+          console.log(`\n${C.green}✓ ${t('Code extracted and copied to the system clipboard.', 'Code extrait et copié dans le presse-papier système pour intégration.')}${C.reset}\n`);
         }
       }
       resumeAndPrompt();
@@ -2110,12 +2137,15 @@ async function runInteractiveChat(initialEngine) {
       const elapsedSec = (sessionState.totalElapsedMs / 1000).toFixed(1);
       const avgSpeed = sessionState.totalElapsedMs > 0 ? ((sessionState.totalTokens / sessionState.totalElapsedMs) * 1000).toFixed(1) : '—';
       console.log(`
-${C.bold}Statistiques de session Brimkern :${C.reset}
-  • Tokens générés   : ${C.yellow}${sessionState.totalTokens}${C.reset} tokens
-  • Temps de calcul  : ${C.cyan}${elapsedSec} s${C.reset}
-  • Vitesse moyenne  : ${C.green}~${avgSpeed} tok/s${C.reset}
-  • Économisé (est.) : ${C.boldGreen}${fmtUsd(estimateSavings(sessionState.totalInChars, sessionState.totalTokens))}${C.reset} ${C.dim}vs une API à ${REF_PRICE.in} $ / ${REF_PRICE.out} $ par M tokens (entrée / sortie) — BRIMKERN_PRICE_IN / _OUT pour changer${C.reset}
-  • Confidentialité  : ${C.green}100% on-device${C.reset} ${C.dim}(aucun octet envoyé hors de la machine)${C.reset}
+${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${C.reset}
+  • ${t('Generated tokens', 'Tokens générés').padEnd(16)} : ${C.yellow}${sessionState.totalTokens}${C.reset} tokens
+  • ${t('Compute time', 'Temps de calcul').padEnd(16)} : ${C.cyan}${elapsedSec} s${C.reset}
+  • ${t('Average speed', 'Vitesse moyenne').padEnd(16)} : ${C.green}~${avgSpeed} tok/s${C.reset}
+  • ${t('Saved (est.)', 'Économisé (est.)').padEnd(16)} : ${C.boldGreen}${fmtUsd(estimateSavings(sessionState.totalInChars, sessionState.totalTokens))}${C.reset} ${C.dim}${t(
+    `vs an API at $${REF_PRICE.in} / $${REF_PRICE.out} per M tokens (input / output) — change with BRIMKERN_PRICE_IN / _OUT`,
+    `vs une API à ${REF_PRICE.in} $ / ${REF_PRICE.out} $ par M tokens (entrée / sortie) — BRIMKERN_PRICE_IN / _OUT pour changer`,
+  )}${C.reset}
+  • ${t('Privacy', 'Confidentialité').padEnd(16)} : ${C.green}100% on-device${C.reset} ${C.dim}${t('(not a single byte leaves your machine)', '(aucun octet envoyé hors de la machine)')}${C.reset}
 `);
       resumeAndPrompt();
       return;
@@ -2128,24 +2158,24 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
           const choice = await selectModelInteractive(engine.modelKey);
           inInteractiveMenu = false;
           if (!choice) {
-            console.log(`${C.dim}Sélection annulée.${C.reset}\n`);
+            console.log(`${C.dim}${t('Selection cancelled.', 'Sélection annulée.')}${C.reset}\n`);
             resumeAndPrompt();
             return;
           }
           if (choice.key === engine.modelKey) {
-            console.log(`${C.yellow}ℹ Le modèle ${choice.name} est déjà actif.${C.reset}\n`);
+            console.log(`${C.yellow}ℹ ${t(`${choice.name} is already active.`, `Le modèle ${choice.name} est déjà actif.`)}${C.reset}\n`);
             resumeAndPrompt();
             return;
           }
           targetModel = choice.key;
         } else {
           printModels();
-          console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
+          console.log(`${C.gray}${t('Active model:', 'Modèle actif :')} ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
           resumeAndPrompt();
           return;
         }
       }
-      process.stderr.write(`${C.dim}Changement de modèle vers ${targetModel}...${C.reset}`);
+      process.stderr.write(`${C.dim}${t(`Switching model to ${targetModel}...`, `Changement de modèle vers ${targetModel}...`)}${C.reset}`);
       await engine.close();
       try {
         engine = await createCliEngine({
@@ -2156,9 +2186,9 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
         });
         await engine.init();
         sessionState.historyChars = 0; // nouveau moteur = nouvelle conversation
-        process.stderr.write(`\r${C.green}✓ Modèle actif : ${engine.displayName} [${engine.engineType}]${C.reset}                \n\n`);
+        process.stderr.write(`\r${C.green}✓ ${t('Active model:', 'Modèle actif :')} ${engine.displayName} [${engine.engineType}]${C.reset}                \n\n`);
       } catch (err) {
-        process.stderr.write(`\r${C.red}✗ Échec du changement de modèle : ${err.message}${C.reset}\n\n`);
+        process.stderr.write(`\r${C.red}✗ ${t('Model switch failed:', 'Échec du changement de modèle :')} ${err.message}${C.reset}\n\n`);
       }
       resumeAndPrompt();
       return;
@@ -2169,40 +2199,43 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const diffArgs = input.slice(5).trim();
       const diff = getGitDiff(diffArgs);
       if (!diff) {
-        console.log(`${C.dim}Aucune modification git détectée.${C.reset}\n`);
+        console.log(`${C.dim}${t('No git changes found.', 'Aucune modification git détectée.')}${C.reset}\n`);
         resumeAndPrompt();
         return;
       }
-      console.log(`${C.dim}Analyse du diff git (${diff.split('\n').length} lignes)...${C.reset}\n`);
-      input = `Fais une revue technique concise de ces changements git : bugs potentiels, régressions, sécurité et style.\n\n\`\`\`diff\n${diff}\n\`\`\``;
+      console.log(`${C.dim}${t(`Analyzing the git diff (${diff.split('\n').length} lines)...`, `Analyse du diff git (${diff.split('\n').length} lignes)...`)}${C.reset}\n`);
+      input = `${t('Give a concise technical review of these git changes: potential bugs, regressions, security and style.', 'Fais une revue technique concise de ces changements git : bugs potentiels, régressions, sécurité et style.')}\n\n\`\`\`diff\n${diff}\n\`\`\``;
     } else if (input === '/commit') {
       const status = getGitStatusSummary();
       const diff = getGitDiff();
       if (!status && !diff) {
-        console.log(`${C.dim}L'arbre de travail git est propre, aucun commit à proposer.${C.reset}\n`);
+        console.log(`${C.dim}${t('The git working tree is clean, no commit to suggest.', "L'arbre de travail git est propre, aucun commit à proposer.")}${C.reset}\n`);
         resumeAndPrompt();
         return;
       }
-      console.log(`${C.dim}Génération des messages de commit pour les modifications en cours...${C.reset}\n`);
-      input = `Voici l'état actuel de mon dépôt git :\n\nStatus :\n${status}\n\nDiff :\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\nRédige 3 propositions de messages de commit conventionnels concis (type: titre explicite) en français et en anglais avec un court diagnostic de 1 phrase.`;
+      console.log(`${C.dim}${t('Generating commit messages for the current changes...', 'Génération des messages de commit pour les modifications en cours...')}${C.reset}\n`);
+      input = t(
+        `Here is the current state of my git repository:\n\nStatus:\n${status}\n\nDiff:\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\nWrite 3 concise conventional commit message suggestions (type: explicit title), each with a short one-sentence diagnosis.`,
+        `Voici l'état actuel de mon dépôt git :\n\nStatus :\n${status}\n\nDiff :\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\nRédige 3 propositions de messages de commit conventionnels concis (type: titre explicite) en français et en anglais avec un court diagnostic de 1 phrase.`,
+      );
     } else if (input.startsWith('/review ')) {
       const targetFile = input.slice(8).trim();
       const resolved = resolve(process.cwd(), targetFile);
       if (!existsSync(resolved)) {
-        console.log(`${C.red}Fichier introuvable : ${targetFile}${C.reset}\n`);
+        console.log(`${C.red}${t('File not found:', 'Fichier introuvable :')} ${targetFile}${C.reset}\n`);
         resumeAndPrompt();
         return;
       }
       const code = readFileSync(resolved, 'utf8');
-      console.log(`${C.dim}Revue de code de ${targetFile} (${code.split('\n').length} lignes)...${C.reset}\n`);
-      input = `Revue de code approfondie pour le fichier ${targetFile} : analyse les bugs potentiels, la robustesse, les performances et les cas limites.\n\n\`\`\`\n${code.slice(0, 4000)}\n\`\`\``;
+      console.log(`${C.dim}${t(`Reviewing ${targetFile} (${code.split('\n').length} lines)...`, `Revue de code de ${targetFile} (${code.split('\n').length} lignes)...`)}${C.reset}\n`);
+      input = `${t(`In-depth code review of ${targetFile}: analyze potential bugs, robustness, performance and edge cases.`, `Revue de code approfondie pour le fichier ${targetFile} : analyse les bugs potentiels, la robustesse, les performances et les cas limites.`)}\n\n\`\`\`\n${code.slice(0, 4000)}\n\`\`\``;
     }
 
     // 4. Résolution des références de fichiers @chemin/vers/fichier
     const { prompt: finalPrompt, files } = resolveFileReferences(input);
     if (files.length > 0) {
       for (const f of files) {
-        console.log(`${C.dim}📎 Contexte chargé : @${f.path} (${f.lineCount} lignes)${C.reset}`);
+        console.log(`${C.dim}📎 ${t('Context loaded:', 'Contexte chargé :')} @${f.path} (${f.lineCount} ${t('lines', 'lignes')})${C.reset}`);
       }
       console.log('');
     }
@@ -2212,15 +2245,15 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
     currentAbortController = new AbortController();
     let tokenCount = 0;
 
-    spinner.start('Préparation du prompt & contexte...');
+    spinner.start(t('Preparing the prompt & context...', 'Préparation du prompt & contexte...'));
     if (files.length > 0) {
-      spinner.setPhase(`Chargement de ${files.length} fichier(s) de contexte...`);
+      spinner.setPhase(t(`Loading ${files.length} context file(s)...`, `Chargement de ${files.length} fichier(s) de contexte...`));
     }
 
     const thinkFilter = createStreamPrinter(spinner, () => { tokenCount++; });
 
     try {
-      spinner.setPhase('Calcul des logits WebGPU (TTFT)...');
+      spinner.setPhase(t('Computing WebGPU logits (TTFT)...', 'Calcul des logits WebGPU (TTFT)...'));
 
       let composedPrompt = finalPrompt;
       const modeConfig = CLI_MODES[currentMode] || CLI_MODES.code;
@@ -2236,9 +2269,9 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
         },
         onProgress: (phase, loaded, total) => {
           if (total) {
-            spinner.setPhase(`Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`);
+            spinner.setPhase(t(`Downloading: ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} MB`, `Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`));
           } else {
-            spinner.setPhase(`Phase : ${phase}`);
+            spinner.setPhase(`Phase${t(':', ' :')} ${phase}`);
           }
         },
       });
@@ -2258,12 +2291,12 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
 
         console.log('\n');
         const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
-        console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${savingsLabel(turnSaved)}${C.gray} (session : ${fmtUsd(sessionSaved)})${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
+        console.log(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens · ${savingsLabel(turnSaved)}${C.gray} (session${t(':', ' :')} ${fmtUsd(sessionSaved)})${C.reset} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
       }
     } catch (e) {
       spinner.stop(true);
       if (!currentAbortController.signal.aborted) {
-        console.error(`\n${C.red}Erreur : ${e.message}${C.reset}\n`);
+        console.error(`\n${C.red}${t('Error:', 'Erreur :')} ${e.message}${C.reset}\n`);
       }
     } finally {
       isGenerating = false;
@@ -2336,6 +2369,8 @@ async function main() {
       chromium = true;
     } else if (a === '--raw') {
       raw = true;
+    } else if (a.startsWith('--lang=')) {
+      // Lu au chargement (LANG, en tête de fichier) : rien à faire ici, sinon il finirait dans le prompt.
     } else {
       promptParts.push(a);
     }
@@ -2367,7 +2402,7 @@ async function main() {
     prompt = resolvedPrompt;
     if (!raw && files.length > 0) {
       for (const f of files) {
-        process.stderr.write(`${C.dim}📎 Contexte chargé : @${f.path} (${f.lineCount} lignes)${C.reset}\n`);
+        process.stderr.write(`${C.dim}📎 ${t('Context loaded:', 'Contexte chargé :')} @${f.path} (${f.lineCount} ${t('lines', 'lignes')})${C.reset}\n`);
       }
     }
   }
@@ -2411,7 +2446,7 @@ async function main() {
   // Mode One-shot
   const spinner = new ActivitySpinner();
   if (!raw) {
-    spinner.start(`[Brimkern WGSL] ${engine.displayName} · Calcul des logits...`);
+    spinner.start(`[Brimkern WGSL] ${engine.displayName} · ${t('Computing logits...', 'Calcul des logits...')}`);
   }
 
   let tokenCount = 0;
@@ -2426,7 +2461,7 @@ async function main() {
       },
       onProgress: (phase, loaded, total) => {
         if (!raw && total) {
-          spinner.setPhase(`Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`);
+          spinner.setPhase(t(`Downloading: ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} MB`, `Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`));
         }
       },
     });
@@ -2438,14 +2473,14 @@ async function main() {
       console.log('\n');
       const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
       const saved = estimateSavings(engine.systemPrompt.length + prompt.length, tokenCount);
-      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} tokens générés · ${savingsLabel(saved)} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
+      process.stderr.write(`${C.gray}⏱ ${(res.elapsedMs / 1000).toFixed(2)}s · ~${speed} tok/s · ${tokenCount} ${t('tokens generated', 'tokens générés')} · ${savingsLabel(saved)} ${C.dim}(${engine.gpuBackend})${C.reset}\n`);
     } else {
       process.stdout.write('\n');
     }
   } catch (e) {
     spinner.stop(true);
     if (!abortController.signal.aborted) {
-      console.error(`\n${C.red}Erreur d'exécution WebGPU : ${e.message}${C.reset}`);
+      console.error(`\n${C.red}${t('WebGPU execution error:', "Erreur d'exécution WebGPU :")} ${e.message}${C.reset}`);
     }
     process.exit(1);
   } finally {
@@ -2454,6 +2489,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`${C.red}Erreur fatale : ${err.message}${C.reset}`);
+  console.error(`${C.red}${t('Fatal error:', 'Erreur fatale :')} ${err.message}${C.reset}`);
   process.exit(1);
 });
