@@ -230,68 +230,29 @@ export default function LandingClient() {
           )}
         </section>
 
-        {/* ── LE GESTE DU PRODUIT ──────────────────────────────────────────────────────────────
-            Ce qu'aucune capture ne montre : on colle un identifiant de dépôt, et ça tourne. Le
-            panneau raconte la séquence, le champ en dessous la déclenche pour de vrai. */}
-        <section className="lp-console-wrap">
-          <div className="lp-console">
-            <div className="lp-console-bar">
-              <span className="lp-dots" aria-hidden><i /><i /><i /></span>
-              {t('paste a model: the Hub hosts tens of thousands', 'collez un modèle : le Hub en héberge des dizaines de milliers')}
-            </div>
-            {/* La console SE TAPE toute seule, en CSS pur : `width` animée en `steps()` sur une police
-                à chasse fixe pour la frappe, puis un fondu par ligne. Pourquoi pas de JS : le texte
-                final est déjà dans le HTML servi (donc identique au rendu serveur, indexable, et sans
-                risque de désaccord d'hydratation): l'animation ne fait que le dévoiler. Un visiteur
-                qui a demandé moins d'animations voit l'état final tout de suite (prefers-reduced-motion).
-                tabIndex : le bloc défile horizontalement sur écran étroit — sans focus clavier son
-                contenu serait inatteignable autrement qu'à la souris (règle axe). */}
-            <div tabIndex={0} className="lp-console-body" role="img"
-                 aria-label={t('Terminal: pasting the model Qwen/Qwen3-0.6B-GGUF resolves it to Qwen3-0.6B-Q4_K_M.gguf, streams it by HTTP ranges, reads its tokenizer from the file, and runs it on your GPU.',
-                               'Terminal : coller le modèle Qwen/Qwen3-0.6B-GGUF le résout en Qwen3-0.6B-Q4_K_M.gguf, le streame par plages HTTP, lit son tokenizer dans le fichier et l’exécute sur votre GPU.')}>
-              <div className="lp-line lp-cmd" aria-hidden>
-                <span className="lp-prompt">›</span>
-                <span className="lp-type">Qwen/Qwen3-0.6B-GGUF</span>
-                <span className="lp-caret">▌</span>
-              </div>
-              {([
-                ['✓', t('resolved', 'résolu'), 'Qwen3-0.6B-Q4_K_M.gguf'],
-                ['✓', t('streamed', 'streamé'), t('HTTP ranges · resumable · cached on device', 'plages HTTP · reprise · gardé sur l’appareil')],
-                ['✓', t('tokenizer', 'tokenizer'), t('read from the file: nothing to configure', 'lu dans le fichier : rien à régler')],
-                ['▸', t('running', 'exécution'), t('on your GPU, in this tab', 'sur votre GPU, dans cet onglet')],
-              ] as [string, string, string][]).map(([mark, label, value], i) => (
-                <div key={label} className="lp-line lp-step" style={{ '--d': `${1.15 + i * 0.3}s` } as React.CSSProperties} aria-hidden>
-                  <span className={mark === '✓' ? 'lp-mark-ok' : 'lp-mark-run'}>{mark}</span>
-                  <span className="lp-key">{label}</span>
-                  <span className="lp-val">{value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="lp-console-input">
-            <HfModelInput onLoad={goToChatWith} examples={HF_EXAMPLES} compact />
-          </div>
-        </section>
-
-        {/* ── LA PREUVE ────────────────────────────────────────────────────────────────────────
-            Après avoir dit « ça tourne dans l'onglet », le montrer : une vraie session, avec ses
-            mesures affichées. Capture prise sur un build de production, rien mis en scène.
-            `loading="lazy"` + dimensions explicites : elle est sous la ligne de flottaison et ne
-            doit ni retarder le premier rendu, ni faire sauter la mise en page en arrivant. */}
+        {/* ── LE PRODUIT, TEL QU'IL EST ─────────────────────────────────────────────────────────
+            La home montre LE CHAT, pas un terminal : les consoles vivent sur /cli (retour de Romain,
+            2026-09-23 : la console tapée du hero se confondait avec la CLI). Une vraie session,
+            capturée sur un build de production (même question, vraie réponse, vraies mesures),
+            puis le champ qui charge n'importe quel modèle du Hub pour de vrai. */}
         <section className="lp-proof">
           <figure className="lp-shot">
             <Image
               src={chatShot}
               placeholder="blur"
+              priority
               sizes="(max-width: 1028px) 100vw, 980px"
-              alt={t('The Brimkern chat: a Qwen 2.5 0.5B answering a question about WebGPU, with its measured throughput underneath. 460 tokens/s prefill, 47.5 tokens/s decode.',
-                     'Le chat Brimkern : un Qwen 2.5 0.5B répond à une question sur WebGPU, avec ses mesures en dessous. 460 tokens/s de prefill, 47,5 tokens/s de décodage.')}
+              alt={t('The Brimkern chat: a Qwen 2.5 0.5B answering a question about WebGPU, with its measured throughput underneath. 197.8 tokens/s prefill, 65 tokens/s decode.',
+                     'Le chat Brimkern : un Qwen 2.5 0.5B répond à une question sur WebGPU, avec ses mesures en dessous. 197,8 tokens/s de prefill, 65 tokens/s de décodage.')}
             />
             <figcaption>
-              {t('A real session, on a laptop GPU. Every reply carries its own measurements: nothing here is estimated.',
-                 'Une vraie session, sur le GPU d’un portable. Chaque réponse porte ses mesures : rien ici n’est estimé.')}
+              {t('A real session, in the tab, on a laptop GPU. Every reply carries its own measurements.',
+                 'Une vraie session, dans l’onglet, sur le GPU d’un portable. Chaque réponse porte ses mesures.')}
             </figcaption>
           </figure>
+          <div className="lp-console-input">
+            <HfModelInput onLoad={goToChatWith} examples={HF_EXAMPLES} compact />
+          </div>
         </section>
 
         {/* ── LES FORCES ───────────────────────────────────────────────────────────────────────── */}
@@ -401,24 +362,18 @@ export default function LandingClient() {
 </script>`}</pre>
         </section>
 
-        {/* ── LA CLI TERMINAL ─────────────────────────────────────────────────────────────────── */}
-        <section className="lp-section lp-sdk" style={{ marginTop: 28 }}>
-          <div>
-            <div className="lp-eyebrow">{t('for your shell & scripts', 'pour votre terminal & vos scripts')}</div>
-            <h2 className="lp-h2">{t('WebGPU & WGSL in your shell, no Python or CUDA needed', 'WebGPU & WGSL dans votre terminal, sans Python ni CUDA')}</h2>
-            <p className="lp-strength-desc">
-              {t('Run coding models directly on your hardware GPU. Pipe source files through stdin, trigger one-shot analyses, or start an interactive chat session with instant .brik weight caching.',
-                 'Faites tourner des modèles de code directement sur votre GPU matériel. Passez des fichiers sources dans les pipes stdin, lancez des analyses en une commande ou discutez en mode interactif avec mise en cache instantanée des poids .brik.')}
-            </p>
-            <Link href={href('/cli')} className="lp-cta-ghost">
-              {t('CLI documentation & workflows', 'Documentation CLI & cas d’usage')} <ArrowRight size={14} />
-            </Link>
-          </div>
-          <pre tabIndex={0} className="lp-code">{`# ${t('One-shot code review with Unix pipes', 'Revue de code en une ligne avec pipe Unix')}
-cat src/app.ts | npx brimkern "Find potential bugs"
-
-# ${t('Interactive REPL with local GPU caching', 'REPL interactif avec cache GPU local')}
-npx brimkern chat --model=coder`}</pre>
+        {/* ── LA CLI ─────────────────────────────────────────────────────────────────────────────
+            Juste un renvoi : les consoles et les démonstrations de terminal vivent sur /cli. */}
+        <section className="lp-section">
+          <div className="lp-eyebrow">{t('also in your terminal', 'aussi dans votre terminal')}</div>
+          <h2 className="lp-h2">{t('The same engine, as a coding assistant for your shell', 'Le même moteur, en assistant de code pour votre terminal')}</h2>
+          <p className="lp-strength-desc" style={{ maxWidth: 640 }}>
+            {t('It reads the project you are in and runs Qwen 3 4B on your GPU. Nothing leaves the machine.',
+               'Il lit le projet dans lequel vous êtes et fait tourner Qwen 3 4B sur votre GPU. Rien ne quitte la machine.')}
+          </p>
+          <Link href={href('/cli')} className="lp-cta-ghost">
+            {t('See the CLI', 'Voir la CLI')} <ArrowRight size={14} />
+          </Link>
         </section>
 
         {/* ── LES PORTES ───────────────────────────────────────────────────────────────────────── */}

@@ -1384,135 +1384,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   line-height: 1.5;
 }
 
-/* ── Le panneau « coller un modèle » ───────────────────────────────────────────────────────── */
-.lp-console-wrap {
-  margin: 54px 0 0;
-}
-
-.lp-console {
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--bg-code);
-}
-
-.lp-console-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.4px;
-  color: var(--text-muted);
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-sidebar);
-}
-
-/* Les trois pastilles d'une fenêtre de terminal — en encre, pas en feux tricolores : on cite le
-   genre sans copier macOS. */
-.lp-dots {
-  display: flex;
-  gap: 5px;
-  flex-shrink: 0;
-}
-
-.lp-dots i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--border-color);
-  border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
-}
-
-.lp-dots i:first-child {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-}
-
-.lp-console-body {
-  margin: 0;
-  padding: 16px 14px;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.85;
-  color: var(--text-secondary);
-  white-space: pre;
-}
-
-.lp-line {
-  display: flex;
-  gap: 8px;
-  white-space: pre;
-}
-
-.lp-prompt {
-  color: var(--accent-text);
-  font-weight: 700;
-}
-
-.lp-cmd {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-/* La FRAPPE : la largeur passe de 0 à la longueur du texte par pas d'un caractère. Ça n'est
-   possible qu'en chasse fixe — d'où `ch`, qui vaut exactement un caractère ici. 20 = la longueur
-   de « Qwen/Qwen3-0.6B-GGUF » (identique dans les deux langues, c'est un identifiant). */
-.lp-type {
-  display: inline-block;
-  overflow: hidden;
-  white-space: nowrap;
-  vertical-align: bottom;
-  width: 20ch;
-  animation: lp-typing 1.15s steps(20) 0.35s both;
-}
-
-.lp-caret {
-  color: var(--accent-text);
-  animation: lp-blink 1.05s step-end infinite;
-}
-
-@keyframes lp-typing {
-  from { width: 0; }
-  to { width: 20ch; }
-}
-
-@keyframes lp-blink {
-  0%, 45% { opacity: 1; }
-  46%, 100% { opacity: 0; }
-}
-
-/* Chaque étape apparaît à son tour (--d posé au point d'appel) : la séquence se LIT, au lieu de
-   tomber d'un bloc. */
-.lp-step {
-  opacity: 0;
-  animation: lp-step-in 0.4s ease var(--d, 0s) both;
-}
-
-@keyframes lp-step-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: none; }
-}
-
-.lp-mark-ok { color: var(--success); }
-.lp-mark-run { color: var(--accent-text); }
-
-.lp-key {
-  color: var(--text-primary);
-  min-width: 11ch;
-}
-
-.lp-val { color: var(--text-secondary); }
-
-/* Demande explicite de moins d'animation : on montre l'état final, immédiatement. */
-@media (prefers-reduced-motion: reduce) {
-  .lp-type { animation: none; width: 20ch; }
-  .lp-step { animation: none; opacity: 1; }
-  .lp-caret { animation: none; }
-}
-
 /* ── La preuve : une vraie capture, encadrée ─────────────────────────────────────────────────── */
 .lp-proof {
   margin: 54px 0 0;
@@ -1730,7 +1601,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
     display: none;
   }
   .lp-section,
-  .lp-console-wrap,
   .lp-proof {
     margin-top: 52px;
   }
@@ -1806,15 +1676,15 @@ html.dark ::-webkit-scrollbar-thumb:hover {
    deux fondus imbriqués donnent un rendu trouble et une opacité qui se multiplie. Restent les blocs
    qui n'ont pas d'enfants à échelonner (la capture, le panneau encre) ; les rangées, elles,
    s'animent enfant par enfant. */
-/* ⚠️ `.lp-console-wrap` n'est PAS dans cette liste, et c'est délibéré : elle est trop haut dans la
+/* ⚠️ `.lp-proof` (la capture du chat, juste sous le hero depuis le 2026-09-23) n'est PAS dans cette
+   liste, pour la raison qui en excluait déjà l'ancienne console : `.lp-console-wrap` était trop haut dans la
    page pour une apparition au défilement. En français — dont les phrases sont plus longues — le
    hero la repousse sous la ligne de flottaison, sa plage `entry → cover 22%` n'est donc jamais
    parcourue tant qu'on ne scrolle pas, et elle restait affichée à **73,7 % d'opacité** (mesuré au
    chargement de /fr, contre 100 % sur la version anglaise où elle tient dans l'écran). Une
    animation liée au scroll ne convient qu'à ce qui est SOUS la première vue ; ce qui est visible
-   d'emblée s'anime dans le temps, comme le hero (cf. `.lp-console-wrap` plus bas). */
+   d’emblée s’anime dans le temps, comme le hero (cf. `.lp-proof` plus bas). */
 @supports (animation-timeline: view()) {
-  .lp-proof,
   .lp-ink,
   .lp-section > .lp-eyebrow,
   .lp-section > .lp-h2 {
@@ -1864,7 +1734,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   }
   .lp-proof,
   .lp-ink,
-  .lp-console-wrap,
   .lp-section > .lp-eyebrow,
   .lp-section > .lp-h2,
   .lp-slices-svg rect {
@@ -2306,10 +2175,10 @@ html.dark .docs-code {
 .lp-hero > *:nth-child(4) { animation-delay: .26s; }
 .lp-hero > *:nth-child(5) { animation-delay: .34s; }
 
-/* La console suit le hero dans la même cascade TEMPORELLE (et non au défilement) : elle est dans la
-   première vue sur écran large, et juste dessous en français — dans les deux cas elle doit être
-   pleinement lisible sans avoir à scroller. */
-.lp-console-wrap {
+/* La capture du chat suit le hero dans la même cascade TEMPORELLE (et non au défilement) : elle est
+   dans la première vue sur écran large, et juste dessous en français — dans les deux cas elle doit
+   être pleinement lisible sans avoir à scroller. */
+.lp-proof {
   animation: lp-rise .5s ease .42s both;
 }
 
