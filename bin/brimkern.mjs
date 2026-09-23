@@ -652,7 +652,20 @@ function cleanLocks(profile) {
   }
 }
 
+// Migration unique : avant le port fixe, chaque lancement avait sa propre origine, donc son
+// propre bucket CacheStorage — des copies du même modèle que plus rien ne relira (~2,6 Go ici).
+// On vide la CacheStorage une fois (Chromium fermé) ; le prochain téléchargement sera le dernier.
+function purgeOrphanCacheBuckets(profile) {
+  const marker = join(profile, '.brimkern-stable-origin-v1');
+  if (existsSync(marker)) return;
+  try {
+    rmSync(join(profile, 'Default', 'Service Worker', 'CacheStorage'), { recursive: true, force: true });
+    writeFileSync(marker, `${new Date().toISOString()}\n`);
+  } catch {}
+}
+
 // ── Serveur HTTP local pour le runner WebGPU ─────────────────────────────────────────
+const CHROMIUM_HOST_PORTS = [47631, 47632, 47633, 47634];
 function startLocalServer(localBrikFile = null) {
   const sdkCode = readFileSync(SDK_PATH, 'utf8');
 
@@ -716,12 +729,26 @@ function startLocalServer(localBrikFile = null) {
 </html>`);
   });
 
-  return new Promise((resolveServer, rejectServer) => {
-    server.listen(0, '127.0.0.1', () => {
-      resolveServer({ server, port: server.address().port });
-    });
-    server.on('error', rejectServer);
+  // Port FIXE : l'origine http://127.0.0.1:<port> est la clé de la CacheStorage de Chromium.
+  // Avec un port aléatoire, chaque lancement ouvrait un bucket vide et retéléchargeait le modèle
+  // (4 copies de Qwen 0.5B dans le profil). Ports suivants si occupé (autre instance), puis
+  // aléatoire en dernier recours — le cache n'est alors pas réutilisé, mais ça démarre.
+  const tryListen = (port) => new Promise((ok, fail) => {
+    const onError = (e) => { server.removeListener('listening', onListening); fail(e); };
+    const onListening = () => { server.removeListener('error', onError); ok(server.address().port); };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '127.0.0.1');
   });
+  return (async () => {
+    for (const port of [...CHROMIUM_HOST_PORTS, 0]) {
+      try {
+        return { server, port: await tryListen(port) };
+      } catch (e) {
+        if (e.code !== 'EADDRINUSE' || port === 0) throw e;
+      }
+    }
+  })();
 }
 
 // ── Cache disque persistant pour l'inférence native (évite les retéléchargements) ───
@@ -966,6 +993,7 @@ class BrimkernChromiumEngine {
       mkdirSync(this.profileDir, { recursive: true });
     }
     cleanLocks(this.profileDir);
+    purgeOrphanCacheBuckets(this.profileDir);
 
     // Lancement de Chromium headless avec WebGPU + Metal / Vulkan
     this.browserCtx = await chromium.launchPersistentContext(this.profileDir, {
