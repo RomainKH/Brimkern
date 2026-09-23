@@ -82,11 +82,57 @@ const PRESET_CLI_MODELS = {
     desc: t('Twice as fast (~25 tok/s) and lighter; review the code it suggests, it makes more mistakes.',
       'Deux fois plus rapide (~25 tok/s), plus léger ; relire le code proposé, il se trompe plus souvent.'),
   },
+  'reason': {
+    name: 'DeepSeek-R1 Distill Qwen 1.5B (GGUF)',
+    shortName: 'DeepSeek-R1 1.5B',
+    url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
+    format: 'gguf',
+    formatLabel: 'GGUF Q4_K_M',
+    runtime: 'WebGPU (Chromium)',
+    size: t('1.12 GB', '1,12 Go'),
+    badge: t('Reasoning', 'Raisonnement'),
+    defaultSystem: 'You are Brimkern Reasoning, an analytical assistant that reasons thoroughly inside <think>...</think> before answering.',
+    desc: t('Step-by-step mathematical, architectural and logic reasoning with internal monologue.',
+      'Raisonnement mathématique, architectural et logique étape par étape avec monologue intérieur.'),
+  },
+  'smollm': {
+    name: 'SmolLM2 1.7B Instruct (GGUF)',
+    shortName: 'SmolLM2 1.7B',
+    url: 'https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf',
+    format: 'gguf',
+    formatLabel: 'GGUF Q4_K_M',
+    runtime: 'WebGPU (Chromium)',
+    size: t('1.05 GB', '1,05 Go'),
+    badge: t('Lightweight', 'Léger'),
+    defaultSystem: 'You are Brimkern Terminal, a sharp, responsive CLI assistant. Provide concise, direct answers.',
+    desc: t('Ultra-responsive and versatile companion for shell questions and daily queries.',
+      'Compagnon ultra-réactif et polyvalent pour les questions shell et le quotidien.'),
+  },
+  'coder-7b': {
+    name: 'Qwen 2.5 Coder 7B Instruct (GGUF)',
+    shortName: 'Qwen 2.5 Coder 7B',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+    format: 'gguf',
+    formatLabel: 'GGUF Q4_K_M',
+    runtime: 'WebGPU (Chromium)',
+    size: t('4.68 GB', '4,68 Go'),
+    badge: t('Heavy Coder', 'Grand Coder'),
+    defaultSystem: 'You are Brimkern Power Coder, a senior lead engineer. Produce robust, production-grade code with thorough tests and explanations.',
+    desc: t('Highest code intelligence for machines with 16GB+ RAM. Deep refactoring and architecture.',
+      'Niveau maximal d\'intelligence de code pour machines avec 16Go+ de RAM. Refactoring profond.'),
+  },
 };
 
-// Anciennes clés : alias vers les nouvelles (qwen3-4b, coder-1.5b) ou retrait annoncé — jamais
-// un modèle différent chargé en silence sous un nom connu.
-const MODEL_ALIASES = { 'qwen3-4b': 'coder', 'coder-1.5b': 'fast' };
+// Anciennes clés : alias vers les nouvelles (qwen3-4b, coder-1.5b) ou raccourcis pratiques
+const MODEL_ALIASES = {
+  'qwen3-4b': 'coder',
+  'coder-1.5b': 'fast',
+  'deepseek': 'reason',
+  'r1': 'reason',
+  'smol': 'smollm',
+  'qwen-7b': 'coder-7b',
+  '7b': 'coder-7b',
+};
 const RETIRED_MODELS = new Set(['coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b']);
 
 function resolveModelKey(key) {
