@@ -29,16 +29,15 @@ float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
 float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a*n(p); p = p*2.03 + 7.1; a *= 0.5; } return v; }
 void main(){
   vec2 uv = gl_FragCoord.xy / res;
-  // Le défilement (en hauteurs d'écran) décale le domaine du bruit : la fumée monte quand on descend.
-  vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 1.6);
+  // Le défilement décale le domaine du bruit avec une vitesse naturelle (fumée d'ambiance).
+  vec2 p = uv * vec2(res.x/res.y, 1.0) * 2.2 + vec2(0.0, -scroll * 0.95);
   float s = t * 0.045;
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
   float f = fbm(p + 2.6*r);
-  // Dans le hero, la fumée monte du bas ; dans le contenu, elle occupe toute la hauteur de l'écran
-  // (demande de Romain : « la fumée sur toute la page »). Le plafond bas protège le texte.
-  float inPage = smoothstep(0.3, 0.9, scroll);
-  float rise = mix(smoothstep(1.1, 0.0, uv.y), 0.85, inPage);
+  // Dans le hero, la fumée monte du bas ; dans le contenu, elle s'étend sans à-coups ni cassure nette.
+  float inPage = smoothstep(0.05, 1.2, scroll);
+  float rise = mix(smoothstep(1.25, -0.15, uv.y), 0.85, inPage);
   float d = smoothstep(0.30, 0.92, f) * rise;
   // Zone du texte (colonne de gauche sur grand écran, toute la largeur sur téléphone) : fumée
   // retenue. Ailleurs, elle a le droit d'être dense : c'est là qu'elle fait le « wow ».
@@ -105,15 +104,17 @@ export default function Smoke({ className }: { className?: string }) {
       gl.viewport(0, 0, w, h);
       gl.uniform2f(uRes, w, h);
     };
-    const draw = (sec: number) => {
+
+    let currentScroll = typeof window !== 'undefined' ? window.scrollY / Math.max(1, window.innerHeight) : 0;
+    const draw = (sec: number, scrollVal: number) => {
       gl.uniform1f(uT, sec);
-      gl.uniform1f(uScroll, window.scrollY / Math.max(1, window.innerHeight));
+      gl.uniform1f(uScroll, scrollVal);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
     resize();
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) { draw(12); return; }
+    if (reduced) { draw(12, currentScroll); return; }
 
     let raf = 0;
     let last = 0;
@@ -121,16 +122,29 @@ export default function Smoke({ className }: { className?: string }) {
     const loop = (now: number) => {
       if (document.hidden) { raf = 0; return; } // reprend à visibilitychange
       raf = requestAnimationFrame(loop);
-      if (now - last < 41) return; // ~24 i/s
+      const targetScroll = window.scrollY / Math.max(1, window.innerHeight);
+      const moving = Math.abs(targetScroll - currentScroll) > 0.0008;
+      // Fluidité maximale au défilement (60 i/s plein écran) ; au repos complet, cadence allégée (~30 i/s)
+      const minInterval = moving ? 0 : 33;
+      if (now - last < minInterval) return;
       last = now;
-      draw((now - t0) / 1000 + 12);
+      // Lissage exponentiel (lerp) : élimine tout décrochage ou saccade lors des crans de molette
+      currentScroll += (targetScroll - currentScroll) * 0.12;
+      draw((now - t0) / 1000 + 12, currentScroll);
     };
     const onVis = () => { if (!document.hidden && !raf) raf = requestAnimationFrame(loop); };
+    const onScroll = () => { if (!document.hidden && !raf) raf = requestAnimationFrame(loop); };
     document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('scroll', onScroll, { passive: true });
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener('visibilitychange', onVis); };
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('scroll', onScroll);
+    };
   }, []);
 
   return <canvas ref={ref} className={className} aria-hidden="true" />;
