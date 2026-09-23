@@ -272,9 +272,6 @@
    être rognées à droite. */
 .wide .shotBody { font-size: clamp(10px, 0.98vw, 12.5px); }
 
-/* Section « suggestions » : la capture seule, grossie, pour qu'on lise le grisé. */
-.bigShot .shotBody { font-size: clamp(13px, 1.7vw, 18px); }
-
 /* Section modèles : tableau mesuré à gauche, sélecteur réel à droite. */
 .models {
   display: grid;

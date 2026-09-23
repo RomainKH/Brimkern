@@ -3,14 +3,15 @@
 // Page produit de la CLI (/cli). Tout ce qui ressemble à un écran est une CAPTURE réelle du
 // terminal (captures.ts, généré depuis pyte) : aucune sortie inventée, aucun chiffre non mesuré.
 // La session rejouée l'est au rythme ENREGISTRÉ, lu dans sa propre ligne de stats (« ⏱ 10.67s »).
-// Mouvement : deux animations seulement, qui montrent le comportement réel (le flux de tokens, la
-// suggestion pendant la frappe) ; toutes deux coupées si l'OS demande moins de mouvement.
+// Mouvement : une seule animation, qui montre le comportement réel (le flux de tokens), coupée si
+// l'OS demande moins de mouvement. On ne met en vitrine que ce qui distingue le produit : pas
+// l'autocomplétion, pas le pourquoi du choix des modèles (retour de Romain, 2026-09-23).
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useHref, useLocale, useT } from '@/lib/i18n';
 import s from './landing.module.css';
-import { SESSION, SUGGEST, PICKER, REPO, STATUS, type Capture, type Seg } from './captures';
+import { SESSION, PICKER, REPO, STATUS, type Capture, type Seg } from './captures';
 
 const BANNER = `██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
 ██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
@@ -32,7 +33,6 @@ function useReducedMotion() {
     () => false,
   );
 }
-const PROMPT_PREFIX = 'kern ›'.length;
 
 // Déclenche une fois quand l'élément entre dans l'écran.
 function useInView<T extends Element>(threshold = 0.35) {
@@ -161,44 +161,6 @@ function Replay() {
   );
 }
 
-// ── La suggestion pendant la frappe ─────────────────────────────────────────────────────────
-function Suggest() {
-  const t = useT();
-  const reduced = useReducedMotion();
-  const { ref, seen } = useInView<HTMLDivElement>(0.5);
-  const lens = useMemo(() => SUGGEST.map((l) => lineText(l).length), []);
-  // Ligne 1 = « kern › /st » + « atus » grisé : on tape « /st », PUIS le grisé et la liste
-  // apparaissent, comme dans le terminal.
-  const typedEnd = useMemo(() => {
-    const segs = SUGGEST[1];
-    const ghostIdx = segs.findIndex((seg) => seg[1] === 'dim');
-    return segs.slice(0, ghostIdx < 0 ? segs.length : ghostIdx).reduce((a, seg) => a + seg[0].length, 0);
-  }, []);
-  const [visible, setVisible] = useState<number[]>(() => lens.map((l, i) => (i === 0 ? l : i === 1 ? PROMPT_PREFIX : 0)));
-
-  useEffect(() => {
-    if (!seen) return;
-    const timers: number[] = [];
-    if (reduced) { timers.push(window.setTimeout(() => setVisible(lens), 0)); return () => timers.forEach(clearTimeout); }
-    for (let c = PROMPT_PREFIX + 1; c <= typedEnd; c++) {
-      timers.push(window.setTimeout(() => setVisible((v) => v.map((x, i) => (i === 1 ? c : x))), 260 * (c - PROMPT_PREFIX)));
-    }
-    timers.push(window.setTimeout(() => setVisible(lens), 260 * (typedEnd - PROMPT_PREFIX) + 180));
-    return () => timers.forEach(clearTimeout);
-  }, [seen, reduced, lens, typedEnd]);
-
-  return (
-    <div ref={ref}>
-      <figure className={`${s.shot} ${s.bigShot}`} style={{ margin: 0 }}>
-        <figcaption className={s.shotTitle}>{t('typing /st', 'en tapant /st')}</figcaption>
-        <pre className={s.shotBody} tabIndex={0}>
-          <CaptureView cap={SUGGEST} visible={visible} caretLine={visible[1] < typedEnd ? 1 : undefined} />
-        </pre>
-      </figure>
-    </div>
-  );
-}
-
 function CopyLine({ text }: { text: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -302,51 +264,36 @@ export default function CliLanding() {
           </div>
         </section>
 
-        {/* ── 03 · la suggestion : une capture seule, grossie ───────────────────────────── */}
-        <section className={`${s.wrap} ${s.section}`} aria-labelledby="suggest-h">
-          <p className={s.cmdLabel}>03 · {t('commands', 'commandes')}</p>
-          <h2 id="suggest-h" className={s.h2}>{t('Type a slash, it finishes the command.', 'Tapez une barre oblique, il finit la commande.')}</h2>
-          <p className={s.body}>
-            {t(
-              'Matching commands appear as you type, the rest of the first one greyed out. → or Tab accepts it.',
-              'Les commandes correspondantes s’affichent pendant la frappe, la fin de la première en grisé. → ou Tab l’accepte.'
-            )}
-          </p>
-          <div style={{ marginTop: 26 }}>
-            <Suggest />
-          </div>
-        </section>
-
-        {/* ── 04 · les modèles : tableau mesuré + sélecteur réel ────────────────────────── */}
+        {/* ── 03 · les modèles : tableau mesuré + sélecteur réel ────────────────────────── */}
         <section className={`${s.wrap} ${s.section}`} aria-labelledby="models-h">
-          <p className={s.cmdLabel}>04 · {t('models', 'modèles')}</p>
-          <h2 id="models-h" className={s.h2}>{t('Two models, kept because they answered correctly.', 'Deux modèles, gardés parce qu’ils ont répondu juste.')}</h2>
+          <p className={s.cmdLabel}>03 · {t('models', 'modèles')}</p>
+          <h2 id="models-h" className={s.h2}>{t('Switch models mid-session, or bring one from Hugging Face.', 'Changez de modèle en cours de session, ou amenez-en un de Hugging Face.')}</h2>
           <div className={s.models}>
             <div>
               <div className={s.tableWrap} tabIndex={0}>
                 <table className={s.table}>
-                  <caption>{t('Bench: 3 developer questions, M-series Mac, warm cache.', 'Banc : 3 questions de développeur, Mac série M, cache chaud.')}</caption>
+                  <caption>{t('Speed measured on an M-series Mac.', 'Vitesse mesurée sur un Mac série M.')}</caption>
                   <thead>
-                    <tr><th scope="col">preset</th><th scope="col">{t('model', 'modèle')}</th><th scope="col">{t('speed', 'vitesse')}</th><th scope="col">{t('result', 'résultat')}</th></tr>
+                    <tr><th scope="col">preset</th><th scope="col">{t('model', 'modèle')}</th><th scope="col">{t('speed', 'vitesse')}</th><th scope="col">{t('for', 'pour')}</th></tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td>coder</td>
                       <td><span className={s.strong}>Qwen 3 4B</span><br />BRIK int4 · {t('2.53 GB', '2,53 Go')}</td>
                       <td>13–16 tok/s</td>
-                      <td className={s.strong}>{t('correct code and diagnosis', 'code et diagnostic justes')}</td>
+                      <td className={s.strong}>{t('the default, the most accurate', 'le défaut, le plus juste')}</td>
                     </tr>
                     <tr>
                       <td>fast</td>
                       <td><span className={s.strong}>Qwen 2.5 Coder 1.5B</span><br />GGUF Q4_K_M · {t('1.12 GB', '1,12 Go')}</td>
                       <td>~25 tok/s</td>
-                      <td>{t('on topic, more mistakes', 'dans le sujet, plus d’erreurs')}</td>
+                      <td>{t('quick questions, lighter download', 'questions rapides, plus léger')}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
               <p className={s.body} style={{ marginTop: 18 }}>
-                {t('Or any single-file GGUF from Hugging Face, picked like on the site: ', 'Ou n’importe quel GGUF mono-fichier de Hugging Face, choisi comme sur le site : ')}
+                {t('Or any single-file GGUF from Hugging Face, the best quantization picked for you: ', 'Ou n’importe quel GGUF mono-fichier de Hugging Face, la meilleure quantification choisie pour vous : ')}
                 <code>--model=Qwen/Qwen3-0.6B-GGUF</code>
               </p>
             </div>
@@ -354,9 +301,9 @@ export default function CliLanding() {
           </div>
         </section>
 
-        {/* ── 05 · local : une phrase, la vraie ligne de stats ──────────────────────────── */}
+        {/* ── 04 · local : une phrase, la vraie ligne de stats ──────────────────────────── */}
         <section className={`${s.wrap} ${s.section}`} aria-labelledby="local-h">
-          <p className={s.cmdLabel}>05 · local</p>
+          <p className={s.cmdLabel}>04 · local</p>
           <h2 id="local-h" className={s.statement}>{t('Nothing leaves the machine.', 'Rien ne quitte la machine.')}</h2>
           <div className={s.statLine} tabIndex={0}>
             {savedIdx > 0 ? <>{statLine.slice(0, savedIdx)}<span className={s.green}>{statLine.slice(savedIdx)}</span></> : statLine}
@@ -369,9 +316,9 @@ export default function CliLanding() {
           </p>
         </section>
 
-        {/* ── 06 · installation ─────────────────────────────────────────────────────────── */}
+        {/* ── 05 · installation ─────────────────────────────────────────────────────────── */}
         <section id="install" className={`${s.wrap} ${s.section}`} aria-labelledby="install-h" style={{ scrollMarginTop: 16 }}>
-          <p className={s.cmdLabel}>06 · {t('install', 'installation')}</p>
+          <p className={s.cmdLabel}>05 · {t('install', 'installation')}</p>
           <h2 id="install-h" className={s.h2}>{t('Three commands, from the repository.', 'Trois commandes, depuis le dépôt.')}</h2>
           <p className={s.body}>
             {t(
