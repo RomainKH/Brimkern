@@ -456,7 +456,9 @@ export function Composer({
                       : t('Type your message…', 'Saisissez votre message…'))
                   : modelState === 'generating'
                     ? (isMobile ? t('Generating… (Enter to queue)', 'Génération… (Entrée pour empiler)') : t('Generating… Type your message to queue it', 'Inférence en cours… Tapez votre message pour le mettre en file'))
-                    : (isMobile ? t('Load a model to begin', 'Chargez un modèle pour commencer') : t('Select and load a model from the sidebar to begin.', 'Sélectionnez et chargez un modèle dans le menu latéral pour commencer.'))
+                    : modelState === 'idle'
+                      ? t('Ask a question (starts the local model automatically)…', 'Posez votre question (le modèle local démarre automatiquement)…')
+                      : (isMobile ? t('Loading model…', 'Chargement du modèle…') : t('Initializing local model…', 'Initialisation du modèle local…'))
               }
               rows={1}
               value={userInput}
@@ -467,7 +469,7 @@ export function Composer({
                   handleSendMessage();
                 }
               }}
-              disabled={modelState !== 'ready' && modelState !== 'generating'}
+              disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'error'}
             />
 
             <div className="chat-actions">
@@ -496,7 +498,7 @@ export function Composer({
                 <button
                   className="circle-btn send-btn"
                   onClick={() => handleSendMessage()}
-                  disabled={modelState !== 'ready' || (!userInput.trim() && attachments.length === 0 && !pendingImage && messageQueue.length === 0)}
+                  disabled={(modelState !== 'ready' && modelState !== 'idle') || (!userInput.trim() && attachments.length === 0 && !pendingImage && messageQueue.length === 0)}
                   title={messageQueue.length > 0 && !userInput.trim() && attachments.length === 0 ? t('Run queued message', 'Lancer la file d’attente') : t('Send', 'Calculer')}
                 >
                   <Send size={16} />

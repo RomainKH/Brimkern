@@ -195,8 +195,8 @@ function App() {
   // Annulation d'une génération image/vidéo : levée depuis le callback de progression (cf. plus bas).
   const genCancelRef = useRef(false);
   const CANCEL = '__brimkern_cancel__';
-  // Mode VISION (Qwen2-VL 2B, desktop) : image + texte → texte. Session = LLM Q8 + ViT/merger sur
-  // un engine partagé (~2,6 Go VRAM), chargée par loadVisionModel. Exclusif des modes LLM/image.
+  const [customModelOpen, setCustomModelOpen] = useState<boolean>(false);
+  const pendingAutoPromptRef = useRef<string | null>(null);
   const [visionSession, setVisionSession] = useState<VisionSessionT | null>(null);
   // Image jointe au prochain message (data URL) + son aperçu réduit pour la bulle utilisateur.
   // `dataUrl` = pixels PLEINS (ce que le ViT reçoit) ; `preview` = aperçu affiché et persisté.
@@ -2237,7 +2237,20 @@ function App() {
     const typed = textToSend ?? userInput;
     const sentAttachments = customAttachments ?? (textToSend ? [] : attachments);
     const text = composeOutgoing(typed, sentAttachments);
-    if (!text.trim() || modelState !== 'ready' || !activeModel || !activeTokenizer) return;
+    if (!text.trim()) return;
+
+    // Si aucun modèle n'est encore chargé, on lance le modèle léger recommandé et on garde la question
+    if (modelState === 'idle') {
+      pendingAutoPromptRef.current = text;
+      setUserInput('');
+      setAttachments([]);
+      setPendingImage(null);
+      setMessages([{ id: nextMsgId(), role: 'user', content: text }]);
+      void handleStreamBrik(MOBILE_BRIK_URL, 'composer-quickstart');
+      return;
+    }
+
+    if (modelState !== 'ready' || !activeModel || !activeTokenizer) return;
     
     stoppedByUserRef.current = false;
     const activeAbortController = new AbortController();
@@ -2250,7 +2263,12 @@ function App() {
     const userMsgId = nextMsgId();
     const newUserMessage: Message = { id: userMsgId, role: 'user', content: text };
 
-    setMessages(prev => [...prev, newUserMessage]);
+    setMessages(prev => {
+      if (prev.some(m => m.role === 'user' && m.content === text)) {
+        return prev;
+      }
+      return [...prev, newUserMessage];
+    });
     setUserInput('');
     setAttachments([]);
     setModelState('generating');
@@ -2702,6 +2720,16 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelState, messageQueue]);
 
+  // Lancement automatique du message utilisateur saisi avant le chargement du modèle
+  useEffect(() => {
+    if (modelState === 'ready' && pendingAutoPromptRef.current && activeModel && activeTokenizer) {
+      const promptToRun = pendingAutoPromptRef.current;
+      pendingAutoPromptRef.current = null;
+      void handleSendMessage(promptToRun);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelState, activeModel, activeTokenizer]);
+
   // Benchmark decode throughput with f32 vs f16 layer weights (the core of the BRIK idea).
   // Prefill a fixed prompt (untimed, also warms the weight cache at each precision), then time
   // N greedy decode steps. Results pushed as a chat message.
@@ -2833,6 +2861,11 @@ function App() {
   const handlePresetPromptClick = (text: string) => {
     if (modelState === 'ready') {
       handleSendMessage(text);
+    } else if (modelState === 'idle') {
+      pendingAutoPromptRef.current = text;
+      setUserInput('');
+      setMessages([{ id: nextMsgId(), role: 'user', content: text }]);
+      void handleStreamBrik(MOBILE_BRIK_URL, 'preset-prompt');
     } else {
       setUserInput(text);
     }
@@ -3134,41 +3167,6 @@ function App() {
           </div>
 
 
-          {/* Section: Specifications */}
-          {modelMetadata && (
-            <div className="sidebar-section">
-              <div className="section-title">
-                <Info size={14} /> {t('physical specifications', 'spécifications physiques')}
-              </div>
-              <div className="card" style={{ padding: '12px' }}>
-                <table className="metadata-table">
-                  <tbody>
-                    <tr>
-                      <th>Architecture</th>
-                      <td>{modelMetadata.arch}</td>
-                    </tr>
-                    <tr>
-                      <th>{t('Embd size (d)', "Taille d'embd (d)")}</th>
-                      <td>{modelMetadata.config.d}</td>
-                    </tr>
-                    <tr>
-                      <th>{t('Layer blocks', 'Couches Blocks')}</th>
-                      <td>{modelMetadata.config.blockCount}</td>
-                    </tr>
-                    <tr>
-                      <th>{t('Q / KV heads', 'Têtes Q / KV')}</th>
-                      <td>{modelMetadata.config.nHeads} / {modelMetadata.config.nKvHeads}</td>
-                    </tr>
-                    <tr>
-                      <th>{t('RoPE frequency', 'Fréquence RoPE')}</th>
-                      <td>{modelMetadata.config.ropeTheta}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* Section: advanced / dev options — collapsed by default (most users don't need these). */}
           {loadedModelName && !isMobile && (
             <div className="sidebar-section">
@@ -3252,6 +3250,39 @@ function App() {
                   >
                     {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />} {benchRunning ? 'Benchmark…' : t('Benchmark throughput', 'Benchmark débit')}
                   </button>
+
+                  {/* Spécifications physiques du modèle */}
+                  {modelMetadata && (
+                    <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 10, marginTop: 4 }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Info size={12} /> {t('Physical specifications', 'Spécifications physiques')}
+                      </div>
+                      <table className="metadata-table">
+                        <tbody>
+                          <tr>
+                            <th>Architecture</th>
+                            <td>{modelMetadata.arch}</td>
+                          </tr>
+                          <tr>
+                            <th>{t('Embd size (d)', "Taille d'embd (d)")}</th>
+                            <td>{modelMetadata.config.d}</td>
+                          </tr>
+                          <tr>
+                            <th>{t('Layer blocks', 'Couches Blocks')}</th>
+                            <td>{modelMetadata.config.blockCount}</td>
+                          </tr>
+                          <tr>
+                            <th>{t('Q / KV heads', 'Têtes Q / KV')}</th>
+                            <td>{modelMetadata.config.nHeads} / {modelMetadata.config.nKvHeads}</td>
+                          </tr>
+                          <tr>
+                            <th>{t('RoPE frequency', 'Fréquence RoPE')}</th>
+                            <td>{modelMetadata.config.ropeTheta}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3395,100 +3426,99 @@ function App() {
               ) : (
                 <>
                   <p className="welcome-subtitle">
-                    {t('A standalone, optimized build powered by hand-written WGSL compute shaders. Your models and computations run entirely locally, with no third-party server.', "Version standalone optimisée exploitant des compute shaders WGSL écrits sur mesure. Vos modèles et calculs s'exécutent entièrement en local sans aucun serveur tiers.")}
+                    {t(
+                      'Run open-source AI directly on your device via WebGPU. Private, offline-capable, and completely free.',
+                      'Faites tourner des modèles d’IA directement sur votre machine grâce à WebGPU. Privé, gratuit et sans aucun serveur.'
+                    )}
                   </p>
 
-                  {/* Le CTA AVANT les explications : un seul chemin évident vers le premier « wow »
-                      (une rangée de boutons équivalents fait hésiter, et hésiter c'est rebondir). */}
-                  {isMobile ? (
-                    <div style={{ textAlign: 'center', width: '100%', marginBottom: '36px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
-                        <button
-                          className="btn btn-primary"
-                          style={{ fontSize: '13px', padding: '8px 16px' }}
-                          onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
-                        >
-                          <Sparkles size={14} /> {t('LFM2.5 230M (149 MB): recommended', 'LFM2.5 230M (149 Mo) : recommandé')}
-                        </button>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ fontSize: '12px', padding: '7px 14px' }}
-                          onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL, 'welcome')}
-                        >
-                          <Sparkles size={13} /> {t('Qwen 2.5 0.5B (378 MB)', 'Qwen 2.5 0.5B (378 Mo)')}
-                        </button>
+                  {/* Choix direct du modèle : 2 cartes claires pour démarrer sans hésitation */}
+                  <div className="welcome-choice-grid">
+                    <div className="welcome-choice-card recommended">
+                      <div className="welcome-choice-badge">
+                        <Sparkles size={12} /> {t('Recommended · Instant start', 'Recommandé · Démarrage instantané')}
                       </div>
-                      {prefetchStatus(true)}
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '36px' }}>
+                      <h3 className="welcome-choice-title">LFM2.5 230M</h3>
+                      <p className="welcome-choice-desc">
+                        {t('149 MB · Extremely fast · Ideal for quick answers and chat.', '149 Mo · Ultra-rapide · Idéal pour des réponses vives au quotidien.')}
+                      </p>
                       <button
-                        className="btn btn-primary"
-                        style={{ fontSize: '14px', padding: '10px 22px' }}
+                        className="btn btn-primary welcome-choice-btn"
                         onClick={() => handleStreamBrik(MOBILE_BRIK_URL, 'welcome')}
                       >
-                        <Sparkles size={15} /> {t('Try it now: LFM2.5 (149 MB)', 'Essayer maintenant: LFM2.5 (149 Mo)')}
-                      </button>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '380px' }}>
-                        {t('Downloaded once, kept on this device: next visits start in seconds. 100% local.',
-                           'Téléchargé une fois, gardé sur cet appareil : les prochaines visites démarrent en quelques secondes. 100 % local.')}
-                      </span>
-                      <button className="btn" style={{ fontSize: '12px', padding: '6px 14px' }} onClick={() => setBrowseOpen(true)}>
-                        <Database size={13} /> {t('Browse all models', 'Parcourir tous les modèles')}
+                        <Sparkles size={14} /> {t('Start chatting', 'Démarrer la discussion')}
                       </button>
                     </div>
-                  )}
 
-                  <div className="welcome-steps">
-                    <div className="welcome-step">
-                      <div className="welcome-step-num">{t('step 1', 'étape 1')}</div>
-                      <div className="welcome-step-title">{t('Pick a model', 'Choisissez un modèle')}</div>
-                      <div className="welcome-step-desc">
-                        {t('One click is enough: the weights stream in. Or drag and drop your own GGUF (Qwen, Gemma, Llama…).', 'Un clic suffit : les poids arrivent en streaming. Ou glissez-déposez votre propre GGUF (Qwen, Gemma, Llama…).')}
+                    <div className="welcome-choice-card">
+                      <div className="welcome-choice-badge secondary">
+                        {t('Smart & Fluent', 'Polyvalent & Raisonnement')}
                       </div>
-                    </div>
-
-                    <div className="welcome-step">
-                      <div className="welcome-step-num">{t('step 2', 'étape 2')}</div>
-                      <div className="welcome-step-title">{t('Compute on the GPU', 'Calculez sur le GPU')}</div>
-                      <div className="welcome-step-desc">
-                        {t('The JS parser extracts the tensors and our WGSL kernels run the forward pass live.', 'Le parser JS extrait les tenseurs et nos kernels WGSL effectuent le forward pass en direct.')}
-                      </div>
+                      <h3 className="welcome-choice-title">Qwen 2.5 0.5B</h3>
+                      <p className="welcome-choice-desc">
+                        {t('378 MB · Strong at reasoning, coding and French.', '378 Mo · Très performant en français, code et logique.')}
+                      </p>
+                      <button
+                        className="btn btn-secondary welcome-choice-btn"
+                        onClick={() => handleStreamBrik(QWEN_MOBILE_BRIK_URL, 'welcome')}
+                      >
+                        {t('Start with Qwen', 'Démarrer avec Qwen')}
+                      </button>
                     </div>
                   </div>
 
-                  {/* « N'importe quel modèle du Hub » : la capacité qui distingue le produit d'un
-                      catalogue fermé — le moteur lit tout GGUF mono-fichier. Elle n'existait que via
-                      la query string (?model=) ou deux champs d'URL enterrés dans l'onglet Importer.
-                      Placée ICI, sous les étapes : le CTA unique du haut reste seul (l'accueil
-                      anti-rebond du 2026-08-12 a montré qu'une rangée de boutons équivalents fait
-                      hésiter), mais qui lit jusqu'ici découvre qu'il peut tester son propre modèle. */}
-                  <div style={{ marginTop: '28px', textAlign: 'left', maxWidth: 620, marginLeft: 'auto', marginRight: 'auto', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border-color)', background: 'var(--bg-card-hover, rgba(127,127,127,0.05))' }}>
-                    <HfModelInput onLoad={loadModelFromInput} examples={HOME_HF_EXAMPLES} compact />
+                  {prefetchStatus(true)}
+
+                  {/* Suggestions d'inspiration en 1 clic */}
+                  <div className="welcome-prompts-section">
+                    <div className="welcome-prompts-label">
+                      {t('Or ask directly (model starts automatically):', 'Ou commencez directement avec une question :')}
+                    </div>
+                    <div className="welcome-prompts-pills">
+                      {[
+                        { title: t('Explain WebGPU', 'Expliquer le WebGPU'), text: t("Explain what WebGPU is and why running models locally in the browser is revolutionary.", "Explique-moi ce qu'est WebGPU et pourquoi exécuter des modèles en local dans l'onglet est révolutionnaire.") },
+                        { title: t('Write Python code', 'Écrire du code Python'), text: t('Write a simple Python script that sorts a list of users by descending score.', "Rédige un script Python simple qui trie une liste d'utilisateurs par score décroissant.") },
+                        { title: t('Creative ideas', 'Idées créatives'), text: t('Suggest 3 innovative project concepts using local AI in the browser.', "Propose-moi 3 concepts de projets innovants utilisant l'IA locale dans le navigateur.") },
+                      ].map((item, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          className="welcome-prompt-pill"
+                          onClick={() => handlePresetPromptClick(item.text)}
+                        >
+                          <span>💡 {item.title}</span>
+                          <ArrowRight size={11} style={{ opacity: 0.7 }} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Deux sorties pour le curieux pas prêt à télécharger : le SDK (vraie 2e page) et
-                      les autres modalités — mêmes filets d'encre que les étapes, mais cliquables. */}
-                  <div className="welcome-steps" style={{ marginTop: '28px' }}>
-                    <Link href={href('/local-ai')} className="welcome-step welcome-card">
-                      <div className="welcome-step-num">SDK</div>
-                      <div className="welcome-step-title">{t('Add it to your site', 'Intégrez-le à votre site')}</div>
-                      <div className="welcome-step-desc">
-                        {t('One <script> tag gives any page a local, free, private AI assistant. →', "Une balise <script> donne à n'importe quelle page un assistant IA local, gratuit et privé. →")}
-                      </div>
-                    </Link>
-                    <button type="button" className="welcome-step welcome-card" onClick={() => setBrowseOpen(true)}>
-                      <div className="welcome-step-num">{t('also', 'aussi')}</div>
-                      <div className="welcome-step-title">{t('Images & vision', 'Images & vision')}</div>
-                      <div className="welcome-step-desc">
-                        {t('Generate images (SD-Turbo) or describe photos (Qwen2-VL), still fully in-browser. →', 'Générez des images (SD-Turbo) ou décrivez des photos (Qwen2-VL), toujours 100 % dans le navigateur. →')}
-                      </div>
+                  {/* Actions secondaires discrètes */}
+                  <div className="welcome-secondary-actions">
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}
+                      onClick={() => setBrowseOpen(true)}
+                    >
+                      <Database size={13} /> {t('Browse all models (GGUF, Vision, Images…)', 'Parcourir tous les modèles (GGUF, Vision, Images…)')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px' }}
+                      onClick={() => setCustomModelOpen((o) => !o)}
+                    >
+                      <span>{customModelOpen ? '▲' : '▼'} {t('Paste a custom Hugging Face model', 'Coller un modèle Hugging Face personnalisé')}</span>
                     </button>
                   </div>
 
-                  {/* Attribution + lien vers le site de l'auteur, en PIED de l'accueil : le CTA du
-                      haut reste seul (accueil anti-rebond), mais le visiteur qui lit jusqu'en bas
-                      voit qui a fait le moteur. */}
+                  {customModelOpen && (
+                    <div style={{ marginTop: '16px', textAlign: 'left', width: '100%', maxWidth: 540, marginLeft: 'auto', marginRight: 'auto', padding: '14px 16px', borderRadius: 12, border: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                      <HfModelInput onLoad={loadModelFromInput} examples={HOME_HF_EXAMPLES} compact />
+                    </div>
+                  )}
+
                   <ByLine />
                 </>
               )}

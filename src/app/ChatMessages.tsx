@@ -5,7 +5,7 @@
 // state come from the page. The trailing ref is the scroll anchor the page scrolls into view.
 
 import { memo, useEffect, useState, type RefObject } from 'react';
-import { User, Bot, Copy, Cpu, Zap } from 'lucide-react';
+import { User, Bot, Copy, Cpu, Zap, ChevronDown } from 'lucide-react';
 import { renderMessageContent } from './ChatMarkdown';
 import { useT } from '@/lib/i18n';
 import type { Message } from './types';
@@ -170,6 +170,7 @@ function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: nu
 const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, canReveal, onUpscaleImage, upscalingId, copyToClipboard, onRevealImage, onRefineImage, onContinue, busy, showReasoning }: ItemProps) {
   // Locale comes from context, which bypasses the memo comparison — a language switch still re-renders.
   const t = useT();
+  const [showStatsDetails, setShowStatsDetails] = useState(false);
   return (
     <div className={`message ${msg.role}`}>
       <div className="avatar">
@@ -336,23 +337,40 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
 
         {/* Timing statistics */}
         {msg.timings && msg.role === 'assistant' && (
-          <div className="message-stats">
-            <span className="stat-item">
-              <Cpu size={12} /> {t('Prompt:', 'Prompt :')} {msg.timings.prompt_speed_ts.toFixed(1)} t/s ({msg.timings.prompt_tokens} t {t('in', 'en')} {msg.timings.prompt_time_ms.toFixed(0)}ms)
-            </span>
-            {msg.timings.decode_speed_ts > 0 && (
-              <span className="stat-item">
-                <Zap size={12} /> {t('Generation:', 'Génération :')} {msg.timings.decode_speed_ts.toFixed(1)} t/s ({msg.timings.decode_tokens} t)
+          <div className="message-stats-wrap">
+            <button
+              type="button"
+              onClick={() => setShowStatsDetails((v) => !v)}
+              className="message-stats-pill"
+              title={t('Click to show/hide performance details', 'Cliquer pour afficher/masquer les détails de performance')}
+            >
+              <Zap size={11} style={{ color: 'var(--accent)' }} />
+              <span>
+                {msg.timings.decode_speed_ts > 0 ? `${msg.timings.decode_speed_ts.toFixed(1)} t/s · ` : ''}
+                {(msg.timings.total_time_ms / 1000).toFixed(2)}s · {t('100% local', '100 % local')}
               </span>
-            )}
-            <span className="stat-item">
-              {t('Total:', 'Total :')} {(msg.timings.total_time_ms / 1000).toFixed(2)}s
-            </span>
-            {msg.timings.info && (
-              // Ce qui a réellement tourné (précision · KV · sampling · préfixe) — diagnostic terrain.
-              <span className="stat-item" style={{ fontFamily: 'var(--font-mono)', opacity: 0.85 }}>
-                {msg.timings.info}
-              </span>
+              <ChevronDown size={11} style={{ transform: showStatsDetails ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+            </button>
+            {showStatsDetails && (
+              <div className="message-stats">
+                <span className="stat-item">
+                  <Cpu size={12} /> {t('Prompt:', 'Prompt :')} {msg.timings.prompt_speed_ts.toFixed(1)} t/s ({msg.timings.prompt_tokens} t {t('in', 'en')} {msg.timings.prompt_time_ms.toFixed(0)}ms)
+                </span>
+                {msg.timings.decode_speed_ts > 0 && (
+                  <span className="stat-item">
+                    <Zap size={12} /> {t('Generation:', 'Génération :')} {msg.timings.decode_speed_ts.toFixed(1)} t/s ({msg.timings.decode_tokens} t)
+                  </span>
+                )}
+                <span className="stat-item">
+                  {t('Total:', 'Total :')} {(msg.timings.total_time_ms / 1000).toFixed(2)}s
+                </span>
+                {msg.timings.info && (
+                  // Ce qui a réellement tourné (précision · KV · sampling · préfixe) — diagnostic terrain.
+                  <span className="stat-item" style={{ fontFamily: 'var(--font-mono)', opacity: 0.85 }}>
+                    {msg.timings.info}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}

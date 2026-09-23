@@ -525,28 +525,25 @@ export function useModelEngine(deps: ModelEngineDeps) {
       setModelState('ready');
       cachedModelUrls().then(setCachedUrls).catch(() => { /* ignore */ });
 
-      if (!currentConvId) setMessages([
-        {
-          id: 'welcome',
-          role: 'assistant',
-          content: t(
-                   `Hello! The **${modelName}** model loaded successfully (source **${sourceLabel}**) on our custom WebGPU kernels.\n\n` +
-                   `**Model characteristics:**\n` +
-                   `- Architecture: \`${manifest.arch}\`\n` +
-                   `- Blocks (layers): \`${manifest.config.blockCount}\`\n` +
-                   `- Embd dimension: \`${manifest.config.d}\` (Heads: \`${manifest.config.nHeads}\`)\n` +
-                   `- Tokenizer: \`${tokenizerId}\` (\`${archType}\`)\n\n` +
-                   `You can send it your questions: every matrix computation will run locally in this browser.`,
-                   `Bonjour ! Le modèle **${modelName}** a été chargé avec succès (source **${sourceLabel}**) grâce à nos kernels WebGPU custom.\n\n` +
-                   `**Caractéristiques du modèle :**\n` +
-                   `- Architecture : \`${manifest.arch}\`\n` +
-                   `- Blocs (couches) : \`${manifest.config.blockCount}\`\n` +
-                   `- Dimension d'embd : \`${manifest.config.d}\` (Têtes : \`${manifest.config.nHeads}\`)\n` +
-                   `- Tokenizer : \`${tokenizerId}\` (\`${archType}\`)\n\n` +
-                   `Vous pouvez lui envoyer vos questions, tous les calculs matriciels s'exécuteront localement dans ce navigateur.`,
-          )
-        }
-      ]);
+      if (!currentConvId) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.role === 'user')) return prev;
+          return [
+            {
+              id: 'welcome',
+              role: 'assistant',
+              content: t(
+                `Hello! The **${modelName}** model is ready to chat.\n\n` +
+                `All computations run 100% locally on your GPU via WebGPU. Your conversation is completely private and never leaves this tab.\n\n` +
+                `What would you like to explore or discuss today?`,
+                `Bonjour ! Le modèle **${modelName}** est prêt.\n\n` +
+                `Tous les calculs tournent à 100 % en local sur votre carte graphique (WebGPU). Votre conversation reste strictement confidentielle et ne quitte jamais cet onglet.\n\n` +
+                `Que souhaitez-vous savoir ou lui demander aujourd’hui ?`,
+              )
+            }
+          ];
+        });
+      }
     } catch (e: any) {
       console.error("Erreur initialisation modèle custom:", e);
       const raw = e?.message || String(e);

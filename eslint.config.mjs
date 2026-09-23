@@ -37,6 +37,9 @@ const eslintConfig = defineConfig([
     "public/sdk-*.js",
     "packages/sdk/dist/**",
     ".hf-space/**",
+    // CLI Node et scripts d'exportation d'assets — pas de code React
+    "bin/**",
+    "exports/**",
   ]),
 ]);
 

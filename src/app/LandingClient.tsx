@@ -122,6 +122,7 @@ export default function LandingClient() {
   // de navigator.gpu + un adapter, sans créer de device ni charger quoi que ce soit. `?webgpu=0`
   // force le cas « non supporté », comme dans l'application, pour pouvoir le mettre au banc.
   const [gpuOk, setGpuOk] = useState<boolean | null>(null);
+  const [customHfOpen, setCustomHfOpen] = useState<boolean>(false);
   useEffect(() => {
     let alive = true;
     const set = (v: boolean) => { if (alive) setGpuOk(v); };
@@ -190,14 +191,14 @@ export default function LandingClient() {
         {/* Pas d'effet de fond derrière le hero : deux tentatives (trame de demi-ton WebGPU, puis
             lavis d'encre) ont été retirées sur décision de Romain — la page reste du papier nu. */}
         <section className="lp-hero">
-          <div className="lp-eyebrow">{t('WebGPU · hand-written WGSL · nothing leaves the tab', 'WebGPU · WGSL écrit à la main · rien ne sort de l’onglet')}</div>
+          <div className="lp-eyebrow">{t('WebGPU · 100% local · Nothing leaves your browser', 'WebGPU · 100 % local · Rien ne sort de votre navigateur')}</div>
           <h1 className="lp-h1">
-            {t('Any model on the Hub.', 'N’importe quel modèle du Hub.')}<br />
-            <span className="lp-h1-accent">{t('Running in your browser.', 'Exécuté dans votre navigateur.')}</span>
+            {t('Powerful AI models.', 'Des modèles d’IA puissants.')}<br />
+            <span className="lp-h1-accent">{t('Directly in your browser.', 'Directement dans votre navigateur.')}</span>
           </h1>
           <p className="lp-lede">
-            {t('Brimkern reads single-file GGUF straight from Hugging Face and runs it on your own GPU: no conversion, no compile step, no server, no API key. The weights stream in once, stay on your device, and work offline afterwards.',
-               'Brimkern lit les GGUF mono-fichier directement depuis Hugging Face et les exécute sur votre propre GPU : sans conversion, sans étape de compilation, sans serveur, sans clé d’API. Les poids arrivent une fois, restent chez vous, et fonctionnent hors-ligne ensuite.')}
+            {t('Brimkern runs open-source models straight from Hugging Face on your own GPU: no installation, no server, and no subscription. Weights stream in once, stay on your device, and work completely offline.',
+               'Brimkern fait tourner des modèles open source directement sur votre carte graphique : sans installation, sans serveur tiers et sans abonnement. Les modèles arrivent en streaming, restent sur votre appareil et fonctionnent hors-ligne.')}
           </p>
           <div className="lp-cta-row">
             <Link
@@ -205,10 +206,10 @@ export default function LandingClient() {
               className="btn btn-primary lp-cta"
               onClick={() => metric('landing_cta', { webgpu: gpuOk ?? 'inconnu' })}
             >
-              <Sparkles size={15} /> {t('Try it now: 149 MB', 'Essayer maintenant: 149 Mo')}
+              <Sparkles size={15} /> {t('Start chatting — Free & local', 'Lancer le chat — Gratuit & local')}
             </Link>
             <Link href={href('/docs')} className="lp-cta-ghost">
-              {t('Read the docs', 'Lire la doc')} <ArrowRight size={14} />
+              {t('Explore docs & models', 'Explorer la doc & les modèles')} <ArrowRight size={14} />
             </Link>
           </div>
           {gpuOk === false ? (
@@ -224,17 +225,13 @@ export default function LandingClient() {
             </p>
           ) : (
             <p className="lp-fineprint">
-              {t('Chrome, Edge, or Safari 18+. Free, open source (MIT), no account.',
-                 'Chrome, Edge, ou Safari 18+. Gratuit, open source (MIT), sans compte.')}
+              {t('Chrome, Edge, or Safari 18+. Free, open source (MIT), no account required.',
+                 'Chrome, Edge, ou Safari 18+. Gratuit, open source (MIT), sans compte requis.')}
             </p>
           )}
         </section>
 
-        {/* ── LE PRODUIT, TEL QU'IL EST ─────────────────────────────────────────────────────────
-            La home montre LE CHAT, pas un terminal : les consoles vivent sur /cli (retour de Romain,
-            2026-09-23 : la console tapée du hero se confondait avec la CLI). Une vraie session,
-            capturée sur un build de production (même question, vraie réponse, vraies mesures),
-            puis le champ qui charge n'importe quel modèle du Hub pour de vrai. */}
+        {/* ── LE PRODUIT, TEL QU'IL EST ───────────────────────────────────────────────────────── */}
         <section className="lp-proof">
           <figure className="lp-shot">
             <Image
@@ -250,8 +247,42 @@ export default function LandingClient() {
                  'Une vraie session, dans l’onglet, sur le GPU d’un portable. Chaque réponse porte ses mesures.')}
             </figcaption>
           </figure>
-          <div className="lp-console-input">
-            <HfModelInput onLoad={goToChatWith} examples={HF_EXAMPLES} compact />
+
+          <div className="lp-quick-try">
+            <div className="lp-quick-try-header">
+              <span className="lp-quick-try-label">
+                <Sparkles size={13} style={{ color: 'var(--accent)' }} />
+                {t('Ready-to-run models (1-click start):', 'Modèles prêts à l’emploi (démarrage en 1 clic) :')}
+              </span>
+              <button
+                type="button"
+                className="lp-quick-toggle"
+                onClick={() => setCustomHfOpen((v) => !v)}
+              >
+                {customHfOpen ? '▲ ' + t('Hide custom input', 'Masquer la saisie personnalisée') : '▼ ' + t('Or paste another Hugging Face model', 'Ou tester un autre modèle Hugging Face')}
+              </button>
+            </div>
+
+            <div className="lp-quick-pills">
+              <Link href={`${href('/chat')}?model=romainkh14/LFM2.5-230M_BRIK`} className="lp-quick-pill highlight">
+                <strong>LFM2.5 230M</strong>
+                <span>149 MB · {t('Ultra fast start', 'Démarrage instantané')}</span>
+              </Link>
+              <Link href={`${href('/chat')}?model=Qwen/Qwen2.5-0.5B-Instruct-GGUF`} className="lp-quick-pill">
+                <strong>Qwen 2.5 0.5B</strong>
+                <span>378 MB · {t('Reasoning & code', 'Raisonnement & code')}</span>
+              </Link>
+              <Link href={`${href('/chat')}?model=unsloth/gemma-3-270m-it-GGUF`} className="lp-quick-pill">
+                <strong>Gemma 3 270M</strong>
+                <span>270 MB · {t('Google Gemma', 'Google Gemma')}</span>
+              </Link>
+            </div>
+
+            {customHfOpen && (
+              <div className="lp-console-input" style={{ marginTop: 12 }}>
+                <HfModelInput onLoad={goToChatWith} examples={HF_EXAMPLES} compact />
+              </div>
+            )}
           </div>
         </section>
 
@@ -260,20 +291,20 @@ export default function LandingClient() {
           {/* Un h2 ici n'est pas décoratif : sans lui les trois forces (h3) suivaient directement le
               h1, et l'ordre des titres sautait un niveau : un lecteur d'écran annonce alors une
               hiérarchie fausse (relevé axe-core, règle heading-order). */}
-          <div className="lp-eyebrow">{t('why it exists', 'pourquoi ça existe')}</div>
-          <h2 className="lp-h2">{t('Three things you won’t find together elsewhere', 'Trois choses qu’on ne trouve pas ensemble ailleurs')}</h2>
+          <div className="lp-eyebrow">{t('why brimkern', 'pourquoi brimkern')}</div>
+          <h2 className="lp-h2">{t('Three reasons to run AI directly in your browser', 'Trois raisons d’exécuter l’IA directement dans l’onglet')}</h2>
           <div className="lp-strengths">
-            <Strength i={0} eyebrow={t('no compile step', 'aucune compilation')} title={t('The format the Hub already hosts', 'Le format que le Hub héberge déjà')}>
-              {t('Paste author/model and it runs. The best quantization is picked for you, the tokenizer comes from the file. Other in-browser engines need weights pre-compiled into their own artifact before they can touch them.',
-                 'Collez auteur/modèle et ça tourne. La meilleure quantification est choisie pour vous, le tokenizer vient du fichier. Les autres moteurs navigateur exigent des poids pré-compilés dans leur propre format avant de pouvoir y toucher.')}
+            <Strength i={0} eyebrow={t('privacy first', 'confidentialité totale')} title={t('100% Private & offline', '100 % Privé & hors-ligne')}>
+              {t('Your conversations and documents never leave your machine. No accounts, no servers, and no telemetry. Once loaded, models continue to work even without an internet connection.',
+                 'Vos conversations et documents ne quittent jamais votre machine. Aucun compte, aucun serveur et aucune collecte. Une fois chargé, le modèle continue de fonctionner même déconnecté d’Internet.')}
             </Strength>
-            <Strength i={1} eyebrow={t('kernels we wrote', 'des kernels écrits à la main')} title={t('WGSL, validated at load', 'WGSL, validé au chargement')}>
-              {t('The forward pass is hand-written compute shaders: fused quantized matmuls, resident KV cache, one kernel library shared by text, vision, image and video. Each one self-validates against a CPU reference at load and falls back to a simpler path if a GPU miscompiles.',
-                 'Le forward pass est fait de compute shaders écrits à la main : matmuls quantifiés fusionnés, cache KV résident, une seule bibliothèque de kernels pour le texte, la vision, l’image et la vidéo. Chacun se valide contre une référence CPU au chargement, et retombe sur un chemin plus simple si un GPU compile mal.')}
+            <Strength i={1} eyebrow={t('instant streaming', 'streaming instantané')} title={t('Zero install, zero configuration', 'Zéro installation, zéro configuration')}>
+              {t('No Python, Docker, or complex drivers to configure. Models stream in seconds through standard HTTP ranges and are cached locally on your device for immediate future access.',
+                 'Pas de Python, pas de Docker, ni de pilotes complexes. Les modèles arrivent en quelques secondes via votre navigateur et restent en mémoire locale pour vos prochaines visites.')}
             </Strength>
-            <Strength i={2} eyebrow={t('streamed, not downloaded', 'streamé, pas téléchargé')} title={t('.brik: a layer is one HTTP range', '.brik : une couche = une plage HTTP')}>
-              {t('Our container stores weights already quantized in the exact layout the kernels read, laid out so each layer is one contiguous range. A 4.7 GB model comes back from cache in 15.8 s: resumable, partial, genuinely offline afterwards.',
-                 'Notre conteneur range les poids déjà quantifiés dans la disposition exacte que lisent les kernels, une couche par plage contiguë. Un modèle de 4,7 Go revient du cache en 15,8 s : reprise possible, partielle, vraiment hors-ligne ensuite.')}
+            <Strength i={2} eyebrow={t('open ecosystem', 'écosystème ouvert')} title={t('Any open-source model', 'N’importe quel modèle open source')}>
+              {t('Run standard GGUF and BRIK models from Hugging Face: Qwen, Gemma, Llama and more. Generate text, reason through problems, describe photos, or create images.',
+                 'Exécutez les formats standards GGUF et BRIK depuis Hugging Face : Qwen, Gemma, Llama et bien d’autres. Discutez, résolvez des problèmes, décrivez des photos ou générez des images.')}
             </Strength>
           </div>
           {/* Le visiteur qui connaît déjà WebLLM se pose la question tout de suite — on l'emmène
@@ -281,7 +312,7 @@ export default function LandingClient() {
               interne qui fait vivre cette page côté moteurs). */}
           <p className="lp-fineprint" style={{ marginTop: 18 }}>
             <Link href={href('/vs-webllm')} className="lp-cta-ghost">
-              {t('How this compares to WebLLM, measured', 'Ce que ça donne face à WebLLM, mesuré')} <ArrowRight size={13} />
+              {t('How this compares to WebLLM (measured benchmarks)', 'Ce que ça donne face à WebLLM (mesures réelles)')} <ArrowRight size={13} />
             </Link>
           </p>
         </section>
@@ -291,18 +322,18 @@ export default function LandingClient() {
             Le schéma est fait de DOM (texte + un SVG de la découpe), pas d'une grosse image : il se
             traduit, il se lit au lecteur d'écran, il s'empile sur mobile, et il ne pèse rien. */}
         <section className="lp-section">
-          <div className="lp-eyebrow">{t('what actually happens', 'ce qui se passe vraiment')}</div>
-          <h2 className="lp-h2">{t('From a repo name to tokens on your GPU', 'D’un nom de dépôt à des tokens sur votre GPU')}</h2>
+          <div className="lp-eyebrow">{t('how it works', 'comment ça marche')}</div>
+          <h2 className="lp-h2">{t('From model weights to answers on your GPU', 'Du modèle à la réponse sur votre GPU')}</h2>
           <ol className="lp-flow">
             {([
-              ['01', t('You paste', 'Vous collez'), <code key="c">author/model</code>,
-               t('An id, a Hub URL, or a direct link.', 'Un identifiant, une URL du Hub, ou un lien direct.')],
-              ['02', t('We resolve', 'On résout'), t('the best file', 'le meilleur fichier'),
-               t('The Hub API lists the repo; the best quantization wins (a .brik over a GGUF).', 'L’API du Hub liste le dépôt ; la meilleure quantification gagne (un .brik devant un GGUF).')],
-              ['03', t('It streams', 'Ça streame'), t('one layer = one range', 'une couche = une plage'),
-               t('Only the bytes of the layer being loaded, resumable, cached on your device.', 'Seulement les octets de la couche en cours, reprise possible, gardés sur votre appareil.')],
+              ['01', t('You select', 'Vous choisissez'), <code key="c">author/model</code>,
+               t('A one-click curated preset or any Hugging Face repo ID or direct link.', 'Un modèle en un clic ou n’importe quel dépôt Hugging Face.')],
+              ['02', t('We resolve', 'On résout'), t('the best weights', 'le meilleur fichier'),
+               t('The Hub API lists the repo; the best quantization is selected automatically.', 'L’API du Hub liste le dépôt et sélectionne la meilleure quantification pour votre appareil.')],
+              ['03', t('It streams', 'Ça streame'), t('into local cache', 'dans le cache local'),
+               t('Weights stream progressively in the background and stay cached on your device.', 'Les couches se téléchargent en streaming et restent disponibles hors-ligne.')],
               ['04', t('It runs', 'Ça tourne'), t('on your GPU', 'sur votre GPU'),
-               t('Hand-written WGSL kernels. Nothing goes back out: there is no server to send it to.', 'Des kernels WGSL écrits à la main. Rien ne repart : il n’y a aucun serveur où l’envoyer.')],
+               t('WebGPU compute shaders execute the model live. Zero data leaves your machine.', 'Des compute shaders WebGPU calculent les réponses en direct sans aucun serveur.')],
             ] as [string, string, React.ReactNode, string][]).map(([num, quoi, cible, desc]) => (
               <li key={num} className="lp-step-flow">
                 <div className="lp-flow-num">{num}</div>
@@ -317,7 +348,7 @@ export default function LandingClient() {
               le schéma mime des plages qui arrivent dans l'ordre — demande de Romain, préférée à la
               première version qui révélait la barre d'un seul geste. */}
           <div className="lp-slices" aria-hidden>
-            <span className="lp-slices-label">{t('the file', 'le fichier')}</span>
+            <span className="lp-slices-label">{t('the model', 'le modèle')}</span>
             <svg viewBox="0 0 600 34" preserveAspectRatio="none" className="lp-slices-svg">
               {Array.from({ length: 14 }, (_, i) => (
                 <rect key={i} x={i * 43 + 1} y={i % 3 === 1 ? 4 : 9} width={40} height={i % 3 === 1 ? 26 : 16}
@@ -325,17 +356,17 @@ export default function LandingClient() {
                       style={{ '--i': i } as React.CSSProperties} />
               ))}
             </svg>
-            <span className="lp-slices-label">{t('the layers being loaded', 'les couches en cours de chargement')}</span>
+            <span className="lp-slices-label">{t('layers loaded on demand', 'couches chargées à la demande')}</span>
           </div>
         </section>
 
         {/* ── LES CHIFFRES ─────────────────────────────────────────────────────────────────────
             Tous mesurés (banc décrit dans le README) : aucune estimation sur cette page. */}
         <section className="lp-figures">
-          <Figure i={0} value="149 MB" label={t('smallest chat model, cached once', 'plus petit modèle de chat, mis en cache une fois')} />
+          <Figure i={0} value="149 MB" label={t('lightest chat model, cached once', 'plus petit modèle de chat, mis en cache une fois')} />
           <Figure i={1} value="47.2 tok/s" label={t('prefill on a 7B int4 (WebLLM: 18.7)', 'prefill sur un 7B int4 (WebLLM : 18,7)')} />
-          <Figure i={2} value="15.8 s" label={t('to reload 4.7 GB from cache', 'pour recharger 4,7 Go depuis le cache')} />
-          <Figure i={3} value="0" label={t('servers, accounts, API keys', 'serveur, compte, clé d’API')} />
+          <Figure i={2} value="15.8 s" label={t('to reload 4.7 GB from local cache', 'pour recharger 4,7 Go depuis le cache')} />
+          <Figure i={3} value="0" label={t('servers, accounts, or API keys needed', 'serveur, compte ou clé d’API requis')} />
         </section>
 
         {/* ── LE SDK ───────────────────────────────────────────────────────────────────────────── */}
