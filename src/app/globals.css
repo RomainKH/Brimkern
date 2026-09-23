@@ -2018,6 +2018,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   border-radius: 9px;
   box-shadow: var(--shadow-sm);
   max-width: 100%;
+  box-sizing: border-box;
 }
 
 .lp-hero-install-prompt {
@@ -2026,6 +2027,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-weight: 700;
   color: var(--accent);
   user-select: none;
+  flex-shrink: 0;
 }
 
 .lp-hero-install code {
@@ -2033,6 +2035,14 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lp-hero-install code::-webkit-scrollbar {
+  display: none;
 }
 
 .lp-hero-install-copy {
@@ -2046,6 +2056,24 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .lp-hero-install {
+    width: 100%;
+    display: flex;
+    padding: 6px 10px;
+    gap: 8px;
+    justify-content: space-between;
+  }
+
+  .lp-hero-install code {
+    font-size: 11.5px;
+    letter-spacing: -0.2px;
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .lp-hero-install-copy:hover {

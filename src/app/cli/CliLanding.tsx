@@ -257,9 +257,23 @@ export default function CliLanding() {
               'Qwen 3 4B sur des kernels WGSL écrits à la main. Ni serveur, ni clé d’API, ni compte : votre code ne quitte jamais la machine.'
             )}
           </p>
-          <div className={s.ctas}>
-            <a href="#install" className={`${s.btn} ${s.btnPrimary}`}>{t('Install in one command', 'Installer en une commande')}</a>
-            <Link href={href('/docs/cli')} className={`${s.btn} ${s.btnGhost}`}>{t('Read the reference', 'Lire la référence')}</Link>
+          <div className={s.heroInstallBlock}>
+            <div className={s.heroInstallHeader}>
+              <span className={s.heroInstallTitle}>
+                {t('Install in one command', 'Installer en une commande')}
+              </span>
+              <span className={s.heroInstallBadge}>macOS · Linux · WebGPU</span>
+            </div>
+            <CopyLine text="curl -fsSL https://brimkern.com/install.sh | bash" />
+            <div className={s.heroInstallMeta}>
+              <span>{t('Then run:', 'Puis lancez :')} <code>brimkern chat</code></span>
+              <span className={s.heroInstallSep}>·</span>
+              <span>{t('Update:', 'Mise à jour :')} <code>brimkern update</code></span>
+              <span className={s.heroInstallSep}>·</span>
+              <Link href={href('/docs/cli')} className={s.heroInstallLink}>
+                {t('All options & docs →', 'Options & documentation →')}
+              </Link>
+            </div>
           </div>
         </section>
 

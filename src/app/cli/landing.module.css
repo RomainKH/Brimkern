@@ -257,6 +257,77 @@
   color: var(--muted);
 }
 
+.heroInstallBlock {
+  max-width: 580px;
+  margin: 0 0 32px;
+  background: var(--screen);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.heroInstallHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.heroInstallTitle {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--paper);
+}
+
+.heroInstallBadge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--red-text);
+  border-radius: 3px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.heroInstallMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.heroInstallMeta code {
+  color: var(--red-text);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.heroInstallSep {
+  color: var(--rule);
+  user-select: none;
+}
+
+.heroInstallLink {
+  color: var(--paper);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  margin-left: auto;
+}
+
+.heroInstallLink:hover {
+  color: var(--red-text);
+}
+
 .ctas {
   display: flex;
   flex-wrap: wrap;
