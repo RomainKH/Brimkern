@@ -10,7 +10,7 @@
 // Suit le défilement (demande de Romain) : toile FIXE plein écran, et le défilement entre dans le
 // shader (`scroll`) — la fumée dérive vers le haut quand on descend, au lieu d'un décor collé au hero.
 // Garde-fous :
-// - 40 % de la résolution CSS, 4 octaves, ~24 i/s (le flou naturel de la fumée cache tout ça) ;
+// - au plus 40 % de la résolution CSS et ~220 000 pixels, 4 octaves, ~24 i/s ;
 // - arrêt quand l'onglet est caché ; kill-switch ?fx=0 (témoin des bancs, convention du dépôt) ;
 // - prefers-reduced-motion : UNE image fixe, aucune animation ;
 // - luminosité plafonnée dans le shader : le texte papier garde son contraste au pire endroit ;
@@ -35,9 +35,10 @@ void main(){
   vec2 q = vec2(fbm(p + vec2(0.0, s)), fbm(p + vec2(5.2, -s*0.8)));
   vec2 r = vec2(fbm(p + 3.0*q + vec2(1.7, 9.2) + s*1.3), fbm(p + 3.0*q + vec2(8.3, 2.8) - s));
   float f = fbm(p + 2.6*r);
-  // La fumée monte du bas et se dissipe vers le haut ; passé le hero, elle s'éclaircit (un voile,
-  // plus un rideau : on est dans le contenu).
-  float rise = smoothstep(1.1, 0.0, uv.y) * mix(1.0, 0.55, smoothstep(0.4, 1.4, scroll));
+  // Dans le hero, la fumée monte du bas ; dans le contenu, elle occupe toute la hauteur de l'écran
+  // (demande de Romain : « la fumée sur toute la page »). Le plafond bas protège le texte.
+  float inPage = smoothstep(0.3, 0.9, scroll);
+  float rise = mix(smoothstep(1.1, 0.0, uv.y), 0.85, inPage);
   float d = smoothstep(0.30, 0.92, f) * rise;
   // Zone du texte (colonne de gauche sur grand écran, toute la largeur sur téléphone) : fumée
   // retenue. Ailleurs, elle a le droit d'être dense : c'est là qu'elle fait le « wow ».
@@ -46,7 +47,7 @@ void main(){
   vec3 ink = vec3(0.051, 0.051, 0.047);
   vec3 red = vec3(0.94, 0.27, 0.27);
   vec3 cyan = vec3(0.22, 0.74, 0.97);
-  float gain = mix(1.25, 0.32, textZone);
+  float gain = mix(mix(1.25, 0.32, textZone), 0.55, inPage);
   // Rouge carmin dominant, contre-jour froid dans les replis (r.x) : le néon bicolore.
   vec3 col = ink + red * d * gain + cyan * smoothstep(0.5, 0.9, r.x) * d * gain * 0.42;
   // Plafonds : derrière le texte ~#491c19 (papier > 11:1, texte atténué > 5.6:1) ; ailleurs
@@ -55,8 +56,7 @@ void main(){
   vec3 capHigh = vec3(0.62, 0.22, 0.22);
   // Passé le hero, du texte peut être n'importe où (paragraphe aligné à droite, tableau) : le
   // plafond bas s'applique partout.
-  float inContent = smoothstep(0.45, 0.95, scroll);
-  col = min(col, mix(mix(capHigh, capLow, textZone), capLow, inContent));
+  col = min(col, mix(mix(capHigh, capLow, textZone), capLow, inPage));
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -94,10 +94,14 @@ export default function Smoke({ className }: { className?: string }) {
     const uT = gl.getUniformLocation(prog, 't');
     const uScroll = gl.getUniformLocation(prog, 'scroll');
 
-    const SCALE = 0.4;
+    // Coût CONSTANT : au plus ~220 000 pixels calculés, quel que soit l'écran (un 5K coûte ce que
+    // coûte un portable) ; le flou de la fumée masque l'agrandissement.
+    const MAX_PIXELS = 220_000;
     const resize = () => {
-      const w = Math.max(1, Math.round(canvas.clientWidth * SCALE));
-      const h = Math.max(1, Math.round(canvas.clientHeight * SCALE));
+      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+      const scale = Math.min(0.4, Math.sqrt(MAX_PIXELS / Math.max(1, cw * ch)));
+      const w = Math.max(1, Math.round(cw * scale));
+      const h = Math.max(1, Math.round(ch * scale));
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       gl.viewport(0, 0, w, h);
       gl.uniform2f(uRes, w, h);

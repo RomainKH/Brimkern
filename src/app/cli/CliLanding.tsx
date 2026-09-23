@@ -125,8 +125,14 @@ function Replay() {
     if (reduced) { setVisible(full); setRunning(false); return; }
     setRunning(true);
     const t0 = performance.now();
+    let lastPaint = 0;
+    let lastKey = '';
     const tick = (now: number) => {
       const el = now - t0;
+      // Au plus ~30 rendus par seconde, et seulement si un caractère est apparu : chaque rendu
+      // repasse sur toute la capture (des centaines de segments).
+      if (now - lastPaint < 33 && el <= promptMs + 350 + recordedMs) { raf.current = requestAnimationFrame(tick); return; }
+      lastPaint = now;
       const v = lens.map(() => 0);
       v[0] = Math.min(lens[0], Math.floor((el / promptMs) * lens[0]));
       if (el > promptMs + 350) {
@@ -135,7 +141,8 @@ function Replay() {
       }
       const done = el > promptMs + 350 + recordedMs;
       if (done) v[last] = lens[last];
-      setVisible(done ? full : v);
+      const key = v.join(',');
+      if (done || key !== lastKey) { lastKey = key; setVisible(done ? full : v); }
       if (done) { setRunning(false); return; }
       raf.current = requestAnimationFrame(tick);
     };

@@ -89,8 +89,10 @@
   will-change: transform, opacity, clip-path;
 }
 
-.glitchA { color: rgba(56, 189, 248, 0.85); mix-blend-mode: screen; animation: glitchA 6.5s steps(1) 2.4s infinite; }
-.glitchB { color: rgba(255, 60, 60, 0.9); mix-blend-mode: screen; animation: glitchB 6.5s steps(1) 2.4s infinite; }
+/* Pas de mix-blend-mode : au-dessus d'une toile qui change 24 fois par seconde, il imposait une
+   passe de fusion à chaque image. Des couleurs semi-opaques suffisent pour quelques centièmes. */
+.glitchA { color: rgba(56, 189, 248, 0.7); animation: glitchA 6.5s steps(1) 2.4s infinite; }
+.glitchB { color: rgba(255, 70, 70, 0.75); animation: glitchB 6.5s steps(1) 2.4s infinite; }
 
 @keyframes glitchA {
   0%, 100% { opacity: 0; }
