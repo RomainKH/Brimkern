@@ -64,6 +64,18 @@ export const QUICK_MODELS: QuickModelOption[] = [
     icon: Brain,
   },
   {
+    id: 'coder3b',
+    name: 'Qwen 2.5 Coder 3B (Opus)',
+    shortName: 'Coder 3B Opus',
+    size: '1.93 Go',
+    badge: { en: 'Code & Dev', fr: 'Code & Dev' },
+    desc: { en: 'Claude Opus 4.6 distilled · High coding power', fr: 'Distillé Claude Opus 4.6 · Haute précision de code' },
+    type: 'gguf',
+    url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
+    icon: Code2,
+    desktopOnly: true,
+  },
+  {
     id: 'sdturbo',
     name: 'Stable Diffusion Turbo',
     shortName: 'SD-Turbo (Image)',

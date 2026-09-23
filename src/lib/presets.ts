@@ -99,6 +99,22 @@ export const PRESET_MODELS: PresetModel[] = [
 		mobile: false,
 	},
 	{
+		name: 'Qwen 2.5 Coder 3B Opus Distilled (Q4_K_M)',
+		vendor: 'ryzdfm',
+		url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
+		size: '1,93 Go',
+		sizeBytes: 1_929_902_560,
+		desc: {
+			en: 'Qwen 2.5 Coder 3B fine-tuned on Claude Opus 4.6 traces. Excellent reasoning and code quality in a lightweight 3B format.',
+			fr: 'Qwen 2.5 Coder 3B affiné sur des traces Claude Opus 4.6. Excellent en raisonnement et génération de code dans un format 3B léger.'
+		},
+		tokenizer: 'Qwen/Qwen2.5-Coder-3B-Instruct',
+		type: 'qwen',
+		useCase: { en: 'Opus-distilled coder', fr: 'Code distillé Opus' },
+		tags: [{ en: 'code', fr: 'code' }, { en: 'claude-distill', fr: 'claude-distill' }, { en: '3b', fr: '3b' }],
+		mobile: false,
+	},
+	{
 		name: 'DeepSeek-R1 Distill Qwen 7B (Q4_K_M)',
 		vendor: 'DeepSeek',
 		url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf',
