@@ -409,11 +409,11 @@ export default function CliClient() {
           <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>rwkv</span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>1,5 Go</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>304 Mo</span>
             </div>
             <p style={{ fontSize: 12.5, color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.5 }}>
-              {t('RWKV-7 World 1.5B (BRIK). Linear attention recurrent architecture, strong multilingual and code proficiency.',
-                 'RWKV-7 World 1.5B (BRIK). Architecture RNN à attention linéaire, grande compétence multilingue et logique de code.')}
+              {t('RWKV-7 G1a 0.4B (BRIK). Linear attention recurrent architecture (Apache 2.0), constant memory state replacing KV cache.',
+                 'RWKV-7 G1a 0.4B (BRIK). Architecture RNN à attention linéaire (Apache 2.0), état mémoire constant remplaçant le cache KV.')}
             </p>
             <code style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>brimkern -m rwkv &quot;...&quot;</code>
           </div>

@@ -47,8 +47,8 @@ const RELEASES: Release[] = [
         title: { en: 'New Developer Models & Context Workflows', fr: 'Nouveaux modèles de dev & Contexte @fichier' },
         items: [
           {
-            en: 'Added Qwen 2.5 Coder 0.5B Instruct (491 MB GGUF Q4_K_M, marked mobile: true in the catalog presets) and Qwen 2.5 Coder 1.5B Instruct (1.12 GB) alongside our lightweight 149 MB LFM2.5 Coder and RWKV-7 World 1.5B RNN.',
-            fr: 'Ajout de Qwen 2.5 Coder 0.5B Instruct (491 Mo GGUF Q4_K_M, marqué mobile: true dans les presets du catalogue) et Qwen 2.5 Coder 1.5B Instruct (1,12 Go) aux côtés de notre modèle ultra-léger LFM2.5 Coder 149 Mo et de RWKV-7 World 1.5B RNN.'
+            en: 'Added Qwen 2.5 Coder 0.5B Instruct (491 MB GGUF Q4_K_M, marked mobile: true in the catalog presets) and Qwen 2.5 Coder 1.5B Instruct (1.12 GB) alongside our lightweight 149 MB LFM2.5 Coder and RWKV-7 G1a 0.4B RNN.',
+            fr: 'Ajout de Qwen 2.5 Coder 0.5B Instruct (491 Mo GGUF Q4_K_M, marqué mobile: true dans les presets du catalogue) et Qwen 2.5 Coder 1.5B Instruct (1,12 Go) aux côtés de notre modèle ultra-léger LFM2.5 Coder 149 Mo et de RWKV-7 G1a 0.4B RNN.'
           },
           {
             en: 'Claude Code and Gemini CLI workflow tools: file context injection (@path/to/file:start-end with sensitive secret guardrails), git shortcuts (/diff, /commit conventional proposals, /review <file>), /copy system clipboard bridge, and /stats token speed & $0.00 cost tracker.',

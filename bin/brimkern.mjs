@@ -84,12 +84,28 @@ const PRESET_CLI_MODELS = {
     desc: 'Qwen 2.5 Coder 1.5B : logique poussée, architecture, tests et refactoring lourd.'
   },
   'rwkv': {
-    name: 'RWKV-7 World 1.5B (BRIK)',
-    url: 'https://huggingface.co/romainkh14/RWKV-7-World_BRIK/resolve/main/rwkv7-1.5b-world.brik',
+    name: 'RWKV-7 G1a 0.4B (BRIK int4)',
+    url: 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
     format: 'brik',
-    size: '1,5 Go',
+    size: '304 Mo',
     defaultSystem: 'You are a helpful coding assistant.',
-    desc: 'Architecture RNN linéaire RWKV-7 en format BRIK.'
+    desc: 'Architecture RNN linéaire RWKV-7 en format BRIK (mémoire constante).'
+  },
+  'rwkv-0.4b': {
+    name: 'RWKV-7 G1a 0.4B (BRIK int4)',
+    url: 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
+    format: 'brik',
+    size: '304 Mo',
+    defaultSystem: 'You are a helpful coding assistant.',
+    desc: 'Architecture RNN linéaire RWKV-7 en format BRIK (mémoire constante).'
+  },
+  'rwkv-0.1b': {
+    name: 'RWKV-7 G1 0.1B (BRIK int4)',
+    url: 'https://huggingface.co/romainkh14/RWKV-7-G1-0.1B_BRIK/resolve/main/rwkv7-g1-0.1b-q4.brik',
+    format: 'brik',
+    size: '128 Mo',
+    defaultSystem: 'You are a helpful coding assistant.',
+    desc: 'Modèle RWKV-7 ultra-compact (128 Mo), état récurrent de ~1 Mo.'
   },
 };
 
@@ -1166,7 +1182,8 @@ ${C.bold}MODÈLES DE DÉVELOPPEMENT & CODE${C.reset}
   ${C.cyan}coder-0.5b${C.reset}    Qwen 2.5 Coder 0.5B (format GGUF, 491 Mo) — ${C.dim}développement rapide & scripts${C.reset}
   ${C.cyan}coder-1.5b${C.reset}    Qwen 2.5 Coder 1.5B (format GGUF, 1,12 Go) — ${C.dim}architecture, tests et logique${C.reset}
   ${C.cyan}qwen-0.5b${C.reset}     Qwen 2.5 0.5B Instruct (format BRIK, 377 Mo) — ${C.dim}léger & capable sur tout GPU${C.reset}
-  ${C.cyan}rwkv${C.reset}          RWKV-7 World 1.5B (format BRIK, 1,5 Go) — ${C.dim}RNN linéaire en WGSL${C.reset}
+  ${C.cyan}rwkv${C.reset}          RWKV-7 G1a 0.4B (format BRIK, 304 Mo) — ${C.dim}RNN linéaire en WGSL (mémoire constante)${C.reset}
+  ${C.cyan}rwkv-0.1b${C.reset}     RWKV-7 G1 0.1B (format BRIK, 128 Mo) — ${C.dim}ultra-compact, RNN linéaire WGSL${C.reset}
   ${C.cyan}lfm2${C.reset}          LFM2.5 230M Généraliste (format BRIK, 149 Mo) — ${C.dim}ultra-léger & rapide${C.reset}
 `);
 }
@@ -1270,17 +1287,23 @@ async function runInteractiveChat(initialEngine) {
   });
 
   rl.on('line', async (line) => {
+    rl.pause();
+    const resumeAndPrompt = () => {
+      updatePrompt();
+      rl.resume();
+      rl.prompt();
+    };
+
     let input = line.trim();
     if (!input) {
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
 
     // 1. Commandes shell directes (!cmd ou /exec cmd)
     if (input.startsWith('!') || input.startsWith('/exec ')) {
       const cmd = input.startsWith('!') ? input.slice(1).trim() : input.slice(6).trim();
-      if (!cmd) { updatePrompt(); rl.prompt(); return; }
+      if (!cmd) { resumeAndPrompt(); return; }
       console.log(`${C.dim}$ ${cmd}${C.reset}`);
       try {
         execSync(cmd, { stdio: 'inherit' });
@@ -1288,8 +1311,7 @@ async function runInteractiveChat(initialEngine) {
         console.error(`${C.red}Erreur d'exécution : ${e.message}${C.reset}`);
       }
       console.log('');
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
 
@@ -1300,31 +1322,27 @@ async function runInteractiveChat(initialEngine) {
     }
     if (input === '/help') {
       printReplHelp();
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
     if (input === '/clear') {
       console.clear();
       printBrandBanner(engine, currentMode, thinkLevel);
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
     if (input === '/reset') {
       await engine.reset();
       console.log(`${C.yellow}✓ Historique conversationnel et cache KV réinitialisés.${C.reset}\n`);
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
     if (input === '/status') {
       printStatusCard(engine, currentMode, thinkLevel, sessionState);
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
-    if (input.startsWith('/mode')) {
+    if (input === '/mode' || input.startsWith('/mode ')) {
       const targetMode = input.slice(5).trim().toLowerCase();
       if (!targetMode) {
         console.log(`\n${C.bold}Modes d'utilisation disponibles :${C.reset}\n`);
@@ -1333,8 +1351,7 @@ async function runInteractiveChat(initialEngine) {
           console.log(`  ${m.badge} ${C.bold}${m.name.padEnd(8)}${C.reset} ${m.desc}${isActive ? ` ${C.boldGreen}◀ (Actif)${C.reset}` : ''}`);
         }
         console.log(`\n${C.dim}Usage : /mode <code|plan|review|auto>${C.reset}\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       if (CLI_MODES[targetMode]) {
@@ -1343,11 +1360,10 @@ async function runInteractiveChat(initialEngine) {
       } else {
         console.log(`${C.red}Mode inconnu : "${targetMode}". Choix : code, plan, review, auto${C.reset}\n`);
       }
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
-    if (input.startsWith('/think')) {
+    if (input === '/think' || input.startsWith('/think ')) {
       const targetThink = input.slice(6).trim().toLowerCase();
       if (!targetThink) {
         console.log(`\n${C.bold}Niveaux de réflexion disponibles :${C.reset}\n`);
@@ -1356,8 +1372,7 @@ async function runInteractiveChat(initialEngine) {
           console.log(`  ${C.bold}${t.color}${key.padEnd(8)}${C.reset} : ${t.desc}${isActive ? ` ${C.boldGreen}◀ (Actif)${C.reset}` : ''}`);
         }
         console.log(`\n${C.dim}Usage : /think <off|auto|deep>${C.reset}\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       if (THINKING_LEVELS[targetThink]) {
@@ -1366,8 +1381,7 @@ async function runInteractiveChat(initialEngine) {
       } else {
         console.log(`${C.red}Niveau inconnu : "${targetThink}". Choix : off, auto, deep${C.reset}\n`);
       }
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
     if (input === '/copy') {
@@ -1381,15 +1395,13 @@ async function runInteractiveChat(initialEngine) {
           console.log(`${C.yellow}Impossible de copier dans le presse-papier.${C.reset}\n`);
         }
       }
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
     if (input === '/accept' || input === '/apply') {
       if (!sessionState.lastResponse) {
         console.log(`${C.dim}Aucune proposition d'édition récente à appliquer.${C.reset}\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       const codeBlockRegex = /```(?:[a-zA-Z0-9_\-]+)?\n([\s\S]*?)```/g;
@@ -1408,8 +1420,7 @@ async function runInteractiveChat(initialEngine) {
           console.log(`\n${C.green}✓ Code extrait et copié dans le presse-papier système pour intégration.${C.reset}\n`);
         }
       }
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
     if (input === '/stats' || input === '/cost' || input === '/tokens') {
@@ -1423,17 +1434,15 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
   • Coût d'inférence : ${C.boldGreen}0.00 $${C.reset} ${C.dim}(sur votre GPU physique)${C.reset}
   • Confidentialité  : ${C.green}100% on-device${C.reset} ${C.dim}(aucun octet envoyé hors de la machine)${C.reset}
 `);
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
-    if (input.startsWith('/model')) {
+    if (input === '/model' || input.startsWith('/model ')) {
       const targetModel = input.slice(6).trim();
       if (!targetModel) {
         printModels();
         console.log(`${C.gray}Modèle actif : ${C.yellow}${engine.displayName}${C.reset} [${C.green}${engine.engineType}${C.reset}]\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       process.stderr.write(`${C.dim}Changement de modèle vers ${targetModel}...${C.reset}`);
@@ -1450,19 +1459,17 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       } catch (err) {
         process.stderr.write(`\r${C.red}✗ Échec du changement de modèle : ${err.message}${C.reset}\n\n`);
       }
-      updatePrompt();
-      rl.prompt();
+      resumeAndPrompt();
       return;
     }
 
     // 3. Raccourcis Git intégrés
-    if (input.startsWith('/diff')) {
+    if (input === '/diff' || input.startsWith('/diff ')) {
       const diffArgs = input.slice(5).trim();
       const diff = getGitDiff(diffArgs);
       if (!diff) {
         console.log(`${C.dim}Aucune modification git détectée.${C.reset}\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       console.log(`${C.dim}Analyse du diff git (${diff.split('\n').length} lignes)...${C.reset}\n`);
@@ -1472,8 +1479,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const diff = getGitDiff();
       if (!status && !diff) {
         console.log(`${C.dim}L'arbre de travail git est propre, aucun commit à proposer.${C.reset}\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       console.log(`${C.dim}Génération des messages de commit pour les modifications en cours...${C.reset}\n`);
@@ -1483,8 +1489,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       const resolved = resolve(process.cwd(), targetFile);
       if (!existsSync(resolved)) {
         console.log(`${C.red}Fichier introuvable : ${targetFile}${C.reset}\n`);
-        updatePrompt();
-        rl.prompt();
+        resumeAndPrompt();
         return;
       }
       const code = readFileSync(resolved, 'utf8');
@@ -1586,8 +1591,7 @@ ${C.bold}Statistiques de session Brimkern :${C.reset}
       currentAbortController = null;
     }
 
-    updatePrompt();
-    rl.prompt();
+    resumeAndPrompt();
   });
 
   rl.on('close', async () => {
