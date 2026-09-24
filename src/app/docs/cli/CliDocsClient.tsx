@@ -272,6 +272,19 @@ export default function CliDocsClient() {
           </div>
           <p className={s.tagline}>{t('Fast native streaming & reasoning: /think deep.', 'Streaming natif rapide & raisonnement : /think deep.')}</p>
         </Screen>
+        <Screen title="coder-3b · opus" className={s.modelCard}>
+          <div className={s.modelHead}>
+            <span className={s.boldRed}>Qwen 2.5 Coder 3B</span>
+            <span className={s.dim}>{t('1.93 GB', '1,93 Go')}</span>
+          </div>
+          <div className={s.kv}>
+            <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_K_M</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>Chromium</span>
+            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>~20 tok/s</span>
+            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.sand}>{t('Opus Distilled', 'Distillé Opus')}</span>
+          </div>
+          <p className={s.tagline}>{t('Distilled on Claude Opus 4.6: high quality & reasoning.', 'Distillé sur Claude Opus 4.6 : qualité et raisonnement d’élite.')}</p>
+        </Screen>
         <Screen title="fast" className={s.modelCard}>
           <div className={s.modelHead}>
             <span className={s.boldRed}>Qwen 2.5 Coder 1.5B</span>
@@ -319,7 +332,7 @@ export default function CliDocsClient() {
 
       {/* ── OPTIONS ───────────────────────────────────────────────────────────────────────── */}
       <H2 id="options" n="07">{t('Options', 'Options')}</H2>
-      <Param name="-m, --model=<coder|fast|reason|pro|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
+      <Param name="-m, --model=<coder|coder-3b|fast|reason|pro|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
       <Param name="--mode=<code|plan|review|auto>" type="string">{t('How the assistant intervenes. Default: code.', 'Manière d’intervenir de l’assistant. Défaut : code.')}</Param>
       <Param name="--think=<off|auto|deep>" type="string">{t('Step-by-step reasoning. Default: auto (direct answers; deep turns reasoning on).', 'Raisonnement pas à pas. Défaut : auto (réponses directes ; deep l’active).')}</Param>
       <Param name="--lang=<en|fr>" type="string">{t('Interface language. Default: en (or BRIMKERN_LANG).', 'Langue de l’interface. Défaut : en (ou BRIMKERN_LANG).')}</Param>
