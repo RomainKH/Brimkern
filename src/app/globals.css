@@ -3479,13 +3479,15 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .docs-content a:not(.docs-chip):not(.btn) {
-  color: #f87171;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  color: var(--accent-text);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
 }
 
 .docs-content a:not(.docs-chip):not(.btn):hover {
   color: #ffffff;
+  text-decoration: none;
 }
 
 .docs-side {

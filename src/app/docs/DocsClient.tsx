@@ -141,11 +141,11 @@ export default function DocsClient() {
         </P>
         <P>
           {t('To go further: ', 'Pour aller plus loin : ')}
-          <Link href={href('/docs/models')} style={{ color: 'var(--accent-text)' }}>{t('run any Hugging Face model', "charger n'importe quel modèle Hugging Face")}</Link>
+          <Link href={href('/docs/models')}>{t('run any Hugging Face model', "charger n'importe quel modèle Hugging Face")}</Link>
           {t(', ', ', ')}
-          <Link href={href('/docs/sdk')} style={{ color: 'var(--accent-text)' }}>{t('put the assistant on your own site', 'poser l’assistant sur votre propre site')}</Link>
+          <Link href={href('/docs/sdk')}>{t('put the assistant on your own site', 'poser l’assistant sur votre propre site')}</Link>
           {t(', or ', ', ou ')}
-          <Link href={href('/cli')} style={{ color: 'var(--accent-text)' }}>{t('use the terminal CLI', 'utiliser la CLI dans votre terminal')}</Link>.
+          <Link href={href('/cli')}>{t('use the terminal CLI', 'utiliser la CLI dans votre terminal')}</Link>.
         </P>
       </Section>
 
