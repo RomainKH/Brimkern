@@ -254,8 +254,8 @@ export default function CliDocsClient() {
       <H2 id="models" n="06">{t('Models', 'Modèles')}</H2>
       <P>
         {t(
-          'Two presets, kept because they answered correctly on a bench of developer questions (explaining TypeScript, deduplicating an array by key, diagnosing `this` in an arrow function; M-series Mac, warm cache). Smaller models were faster but drifted off-topic, so they were removed.',
-          'Deux presets, retenus parce qu’ils ont répondu juste sur un banc de questions de développeur (expliquer TypeScript, dédoublonner un tableau par clé, diagnostiquer `this` dans une fonction fléchée ; Mac série M, cache chaud). Les modèles plus petits allaient plus vite mais partaient hors sujet : ils ont été retirés.'
+          'Four curated presets covering code, speed, reasoning, and large-scale refactoring. Kept because they answered correctly on developer benchmarks (M-series Mac, warm cache).',
+          'Quatre presets sélectionnés couvrant le code, la rapidité, le raisonnement et le refactoring lourd. Retenus pour leurs réponses justes sur les bancs de test développeur (Mac série M, cache chaud).'
         )}
       </P>
       <div className={s.models}>
@@ -268,9 +268,9 @@ export default function CliDocsClient() {
             <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>BRIK int4</span>
             <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
             <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>13–16 tok/s</span>
-            <span className={s.kvKey}>{t('bench', 'banc')}</span><span>{t('correct code and diagnosis', 'code et diagnostic justes')}</span>
+            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.green}>{t('Recommended', 'Recommandé')}</span>
           </div>
-          <p className={s.tagline}>{t('Reasoning on demand: /think deep.', 'Raisonnement à la demande : /think deep.')}</p>
+          <p className={s.tagline}>{t('Fast native streaming & reasoning: /think deep.', 'Streaming natif rapide & raisonnement : /think deep.')}</p>
         </Screen>
         <Screen title="fast" className={s.modelCard}>
           <div className={s.modelHead}>
@@ -281,9 +281,35 @@ export default function CliDocsClient() {
             <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_K_M</span>
             <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>Chromium</span>
             <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>~25 tok/s</span>
-            <span className={s.kvKey}>{t('bench', 'banc')}</span><span>{t('on topic, more mistakes', 'dans le sujet, plus d’erreurs')}</span>
+            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.cyan}>{t('Ultra-fast', 'Ultra rapide')}</span>
           </div>
-          <p className={s.tagline}>{t('Review the code it proposes.', 'Relisez le code proposé.')}</p>
+          <p className={s.tagline}>{t('Twice as fast; ideal for shell queries.', 'Deux fois plus rapide ; idéal pour les requêtes shell.')}</p>
+        </Screen>
+        <Screen title="reason" className={s.modelCard}>
+          <div className={s.modelHead}>
+            <span className={s.boldRed}>DeepSeek-R1 1.5B</span>
+            <span className={s.dim}>{t('1.12 GB', '1,12 Go')}</span>
+          </div>
+          <div className={s.kv}>
+            <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_K_M</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>Chromium</span>
+            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>~18 tok/s</span>
+            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.sand}>{t('Step-by-step', 'Pas-à-pas')}</span>
+          </div>
+          <p className={s.tagline}>{t('Thorough logic & architectural reasoning.', 'Raisonnement logique et architectural approfondi.')}</p>
+        </Screen>
+        <Screen title="pro" className={s.modelCard}>
+          <div className={s.modelHead}>
+            <span className={s.boldRed}>Qwen 2.5 Coder 7B</span>
+            <span className={s.dim}>{t('4.68 GB', '4,68 Go')}</span>
+          </div>
+          <div className={s.kv}>
+            <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_K_M</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>Chromium</span>
+            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>~8–10 tok/s</span>
+            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.boldRed}>{t('Pro / 16GB+ RAM', 'Pro / 16Go+ RAM')}</span>
+          </div>
+          <p className={s.tagline}>{t('Highest coding intelligence for deep refactors.', 'Intelligence maximale pour refactorings profonds.')}</p>
         </Screen>
       </div>
       <P>
@@ -293,7 +319,7 @@ export default function CliDocsClient() {
 
       {/* ── OPTIONS ───────────────────────────────────────────────────────────────────────── */}
       <H2 id="options" n="07">{t('Options', 'Options')}</H2>
-      <Param name="-m, --model=<coder|fast|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
+      <Param name="-m, --model=<coder|fast|reason|pro|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
       <Param name="--mode=<code|plan|review|auto>" type="string">{t('How the assistant intervenes. Default: code.', 'Manière d’intervenir de l’assistant. Défaut : code.')}</Param>
       <Param name="--think=<off|auto|deep>" type="string">{t('Step-by-step reasoning. Default: auto (direct answers; deep turns reasoning on).', 'Raisonnement pas à pas. Défaut : auto (réponses directes ; deep l’active).')}</Param>
       <Param name="--lang=<en|fr>" type="string">{t('Interface language. Default: en (or BRIMKERN_LANG).', 'Langue de l’interface. Défaut : en (ou BRIMKERN_LANG).')}</Param>

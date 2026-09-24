@@ -108,8 +108,8 @@ const PRESET_CLI_MODELS = {
     size: t('1.12 GB', '1,12 Go'),
     badge: t('Fast', 'Rapide'),
     defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
-    desc: t('Twice as fast (~25 tok/s) and lighter; review the code it suggests, it makes more mistakes.',
-      'Deux fois plus rapide (~25 tok/s), plus léger ; relire le code proposé, il se trompe plus souvent.'),
+    desc: t('Twice as fast (~25 tok/s) and lighter; ideal for quick scripts, shell queries and lightweight machines.',
+      'Deux fois plus rapide (~25 tok/s), plus léger ; idéal pour scripts rapides, requêtes shell et petites machines.'),
   },
   'reason': {
     name: 'DeepSeek-R1 Distill Qwen 1.5B (GGUF)',
@@ -124,33 +124,7 @@ const PRESET_CLI_MODELS = {
     desc: t('Step-by-step mathematical, architectural and logic reasoning with internal monologue.',
       'Raisonnement mathématique, architectural et logique étape par étape avec monologue intérieur.'),
   },
-  'smollm': {
-    name: 'SmolLM2 1.7B Instruct (GGUF)',
-    shortName: 'SmolLM2 1.7B',
-    url: 'https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf',
-    format: 'gguf',
-    formatLabel: 'GGUF Q4_K_M',
-    runtime: 'WebGPU (Chromium)',
-    size: t('1.05 GB', '1,05 Go'),
-    badge: t('Lightweight', 'Léger'),
-    defaultSystem: 'You are Brimkern Terminal, a sharp, responsive CLI assistant. Provide concise, direct answers.',
-    desc: t('Ultra-responsive and versatile companion for shell questions and daily queries.',
-      'Compagnon ultra-réactif et polyvalent pour les questions shell et le quotidien.'),
-  },
-  'coder-3b': {
-    name: 'Qwen 2.5 Coder 3B (Claude Opus Distill)',
-    shortName: 'Qwen 2.5 Coder 3B',
-    url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
-    format: 'gguf',
-    formatLabel: 'GGUF Q4_K_M',
-    runtime: 'WebGPU (Chromium)',
-    size: t('1.93 GB', '1,93 Go'),
-    badge: t('Opus Distilled', 'Distillé Opus'),
-    defaultSystem: 'You are Brimkern Opus Coder, an expert software architect. Provide elegant, robust and concise code solutions with clear explanations.',
-    desc: t('Distilled on Claude Opus 4.6 traces: high reasoning & code quality in a lightweight 3B format (~20 tok/s).',
-      'Distillé sur des traces Claude Opus 4.6 : haut niveau de raisonnement et de code dans un format 3B léger (~20 tok/s).'),
-  },
-  'coder-7b': {
+  'pro': {
     name: 'Qwen 2.5 Coder 7B Instruct (GGUF)',
     shortName: 'Qwen 2.5 Coder 7B',
     url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf',
@@ -158,43 +132,35 @@ const PRESET_CLI_MODELS = {
     formatLabel: 'GGUF Q4_K_M',
     runtime: 'WebGPU (Chromium)',
     size: t('4.68 GB', '4,68 Go'),
-    badge: t('Heavy Coder', 'Grand Coder'),
+    badge: t('Pro / Heavy', 'Pro / Grand'),
     defaultSystem: 'You are Brimkern Power Coder, a senior lead engineer. Produce robust, production-grade code with thorough tests and explanations.',
     desc: t('Highest code intelligence for machines with 16GB+ RAM. Deep refactoring and architecture.',
       'Niveau maximal d\'intelligence de code pour machines avec 16Go+ de RAM. Refactoring profond.'),
   },
-  'super-coder': {
-    name: 'Qwen 3.5 4B Super Coder (GGUF)',
-    shortName: 'Qwen 3.5 4B Coder',
-    url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/main/qwen3.5-4B-super-coder.Q4_0.gguf',
-    format: 'gguf',
-    formatLabel: 'GGUF Q4_0',
-    runtime: 'WebGPU (Chromium)',
-    size: t('2.61 GB', '2,61 Go'),
-    badge: t('SSM Hybrid', 'Hybride SSM'),
-    defaultSystem: 'You are Brimkern Super Coder, a specialized AI coding engineer. Generate accurate, concise, and clean code.',
-    desc: t('Next-generation hybrid SSM (DeltaNet) + attention: continuous recurrent state with 4B capacity.',
-      'Nouvelle génération hybride SSM (DeltaNet) + attention : état récurrent continu avec puissance 4B.'),
-  },
 };
 
-// Anciennes clés : alias vers les nouvelles (qwen3-4b, coder-1.5b) ou raccourcis pratiques
+// Anciennes clés : alias vers les nouvelles (redirection transparente) ou raccourcis pratiques
 const MODEL_ALIASES = {
   'qwen3-4b': 'coder',
   'coder-1.5b': 'fast',
   'deepseek': 'reason',
   'r1': 'reason',
-  'smol': 'smollm',
-  '3b': 'coder-3b',
-  'opus': 'coder-3b',
-  'opus-coder': 'coder-3b',
-  'qwen-3b': 'coder-3b',
-  'qwen-7b': 'coder-7b',
-  '7b': 'coder-7b',
-  'super': 'super-coder',
-  'qwen35': 'super-coder',
-  'qwen-3.5': 'super-coder',
-  'deltanet': 'super-coder',
+  'smol': 'fast',
+  'smollm': 'fast',
+  '3b': 'coder',
+  'coder-3b': 'coder',
+  'opus': 'coder',
+  'opus-coder': 'coder',
+  'qwen-3b': 'coder',
+  'coder-7b': 'pro',
+  'qwen-7b': 'pro',
+  '7b': 'pro',
+  'heavy': 'pro',
+  'super': 'coder',
+  'super-coder': 'coder',
+  'qwen35': 'coder',
+  'qwen-3.5': 'coder',
+  'deltanet': 'coder',
 };
 const RETIRED_MODELS = new Set(['coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b']);
 
@@ -1699,6 +1665,88 @@ async function createCliEngine(options = {}) {
   return new BrimkernChromiumEngine(options);
 }
 
+// ── Détection et notification de mise à jour ───────────────────────────────────────────
+const UPDATE_CHECK_INTERVAL_MS = 4 * 3600 * 1000; // 4 heures
+
+function getLocalGitCommit() {
+  if (existsSync(join(ROOT, '.git'))) {
+    try {
+      return execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {}
+  }
+  return null;
+}
+
+function fetchRemoteHeadCommit() {
+  try {
+    const out = execSync('git ls-remote --heads https://github.com/RomainKH/Brimkern.git main', {
+      timeout: 3500,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const match = out.match(/^([a-f0-9]{7,40})/);
+    return match ? match[1].slice(0, 7) : null;
+  } catch {
+    return null;
+  }
+}
+
+function scheduleBackgroundUpdateCheck() {
+  const cfg = loadCliConfig();
+  const now = Date.now();
+  if (cfg.lastUpdateCheck && (now - cfg.lastUpdateCheck) < UPDATE_CHECK_INTERVAL_MS) {
+    return;
+  }
+
+  // Ne jamais bloquer le démarrage de la CLI : s'exécute en arrière-plan sans await
+  const timer = setTimeout(() => {
+    try {
+      const currentCommit = getLocalGitCommit();
+      if (!currentCommit) return;
+
+      const remoteCommit = fetchRemoteHeadCommit();
+      if (!remoteCommit) return;
+
+      let hasUpdate = false;
+      try {
+        execSync(`git merge-base --is-ancestor ${remoteCommit} HEAD`, {
+          cwd: ROOT,
+          stdio: ['ignore', 'ignore', 'ignore'],
+        });
+        hasUpdate = false;
+      } catch {
+        hasUpdate = (currentCommit !== remoteCommit);
+      }
+
+      saveCliConfig({
+        lastUpdateCheck: Date.now(),
+        updateInfo: {
+          available: hasUpdate,
+          current: currentCommit,
+          latest: remoteCommit,
+          checkedAt: new Date().toISOString(),
+        },
+      });
+    } catch {}
+  }, 1000);
+  if (timer.unref) timer.unref();
+}
+
+function printUpdateNoticeIfAvailable() {
+  try {
+    const cfg = loadCliConfig();
+    const info = cfg.updateInfo;
+    if (!info || !info.available) return;
+
+    const boxContent = [
+      `${C.bold}${t(`A new version of Brimkern is available (${info.current} → ${info.latest})`, `Une nouvelle version de Brimkern est disponible (${info.current} → ${info.latest})`)}${C.reset}`,
+      `${C.dim}${t('Run `brimkern update` or `/update` to upgrade.', 'Lancez `brimkern update` ou `/update` pour mettre à jour.')}${C.reset}`,
+    ];
+
+    console.log(drawBox(`${C.yellow}▲ ${t('UPDATE AVAILABLE', 'MISE À JOUR DISPONIBLE')}${C.reset}`, boxContent, { color: C.yellow }) + '\n');
+  } catch {}
+}
+
 // ── Mise à jour de la CLI (brimkern update / /update) ─────────────────────────────────
 async function runCliUpdate() {
   console.log(`\n${C.boldRed}Brimkern CLI${C.reset} — ${t('Update & Upgrade', 'Mise à jour')}\n`);
@@ -1723,6 +1771,10 @@ async function runCliUpdate() {
 
       if (currentCommit === remoteCommit) {
         console.log(`${C.green}✓ ${t('Brimkern is already up to date', 'Brimkern est déjà à jour')} (${currentCommit}).${C.reset}\n`);
+        saveCliConfig({
+          updateInfo: { available: false, current: currentCommit, latest: remoteCommit, checkedAt: new Date().toISOString() },
+          lastUpdateCheck: Date.now(),
+        });
         return false;
       }
 
@@ -1750,6 +1802,10 @@ async function runCliUpdate() {
 
       const newCommit = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
       console.log(`\n${C.boldGreen}✓ ${t('Brimkern CLI updated successfully to', 'Brimkern CLI mis à jour avec succès vers')} ${newCommit} !${C.reset}\n`);
+      saveCliConfig({
+        updateInfo: { available: false, current: newCommit, latest: newCommit, checkedAt: new Date().toISOString() },
+        lastUpdateCheck: Date.now(),
+      });
       return true;
     } catch (err) {
       console.error(`\n${C.red}✗ ${t('Update failed:', 'Échec de la mise à jour :')} ${err.message}${C.reset}\n`);
@@ -1762,6 +1818,10 @@ async function runCliUpdate() {
     process.stdout.write(`${C.dim}▸ ${t('Running official installer...', 'Exécution du script d’installation officiel...')}${C.reset}\n`);
     execSync('curl -fsSL https://brimkern.com/install.sh | bash', { stdio: 'inherit' });
     console.log(`\n${C.boldGreen}✓ ${t('Brimkern CLI updated successfully!', 'Brimkern CLI mis à jour avec succès !')}${C.reset}\n`);
+    saveCliConfig({
+      updateInfo: { available: false, checkedAt: new Date().toISOString() },
+      lastUpdateCheck: Date.now(),
+    });
     return true;
   } catch (err) {
     console.error(`\n${C.red}✗ ${t('Update failed:', 'Échec de la mise à jour :')} ${err.message}${C.reset}\n`);
@@ -1796,6 +1856,8 @@ ${drawBox(`${C.boldRed}Brimkern WGSL${C.reset}`, [
 ], { color: C.red })}
 ${C.dim}${t('Type', 'Tapez')} ${C.boldRed}/help${C.reset}${C.dim} ${t('for commands', 'pour les commandes')} · ${C.yellow}Tab${C.reset}${C.dim} ${t('to complete', 'pour compléter')} · ${C.yellow}Esc${C.reset}${C.dim} ${t('to cancel', 'pour annuler')}${C.reset}
 `);
+
+  printUpdateNoticeIfAvailable();
 }
 
 // ── Aide REPL complète ────────────────────────────────────────────────────────────────
@@ -1841,7 +1903,7 @@ function printHelp() {
   const opt = (flag, desc) => `  ${C.yellow}${flag.padEnd(33)}${C.reset}${desc}`;
   const use = (cmd, note = '') => `  ${C.green}${cmd}${C.reset}${note ? ` ${C.gray}# ${note}${C.reset}` : ''}`;
   const cfg = loadCliConfig();
-  const defaultModel = cfg.lastModel || 'coder';
+  const defaultModel = resolveModelKey(cfg.lastModel || 'coder');
   console.log(`
 ${C.boldRed}BRIMKERN CLI${C.reset} — ${t('Local AI inference on WebGPU (WGSL) from your terminal', 'Inférence IA locale en WebGPU (WGSL) depuis le terminal')}
 
@@ -3053,7 +3115,7 @@ async function main() {
   const args = process.argv.slice(2);
   const cfg = loadCliConfig();
 
-  let model = cfg.lastModel || 'coder';
+  let model = resolveModelKey(cfg.lastModel || 'coder');
   let system = null;
   let maxTokens = 512;
   let temperature = 0.3;
@@ -3090,7 +3152,8 @@ async function main() {
       const cfg = loadCliConfig();
       console.log(`\n${C.boldRed}Brimkern CLI${C.reset} — ${t('Status & Configuration', 'Statut & Configuration')}\n`);
       console.log(`  • ${t('Config file', 'Fichier config').padEnd(18)}: ${join(homedir(), '.config', 'brimkern', 'config.json')}`);
-      console.log(`  • ${t('Default model', 'Modèle par défaut').padEnd(18)}: ${cfg.lastModel || 'coder'} (${PRESET_CLI_MODELS[cfg.lastModel || 'coder']?.shortName || 'custom'})`);
+      const effectiveModel = resolveModelKey(cfg.lastModel || 'coder');
+      console.log(`  • ${t('Default model', 'Modèle par défaut').padEnd(18)}: ${effectiveModel} (${PRESET_CLI_MODELS[effectiveModel]?.shortName || 'custom'})`);
       console.log(`  • ${t('WebGPU runtime', 'Runtime WebGPU').padEnd(18)}: Dawn (native) & Chromium headless`);
       console.log(`  • ${t('Install location', 'Emplacement install').padEnd(18)}: ${ROOT}\n`);
       return;
@@ -3223,8 +3286,14 @@ async function main() {
 
   // Si chat explicite ou aucun prompt en terminal interactif -> REPL chat
   if (isChat || (!prompt && process.stdin.isTTY)) {
+    scheduleBackgroundUpdateCheck();
     await runInteractiveChat(engine);
     return;
+  }
+
+  if (!raw && !isQuiet && !isJson && process.stdout.isTTY) {
+    scheduleBackgroundUpdateCheck();
+    printUpdateNoticeIfAvailable();
   }
 
   if (!prompt) {
