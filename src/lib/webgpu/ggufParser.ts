@@ -47,6 +47,11 @@ export interface Manifest {
     lfm2?: { lCache: number; kvHeadsPerLayer: number[] };
     // Qwen 3.5 (moteur v2, hybride SSM Gated DeltaNet + full attention).
     qwen35?: { fullAttnInterval: number; dConv: number; dInner: number; dState: number; dtRank: number; nGroup: number };
+    // Gemma 4 (gemma4Model.ts) : têtes de taille DIFFÉRENTE selon la couche (fenêtre glissante :
+    // headDimSwa, θ ropeThetaSwa ; globale : headDim, θ ropeTheta + RoPE partiel via rope_freqs),
+    // embeddings PAR COUCHE (perLayer dims par couche, table lue à la demande), et les couches
+    // ≥ nLayerKv sans K/V propres : elles relisent le cache de kvSrc[i].
+    gemma4?: { swa: boolean[]; headDimSwa: number; ropeThetaSwa: number; window: number; perLayer: number; nLayerKv: number; kvSrc: number[] };
   };
   tensors: Record<string, TensorInfo>;
   // Métadonnées GGUF brutes (clé → valeur) : les fichiers non-LLM (mmproj vision, arch `clip`)
@@ -140,9 +145,16 @@ class BinaryReader {
     }
     const bytes = new Uint8Array(this.view.buffer, this.offset, len);
     this.offset += len;
-    return new TextDecoder().decode(bytes);
+    return UTF8.decode(bytes);
   }
 }
+
+// ignoreBOM : par défaut TextDecoder SUPPRIME un BOM (U+FEFF) en tête de chaîne. Les vocabulaires de
+// style SentencePiece en contiennent : Gemma 4 a « \ufeff// » (id 135260) à côté de « // » (715). Le
+// BOM avalé, les deux tokens avaient le même texte et le second écrasait le premier dans la table du
+// tokenizer — 33 tokens faux sur un fichier de code commenté, et un modèle qui décroche de llama.cpp
+// dès la couche 0 (somme des embeddings 1,9 contre 2 341) sans que rien ne plante.
+const UTF8 = new TextDecoder('utf-8', { ignoreBOM: true });
 
 // Énumération ggml complète : au-delà de Q8_K viennent les quants « IQ » (à table de codes) et les
 // types entiers/BF16. On ne sait en déquantifier aucun — mais les NOMMER change le message d'erreur
@@ -423,6 +435,32 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
     const isGlobal = (i: number) => (i + 1) % pattern === 0;
     config.windowPerLayer = Array.from({ length: blockCount }, (_, i) => (isGlobal(i) ? 0 : win));
     config.ropeThetaPerLayer = Array.from({ length: blockCount }, (_, i) => (isGlobal(i) ? ropeTheta : localTheta));
+  }
+
+  // Gemma 4 (E2B/E4B) : graphe propre (gemma4Model.ts), cf. llama.cpp src/models/gemma4.cpp.
+  // - sliding_window_pattern est un TABLEAU de booléens par couche (true = fenêtre glissante) ;
+  // - key_length (512) vaut pour les couches globales, key_length_swa (256) pour les autres ;
+  // - shared_kv_layers : les N dernières couches n'ont pas de K/V propres et relisent le cache de la
+  //   DERNIÈRE couche à K/V du même type (llama-model.cpp : n_layer_kv_from_start − (swa ? 2 : 1)) ;
+  // - échelle d'attention 1 (q et k sont normés par tête), softcap final 30, GELU.
+  if (arch === 'gemma4') {
+    const pat = metadata['gemma4.attention.sliding_window_pattern'];
+    const swa = Array.isArray(pat) && pat.length === blockCount ? pat.map((v) => v === true || v === 1) : Array.from({ length: blockCount }, (_, i) => (i + 1) % 6 !== 0);
+    const nLayerKv = blockCount - getMetaU32('attention.shared_kv_layers', 0);
+    const lastKv = (want: boolean) => { for (let j = nLayerKv - 1; j >= 0; j--) if (swa[j] === want) return j; return -1; };
+    config.act = 'gelu';
+    config.embedScale = Math.sqrt(d);
+    config.attnScale = 1;
+    config.finalLogitSoftcap = getMetaF32('final_logit_softcapping', 0) || undefined;
+    config.gemma4 = {
+      swa,
+      headDimSwa: getMetaU32('attention.key_length_swa', 256),
+      ropeThetaSwa: getMetaF32('rope.freq_base_swa', 10000),
+      window: getMetaU32('attention.sliding_window', 512),
+      perLayer: getMetaU32('embedding_length_per_layer_input', 0),
+      nLayerKv,
+      kvSrc: Array.from({ length: blockCount }, (_, i) => (i < nLayerKv ? i : lastKv(swa[i]))),
+    };
   }
 
   // SmolLM3 : Llama standard SAUF le NoPE — une couche sur 4 (indices 3, 7, 11…) n'applique PAS de

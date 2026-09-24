@@ -42,10 +42,10 @@ function asSource(src: Blob | File | TensorSource): TensorSource {
 export { coalescedSpan, spanRawTensor } from './layerSpans';
 
 export class CustomWebModel {
-	private engine: WebGpuEngine;
-	private source: TensorSource;
+	protected engine: WebGpuEngine;
+	protected source: TensorSource;
 	public manifest: Manifest;
-	private rawCache = new Map<string, Uint8Array>();
+	protected rawCache = new Map<string, Uint8Array>();
 
 	constructor(engine: WebGpuEngine, file: Blob | File | TensorSource, manifest: Manifest) {
 		this.engine = engine;
@@ -95,7 +95,7 @@ export class CustomWebModel {
 	}
 
 	// Raw bytes of a tensor, read from the source (local slice or streamed range) and cached in RAM.
-	private async rawTensor(name: string): Promise<Uint8Array> {
+	protected async rawTensor(name: string): Promise<Uint8Array> {
 		const cached = this.rawCache.get(name);
 		if (cached) return cached;
 		const t = this.manifest.tensors[name];
@@ -187,8 +187,8 @@ export class CustomWebModel {
 	// Échec → on retombe silencieusement sur le chemin par-tenseur (rawTensor), jamais bloquant.
 	// Le calcul du span vit dans coalescedSpan (exporté) : le préchargement (source.ts prefetchBrik)
 	// DOIT produire exactement les mêmes plages, sinon les clés du cache HTTP ne matchent pas.
-	private layerSpan = new Map<number, Promise<void>>();
-	private ensureLayerSpan(idx: number): Promise<void> {
+	protected layerSpan = new Map<number, Promise<void>>();
+	protected ensureLayerSpan(idx: number): Promise<void> {
 		let p = this.layerSpan.get(idx);
 		if (!p) {
 			p = this.fetchLayerSpan(idx).catch(() => { this.layerSpan.delete(idx); });
@@ -235,7 +235,7 @@ export class CustomWebModel {
 		}
 	}
 
-	private async dequant(name: string): Promise<Float32Array> {
+	protected async dequant(name: string): Promise<Float32Array> {
 		const t = this.manifest.tensors[name];
 		const bytes = await this.rawTensor(name);
 		return this.engine.dequantizeByType(t.type, bytes, t.nElems);
@@ -333,8 +333,9 @@ export class CustomWebModel {
 
 	// Free a cached weight whether it's a plain GPU buffer (f32/f16), a q4 {nib,sc,mn} triple, or a
 	// q8 {codes,sc} pair.
-	private static destroyWeight(b: any) {
+	protected static destroyWeight(b: any) {
 		if (!b) return;
+		if (b.kq) { b.buf?.destroy?.(); return; }
 		if (b.q3) { b.lo?.destroy?.(); b.hi?.destroy?.(); b.sc?.destroy?.(); b.mn?.destroy?.(); }
 		else if (b.nib) { b.nib?.destroy?.(); b.sc?.destroy?.(); b.mn?.destroy?.(); }
 		else if (b.codes) { b.codes?.destroy?.(); b.sc?.destroy?.(); }
@@ -432,7 +433,7 @@ export class CustomWebModel {
 	// GPU-resident layer weights: EVERY tensor (matrices AND norms/biases) is a persistent GPU
 	// buffer, uploaded once and reused across all decode steps. Feeds engine.runDecodeGpu.
 	private layerGpuCache = new Map<number, LayerWeightsGpu>();
-	private finalNormGpu: any = null;
+	protected finalNormGpu: any = null;
 
 	// ── Préchauffe : mettre les poids sur le GPU AVANT le premier message ────────────────────────
 	// Les poids d'une couche étaient chargés et quantifiés au PREMIER forward qui en a besoin. L'UI
@@ -525,7 +526,7 @@ export class CustomWebModel {
 		return w;
 	}
 
-	private async getFinalNormGpu(): Promise<any> {
+	protected async getFinalNormGpu(): Promise<any> {
 		if (!this.finalNormGpu) this.finalNormGpu = this.engine.uploadGpu(await this.dequant('output_norm.weight'));
 		return this.finalNormGpu;
 	}
@@ -617,10 +618,10 @@ export class CustomWebModel {
 	// Tuiles de projection : `w` est un handle recMM — {codes, sc} q8 (historique) OU {nib, sc, mn}
 	// q4 NATIF quand la source est Q4W (embeddings int4 du tier q4 : ½ la VRAM de la tête, et pas
 	// de requantification q4→q8 qui gonflerait le chargement).
-	private projQ8: { w: any; rows: number; r0: number }[] | null = null;
-	private projVocab = 0;
+	protected projQ8: { w: any; rows: number; r0: number }[] | null = null;
+	protected projVocab = 0;
 
-	private async getProjectionQ8(d: number): Promise<{ w: any; rows: number; r0: number }[]> {
+	protected async getProjectionQ8(d: number): Promise<{ w: any; rows: number; r0: number }[]> {
 		if (this.projQ8) return this.projQ8;
 		// Tied models (Qwen/Gemma) reuse token_embd; untied (Llama) have output.weight.
 		const name = this.manifest.tensors['output.weight'] ? 'output.weight' : 'token_embd.weight';

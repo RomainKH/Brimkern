@@ -10,6 +10,8 @@ import { WebGpuEngine } from '../lib/webgpu/kernels';
 import { Lfm2Model } from '../lib/webgpu/lfm2Model';
 import { RwkvModel } from '../lib/webgpu/rwkvModel';
 import { CustomWebModel, type TensorSource } from '../lib/webgpu/model';
+import { Gemma4Model } from '../lib/webgpu/gemma4Model';
+import { gemma4TokenizerFromGguf } from '../lib/gemma4Tokenizer';
 import { loadBrikStream, loadGgufStream, prefetchGguf, fetchFullCached, fetchRange } from '../lib/webgpu/source';
 import { spanRawTensor } from '../lib/webgpu/layerSpans';
 import { formatPrompt, declaredStopIds, TURN_MARKERS } from '../lib/chatFormat';
@@ -29,6 +31,7 @@ function inferArchType(manifest: { arch?: string; metadata?: Record<string, unkn
   if (arch === 'qwen3' || arch.includes('qwen3')) return 'qwen3';
   if (arch === 'smollm3' || arch.includes('smollm')) return 'smollm3';
   if (arch === 'mistral3' || arch.includes('mistral')) return 'mistral3';
+  if (arch === 'gemma4') return 'gemma4';
   if (arch === 'gemma3') return 'gemma3';
   if (arch === 'gemma' || arch === 'gemma2') return 'gemma';
   if (arch === 'deepseek') return 'deepseek';
@@ -242,7 +245,8 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     const archType = inferArchType(manifest);
 
     onProgress('tokenizer');
-    const ggTok = tokenizerFromGguf(manifest);
+    // Gemma 4 : BPE de style SentencePiece, que tokenizerFromGguf (byte-level) segmenterait faux.
+    const ggTok = archType === 'gemma4' ? gemma4TokenizerFromGguf(manifest) : tokenizerFromGguf(manifest);
     let tok: { encode(s: string): number[]; decode(ids: number[]): string };
     const stopIds: number[] = declaredStopIds(manifest.metadata);
 
@@ -270,9 +274,10 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     // Fin de tour propre à Gemma, absente des métadonnées : sans elle la génération enchaîne un
     // faux tour suivant (mêmes ids que isStopToken dans chatFormat).
     if (archType === 'gemma3') stopIds.push(106, 1);
+    if (archType === 'gemma4') stopIds.push(106, 1, 50);
     if (archType === 'gemma') stopIds.push(107, 1);
 
-    const customModel = new CustomWebModel(engine, source, manifest);
+    const customModel = archType === 'gemma4' ? new Gemma4Model(engine, source, manifest) : new CustomWebModel(engine, source, manifest);
     onProgress('gpu');
     await customModel.prewarmGpu((done, total) => {
       onProgress('gpu', { loaded: done, total });

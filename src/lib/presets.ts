@@ -1,7 +1,7 @@
 // Shared model + tokenizer presets and the UI architecture tag, used by the main app and the
 // standalone /convert page.
 
-export type ArchType = 'qwen' | 'qwen3' | 'qwen35' | 'llama3' | 'llama2' | 'gemma' | 'gemma3' | 'smollm3' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
+export type ArchType = 'qwen' | 'qwen3' | 'qwen35' | 'llama3' | 'llama2' | 'gemma' | 'gemma3' | 'gemma4' | 'smollm3' | 'deepseek' | 'mistral3' | 'lfm2' | 'rwkv7';
 
 // `useCase`: a short capability label shown as a badge so the picker reads like modern model
 // catalogs ("for X"). BILINGUE depuis le 2026-08-13 : ces badges étaient en français dans un

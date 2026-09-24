@@ -19,6 +19,21 @@ export function coalescedSpan(tensors: { offset: number; bytes: number }[]): { s
 	return { start, end };
 }
 
+// Tenseurs LUS À LA DEMANDE, ligne par ligne, jamais chargés entiers : la table d'embeddings PAR
+// COUCHE de Gemma 4 (per_layer_token_embd, 2,3 Go en Q6_K sur le E4B — plus que toutes ses couches
+// réunies) dont chaque token n'utilise qu'une ligne de 8,8 Ko. llama.cpp la marque TENSOR_READ_LAZY
+// pour la même raison. On la découpe sur une GRILLE FIXE de morceaux de 4 Mo alignée sur le début du
+// tenseur : le préchargement (source.ts) stocke ces morceaux-là, et le lecteur de lignes
+// (gemma4Model.ts) redemande exactement ces plages — mêmes clés de cache, aucun retéléchargement.
+// Un seul span de 2,3 Go, lui, ne tiendrait ni dans une entrée de cache ni dans un ArrayBuffer.
+export const LAZY_TENSORS = new Set(['per_layer_token_embd.weight']);
+export const LAZY_CHUNK = 4 << 20;
+export function lazyChunkRanges(t: { offset: number; bytes: number }): { off: number; len: number }[] {
+	const out: { off: number; len: number }[] = [];
+	for (let o = 0; o < t.bytes; o += LAZY_CHUNK) out.push({ off: t.offset + o, len: Math.min(LAZY_CHUNK, t.bytes - o) });
+	return out;
+}
+
 // Lecture des tenseurs PAR SPAN DE COUCHE, pour les modèles qui ne passent pas par CustomWebModel
 // (lfm2, rwkv7 : classes dédiées qui reçoivent un `rawTensor` injecté).
 //

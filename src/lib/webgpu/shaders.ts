@@ -1291,6 +1291,128 @@ export const SHADERS = {
 			if (tid == 0u && col < d.n) { c[col] = part[0]; }
 		}`,
 
+	// GEMV sur des poids Q4_K NATIFS (super-blocs GGUF de 144 o / 256 poids, lignes contiguës), sans
+	// requantification. Requantifier Q4_K → int4 ajoutait un second arrondi (Gemma 4 : 51/64 premiers
+	// choix communs avec llama.cpp au lieu de 64/64) et passer en int8 doublait les octets relus à
+	// chaque token (le décodage est limité par la bande passante : ~60 ms/token pour 4,8 Go en int8).
+	// Même découpage que matmul_t_q8_vec : un workgroup par colonne de sortie, les 64 lanes se
+	// partagent les sous-blocs de 32 poids de la ligne. Par sous-blocs : Σ a·(d·sc·q − dmin·mn)
+	// = d·sc·Σ a·q − dmin·mn·Σ a, les deux sommes en vec4 sur 8 mots de 4 quartets.
+	matmul_t_q4k_vec: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> q: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 64>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn byteAt(base: u32, k: u32) -> u32 { return (q[base + (k >> 2u)] >> ((k & 3u) * 8u)) & 0xFFu; }
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let nSub = d.k / 32u;
+			var acc = 0.0;
+			if (col < d.n) {
+				let rowBase = col * (d.k / 256u) * 36u;
+				for (var g = tid; g < nSub; g = g + 64u) {
+					let base = rowBase + (g >> 3u) * 36u;
+					let j = g & 7u;
+					let dm = q[base];
+					var sc6: u32; var mn6: u32;
+					if (j < 4u) {
+						sc6 = byteAt(base, 4u + j) & 63u;
+						mn6 = byteAt(base, 8u + j) & 63u;
+					} else {
+						sc6 = (byteAt(base, 8u + j) & 0xFu) | ((byteAt(base, j) >> 6u) << 4u);
+						mn6 = (byteAt(base, 8u + j) >> 4u) | ((byteAt(base, 4u + j) >> 6u) << 4u);
+					}
+					let w0 = base + 4u + (j >> 1u) * 8u;
+					let sh = (j & 1u) * 4u;
+					let aBase = g * 8u;
+					var s = 0.0; var sa = 0.0;
+					for (var w = 0u; w < 8u; w = w + 1u) {
+						let word = q[w0 + w] >> sh;
+						let v = vec4<f32>(f32(word & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 16u) & 0xFu), f32((word >> 24u) & 0xFu));
+						let av = a[aBase + w];
+						s = s + dot(av, v);
+						sa = sa + av.x + av.y + av.z + av.w;
+					}
+					acc = acc + f16d(dm & 0xFFFFu) * f32(sc6) * s - f16d(dm >> 16u) * f32(mn6) * sa;
+				}
+			}
+			part[tid] = acc;
+			workgroupBarrier();
+			for (var stride = 32u; stride > 0u; stride = stride >> 1u) {
+				if (tid < stride) { part[tid] = part[tid] + part[tid + stride]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = part[0]; }
+		}`,
+
+	// GEMV sur des poids Q6_K NATIFS (210 o / 256 poids : ql[128], qh[64], scales int8[16], d f16).
+	// 210 n'étant pas multiple de 4, tout se lit par octet dans le tableau u32. Unité de travail d'une
+	// lane : (bloc, moitié, quart de 16 positions l) → 64 poids aux sous-blocs l, l+32, l+64, l+96, dont
+	// les échelles sont constantes sur l'unité — mêmes formules que dequant_q6k.
+	matmul_t_q6k_vec: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<f32>;
+		@group(0) @binding(2) var<storage, read> q: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 64>;
+		fn gb(i: u32) -> u32 { return (q[i >> 2u] >> ((i & 3u) * 8u)) & 0xFFu; }
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn si8(b: u32) -> f32 { let s = i32(b); return f32(select(s, s - 256, s > 127)); }
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let nBlk = d.k / 256u;
+			var acc = 0.0;
+			if (col < d.n) {
+				let rowBase = col * nBlk * 210u;
+				for (var u = tid; u < nBlk * 4u; u = u + 64u) {
+					let b = u >> 2u;
+					let half = (u >> 1u) & 1u;
+					let lh = u & 1u;
+					let base = rowBase + b * 210u;
+					let qlB = base + half * 64u;
+					let qhB = base + 128u + half * 32u;
+					let scB = base + 192u + half * 8u;
+					let aB = b * 256u + half * 128u;
+					var s1 = 0.0; var s2 = 0.0; var s3 = 0.0; var s4 = 0.0;
+					for (var i = 0u; i < 16u; i = i + 1u) {
+						let l = lh * 16u + i;
+						let qll = gb(qlB + l); let qll32 = gb(qlB + l + 32u); let qhl = gb(qhB + l);
+						s1 = s1 + a[aB + l] * f32(i32((qll & 0xFu) | ((qhl & 3u) << 4u)) - 32);
+						s2 = s2 + a[aB + l + 32u] * f32(i32((qll32 & 0xFu) | (((qhl >> 2u) & 3u) << 4u)) - 32);
+						s3 = s3 + a[aB + l + 64u] * f32(i32((qll >> 4u) | (((qhl >> 4u) & 3u) << 4u)) - 32);
+						s4 = s4 + a[aB + l + 96u] * f32(i32((qll32 >> 4u) | (((qhl >> 6u) & 3u) << 4u)) - 32);
+					}
+					let dd = f16d(gb(base + 208u) | (gb(base + 209u) << 8u));
+					acc = acc + dd * (si8(gb(scB + lh)) * s1 + si8(gb(scB + lh + 2u)) * s2 + si8(gb(scB + lh + 4u)) * s3 + si8(gb(scB + lh + 6u)) * s4);
+				}
+			}
+			part[tid] = acc;
+			workgroupBarrier();
+			for (var stride = 32u; stride > 0u; stride = stride >> 1u) {
+				if (tid < stride) { part[tid] = part[tid] + part[tid + stride]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = part[0]; }
+		}`,
+
 	// RMSNorm over the last dimension (dim = cols), with a per-channel weight.
 	rmsnorm: `
 		struct P { rows: u32, dim: u32, eps: f32, onePlus: u32 };
@@ -1400,6 +1522,22 @@ export const SHADERS = {
 			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;  // 2-D workgroup grid → flat index (no dim > 65535)
 			if (i >= arrayLength(&o)) { return; }
 			o[i] = a[i] + b[i];
+		}`,
+
+	// o = x · s, s scalaire (uniform). Gemma 4 multiplie le flux résiduel entier par un scalaire appris
+	// en sortie de chaque couche (layer_output_scale). Il ne se replie dans aucun poids : il porte aussi
+	// sur l'entrée résiduelle, et le produit des 42 facteurs (~0,4 chacun) ferait déborder un flux
+	// non normalisé qu'on voudrait corriger à la fin.
+	scale: `
+		struct SP { n: u32, s: f32 };
+		@group(0) @binding(0) var<uniform> p: SP;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.n) { return; }
+			o[i] = x[i] * p.s;
 		}`,
 
 	// ── Image-generation primitives (diffusion: UNet + VAE). See docs/image-gen-feasibility.md. ──
@@ -3561,6 +3699,108 @@ export const SHADERS = {
 			let inv = 1.0 / denom;
 			if (d0 < hd) { o[qBase + d0] = acc0 * inv; }
 			if (d1 < hd) { o[qBase + d1] = acc1 * inv; }
+		}`,
+
+	// Attention « large » : têtes de 129 à 512 dimensions (Gemma 4 : 256 et 512 ; Gemma 3, Qwen 3.5 :
+	// 256). Les kernels rapides ci-dessus plafonnent à headDim 128 (qs de 128, deux accumulateurs par
+	// lane) ; au-delà tout retombait sur `attention`, UN thread par (token, tête) qui parcourt seul
+	// tout le cache : mesuré sur Gemma 4 E4B à 1 668 tokens de contexte, 0,4 tok/s en décodage.
+	// Même recette que attention_decode — un workgroup de 64 lanes par (token, tête), une position de
+	// K par lane et par tuile, softmax en ligne — avec la query entière en mémoire partagée (512) et
+	// HUIT accumulateurs V nommés par lane (dimensions lane + 64·r). Toujours pas de tableau privé
+	// indexé dynamiquement (spill/miscompile Adreno/Mali). Sert au décodage ET au prefill (grille
+	// nTokens·nHeads, bornée à 65 535 au dispatch) : sans tuilage des requêtes, mais parallèle.
+	attention_wide: `
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32, window: u32 };
+		@group(0) @binding(0) var<uniform> p: AP;
+		@group(0) @binding(1) var<storage, read> q: array<f32>;
+		@group(0) @binding(2) var<storage, read> k: array<f32>;
+		@group(0) @binding(3) var<storage, read> v: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		var<workgroup> qs: array<f32, 512>;
+		var<workgroup> sc: array<f32, 64>;
+		var<workgroup> red: array<f32, 64>;
+		fn score(dot: f32) -> f32 {
+			let s = dot * p.scale;
+			return select(s, p.softcap * tanh(s / p.softcap), p.softcap > 0.0);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = wid.x;
+			let lane = lid.x;
+			let t = idx / p.nHeads;
+			let h = idx % p.nHeads;
+			let hd = p.headDim;
+			let kvh = h / (p.nHeads / p.nKvHeads);
+			let qBase = (t * p.nHeads + h) * hd;
+			let last = p.pastLen + t;
+			var jStart = 0u;
+			if (p.window > 0u && last + 1u > p.window) { jStart = last + 1u - p.window; }
+			for (var d = lane; d < hd; d = d + 64u) { qs[d] = q[qBase + d]; }
+			workgroupBarrier();
+			var m = -3.0e38;
+			var denom = 0.0;
+			var a0 = 0.0; var a1 = 0.0; var a2 = 0.0; var a3 = 0.0;
+			var a4 = 0.0; var a5 = 0.0; var a6 = 0.0; var a7 = 0.0;
+			let vStride = p.nKvHeads * hd;
+			let nChunks = (last - jStart + 64u) / 64u;
+			for (var c = 0u; c < nChunks; c = c + 1u) {
+				let j = jStart + c * 64u + lane;
+				var s = -3.0e38;
+				if (j <= last) {
+					let kB = (j * p.nKvHeads + kvh) * hd;
+					var qk = 0.0;
+					for (var d = 0u; d < hd; d = d + 4u) {
+						qk = qk + dot(vec4<f32>(qs[d], qs[d + 1u], qs[d + 2u], qs[d + 3u]), vec4<f32>(k[kB + d], k[kB + d + 1u], k[kB + d + 2u], k[kB + d + 3u]));
+					}
+					s = score(qk);
+				}
+				red[lane] = s;
+				workgroupBarrier();
+				for (var off = 32u; off > 0u; off = off >> 1u) {
+					if (lane < off) { red[lane] = max(red[lane], red[lane + off]); }
+					workgroupBarrier();
+				}
+				let newM = max(m, red[0]);
+				workgroupBarrier();
+				let e = select(0.0, exp(s - newM), j <= last);
+				sc[lane] = e;
+				red[lane] = e;
+				workgroupBarrier();
+				for (var off = 32u; off > 0u; off = off >> 1u) {
+					if (lane < off) { red[lane] = red[lane] + red[lane + off]; }
+					workgroupBarrier();
+				}
+				let alpha = exp(m - newM);
+				denom = denom * alpha + red[0];
+				m = newM;
+				let nValid = min(64u, last + 1u - jStart - c * 64u);
+				let vRow0 = ((jStart + c * 64u) * p.nKvHeads + kvh) * hd + lane;
+				a0 = a0 * alpha; a1 = a1 * alpha; a2 = a2 * alpha; a3 = a3 * alpha;
+				a4 = a4 * alpha; a5 = a5 * alpha; a6 = a6 * alpha; a7 = a7 * alpha;
+				for (var i = 0u; i < nValid; i = i + 1u) {
+					let w = sc[i];
+					let b = vRow0 + i * vStride;
+					if (lane < hd) { a0 = a0 + w * v[b]; }
+					if (lane + 64u < hd) { a1 = a1 + w * v[b + 64u]; }
+					if (lane + 128u < hd) { a2 = a2 + w * v[b + 128u]; }
+					if (lane + 192u < hd) { a3 = a3 + w * v[b + 192u]; }
+					if (lane + 256u < hd) { a4 = a4 + w * v[b + 256u]; }
+					if (lane + 320u < hd) { a5 = a5 + w * v[b + 320u]; }
+					if (lane + 384u < hd) { a6 = a6 + w * v[b + 384u]; }
+					if (lane + 448u < hd) { a7 = a7 + w * v[b + 448u]; }
+				}
+				workgroupBarrier();
+			}
+			let inv = 1.0 / denom;
+			if (lane < hd) { o[qBase + lane] = a0 * inv; }
+			if (lane + 64u < hd) { o[qBase + lane + 64u] = a1 * inv; }
+			if (lane + 128u < hd) { o[qBase + lane + 128u] = a2 * inv; }
+			if (lane + 192u < hd) { o[qBase + lane + 192u] = a3 * inv; }
+			if (lane + 256u < hd) { o[qBase + lane + 256u] = a4 * inv; }
+			if (lane + 320u < hd) { o[qBase + lane + 320u] = a5 * inv; }
+			if (lane + 384u < hd) { o[qBase + lane + 384u] = a6 * inv; }
+			if (lane + 448u < hd) { o[qBase + lane + 448u] = a7 * inv; }
 		}`,
 
 	// Variante décodage de attention_q8kv : même parallélisation workgroup-par-tête que

@@ -6,7 +6,7 @@
 // in the Cache API so repeat loads are instant and offline-capable. Falls back to a single full
 // download if the host doesn't honour Range requests.
 
-import { coalescedSpan } from './layerSpans';
+import { coalescedSpan, LAZY_TENSORS, lazyChunkRanges } from './layerSpans';
 import { type TensorSource } from './model';
 import { parseGguf } from './ggufParser';
 import { parseBrik, parseBrikHeader } from '../brik/container';
@@ -414,6 +414,9 @@ function planTensorRanges(gg: GgufManifest, base: number): { off: number; len: n
 			let g = byLayer.get(m[1]);
 			if (!g) byLayer.set(m[1], (g = []));
 			g.push(t);
+		} else if (LAZY_TENSORS.has(name)) {
+			// Table lue ligne par ligne (Gemma 4) : même grille de morceaux que son lecteur.
+			for (const r of lazyChunkRanges(t)) ranges.push({ off: base + r.off, len: r.len });
 		} else {
 			ranges.push({ off: base + t.offset, len: t.bytes });
 		}

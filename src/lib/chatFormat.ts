@@ -110,6 +110,15 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       if (msg.role === 'user') formatted += `[INST]${msg.content}[/INST]`;
       else if (msg.role === 'assistant') formatted += `${msg.content}</s>`;
     }
+  } else if (archType === 'gemma4') {
+    // Gemma 4 : vrai tour système (<|turn>system), plus de <start_of_turn>. Le BOS est posé par le
+    // tokenizer (gemma4Tokenizer force add_bos comme llama.cpp). Mode réflexion NON activé : il
+    // s'allume en écrivant <|think|> en tête du système, choix laissé à l'appelant.
+    if (systemText.trim()) formatted += `<|turn>system\n${systemText.trim()}<turn|>\n`;
+    for (const msg of chatMsgs) {
+      formatted += `<|turn>${msg.role === 'assistant' ? 'model' : 'user'}\n${msg.content.trim()}<turn|>\n`;
+    }
+    formatted += `<|turn>model\n`;
   } else if (archType === 'gemma' || archType === 'gemma3') {
     if (systemText.trim()) {
       formatted += `<start_of_turn>model\n${systemText}<end_of_turn>\n`;
@@ -168,6 +177,8 @@ export function isStopToken(tokenId: number, text: string, archType: ArchType, d
   if (tokenId === 107 && archType === 'gemma') return true;
   // Gemma 3 : nouveau vocab 262k — <end_of_turn> = 106 (et non 107 comme Gemma 1/2).
   if (tokenId === 106 && archType === 'gemma3') return true;
+  // Gemma 4 : <turn|> = 106, <eos> = 1, et <|tool_response> = 50 (fin de génération côté llama.cpp).
+  if ((tokenId === 106 || tokenId === 1 || tokenId === 50) && archType === 'gemma4') return true;
   if (tokenId === 151645 && (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35')) return true;
   if (tokenId === 151643 && (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35')) return true;
   // LFM2/LFM2.5 : <|im_end|> = 7, <|endoftext|> = 2 (vocab 65536, ids ChatML propres au modèle).

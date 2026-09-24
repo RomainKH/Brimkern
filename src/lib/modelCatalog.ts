@@ -325,6 +325,7 @@ export const GGUF_ARCH_FAMILY: Partial<Record<string, { archType: ArchType; toke
   gemma2: { archType: 'gemma', tokenizerId: 'Xenova/gemma-tokenizer' },
   // Gemma 3 : vocab 262k DIFFÉRENT de Gemma 1/2 (ids de tour décalés) → tokenizer dédié.
   gemma3: { archType: 'gemma3', tokenizerId: 'unsloth/gemma-3-270m-it' },
+  gemma4: { archType: 'gemma4', tokenizerId: 'google/gemma-4-E4B-it' },
   // SmolLM3 : vocab Llama-like propre au modèle (NoPE côté moteur, cf. ggufParser).
   smollm3: { archType: 'smollm3', tokenizerId: 'HuggingFaceTB/SmolLM3-3B' },
   qwen3: { archType: 'qwen3', tokenizerId: 'Qwen/Qwen3-0.6B' },
