@@ -2987,7 +2987,6 @@ function App() {
     activeModelUrl: loadedModelUrl,
     onSelectQuickModel: handleSelectQuickModel,
     onOpenModelBrowser: () => setBrowseOpen(true),
-    onOpenOptions: () => setOptionsOpen(true),
   };
 
   // On mobile, only the light models are shown by default (phone GPUs/VRAM choke on the bigger
@@ -3399,21 +3398,14 @@ function App() {
             </div>
           )}
 
-          {/* Réglages + stockage */}
-          <div style={{ marginTop: 'auto', paddingTop: '10px', display: 'flex', gap: 8 }}>
+          {/* Stockage & Cache OPFS */}
+          <div style={{ marginTop: 'auto', paddingTop: '10px' }}>
             <button
-              className="btn btn-secondary"
-              style={{ fontSize: '12px', padding: '8px', flex: 1 }}
-              onClick={() => setOptionsOpen(true)}
-            >
-              <Settings size={12} /> {t('Settings', 'Réglages')}
-            </button>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: '12px', padding: '8px', flex: 1 }}
+              className="btn btn-secondary btn-block"
+              style={{ fontSize: '12px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               onClick={() => setStorageOpen(true)}
             >
-              <HardDrive size={12} /> {t('Storage', 'Stockage')}
+              <HardDrive size={13} /> {t('Storage', 'Stockage')}
             </button>
           </div>
         </div>

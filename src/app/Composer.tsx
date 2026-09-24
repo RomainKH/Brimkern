@@ -7,7 +7,7 @@
 import { useRef, type Dispatch, type SetStateAction, type RefObject, type ClipboardEvent as ReactClipboardEvent } from 'react';
 import {
   Brain, Sparkles, Square, ArrowUp, Send, X, Copy, AlertTriangle,
-  Image as ImageIcon, Paperclip, Film, Clock, Edit2, Plus, Settings
+  Image as ImageIcon, Paperclip, Film, Clock, Edit2, Plus
 } from 'lucide-react';
 import { THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
 import type { ArchType } from '@/lib/presets';
@@ -66,7 +66,6 @@ interface Props {
   activeModelUrl?: string;
   onSelectQuickModel?: (model: QuickModelOption) => void;
   onOpenModelBrowser?: () => void;
-  onOpenOptions?: () => void;
 }
 
 export function Composer({
@@ -83,7 +82,6 @@ export function Composer({
   activeModelUrl,
   onSelectQuickModel,
   onOpenModelBrowser,
-  onOpenOptions,
 }: Props) {
   const t = useT();
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -395,18 +393,6 @@ export function Composer({
                   <option value={24}>24f (~2.0s)</option>
                 </select>
               </div>
-            )}
-
-            {/* Quick settings button */}
-            {onOpenOptions && (
-              <button
-                type="button"
-                onClick={onOpenOptions}
-                className="composer-tool-btn"
-                title={t('Settings & parameters', 'Réglages & paramètres')}
-              >
-                <Settings size={14} />
-              </button>
             )}
           </div>
 
