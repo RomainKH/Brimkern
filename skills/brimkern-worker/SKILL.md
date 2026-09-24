@@ -66,8 +66,8 @@ cat src/utils/math.ts | brimkern -q "Write vitest unit tests for this module"
 ```
 
 ### 4. Choosing the model
-- `-m coder` (default): Qwen 3 4B — the most reliable preset for code and explanations.
-- `-m super-coder`: Qwen 3.5 4B — hybrid SSM (DeltaNet) + attention, runs in headless Chromium.
+- `-m coder` (default): Qwen 3 4B — best preset on our code benchmark (85 % pass@1 on 41 HumanEval problems, ~15 s each). Use it by default.
+- `-m super-coder`: Qwen 3.5 4B — hybrid DeltaNet + attention, always reasons first (80 % pass@1, ~60 s each, ~5.6 GB of GPU memory). Only when a harder problem justifies the wait.
 
 Run one CLI call at a time: each call loads the model into VRAM (~2.5 GB).
 

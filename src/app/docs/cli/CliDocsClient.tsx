@@ -254,8 +254,8 @@ export default function CliDocsClient() {
       <H2 id="models" n="06">{t('Models', 'Modèles')}</H2>
       <P>
         {t(
-          'Two curated presets covering reliable coding, explanations, and next-generation hybrid SSM architecture. Kept because they answered correctly and consistently on developer benchmarks (M-series Mac, warm cache).',
-          'Deux presets sélectionnés couvrant le code fiable, les explications et l’architecture hybride SSM de nouvelle génération. Retenus pour leurs réponses justes et régulières sur les bancs de test développeur (Mac série M, cache chaud).'
+          'Two presets, ranked on our code benchmark: 41 HumanEval problems, greedy decoding, every answer executed against the official tests.',
+          'Deux presets, classés à notre banc de code : 41 problèmes HumanEval, décodage glouton, chaque réponse exécutée contre les tests officiels.'
         )}
       </P>
       <div className={s.models}>
@@ -268,9 +268,9 @@ export default function CliDocsClient() {
             <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>BRIK int4</span>
             <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
             <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>13–16 tok/s</span>
-            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.green}>{t('Recommended', 'Recommandé')}</span>
+            <span className={s.kvKey}>HumanEval-41</span><span className={s.green}>85 % · ~15 s / {t('problem', 'problème')}</span>
           </div>
-          <p className={s.tagline}>{t('Fast native streaming & reasoning: /think deep.', 'Streaming natif rapide & raisonnement : /think deep.')}</p>
+          <p className={s.tagline}>{t('Answers directly; reasoning on demand with /think deep.', 'Répond directement ; réflexion à la demande avec /think deep.')}</p>
         </Screen>
         <Screen title="super-coder · ssm" className={s.modelCard}>
           <div className={s.modelHead}>
@@ -279,11 +279,11 @@ export default function CliDocsClient() {
           </div>
           <div className={s.kv}>
             <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_0</span>
-            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>Chromium</span>
-            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>~14 tok/s</span>
-            <span className={s.kvKey}>{t('badge', 'badge')}</span><span className={s.cyan}>{t('SSM Hybrid', 'Hybride SSM')}</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
+            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>12–17 tok/s</span>
+            <span className={s.kvKey}>HumanEval-41</span><span className={s.cyan}>80 % · ~60 s / {t('problem', 'problème')}</span>
           </div>
-          <p className={s.tagline}>{t('Hybrid DeltaNet SSM + attention: continuous recurrent state.', 'Architecture hybride DeltaNet SSM + attention : état récurrent continu.')}</p>
+          <p className={s.tagline}>{t('Hybrid Gated DeltaNet + attention; always reasons before answering, hence slower.', 'Hybride Gated DeltaNet + attention ; réfléchit toujours avant de répondre, d’où la lenteur.')}</p>
         </Screen>
       </div>
       <P>

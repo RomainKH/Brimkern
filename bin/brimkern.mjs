@@ -97,8 +97,9 @@ const PRESET_CLI_MODELS = {
     badge: t('Recommended', 'Recommandé'),
     qwen3Think: true,
     defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
-    desc: t('The most reliable of the models tested: correct explanations and code, ~13-16 tok/s. Reasoning: /think deep.',
-      'Le plus fiable des modèles testés : explications et code justes, ~13-16 tok/s. Réflexion : /think deep.'),
+    // Chiffres : banc HumanEval-41 du 2026-09-24 (scripts/bench-code.mjs, docs/ROADMAP.md § 17).
+    desc: t('Best of the presets on our code benchmark: 85 % pass@1 on HumanEval-41, ~15 s per problem without reasoning. Reasoning: /think deep.',
+      'Le meilleur des presets à notre banc de code : 85 % pass@1 sur HumanEval-41, ~15 s par problème sans réflexion. Réflexion : /think deep.'),
   },
   'super-coder': {
     name: 'Qwen 3.5 4B Super Coder (GGUF)',
@@ -106,12 +107,15 @@ const PRESET_CLI_MODELS = {
     url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/main/qwen3.5-4B-super-coder.Q4_0.gguf',
     format: 'gguf',
     formatLabel: 'GGUF Q4_0',
-    runtime: 'WebGPU (Chromium)',
+    // Graphe Qwen 3.5 validé contre llama.cpp dans Dawn natif (docs/ROADMAP.md § 17).
+    engine: 'native',
+    opensThink: true,
+    runtime: t('WebGPU (native Dawn)', 'WebGPU (Natif Dawn)'),
     size: t('2.61 GB', '2,61 Go'),
     badge: t('SSM Hybrid', 'Hybride SSM'),
     defaultSystem: 'You are Brimkern Super Coder, a specialized AI coding engineer. Generate accurate, concise, and clean code.',
-    desc: t('Next-generation hybrid SSM (DeltaNet) + attention: continuous recurrent state with 4B capacity (~14 tok/s).',
-      'Nouvelle génération hybride SSM (DeltaNet) + attention : état récurrent continu avec puissance 4B (~14 tok/s).'),
+    desc: t('Qwen 3.5 hybrid (Gated DeltaNet + attention), always reasons before answering: 80 % pass@1 on HumanEval-41, ~60 s per problem.',
+      'Hybride Qwen 3.5 (Gated DeltaNet + attention), réfléchit toujours avant de répondre : 80 % pass@1 sur HumanEval-41, ~60 s par problème.'),
   },
 };
 
@@ -717,16 +721,23 @@ function createLiveSuggest(rl) {
 }
 
 // ── Filtre de flux de réflexion (<think>...</think>) ────────────────────────────────
+// Le modèle actif ouvre-t-il la réflexion dans son gabarit (Qwen 3.5 : « <think>\n » en fin de
+// prompt) ? Sa sortie commence alors EN réflexion, sans balise ouvrante : un filtre qui attendrait
+// <think> afficherait toute la réflexion comme réponse. Posé par createCliEngine d'après le preset.
+let MODEL_OPENS_THINK = false;
+
 class ThinkStreamFilter {
   constructor({ onToken, onThinkStart, onThinkEnd }) {
     this.onToken = onToken;
     this.onThinkStart = onThinkStart;
     this.onThinkEnd = onThinkEnd;
-    this.inThink = false;
+    this.inThink = MODEL_OPENS_THINK;
+    this.pendingStart = MODEL_OPENS_THINK;
     this.buffer = '';
   }
 
   feed(chunk) {
+    if (this.pendingStart) { this.pendingStart = false; if (this.onThinkStart) this.onThinkStart(); }
     this.buffer += chunk;
     while (this.buffer.length > 0) {
       if (!this.inThink) {
@@ -801,7 +812,12 @@ class ThinkStreamFilter {
 // émet un <think></think> VIDE en tête, que `content` et stdout rendaient tel quel. Un bloc non
 // refermé (budget épuisé en pleine réflexion) part aussi : ce n'est pas une réponse.
 function stripThink(text) {
-  return String(text || '').replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '').trim();
+  let s = String(text || '');
+  // Qwen 3.5 : le gabarit OUVRE la réflexion (« <think>\n » en fin de prompt), la sortie ne contient
+  // donc que la fermeture. Un </think> sans <think> avant lui : tout ce qui précède était réflexion.
+  const close = s.indexOf('</think>'), open = s.indexOf('<think>');
+  if (close !== -1 && (open === -1 || open > close)) s = s.slice(close + 8);
+  return s.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '').trim();
 }
 
 // Même chose en flux pour -q : n'écrit que la réponse, blancs de tête avalés.
@@ -1637,6 +1653,7 @@ async function createCliEngine(options = {}) {
     const base = PRESET_CLI_MODELS[options.model]?.defaultSystem || PRESET_CLI_MODELS.coder.defaultSystem;
     options.system = base + buildProjectContext();
   }
+  MODEL_OPENS_THINK = !!PRESET_CLI_MODELS[options.model]?.opensThink;
   const forceChromium = !!options.chromium || !!options.headless || process.env.BRIMKERN_FORCE_CHROMIUM === '1';
   const forceNative = !!options.native || process.env.BRIMKERN_FORCE_NATIVE === '1';
   const modelKey = options.model || 'coder';
@@ -1646,7 +1663,10 @@ async function createCliEngine(options = {}) {
     return new BrimkernChromiumEngine(options);
   }
 
-  if (isGguf && !forceNative) {
+  // GGUF → Chromium par défaut (choix historique, bb0b756), SAUF les presets marqués `engine: 'native'` :
+  // Gemma 4 et Qwen 3.5 ont été validés contre llama.cpp dans le moteur Dawn natif (graphes propres,
+  // tokenizers tirés du GGUF, aucune dépendance navigateur) et y démarrent sans lancer de navigateur.
+  if (isGguf && !forceNative && PRESET_CLI_MODELS[modelKey]?.engine !== 'native') {
     return new BrimkernChromiumEngine(options);
   }
 
