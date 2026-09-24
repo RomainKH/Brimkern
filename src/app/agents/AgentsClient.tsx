@@ -49,25 +49,29 @@ export default function AgentsClient() {
   const jsonExampleCmd = `git diff | brimkern --json "Draft a conventional commit title"`;
 
   const jsonExampleOutput = `{
-  "success": true,
-  "output": "feat(auth): add webauthn biometric passkey support",
-  "model": "coder",
-  "stats": {
-    "tokens": 28,
-    "tokPerSec": 22.4,
-    "durationMs": 1250,
-    "costUsd": 0.0
-  }
+  "ok": true,
+  "content": "The conventional commit title for the provided diff could be:\\n\\n\\\`feat(auth): add passkey registration support\\\`\\n\\n…",
+  "tokens": 48,
+  "elapsedMs": 4735,
+  "tokPerSec": 10.1,
+  "model": "Qwen 3 4B (BRIK int4)",
+  "backend": "Dawn (Metal)",
+  "savedUsd": 0.00158
 }`;
 
-  const skillPromptExample = `# .claude/skills/brimkern-worker/SKILL.md
+  const skillInstallCmd = `mkdir -p .claude/skills && cp -r ~/.brimkern/skills/brimkern-worker .claude/skills/`;
+
+  const skillPromptExample = `---
 name: brimkern-worker
-description: Delegate simple code reviews, diff summaries, or lint fixes to local GPU to save tokens.
-prompt: |
-  Before calling expensive cloud LLMs for repetitive or basic coding tasks:
-  1. Pipe the file or diff to: brimkern --json "<task>"
-  2. Parse the local response and integrate it directly.
-  3. Cost is $0.00 and execution runs 100% on local GPU.`;
+description: Offload routine sub-tasks (exploratory tests, syntax transformations,
+  code reviews, repetitive drafting) to local WebGPU Brimkern workers…
+---
+
+# Brimkern Worker — Local WebGPU AI Subagent
+…
+brimkern -q "…"          # answer only, for scripts
+brimkern --json "…"      # structured payload
+claude mcp add brimkern -- brimkern mcp`;
 
   return (
     <div className="docs-page">
@@ -167,6 +171,10 @@ prompt: |
             </p>
 
             <CodeSnippet code="brimkern mcp --model=coder" />
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
+              {t('Add it to Claude Code:', 'Ajoutez-le à Claude Code :')}
+            </p>
+            <CodeSnippet code="claude mcp add brimkern -- brimkern mcp --model=coder" />
 
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
               {t('Add to your Claude Desktop or Cursor MCP config (claude_desktop_config.json):', 'Ajoutez à votre configuration MCP Claude Desktop ou Cursor (claude_desktop_config.json) :')}
@@ -176,9 +184,10 @@ prompt: |
             <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 18px', marginTop: 14 }}>
               <p style={{ margin: 0, fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{t('Exposed MCP Tools:', 'Outils MCP exposés :')}</p>
               <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
-                <li><code>brimkern_generate</code> : {t('Fast on-device text generation with custom system prompt', 'Génération de texte rapide sur GPU avec prompt système')}</li>
-                <li><code>brimkern_code_review</code> : {t('Local static & logic review of code snippets or git diffs', 'Relecture logique et statique en local de snippets ou diffs git')}</li>
-                <li><code>brimkern_explain</code> : {t('Detailed technical explanation of code files or algorithms', 'Explication technique détaillée de fichiers de code ou d’algorithmes')}</li>
+                <li><code>brimkern_ask</code> : {t('On-device query, with a mode (code, plan, review, auto) and a token budget', 'Requête sur le GPU local, avec un mode (code, plan, review, auto) et un budget de tokens')}</li>
+                <li><code>brimkern_review</code> : {t('Review of a code snippet or file: bugs, edge cases, security', 'Relecture d’un extrait ou d’un fichier : bugs, cas limites, sécurité')}</li>
+                <li><code>brimkern_generate_tests</code> : {t('Unit test draft in the framework of your choice (vitest by default)', 'Brouillon de tests unitaires dans le framework choisi (vitest par défaut)')}</li>
+                <li><code>brimkern_stats</code> : {t('Active model, calls and tokens served, estimated savings', 'Modèle actif, appels et tokens servis, économies estimées')}</li>
               </ul>
             </div>
           </section>
@@ -215,12 +224,19 @@ prompt: |
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 16px' }}>
               {t(
-                'Save your team thousands of tokens by teaching your AI assistants to automatically delegate mechanical edits, diff checks, and commit summaries to Brimkern.',
-                'Épargnez des milliers de tokens à votre équipe en enseignant à vos assistants IA de déléguer les modifications mécaniques, les relectures de diffs et les résumés à Brimkern.'
+                'Teach your AI assistant to hand mechanical edits, first-pass diff checks and commit summaries to Brimkern instead of spending API tokens on them.',
+                'Apprenez à votre assistant IA à confier à Brimkern les modifications mécaniques, les premières relectures de diffs et les résumés, au lieu d’y dépenser des tokens d’API.'
               )}
             </p>
 
-            <CodeSnippet code={skillPromptExample} lang="yaml" />
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 8px', fontWeight: 600 }}>
+              {t('Copy it into your project (installed with the CLI in ~/.brimkern):', 'Copiez-le dans votre projet (installé avec la CLI dans ~/.brimkern) :')}
+            </p>
+            <CodeSnippet code={skillInstallCmd} />
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
+              .claude/skills/brimkern-worker/SKILL.md
+            </p>
+            <CodeSnippet code={skillPromptExample} lang="markdown" />
 
             <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
               <Link href={href('/docs/cli')} className="btn btn-primary" style={{ padding: '10px 18px', textDecoration: 'none' }}>

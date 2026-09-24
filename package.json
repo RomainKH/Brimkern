@@ -35,7 +35,8 @@
     "test:dialogue": "node scripts/e2e/sdk-dialogue.mjs 3",
     "test:sdktools": "node scripts/e2e/sdk-tools.mjs 3",
     "test:imgcache": "node scripts/e2e/image-cache.mjs",
-    "test:hfspace": "node scripts/e2e/hf-space.mjs"
+    "test:hfspace": "node scripts/e2e/hf-space.mjs",
+    "test:cli": "node scripts/test-cli-mcp.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

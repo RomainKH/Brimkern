@@ -5,107 +5,109 @@ description: Offload routine sub-tasks (exploratory tests, syntax transformation
 
 # Brimkern Worker — Local WebGPU AI Subagent
 
-Run local, zero-cost AI workers powered by WebGPU (Metal / Vulkan / DirectX 12) directly on the machine's GPU. Brimkern executes 100% on-device with zero server, zero API keys, and zero tokens billed ($0.00).
+Run a local AI worker on the machine's GPU through WebGPU (Metal / Vulkan). Brimkern runs 100%
+on-device: no server, no API key, no tokens billed.
+
+It is a 4B model: good for drafts and first passes, not for final answers. Always review what it
+returns before using it.
 
 ## When to Use Brimkern as a Worker
 
-Frontier model API calls (Claude Opus/Sonnet, GPT-4o) are precious. Delegate mechanical and exploratory tasks to Brimkern:
-- **Unit Test Scaffolding**: Drafting initial unit tests for functions or modules (`vitest`, `jest`, `pytest`, `bats`).
-- **First-Pass Code Review**: Quick sanity checks on diffs or files for obvious edge cases, null checks, and formatting.
-- **Boilerplate & Transformation**: Converting JSON schemas to TypeScript types, SQL queries to migrations, crafting regexes.
-- **Exploratory Tasks**: Running multiple parallel trial generations or draft plans locally without consuming API credits.
-- **Documentation & Summarization**: Generating JSDoc/TSDoc comments, docstrings, or markdown summaries of code.
+- **Unit test scaffolding**: first draft of tests for a function or module (`vitest`, `jest`, `pytest`, `bats`).
+- **First-pass code review**: quick sanity check of a diff or file for obvious edge cases and null checks.
+- **Boilerplate & transformation**: JSON schema → TypeScript types, SQL → migration, regexes.
+- **Documentation**: JSDoc/TSDoc comments, docstrings, markdown summaries of code.
 
 ---
 
+## Install
+
+The CLI is installed from the repository (the npm package `brimkern` is the browser SDK and has
+no command, so `npx brimkern` does not work):
+
+```bash
+curl -fsSL https://brimkern.com/install.sh | bash   # puts `brimkern` in ~/.local/bin
+```
+
+Inside the Brimkern repository, `node bin/brimkern.mjs` works the same way. The first run
+downloads the default model once (2.53 GB) into `~/.cache/brimkern`.
+
 ## Quick CLI Usage
 
-You can invoke Brimkern directly from the shell via `npx brimkern` (or `node bin/brimkern.mjs` within the repo).
-
-### 1. Silent / Raw output for scripts (`-q` / `--quiet`)
-Produces strictly the raw response text on stdout — zero spinner, zero ANSI codes, zero trailing stats:
+### 1. Answer only, for scripts (`-q` / `--quiet`)
+Prints only the answer on stdout: no spinner, no ANSI codes, no stats, no `<think>` block.
 ```bash
-npx brimkern -q "Generate a TypeScript interface for a User object with id, email, role"
+brimkern -q "Generate a TypeScript interface for a User object with id, email, role"
 ```
 
 ### 2. Structured JSON for agent parsing (`--json`)
-Outputs machine-parseable JSON on stdout:
 ```bash
-npx brimkern --json "Review this code for edge cases: function add(a, b) { return a + b; }"
+brimkern --json "Review this code for edge cases: function add(a, b) { return a + b; }"
 ```
 
-Example JSON response:
+Response shape:
 ```json
 {
   "ok": true,
-  "content": "Here are 3 potential edge cases...",
+  "content": "…the answer…",
   "tokens": 85,
-  "elapsedMs": 3120,
-  "tokPerSec": 27.2,
-  "model": "Qwen 3 4B",
+  "elapsedMs": 6120,
+  "tokPerSec": 13.9,
+  "model": "Qwen 3 4B (BRIK int4)",
   "backend": "Dawn (Metal)",
   "savedUsd": 0.0012
 }
 ```
+`savedUsd` is an estimate (what the same call would cost on a paid API), not a measurement.
 
-### 3. Piping files directly via stdin
+### 3. Piping files via stdin
 ```bash
-cat src/utils/math.ts | npx brimkern -q "Write comprehensive vitest unit tests"
+cat src/utils/math.ts | brimkern -q "Write vitest unit tests for this module"
 ```
 
-### 4. Choosing the right model preset
-- `-m coder` (default): Qwen 3 4B — reliable code intelligence and explanations (~15 tok/s).
-- `-m fast`: Qwen 2.5 1.5B — ultra-fast (~25 tok/s), ideal for basic scaffolding.
-- `-m coder-3b`: Qwen 2.5 Coder 3B distilled on Claude Opus 4.6 traces (~20 tok/s).
-- `-m coder-7b`: Qwen 2.5 7B — deep refactoring and heavy logic for machines with 16GB+ RAM.
-- `-m reason`: DeepSeek-R1 1.5B — step-by-step mathematical and algorithmic reasoning.
+### 4. Choosing the model
+- `-m coder` (default): Qwen 3 4B — the most reliable preset for code and explanations.
+- `-m super-coder`: Qwen 3.5 4B — hybrid SSM (DeltaNet) + attention, runs in headless Chromium.
+
+Run one CLI call at a time: each call loads the model into VRAM (~2.5 GB).
 
 ---
 
-## Model Context Protocol (MCP) Integration
+## Model Context Protocol (MCP) server
 
-Brimkern includes a built-in stdio Model Context Protocol (MCP) server:
 ```bash
-npx brimkern mcp
+brimkern mcp                       # stdio server, model `coder`
+brimkern mcp --model=super-coder
 ```
 
-### Adding to Claude Code / Claude Desktop / Cursor
-In your project's `.claude.json` or `~/.claude.json`:
+### Adding it to Claude Code
+```bash
+claude mcp add brimkern -- brimkern mcp
+```
+Or in a project's `.mcp.json` (Claude Desktop / Cursor use the same `mcpServers` block):
 ```json
 {
   "mcpServers": {
-    "brimkern": {
-      "command": "npx",
-      "args": ["brimkern", "mcp"]
-    }
+    "brimkern": { "command": "brimkern", "args": ["mcp"] }
   }
 }
 ```
-*(Or inside this repository: `"args": ["bin/brimkern.mjs", "mcp"]`)*
+Inside the Brimkern repository: `"command": "node", "args": ["bin/brimkern.mjs", "mcp"]`.
 
-### Available MCP Tools
-1. **`brimkern_ask`**: Run an on-device WebGPU inference query. Accepts `prompt`, `model`, `mode` (`code`, `plan`, `review`, `auto`), and `max_tokens`.
-2. **`brimkern_review`**: Run an automated code review on code snippets or files for bugs, security, and edge cases.
-3. **`brimkern_generate_tests`**: Scaffolds production-grade unit tests for the provided code in any requested test framework (`vitest`, `jest`, `pytest`...).
-4. **`brimkern_stats`**: Returns WebGPU engine telemetry, active model, token counter, and cumulative dollar savings.
+### Tools
+1. **`brimkern_ask`**: on-device query. Accepts `prompt`, `model`, `mode` (`code`, `plan`, `review`, `auto`), `max_tokens` (default 512).
+2. **`brimkern_review`**: code review of `code` (optional `file_path`) for bugs, security and edge cases.
+3. **`brimkern_generate_tests`**: unit tests for `code` in `test_framework` (default `vitest`).
+4. **`brimkern_stats`**: active model, calls and tokens served, estimated savings. Does not load a model.
+
+Each call is independent (no memory of earlier calls). Calls run one after another on a single
+model kept in VRAM; the first call pays the model load. An answer cut by `max_tokens` ends with
+`[truncated at max_tokens]`.
 
 ---
 
-## Agent Delegation Patterns
+## Delegation Pattern: test-first scaffolding
 
-### Pattern 1: Test-First Scaffolding
-When asked to write a new feature with tests:
-1. Call `brimkern_generate_tests` with your draft implementation.
-2. Review and adapt the generated test suite.
-3. Run test runner locally (`npm test`).
-*Result: Save 2,000+ API output tokens per feature.*
-
-### Pattern 2: Parallel Exploratory Subagents
-When evaluating 3 alternative designs:
-```bash
-npx brimkern -q "Draft an in-memory LRU cache in TypeScript" > /tmp/lru.ts &
-npx brimkern -q "Draft a TTL-based cache with Map in TypeScript" > /tmp/ttl.ts &
-wait
-```
-The primary agent inspects `/tmp/lru.ts` and `/tmp/ttl.ts`, picks the superior design, and refines it.
-*Result: Rapid multi-option exploration with $0.00 marginal cost.*
+1. Call `brimkern_generate_tests` with the draft implementation.
+2. Review and fix the generated suite (expect wrong imports or assertions).
+3. Run the project's test runner.
