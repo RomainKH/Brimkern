@@ -2242,6 +2242,30 @@ export class WebGpuEngine {
 	// NB : recMM, recRmsnorm, recRope*, recAttention, recBinary, recScale, storage, uniform,
 	// recordPass, release, grid1D et readBack sont PUBLICS : les modèles à graphe propre
 	// (gemma4Model.ts) composent leur forward avec ces briques au lieu de grossir recordLayerKV.
+	// Qwen 3.5 (qwen35Model.ts) : conv causale k=4 + SiLU sur T tokens, état [3, C] mis à jour en place.
+	recQwen35Conv(enc: GPUAny, trash: GPUAny[], x: GPUAny, w: GPUAny, state: GPUAny, T: number, C: number): GPUAny {
+		const p = this.uniform([T, C]);
+		const out = this.storage(T * C * 4);
+		this.recordPass(enc, 'qwen35_conv_batch', [p, x, w, state, out], this.grid1D(C));
+		trash.push(p, out);
+		return out;
+	}
+	// Gated DeltaNet sur T tokens : état S [Hv, S, S] mis à jour en place ; sortie [T, Hv, S].
+	recQwen35Gdn(enc: GPUAny, trash: GPUAny[], conv: GPUAny, alpha: GPUAny, beta: GPUAny, dt: GPUAny, A: GPUAny, state: GPUAny, T: number, Hv: number, Hk: number, S: number, convStride: number, kOff: number, vOff: number, eps: number): GPUAny {
+		const p = this.uniform([T, Hv, Hk, S, convStride, kOff, vOff], { offset: 28, value: eps });
+		const out = this.storage(T * Hv * S * 4);
+		this.recordPass(enc, 'qwen35_gdn_batch', [p, conv, alpha, beta, dt, A, state, out], [Hv, 1, 1]);
+		trash.push(p, out);
+		return out;
+	}
+	recRopePartial(enc: GPUAny, trash: GPUAny[], x: GPUAny, rows: number, headDim: number, nHeads: number, pastLen: number, base: number, nRot: number): GPUAny {
+		const p = this.uniform([rows, headDim, nHeads, pastLen], { offset: 16, value: base });
+		this.device.queue.writeBuffer(p, 20, new Uint32Array([nRot]));
+		const out = this.storage(rows * headDim * 4);
+		this.recordPass(enc, 'rope_partial', [p, x, out], [Math.ceil(rows / WG), 1, 1]);
+		trash.push(p, out);
+		return out;
+	}
 	recScale(enc: GPUAny, trash: GPUAny[], x: GPUAny, s: number, len: number): GPUAny {
 		const p = this.uniform([len], { offset: 4, value: s });
 		const out = this.storage(len * 4);
@@ -4131,6 +4155,114 @@ export class WebGpuEngine {
 			} else {
 				console.log('[selfValidate] LFM2 shortconv OK (conv courte gatée, moteur v2)');
 			}
+		}
+
+		// Qwen 3.5, kernels PAR LOT du graphe réel (qwen35Model.ts) contre des références CPU écrites
+		// d'après ggml (ssm_conv + gated_delta_net + rope NEOX partiel), formes du 4B : 32 têtes de
+		// valeur / 16 de clé (répétition EN TUILE), S = 128, conv sur 8 192 canaux, plusieurs tokens
+		// pour exercer la récurrence et l'état reporté d'un lot à l'autre. Non bloquant.
+		if (this.qwen35SsmOk) {
+			const rel = (x: Float32Array, y: Float32Array, tol = 1e-3) => x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) <= tol * (1 + Math.abs(y[i])));
+			const up = (a: Float32Array) => { const b = this.storage(a.byteLength); this.device.queue.writeBuffer(b, 0, a); return b; };
+			const read = async (b: GPUAny, n: number) => this.readBack(b, n * 4);
+			let bad: string | null = null;
+			try {
+				// Conv : deux lots de 3 puis 2 tokens (état reporté), C = 8 192.
+				{
+					const C = 8192, Ts = [3, 2];
+					const w = rand(C * 4), st = new Float32Array(3 * C);
+					const stRef = new Float32Array(3 * C);
+					const stb = up(st), wb = up(w);
+					for (const T of Ts) {
+						const x = rand(T * C);
+						const ref = new Float32Array(T * C);
+						for (let c = 0; c < C; c++) {
+							let s0 = stRef[c], s1 = stRef[C + c], s2 = stRef[2 * C + c];
+							for (let t = 0; t < T; t++) {
+								const xt = x[t * C + c];
+								const acc = s0 * w[c * 4] + s1 * w[c * 4 + 1] + s2 * w[c * 4 + 2] + xt * w[c * 4 + 3];
+								ref[t * C + c] = acc / (1 + Math.exp(-acc));
+								s0 = s1; s1 = s2; s2 = xt;
+							}
+							stRef[c] = s0; stRef[C + c] = s1; stRef[2 * C + c] = s2;
+						}
+						const xb = up(x);
+						const trash: GPUAny[] = [];
+						const enc = this.device.createCommandEncoder();
+						const out = this.recQwen35Conv(enc, trash, xb, wb, stb, T, C);
+						this.device.queue.submit([enc.finish()]);
+						const got = await read(out, T * C);
+						this.release([...trash, xb]);
+						if (!rel(got, ref)) { bad = `conv(T=${T})`; break; }
+					}
+					if (!bad && !rel(await read(stb, 3 * C), stRef)) bad = 'conv.état';
+					this.release([stb, wb]);
+				}
+				// Gated DeltaNet : Hv = 32, Hk = 16, S = 128, deux lots (3 puis 1 token).
+				if (!bad) {
+					const Hv = 32, Hk = 16, S = 128, convStride = 2 * Hk * S + Hv * S, kOff = Hk * S, vOff = 2 * Hk * S, eps = 1e-6;
+					const dt = rand(Hv), A = Float32Array.from({ length: Hv }, () => -0.05 - Math.random() * 0.3);
+					const Sref = new Float32Array(Hv * S * S);
+					const Sb = up(new Float32Array(Hv * S * S)), dtb = up(dt), Ab = up(A);
+					for (const T of [3, 1]) {
+						const conv = rand(T * convStride), al = rand(T * Hv), be = rand(T * Hv);
+						const ref = new Float32Array(T * Hv * S);
+						for (let t = 0; t < T; t++) for (let h = 0; h < Hv; h++) {
+							const kh = h % Hk, base = t * convStride;
+							const k = conv.subarray(base + kOff + kh * S, base + kOff + kh * S + S);
+							const q = conv.subarray(base + kh * S, base + kh * S + S);
+							const v = conv.subarray(base + vOff + h * S, base + vOff + h * S + S);
+							let nk = 0, nq = 0; for (let i = 0; i < S; i++) { nk += k[i] * k[i]; nq += q[i] * q[i]; }
+							const ik = 1 / Math.sqrt(nk + eps), iq = 1 / Math.sqrt(nq + eps) / Math.sqrt(S);
+							const a = al[t * Hv + h] + dt[h];
+							const g = Math.exp((a > 20 ? a : Math.log(1 + Math.exp(a))) * A[h]);
+							const beta = 1 / (1 + Math.exp(-be[t * Hv + h]));
+							const off = h * S * S;
+							for (let i = 0; i < S * S; i++) Sref[off + i] *= g;
+							for (let j = 0; j < S; j++) {
+								let sk = 0; for (let i = 0; i < S; i++) sk += Sref[off + i * S + j] * k[i] * ik;
+								const d = (v[j] - sk) * beta;
+								let o = 0;
+								for (let i = 0; i < S; i++) { Sref[off + i * S + j] += k[i] * ik * d; o += Sref[off + i * S + j] * q[i] * iq; }
+								ref[(t * Hv + h) * S + j] = o;
+							}
+						}
+						const cb = up(conv), ab = up(al), bb = up(be);
+						const trash: GPUAny[] = [];
+						const enc = this.device.createCommandEncoder();
+						const out = this.recQwen35Gdn(enc, trash, cb, ab, bb, dtb, Ab, Sb, T, Hv, Hk, S, convStride, kOff, vOff, eps);
+						this.device.queue.submit([enc.finish()]);
+						const got = await read(out, T * Hv * S);
+						this.release([...trash, cb, ab, bb]);
+						if (!rel(got, ref, 2e-3)) { bad = `gdn(T=${T})`; break; }
+					}
+					if (!bad && !rel(await read(Sb, Hv * S * S), Sref, 2e-3)) bad = 'gdn.état';
+					this.release([Sb, dtb, Ab]);
+				}
+				// RoPE partiel : 64 dims sur des têtes de 256, θ 1e7, positions > 0.
+				if (!bad) {
+					const hd = 256, nH = 4, T = 3, past = 17, nRot = 64, base = 1e7;
+					const x = rand(T * nH * hd), ref = Float32Array.from(x);
+					for (let r = 0; r < T * nH; r++) {
+						const pos = past + Math.floor(r / nH);
+						for (let i = 0; i < nRot / 2; i++) {
+							const f = pos / Math.pow(base, (2 * i) / nRot), c = Math.cos(f), sn = Math.sin(f);
+							const x0 = x[r * hd + i], x1 = x[r * hd + i + nRot / 2];
+							ref[r * hd + i] = x0 * c - x1 * sn; ref[r * hd + i + nRot / 2] = x1 * c + x0 * sn;
+						}
+					}
+					const xb = up(x);
+					const trash: GPUAny[] = [];
+					const enc = this.device.createCommandEncoder();
+					const out = this.recRopePartial(enc, trash, xb, T * nH, hd, nH, past, base, nRot);
+					this.device.queue.submit([enc.finish()]);
+					const got = await read(out, T * nH * hd);
+					this.release([...trash, xb]);
+					if (!rel(got, ref)) bad = 'rope_partial';
+				}
+			} catch (e) { bad = String(e); }
+			if (bad) { this.qwen35SsmOk = false; console.error(`[selfValidate] Qwen 3.5 (lot) KO (${bad}) : un modèle qwen35 refuserait de charger (non bloquant pour le reste).`); }
+			else console.log('[selfValidate] Qwen 3.5 OK (conv k=4 par lot, Gated DeltaNet par lot, RoPE partiel)');
 		}
 
 		// Qwen 3.5 SSM (conv causale 1D + Gated DeltaNet) : validé contre référence CPU. Non-bloquant.

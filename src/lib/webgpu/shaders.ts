@@ -4502,6 +4502,124 @@ export const SHADERS = {
 			out[d] = acc / (1.0 + exp(-acc));
 		}`,
 
+	// ── Qwen 3.5, versions PAR LOT (qwen35Model.ts) — référence : llama.cpp src/models/qwen35.cpp,
+	// delta-net-base.cpp et ggml-cpu ops.cpp (gated_delta_net). Les deux kernels « step » ci-dessous
+	// ne traitent qu'un token, lisent les poids de conv transposés et attendent q déjà normé : ceux-ci
+	// suivent le GGUF tel quel et avalent T tokens en une passe.
+
+	// Convolution causale courte (k = 4) par canal, sur T tokens, suivie de SiLU. conv1d GGUF [4, C] :
+	// w[c·4 + k], k = 0 multiplie la plus ANCIENNE des 4 entrées (ggml_ssm_conv sur concat(état, x)).
+	// État persistant [3, C] (st[s·C + c], s = 0 le plus ancien), mis à jour en fin de lot. Un thread
+	// par canal, les tokens en séquence : la récurrence est portée par des registres.
+	qwen35_conv_batch: `
+		struct P { T: u32, C: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> st: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let c = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (c >= p.C) { return; }
+			var s0 = st[c]; var s1 = st[p.C + c]; var s2 = st[2u * p.C + c];
+			let w0 = w[c * 4u]; let w1 = w[c * 4u + 1u]; let w2 = w[c * 4u + 2u]; let w3 = w[c * 4u + 3u];
+			for (var t = 0u; t < p.T; t = t + 1u) {
+				let xt = x[t * p.C + c];
+				let acc = s0 * w0 + s1 * w1 + s2 * w2 + xt * w3;
+				o[t * p.C + c] = acc / (1.0 + exp(-acc));
+				s0 = s1; s1 = s2; s2 = xt;
+			}
+			st[c] = s0; st[p.C + c] = s1; st[2u * p.C + c] = s2;
+		}`,
+
+	// Gated DeltaNet sur T tokens. Un workgroup de S (= 128) lanes par tête de VALEUR h ; la lane j
+	// porte la colonne j de l'état S_h [S×S] (S[i][j] : i = clé, j = valeur, j le plus rapide) — une
+	// colonne n'a besoin que d'elle-même, d'où une récurrence exacte sans synchronisation sur S.
+	// Par token (ggml gated_delta_net) : q, k normés L2 (x/√(Σx²+ε)), q × 1/√S ; g = exp(softplus(α
+	// + dt)·A) ; β = σ(b) ; S ← g·S ; δ = β·(v − Sᵀk) ; S ← S + k·δᵀ ; o = Sᵀq. Tête de clé de la tête
+	// de valeur h : h mod Hk (ggml RÉPÈTE q/k en tuile : iq1 = iv1 % neq1, pas en entrelacé).
+	// q, k, v sont lus dans la sortie de la conv [T, convStride] aux décalages 0, kOff et vOff.
+	qwen35_gdn_batch: `
+		struct P { T: u32, Hv: u32, Hk: u32, S: u32, convStride: u32, kOff: u32, vOff: u32, eps: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> conv: array<f32>;
+		@group(0) @binding(2) var<storage, read> alpha: array<f32>;
+		@group(0) @binding(3) var<storage, read> braw: array<f32>;
+		@group(0) @binding(4) var<storage, read> dt: array<f32>;
+		@group(0) @binding(5) var<storage, read> A: array<f32>;
+		@group(0) @binding(6) var<storage, read_write> S: array<f32>;
+		@group(0) @binding(7) var<storage, read_write> o: array<f32>;
+		var<workgroup> ks: array<f32, 128>;
+		var<workgroup> qs: array<f32, 128>;
+		var<workgroup> rk: array<f32, 128>;
+		var<workgroup> rq: array<f32, 128>;
+		@compute @workgroup_size(128)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let h = wid.x;
+			let j = lid.x;
+			let kh = h % p.Hk;
+			let sOff = h * p.S * p.S;
+			let qScale = 1.0 / sqrt(f32(p.S));
+			for (var t = 0u; t < p.T; t = t + 1u) {
+				let base = t * p.convStride;
+				let kv = conv[base + p.kOff + kh * p.S + j];
+				let qv = conv[base + kh * p.S + j];
+				rk[j] = kv * kv;
+				rq[j] = qv * qv;
+				workgroupBarrier();
+				for (var off = 64u; off > 0u; off = off >> 1u) {
+					if (j < off) { rk[j] = rk[j] + rk[j + off]; rq[j] = rq[j] + rq[j + off]; }
+					workgroupBarrier();
+				}
+				ks[j] = kv / sqrt(rk[0] + p.eps);
+				qs[j] = qv / sqrt(rq[0] + p.eps) * qScale;
+				workgroupBarrier();
+				let a = alpha[t * p.Hv + h] + dt[h];
+				let sp = select(log(1.0 + exp(a)), a, a > 20.0);
+				let g = exp(sp * A[h]);
+				let beta = 1.0 / (1.0 + exp(-braw[t * p.Hv + h]));
+				var sk = 0.0;
+				for (var i = 0u; i < p.S; i = i + 1u) { sk = sk + S[sOff + i * p.S + j] * ks[i]; }
+				let dlt = (conv[base + p.vOff + h * p.S + j] - g * sk) * beta;
+				var acc = 0.0;
+				for (var i = 0u; i < p.S; i = i + 1u) {
+					let idx = sOff + i * p.S + j;
+					let sNew = S[idx] * g + ks[i] * dlt;
+					S[idx] = sNew;
+					acc = acc + sNew * qs[i];
+				}
+				o[(t * p.Hv + h) * p.S + j] = acc;
+				workgroupBarrier(); // ks/qs/rk/rq réécrits au token suivant
+			}
+		}`,
+
+	// RoPE PARTIEL (Qwen 3.5 : 64 dimensions tournées sur des têtes de 256, θ 1e7) : paires NEOX
+	// (i, i + nRot/2) avec θ_i = pos·base^(−2i/nRot), dimensions ≥ nRot recopiées. Le M-RoPE du GGUF
+	// (sections [11, 11, 10]) se réduit à ce RoPE en texte seul (t = h = w). Le kernel `rope`
+	// apparierait (i, i + headDim/2) sur toute la tête : faux dès que nRot < headDim.
+	rope_partial: `
+		struct RP { rows: u32, headDim: u32, nHeads: u32, pastLen: u32, base: f32, nRot: u32 };
+		@group(0) @binding(0) var<uniform> p: RP;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let r = gid.x;
+			if (r >= p.rows) { return; }
+			let half = p.nRot / 2u;
+			let pos = f32(p.pastLen + r / p.nHeads);
+			let base = r * p.headDim;
+			for (var i = 0u; i < half; i = i + 1u) {
+				let freq = pos / pow(p.base, (2.0 * f32(i)) / f32(p.nRot));
+				let c = cos(freq); let s = sin(freq);
+				let x0 = x[base + i]; let x1 = x[base + i + half];
+				o[base + i] = x0 * c - x1 * s;
+				o[base + i + half] = x1 * c + x0 * s;
+			}
+			for (var i = p.nRot; i < p.headDim; i = i + 1u) { o[base + i] = x[base + i]; }
+		}`,
+
 	// Qwen 3.5 Gated DeltaNet SSM recurrent step
 	qwen35_deltanet_step: `
 		struct DeltaParams { Sk: u32, Sv: u32, numHeads: u32 };

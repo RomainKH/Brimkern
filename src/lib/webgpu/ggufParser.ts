@@ -46,7 +46,7 @@ export interface Manifest {
     // (0 = bloc shortconv, >0 = bloc attention GQA).
     lfm2?: { lCache: number; kvHeadsPerLayer: number[] };
     // Qwen 3.5 (moteur v2, hybride SSM Gated DeltaNet + full attention).
-    qwen35?: { fullAttnInterval: number; dConv: number; dInner: number; dState: number; dtRank: number; nGroup: number };
+    qwen35?: { fullAttnInterval: number; dConv: number; dInner: number; dState: number; dtRank: number; nGroup: number; nRot: number; nLayer: number };
     // Gemma 4 (gemma4Model.ts) : têtes de taille DIFFÉRENTE selon la couche (fenêtre glissante :
     // headDimSwa, θ ropeThetaSwa ; globale : headDim, θ ropeTheta + RoPE partiel via rope_freqs),
     // embeddings PAR COUCHE (perLayer dims par couche, table lue à la demande), et les couches
@@ -371,15 +371,21 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   }
 
   // Qwen 3.5 (moteur v2, hybride Gated DeltaNet SSM + full attention)
+  // Clés RÉELLES du GGUF (convert_hf_to_gguf) : ssm.conv_kernel / inner_size / state_size /
+  // time_step_rank / group_count. La version précédente lisait ssm.d_conv, d_inner… qui n'existent
+  // pas : tout retombait sur les défauts, dont dInner = d (2 560) au lieu de 4 096 sur le 4B.
+  // block_count COMPTE la couche MTP (nextn) finale, que le forward principal n'exécute pas.
   if (arch === 'qwen35' || arch === 'qwen3_5') {
     const fullAttnInterval = getMetaU32('full_attention_interval', 4);
     config.qwen35 = {
       fullAttnInterval,
-      dConv: getMetaU32('ssm.d_conv', 4),
-      dInner: getMetaU32('ssm.d_inner', d),
-      dState: getMetaU32('ssm.d_state', 128),
-      dtRank: getMetaU32('ssm.dt_rank', 32),
-      nGroup: getMetaU32('ssm.n_group', 16),
+      dConv: getMetaU32('ssm.conv_kernel', 4),
+      dInner: getMetaU32('ssm.inner_size', 2 * d),
+      dState: getMetaU32('ssm.state_size', 128),
+      dtRank: getMetaU32('ssm.time_step_rank', 32),
+      nGroup: getMetaU32('ssm.group_count', 16),
+      nRot: getMetaU32('rope.dimension_count', headDim),
+      nLayer: blockCount - getMetaU32('nextn_predict_layers', 0),
     };
   }
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Gemma 4 dans le moteur (Dawn natif, comme la CLI) contre llama.cpp, sur le MÊME GGUF local.
+// Modèle à graphe propre (Gemma 4, Qwen 3.5) dans le moteur (Dawn natif, comme la CLI) contre
+// llama.cpp, sur le MÊME GGUF local.
 //
-//   node scripts/test-gemma4-native.mjs <gemma4.gguf> [--tokens=48] [--llama]
+//   node scripts/test-model-vs-llamacpp.mjs <fichier.gguf> [--tokens=48] [--llama] [--long]
 //
 // 1. prochain token après le prompt : top-10 du moteur vs top-10 de llama-server (n_probs) ;
 // 2. génération gloutonne : texte + débit, et premier écart avec llama.cpp (--llama).
@@ -16,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 const gguf = process.argv[2];
-if (!gguf) { console.error('usage : node scripts/test-gemma4-native.mjs <gemma4.gguf> [--tokens=N] [--llama]'); process.exit(2); }
+if (!gguf) { console.error('usage : node scripts/test-model-vs-llamacpp.mjs <fichier.gguf> [--tokens=N] [--llama] [--long]'); process.exit(2); }
 const N = Number((process.argv.find((a) => a.startsWith('--tokens=')) || '--tokens=48').slice(9));
 const WITH_LLAMA = process.argv.includes('--llama');
 // Empreinte physique du processus (GPU compris sur Apple : mémoire unifiée) via footprint(1).
@@ -27,10 +28,13 @@ const fp = (label) => {
 };
 const LONG = process.argv.includes('--long');
 const LONG_CODE = LONG ? (await import('node:fs')).readFileSync(join(process.cwd(), 'src/lib/webgpu/layerSpans.ts'), 'utf8') : '';
-const PROMPT_SHORT = '<|turn>system\nYou are a concise coding assistant.<turn|>\n<|turn>user\nWrite a Python function is_prime(n) that returns True if n is prime.<turn|>\n<|turn>model\n';
+// Gabarit par architecture (gemma4 : <|turn> ; qwen35 : ChatML + <think> ouvert, gabarit officiel).
+const fmt = (arch, sys, user) => arch === 'gemma4'
+  ? `<|turn>system\n${sys}<turn|>\n<|turn>user\n${user}<turn|>\n<|turn>model\n`
+  : `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user}<|im_end|>\n<|im_start|>assistant\n<think>\n`;
 // --long : > 1 000 tokens, pour exercer la fenêtre glissante (512) et les positions longues du
-// RoPE global ; le prefill part alors par tranches de 256 comme dans le SDK (pastLen > 0, T > 1).
-const PROMPT = LONG ? `<|turn>system\nYou are a concise coding assistant.<turn|>\n<|turn>user\nExplain what this TypeScript module does, function by function.\n\n\`\`\`ts\n${LONG_CODE}\n\`\`\`<turn|>\n<|turn>model\n` : PROMPT_SHORT;
+// RoPE ; le prefill part alors par tranches de 256 comme dans le SDK (pastLen > 0, T > 1).
+const userMsg = LONG ? `Explain what this TypeScript module does, function by function.\n\n\`\`\`ts\n${LONG_CODE}\n\`\`\`` : 'Write a Python function is_prime(n) that returns True if n is prime.';
 const CHUNK = process.env.G4_NOCHUNK ? 1e9 : 256;
 const prefill = async (m, toks, sid) => { let lg; for (let i = 0; i < toks.length; i += CHUNK) lg = await m.logitsKV(toks.slice(i, i + CHUNK), i, sid); return lg; };
 
@@ -40,7 +44,9 @@ const src = (p) => JSON.stringify(join(process.cwd(), p));
 writeFileSync(entry, `export { WebGpuEngine } from ${src('src/lib/webgpu/kernels.ts')};
 export { parseGguf } from ${src('src/lib/webgpu/ggufParser.ts')};
 export { Gemma4Model } from ${src('src/lib/webgpu/gemma4Model.ts')};
-export { gemma4TokenizerFromGguf } from ${src('src/lib/gemma4Tokenizer.ts')};`);
+export { Qwen35Model } from ${src('src/lib/webgpu/qwen35Model.ts')};
+export { gemma4TokenizerFromGguf } from ${src('src/lib/gemma4Tokenizer.ts')};
+export { tokenizerFromGguf } from ${src('src/lib/ggufTokenizer.ts')};`);
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: join(dir, 'out.mjs'), logLevel: 'error' });
 // AVANT l'import : certains commutateurs sont lus à l'initialisation statique des classes.
 globalThis.location = { search: process.env.BRIMKERN_FLAGS || '' };
@@ -56,21 +62,25 @@ const size = fstatSync(fd).size;
 const head = Buffer.alloc(64 << 20);
 readSync(fd, head, 0, head.length, 0);
 const manifest = await M.parseGguf(new Blob([head]));
-if (process.env.G4_WINDOW) manifest.config.gemma4.window = Number(process.env.G4_WINDOW);
+if (process.env.G4_WINDOW && manifest.config.gemma4) manifest.config.gemma4.window = Number(process.env.G4_WINDOW);
 const source = { bytes: async (off, len) => { const b = Buffer.alloc(len); readSync(fd, b, 0, len, off); return new Uint8Array(b.buffer, b.byteOffset, len); } };
-const tok = M.gemma4TokenizerFromGguf(manifest).tokenizer;
+const ARCH = manifest.arch;
+const tok = (M.gemma4TokenizerFromGguf(manifest) ?? M.tokenizerFromGguf(manifest)).tokenizer;
+const PROMPT = fmt(ARCH, 'You are a concise coding assistant.', userMsg);
+const STOPS = ARCH === 'gemma4' ? [106, 1] : [Number(manifest.metadata['tokenizer.ggml.eos_token_id'])];
 
 const engine = new M.WebGpuEngine();
 if (!(await engine.init())) throw new Error('WebGPU indisponible');
 const quiet = console.log; console.log = () => {};
 await engine.selfValidate();
 console.log = quiet;
-if (!engine.gemma4Ok) throw new Error('gate gemma4Ok tombé : ' + engine.validationFailure);
+if (ARCH === 'gemma4' && !engine.gemma4Ok) throw new Error('gate gemma4Ok tombé');
+if (ARCH === 'qwen35' && !engine.qwen35SsmOk) throw new Error('gate qwen35SsmOk tombé');
 if (!engine.attnWideOk) console.log('⚠️ attention large KO : repli un-thread-par-tête');
 fp('après selfValidate');
 console.log(`GGUF ${(size / 1e9).toFixed(2)} Go · ${manifest.config.blockCount} couches · selfValidate OK`);
 
-const model = new M.Gemma4Model(engine, source, manifest);
+const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : new M.Qwen35Model(engine, source, manifest);
 let t0 = performance.now();
 await model.prewarmGpu();
 console.log(`poids en VRAM : ${((performance.now() - t0) / 1000).toFixed(1)} s`);
@@ -96,7 +106,7 @@ let next = top[0].id;
 t0 = performance.now();
 for (let s = 0; s < N; s++) {
   gen.push(next);
-  if (next === 106 || next === 1) break;
+  if (STOPS.includes(next)) break;
   logits = await model.logitsKV([next], ids.length + s, 'test');
   let best = 0; for (let i = 1; i < logits.length; i++) if (logits[i] > logits[best]) best = i;
   next = best;

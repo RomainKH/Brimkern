@@ -11,6 +11,7 @@ import { Lfm2Model } from '../lib/webgpu/lfm2Model';
 import { RwkvModel } from '../lib/webgpu/rwkvModel';
 import { CustomWebModel, type TensorSource } from '../lib/webgpu/model';
 import { Gemma4Model } from '../lib/webgpu/gemma4Model';
+import { Qwen35Model } from '../lib/webgpu/qwen35Model';
 import { gemma4TokenizerFromGguf } from '../lib/gemma4Tokenizer';
 import { loadBrikStream, loadGgufStream, prefetchGguf, fetchFullCached, fetchRange } from '../lib/webgpu/source';
 import { spanRawTensor } from '../lib/webgpu/layerSpans';
@@ -28,6 +29,8 @@ function inferArchType(manifest: { arch?: string; metadata?: Record<string, unkn
   if (arch === 'lfm2' || manifest.config?.lfm2) return 'lfm2';
   if (arch === 'rwkv7' || manifest.config?.rwkv) return 'rwkv7';
   if (arch === 'qwen2' || arch.includes('qwen2')) return 'qwen';
+  // qwen35 AVANT la règle qwen3 (« qwen35 ».includes(« qwen3 ») l'avalait, d'où le chemin transformer).
+  if (arch === 'qwen35' || arch === 'qwen3_5') return 'qwen35';
   if (arch === 'qwen3' || arch.includes('qwen3')) return 'qwen3';
   if (arch === 'smollm3' || arch.includes('smollm')) return 'smollm3';
   if (arch === 'mistral3' || arch.includes('mistral')) return 'mistral3';
@@ -277,7 +280,9 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     if (archType === 'gemma4') stopIds.push(106, 1, 50);
     if (archType === 'gemma') stopIds.push(107, 1);
 
-    const customModel = archType === 'gemma4' ? new Gemma4Model(engine, source, manifest) : new CustomWebModel(engine, source, manifest);
+    const customModel = archType === 'gemma4' ? new Gemma4Model(engine, source, manifest)
+      : archType === 'qwen35' ? new Qwen35Model(engine, source, manifest)
+      : new CustomWebModel(engine, source, manifest);
     onProgress('gpu');
     await customModel.prewarmGpu((done, total) => {
       onProgress('gpu', { loaded: done, total });

@@ -92,6 +92,9 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       formatted += `<|im_start|>${msg.role}\n${msg.content}<|im_end|>\n`;
     }
     formatted += `<|im_start|>assistant\n`;
+    // Qwen 3.5 : le gabarit officiel ouvre la réflexion par défaut (« <think>\n » ; « <think>\n\n
+    // </think>\n\n » quand enable_thinking=false). Il n'obéit PAS aux interrupteurs /think de Qwen 3.
+    if (archType === 'qwen35') formatted += '<think>\n';
   } else if (archType === 'llama3') {
     // Llama 3.x header-id template. (Réintégré 2026-07-18 : les lignes Q/K des GGUF llama sont
     // dé-permutées au chargement + rope_freqs.weight supporté — cf. model.ts.)
