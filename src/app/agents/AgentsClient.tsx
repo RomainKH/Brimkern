@@ -1,33 +1,49 @@
 "use client";
 
-import { useState } from 'react';
+// Agents IA & MCP (/agents) — page de DOCUMENTATION : elle vit dans DocsShell (menu latéral, « Sur
+// cette page »), avec la direction artistique de /docs/cli (écrans de terminal, sections
+// numérotées). Hors de la coquille, la page perdait le menu de la doc et n'y était plus atteignable.
+//
+// Tout ce qui ressemble à une sortie est une VRAIE sortie : l'échange MCP est capturé depuis
+// `brimkern mcp` (initialize, tools/list, brimkern_stats), le JSON depuis `brimkern --json`
+// (coder, Dawn Metal). Aucun chiffre sans mesure (règle 4 du dépôt).
+
 import Link from 'next/link';
-import { Bot, Terminal, Cpu, Zap, Copy, Check, ArrowRight, Layers, ShieldCheck, Sparkles, ServerOff } from 'lucide-react';
-import { useT, useLocale, useHref } from '@/lib/i18n';
-import BrandMark from '../BrandMark';
-import ByLine from '../ByLine';
+import { Terminal, ArrowRight } from 'lucide-react';
+import { useT, useHref } from '@/lib/i18n';
+import DocsShell, { Code, P } from '../docs/DocsShell';
+import s from '../cli/cli.module.css';
 
-function CodeSnippet({ code, lang = 'bash' }: { code: string; lang?: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
+function Screen({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="docs-code-wrap" style={{ margin: '14px 0' }}>
-      <pre className="docs-code" style={{ fontSize: 13, lineHeight: 1.6, padding: '16px 18px' }}>
-        <code>{code}</code>
-      </pre>
-      <button
-        type="button"
-        className="docs-code-copy"
-        onClick={handleCopy}
-        aria-label="Copy code"
-      >
-        {copied ? '✓' : 'Copy'}
-      </button>
+    <div className={s.screen}>
+      <div className={s.bar}>
+        <span><span className={s.barDot} aria-hidden="true" />{title}</span>
+      </div>
+      {/* tabIndex : sur téléphone le contenu défile horizontalement (axe scrollable-region-focusable). */}
+      <div className={s.body} tabIndex={0}>{children}</div>
+    </div>
+  );
+}
+
+function H2({ id, n, children }: { id: string; n: string; children: React.ReactNode }) {
+  return (
+    <h2 id={id} className={s.h2} style={{ scrollMarginTop: 24 }}>
+      <span className={s.h2Num} aria-hidden="true">{n}</span>
+      {children}
+    </h2>
+  );
+}
+
+// Une ligne d'outil MCP : nom, paramètres, rôle.
+function Tool({ name, args, children }: { name: string; args: string; children: React.ReactNode }) {
+  return (
+    <div style={{ padding: '11px 0', borderBottom: '1px solid var(--border-color)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13.5, fontWeight: 700, color: 'var(--text-primary)' }}>{name}</code>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{args}</span>
+      </div>
+      <span style={{ fontSize: 13.5, lineHeight: 1.55, color: 'var(--text-secondary)' }}>{children}</span>
     </div>
   );
 }
@@ -35,7 +51,15 @@ function CodeSnippet({ code, lang = 'bash' }: { code: string; lang?: string }) {
 export default function AgentsClient() {
   const t = useT();
   const href = useHref();
-  const { locale, setLocale } = useLocale();
+
+  const toc = [
+    { id: 'how', label: t('How delegation works', 'Comment la délégation marche') },
+    { id: 'mcp', label: t('MCP server', 'Serveur MCP') },
+    { id: 'tools', label: t('The four tools', 'Les quatre outils') },
+    { id: 'skill', label: t('The skill', 'Le skill') },
+    { id: 'scripts', label: t('Scripts & JSON', 'Scripts & JSON') },
+    { id: 'limits', label: t('Limits', 'Limites') },
+  ];
 
   const mcpConfigJson = `{
   "mcpServers": {
@@ -46,11 +70,9 @@ export default function AgentsClient() {
   }
 }`;
 
-  const jsonExampleCmd = `git diff | brimkern --json "Draft a conventional commit title"`;
-
-  const jsonExampleOutput = `{
+  const jsonOutput = `{
   "ok": true,
-  "content": "The conventional commit title for the provided diff could be:\\n\\n\\\`feat(auth): add passkey registration support\\\`\\n\\n…",
+  "content": "The conventional commit title for the provided diff could be:\\n\\n\`feat(auth): add passkey registration support\`\\n\\n…",
   "tokens": 48,
   "elapsedMs": 4735,
   "tokPerSec": 10.1,
@@ -59,198 +81,161 @@ export default function AgentsClient() {
   "savedUsd": 0.00158
 }`;
 
-  const skillInstallCmd = `mkdir -p .claude/skills && cp -r ~/.brimkern/skills/brimkern-worker .claude/skills/`;
-
-  const skillPromptExample = `---
-name: brimkern-worker
-description: Offload routine sub-tasks (exploratory tests, syntax transformations,
-  code reviews, repetitive drafting) to local WebGPU Brimkern workers…
----
-
-# Brimkern Worker — Local WebGPU AI Subagent
-…
-brimkern -q "…"          # answer only, for scripts
-brimkern --json "…"      # structured payload
-claude mcp add brimkern -- brimkern mcp`;
-
   return (
-    <div className="docs-page">
-      <div className="docs-shell" style={{ maxWidth: 880 }}>
-        {/* Navigation */}
-        <header className="docs-header">
-          <Link href={href('/')} className="docs-brand" aria-label="Brimkern">
-            <BrandMark size={24} />
-            <span>Brimkern</span>
-            <span className="docs-brand-badge">agents & mcp</span>
+    <DocsShell toc={toc}>
+      {/* ── EN-TÊTE ─────────────────────────────────────────────────────────────────────── */}
+      <div style={{ marginTop: 12 }}>
+        <p className={s.eyebrow}>$ claude mcp add brimkern -- brimkern mcp</p>
+        <h1 className={s.h1}>
+          {t('A local GPU worker for your coding agent', 'Un worker GPU local pour votre agent de code')}
+        </h1>
+        <p className={s.lede}>
+          {t(
+            'Your main agent (Claude Code, Cursor, Windsurf…) keeps the design and the decisions. The mechanical sub-tasks, a first-pass review, a test draft, a commit title, go to a model running on your own GPU through MCP, the CLI or a skill. Nothing leaves the machine and nothing is billed.',
+            'Votre agent principal (Claude Code, Cursor, Windsurf…) garde la conception et les décisions. Les sous-tâches mécaniques, une première relecture, un brouillon de tests, un titre de commit, partent vers un modèle qui tourne sur votre propre GPU, par MCP, par la CLI ou par un skill. Rien ne quitte la machine, rien n’est facturé.'
+          )}
+        </p>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <a href="#mcp" className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+            <Terminal size={14} /> {t('Connect the MCP server', 'Brancher le serveur MCP')}
+          </a>
+          <Link href={href('/docs/cli')} className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+            {t('Install the CLI first', 'Installer d’abord la CLI')} <ArrowRight size={14} />
           </Link>
-          <div className="docs-header-actions">
-            <Link href={href('/cli')} className="docs-header-link">CLI</Link>
-            <Link href={href('/docs')} className="docs-header-link">{t('Docs', 'Doc')}</Link>
-            <Link href={href('/local-ai')} className="docs-header-link">SDK</Link>
-            <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
-            <button
-              onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
-              aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
-              className="docs-header-lang"
-            >
-              {locale === 'fr' ? 'EN' : 'FR'}
-            </button>
-          </div>
-        </header>
-
-        <main style={{ marginTop: 28 }}>
-          {/* Eyebrow */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 12px', borderRadius: 999, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', marginBottom: 16 }}>
-            <Bot size={13} style={{ color: '#f87171' }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {t('Sub-agent Delegation · MCP Server', 'Délégation Sous-agents · Serveur MCP')}
-            </span>
-          </div>
-
-          {/* Heading */}
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 'clamp(32px, 4.5vw, 44px)', fontWeight: 800, lineHeight: 1.15, margin: '0 0 16px', color: '#fbfaf7' }}>
-            {t(
-              'Offload small coding tasks to local GPU. Save your API tokens.',
-              'Déléguez les tâches courantes à votre GPU local. Économisez vos tokens d’API.'
-            )}
-          </h1>
-
-          <p style={{ color: '#dcd8cf', fontSize: 17, lineHeight: 1.6, margin: '0 0 32px', maxWidth: 760 }}>
-            {t(
-              'Let your primary cloud agent (Claude Code, Cursor, Windsurf, Antigravity) orchestrate architecture and high-level reasoning, while spawning lightweight Brimkern sub-agents on your local machine to test code, check syntax, summarize diffs, and draft commit messages. 100% free, private, and running entirely on your GPU.',
-              'Laissez votre agent principal (Claude Code, Cursor, Windsurf, Antigravity) concevoir l’architecture et le raisonnement de haut niveau, et déléguez l’exécution des tâches basiques (linting, tests, relecture de diffs, messages de commit) à des sous-agents Brimkern en local. 100 % gratuit, privé, et exécuté sur votre carte graphique.'
-            )}
-          </p>
-
-          {/* Key Value Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, margin: '0 0 44px' }}>
-            <div className="card" style={{ padding: '18px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <Zap size={18} style={{ color: 'var(--accent)' }} />
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{t('Zero Token Cost', 'Zéro Coût de Token')}</h3>
-              </div>
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-                {t('Every token generated by Brimkern runs on your hardware. Eliminate repetitive costs on trivial checks.', 'Chaque token généré par Brimkern tourne sur votre matériel. Fini de payer pour des vérifications basiques.')}
-              </p>
-            </div>
-
-            <div className="card" style={{ padding: '18px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <Terminal size={18} style={{ color: 'var(--cyan)' }} />
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{t('Native Stdio MCP', 'Serveur MCP Stdio')}</h3>
-              </div>
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-                {t('Built-in JSON-RPC 2.0 stdio server ready for Claude Desktop, Cursor, Antigravity, and custom agent loops.', 'Serveur JSON-RPC 2.0 stdio intégré, prêt pour Claude Desktop, Cursor, Antigravity et scripts agents.')}
-              </p>
-            </div>
-
-            <div className="card" style={{ padding: '18px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <ShieldCheck size={18} style={{ color: 'var(--green)' }} />
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{t('Offline & Private', 'Privé & Hors-ligne')}</h3>
-              </div>
-              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-                {t('Source code and proprietary logs never transit through external APIs. Perfect for sensitive codebases.', 'Votre code source et vos logs ne transitent jamais sur des APIs tierces. Confidentialité totale.')}
-              </p>
-            </div>
-          </div>
-
-          {/* Section 1: MCP Server */}
-          <section style={{ margin: '48px 0', borderTop: '1px solid var(--border-color)', paddingTop: 32 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              01 · {t('Model Context Protocol', 'Protocole MCP')}
-            </span>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 24, fontWeight: 800, margin: '8px 0 12px', color: 'var(--text-primary)' }}>
-              {t('Plug Brimkern as an MCP Tool Server', 'Connectez Brimkern comme serveur d’outils MCP')}
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 16px' }}>
-              {t(
-                'Launch the stdio MCP server with a single command. It exposes local WebGPU inference tools directly to Claude Desktop, Cursor, or any agent compliant with the Model Context Protocol.',
-                'Démarrez le serveur stdio MCP en une commande. Il expose des outils d’inférence WebGPU locale directement à Claude Desktop, Cursor ou tout agent compatible MCP.'
-              )}
-            </p>
-
-            <CodeSnippet code="brimkern mcp --model=coder" />
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
-              {t('Add it to Claude Code:', 'Ajoutez-le à Claude Code :')}
-            </p>
-            <CodeSnippet code="claude mcp add brimkern -- brimkern mcp --model=coder" />
-
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
-              {t('Add to your Claude Desktop or Cursor MCP config (claude_desktop_config.json):', 'Ajoutez à votre configuration MCP Claude Desktop ou Cursor (claude_desktop_config.json) :')}
-            </p>
-            <CodeSnippet code={mcpConfigJson} lang="json" />
-
-            <div style={{ background: 'var(--bg-code)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '14px 18px', marginTop: 14 }}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>{t('Exposed MCP Tools:', 'Outils MCP exposés :')}</p>
-              <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
-                <li><code>brimkern_ask</code> : {t('On-device query, with a mode (code, plan, review, auto) and a token budget', 'Requête sur le GPU local, avec un mode (code, plan, review, auto) et un budget de tokens')}</li>
-                <li><code>brimkern_review</code> : {t('Review of a code snippet or file: bugs, edge cases, security', 'Relecture d’un extrait ou d’un fichier : bugs, cas limites, sécurité')}</li>
-                <li><code>brimkern_generate_tests</code> : {t('Unit test draft in the framework of your choice (vitest by default)', 'Brouillon de tests unitaires dans le framework choisi (vitest par défaut)')}</li>
-                <li><code>brimkern_stats</code> : {t('Active model, calls and tokens served, estimated savings', 'Modèle actif, appels et tokens servis, économies estimées')}</li>
-              </ul>
-            </div>
-          </section>
-
-          {/* Section 2: Structured JSON & CLI Pipes */}
-          <section style={{ margin: '48px 0', borderTop: '1px solid var(--border-color)', paddingTop: 32 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              02 · {t('Automated Workflows & Sub-agents', 'Pipelines & Sous-agents')}
-            </span>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 24, fontWeight: 800, margin: '8px 0 12px', color: 'var(--text-primary)' }}>
-              {t('Structured JSON Output via --json', 'Sortie structurée JSON via --json')}
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 16px' }}>
-              {t(
-                'When called from a script or an agent workflow, pass `--json` (or `-q` / `--quiet`) to retrieve machine-readable payloads with token counts, throughput (tok/s), execution latency, and clean output.',
-                'Appelé depuis un script ou un agent, passez le flag `--json` (ou `-q` / `--quiet`) pour obtenir une charge utile exploitable en JSON avec le nombre de tokens, le débit (tok/s), la latence et le texte brut.'
-              )}
-            </p>
-
-            <CodeSnippet code={jsonExampleCmd} />
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
-              {t('Machine-readable JSON payload:', 'Résultat JSON exploitable :')}
-            </p>
-            <CodeSnippet code={jsonExampleOutput} lang="json" />
-          </section>
-
-          {/* Section 3: Agent Skill definition */}
-          <section style={{ margin: '48px 0', borderTop: '1px solid var(--border-color)', paddingTop: 32 }}>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              03 · {t('Claude Code & Cursor Skill', 'Skill Claude Code & Cursor')}
-            </span>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 24, fontWeight: 800, margin: '8px 0 12px', color: 'var(--text-primary)' }}>
-              {t('Drop-in Skill for AI Coding Assistants', 'Skill prêt à l’emploi pour assistants de code')}
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 16px' }}>
-              {t(
-                'Teach your AI assistant to hand mechanical edits, first-pass diff checks and commit summaries to Brimkern instead of spending API tokens on them.',
-                'Apprenez à votre assistant IA à confier à Brimkern les modifications mécaniques, les premières relectures de diffs et les résumés, au lieu d’y dépenser des tokens d’API.'
-              )}
-            </p>
-
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 8px', fontWeight: 600 }}>
-              {t('Copy it into your project (installed with the CLI in ~/.brimkern):', 'Copiez-le dans votre projet (installé avec la CLI dans ~/.brimkern) :')}
-            </p>
-            <CodeSnippet code={skillInstallCmd} />
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
-              .claude/skills/brimkern-worker/SKILL.md
-            </p>
-            <CodeSnippet code={skillPromptExample} lang="markdown" />
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
-              <Link href={href('/docs/cli')} className="btn btn-primary" style={{ padding: '10px 18px', textDecoration: 'none' }}>
-                <Terminal size={15} /> {t('Read CLI documentation', 'Consulter la documentation CLI')}
-              </Link>
-              <Link href={href('/chat')} className="btn btn-secondary" style={{ padding: '10px 18px', textDecoration: 'none' }}>
-                {t('Test in Browser Chat', 'Tester le Chat Web')} <ArrowRight size={14} />
-              </Link>
-            </div>
-          </section>
-
-          <ByLine />
-        </main>
+        </div>
       </div>
-    </div>
+
+      {/* ── COMMENT ÇA MARCHE ───────────────────────────────────────────────────────────── */}
+      <H2 id="how" n="01">{t('How delegation works', 'Comment la délégation marche')}</H2>
+      <P>
+        {t(
+          'The agent sees Brimkern as a set of tools. When it decides a sub-task is routine, it calls one; the MCP server runs the model on the GPU and returns plain text, which the agent reads, checks and uses.',
+          'L’agent voit Brimkern comme une liste d’outils. Quand il juge une sous-tâche routinière, il en appelle un ; le serveur MCP fait tourner le modèle sur le GPU et rend du texte, que l’agent lit, vérifie et utilise.'
+        )}
+      </P>
+      <Screen title={t('delegation', 'délégation')}>
+        <pre className={s.pre}>
+          <span className={s.bold}>Claude Code</span>{t('  (cloud: plans, decides, edits)', '  (cloud : planifie, décide, édite)')}{'\n'}
+          <span className={s.dim}>{'   │'}</span>{'\n'}
+          <span className={s.dim}>{'   │ '}</span><span className={s.cyan}>tools/call</span> <span className={s.sand}>brimkern_review</span> <span className={s.dim}>{'{ code, file_path }'}</span>{'\n'}
+          <span className={s.dim}>{'   ▼'}</span>{'\n'}
+          <span className={s.boldRed}>brimkern mcp</span>{'  (stdio, JSON-RPC 2.0)'}{'\n'}
+          <span className={s.dim}>{'   │ '}</span>{t('model loaded once, calls queued one at a time', 'modèle chargé une fois, appels en file un par un')}{'\n'}
+          <span className={s.dim}>{'   ▼'}</span>{'\n'}
+          <span className={s.green}>{t('your GPU', 'votre GPU')}</span>{t('  (WebGPU, hand-written WGSL kernels)', '  (WebGPU, kernels WGSL écrits à la main)')}{'\n'}
+          <span className={s.dim}>{'   │'}</span>{'\n'}
+          <span className={s.dim}>{'   └─▶ '}</span>{t('text back to the agent, which checks it', 'texte rendu à l’agent, qui le vérifie')}
+        </pre>
+      </Screen>
+      <div className={s.points} style={{ marginTop: 18 }}>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Good fits', 'Ce qui s’y prête')}</p>
+          <p className={s.pointText}>{t('First-pass reviews, unit-test drafts, commit titles, regexes, renames and other mechanical rewrites.', 'Premières relectures, brouillons de tests, titres de commit, regex, renommages et autres réécritures mécaniques.')}</p>
+        </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Keep on the main agent', 'À garder sur l’agent principal')}</p>
+          <p className={s.pointText}>{t('Architecture, security-critical code, anything that needs the whole repository in context. A 4B model helps; it does not decide.', 'L’architecture, le code critique pour la sécurité, tout ce qui demande le dépôt entier en contexte. Un modèle de 4B aide ; il ne tranche pas.')}</p>
+        </div>
+      </div>
+
+      {/* ── SERVEUR MCP ─────────────────────────────────────────────────────────────────── */}
+      <H2 id="mcp" n="02">{t('MCP server', 'Serveur MCP')}</H2>
+      <P>{t('With the CLI installed, one command registers it in Claude Code:', 'La CLI installée, une commande l’enregistre dans Claude Code :')}</P>
+      <Code lang="sh">{'claude mcp add brimkern -- brimkern mcp --model=coder'}</Code>
+      <P>{t('For Claude Desktop, Cursor and other clients, the same server in their JSON config:', 'Pour Claude Desktop, Cursor et les autres clients, le même serveur dans leur config JSON :')}</P>
+      <Code lang="js">{mcpConfigJson}</Code>
+      <P>
+        {t(
+          'Below, a real exchange with the server: the handshake, the tool list, and a stats call (which does not load the model, so it answers instantly).',
+          'Ci-dessous, un vrai échange avec le serveur : la poignée de main, la liste des outils, puis un appel de statistiques (qui ne charge pas le modèle, d’où la réponse immédiate).'
+        )}
+      </P>
+      <Screen title="brimkern mcp · stdio">
+        <pre className={`${s.pre} ${s.wrap}`}>
+          <span className={s.dim}>→ </span><span className={s.cyan}>initialize</span> <span className={s.dim}>{'{ protocolVersion: "2025-06-18" }'}</span>{'\n'}
+          <span className={s.dim}>← </span>{'{ "protocolVersion": "2025-06-18", "capabilities": { "tools": {} },'}{'\n'}
+          {'    "serverInfo": { "name": "brimkern", "version": "0.1.0" } }'}{'\n\n'}
+          <span className={s.dim}>→ </span><span className={s.cyan}>tools/list</span>{'\n'}
+          <span className={s.dim}>← </span><span className={s.sand}>brimkern_ask</span>{' · '}<span className={s.sand}>brimkern_review</span>{' · '}<span className={s.sand}>brimkern_generate_tests</span>{' · '}<span className={s.sand}>brimkern_stats</span>{'\n\n'}
+          <span className={s.dim}>→ </span><span className={s.cyan}>tools/call</span> <span className={s.sand}>brimkern_stats</span>{'\n'}
+          <span className={s.dim}>← </span>{'{ "model": "Qwen 3 4B (BRIK int4)", "loaded": false, "callsServed": 0,'}{'\n'}
+          {'    "totalTokensServed": 0, "estimatedSavingsUsd": 0 }'}
+        </pre>
+      </Screen>
+      <p className={s.caption}>{t('Captured on 2026-09-24 from brimkern mcp; the tool list is shown by name only.', 'Capturé le 24/09/2026 depuis brimkern mcp ; la liste des outils n’est montrée que par leurs noms.')}</p>
+
+      {/* ── LES OUTILS ──────────────────────────────────────────────────────────────────── */}
+      <H2 id="tools" n="03">{t('The four tools', 'Les quatre outils')}</H2>
+      <P>{t('Each call is independent: no memory of the previous ones, so a review never sees an earlier question.', 'Chaque appel est indépendant : aucune mémoire des précédents, une revue ne voit donc jamais une question antérieure.')}</P>
+      <div style={{ margin: '4px 0 8px' }}>
+        <Tool name="brimkern_ask" args="prompt, model?, mode?, max_tokens?">
+          {t('Free-form query. mode = code (default), plan, review or auto; max_tokens up to 2048.', 'Requête libre. mode = code (défaut), plan, review ou auto ; max_tokens jusqu’à 2048.')}
+        </Tool>
+        <Tool name="brimkern_review" args="code, file_path?, max_tokens?">
+          {t('Review of a snippet or file: bugs, edge cases, error handling, security, performance.', 'Relecture d’un extrait ou d’un fichier : bugs, cas limites, gestion d’erreurs, sécurité, performance.')}
+        </Tool>
+        <Tool name="brimkern_generate_tests" args="code, test_framework?, max_tokens?">
+          {t('Unit-test draft in the framework of your choice (vitest by default).', 'Brouillon de tests unitaires dans le framework choisi (vitest par défaut).')}
+        </Tool>
+        <Tool name="brimkern_stats" args="—">
+          {t('Active model, calls and tokens served, estimated savings. Does not load a model.', 'Modèle actif, appels et tokens servis, économies estimées. Ne charge pas de modèle.')}
+        </Tool>
+      </div>
+      <P>{t('Reasoning blocks (<think>…</think>) are stripped from every answer: the agent only receives the result.', 'Les blocs de réflexion (<think>…</think>) sont retirés de chaque réponse : l’agent ne reçoit que le résultat.')}</P>
+
+      {/* ── LE SKILL ────────────────────────────────────────────────────────────────────── */}
+      <H2 id="skill" n="04">{t('The skill', 'Le skill')}</H2>
+      <P>
+        {t(
+          'A skill is a Markdown file that tells Claude Code when to hand work to Brimkern and how (which commands, which flags). It ships with the CLI; copy it into a project to enable it there.',
+          'Un skill est un fichier Markdown qui dit à Claude Code quand confier du travail à Brimkern et comment (quelles commandes, quelles options). Il est livré avec la CLI ; copiez-le dans un projet pour l’y activer.'
+        )}
+      </P>
+      <Code lang="sh">{'mkdir -p .claude/skills\ncp -r ~/.brimkern/skills/brimkern-worker .claude/skills/'}</Code>
+      <Screen title=".claude/skills/brimkern-worker/SKILL.md">
+        <pre className={`${s.pre} ${s.wrap}`}>
+          <span className={s.dim}>---</span>{'\n'}
+          <span className={s.sand}>name</span>: brimkern-worker{'\n'}
+          <span className={s.sand}>description</span>: Offload routine sub-tasks (exploratory tests, syntax transformations, code reviews, repetitive drafting) to local WebGPU Brimkern workers…{'\n'}
+          <span className={s.dim}>---</span>{'\n\n'}
+          <span className={s.bold}># Brimkern Worker</span>{'\n'}
+          <span className={s.dim}>…</span>{'\n'}
+          {'brimkern -q '}<span className={s.green}>{'"…"'}</span>{'          '}<span className={s.dim}># {t('answer only, for scripts', 'réponse seule, pour les scripts')}</span>{'\n'}
+          {'brimkern --json '}<span className={s.green}>{'"…"'}</span>{'      '}<span className={s.dim}># {t('structured payload', 'charge utile structurée')}</span>{'\n'}
+          {'claude mcp add brimkern -- brimkern mcp'}
+        </pre>
+      </Screen>
+
+      {/* ── SCRIPTS & JSON ──────────────────────────────────────────────────────────────── */}
+      <H2 id="scripts" n="05">{t('Scripts & JSON', 'Scripts & JSON')}</H2>
+      <P>
+        {t(
+          'Without MCP, any agent that can run a shell command can delegate: -q prints the answer alone, --json a structured payload with the token count, speed and duration.',
+          'Sans MCP, tout agent capable de lancer une commande shell peut déléguer : -q imprime la réponse seule, --json une charge utile structurée avec le nombre de tokens, la vitesse et la durée.'
+        )}
+      </P>
+      <Code lang="sh">{'git diff | brimkern --json "Draft a conventional commit title"'}</Code>
+      <Screen title="brimkern --json">
+        <pre className={`${s.pre} ${s.wrap}`}>{jsonOutput}</pre>
+      </Screen>
+      <p className={s.caption}>{t('Real output, coder (Qwen 3 4B), native Dawn on an M-series Mac. savedUsd is an estimate of what a paid API would have charged, not a measurement.', 'Sortie réelle, coder (Qwen 3 4B), Dawn natif sur Mac série M. savedUsd est une estimation de ce qu’une API payante aurait facturé, pas une mesure.')}</p>
+
+      {/* ── LIMITES ─────────────────────────────────────────────────────────────────────── */}
+      <H2 id="limits" n="06">{t('Limits', 'Limites')}</H2>
+      <div className={s.points}>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('One generation at a time', 'Une génération à la fois')}</p>
+          <p className={s.pointText}>{t('Parallel tool calls are queued: the model is loaded once and serves them in turn.', 'Les appels d’outils parallèles sont mis en file : le modèle est chargé une fois et les sert à tour de rôle.')}</p>
+        </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('Memory', 'Mémoire')}</p>
+          <p className={s.pointText}>{t('The default model takes about 2.5 GB of GPU memory while the server runs.', 'Le modèle par défaut occupe environ 2,5 Go de mémoire GPU tant que le serveur tourne.')}</p>
+        </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('First call', 'Premier appel')}</p>
+          <p className={s.pointText}>{t('The first call downloads and loads the model; the following ones reuse it.', 'Le premier appel télécharge puis charge le modèle ; les suivants le réutilisent.')}</p>
+        </div>
+      </div>
+    </DocsShell>
   );
 }
