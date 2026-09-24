@@ -31,7 +31,7 @@ function subscribe(onChange: () => void): () => void {
 }
 
 const lire = () => document.documentElement.classList.contains('dark');
-const lireServeur = () => false;
+const lireServeur = () => true;
 
 export function useTheme(): { dark: boolean; setDark: (v: boolean | ((d: boolean) => boolean)) => void } {
 	const dark = useSyncExternalStore(subscribe, lire, lireServeur);

@@ -74,17 +74,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${fraunces.variable} ${firaCode.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`dark ${inter.variable} ${fraunces.variable} ${firaCode.variable}`} suppressHydrationWarning>
       <head>
-        {/* Applique le thème sauvegardé avant le premier paint (pas de flash blanc en mode sombre à
-            la navigation). next/script `beforeInteractive` = la voie App Router : injecté tôt dans le
-            HTML initial, et exempt du warning React « script tag in a component » (contrairement à un
-            <script> brut). Voir next/docs preventing-flash-before-hydration / scripts. */}
-        {/* Même pattern pour la sidebar : si elle était fermée, on la peint fermée dès le HTML
-            statique (verrou CSS html.sb-closed, retiré à l'hydratation dans page.tsx) — sinon on
-            la voit se refermer à chaque arrivée sur le site. */}
+        {/* Applique le thème sauvegardé avant le premier paint.
+            Par défaut le thème est sombre (DA Brimkern Obsidian/Fumée), sauf si l'utilisateur a explicitement demandé 'light'. */}
         <Script id="brimkern-theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{
-          __html: `try{if(localStorage.getItem('brimkern-theme')==='dark')document.documentElement.classList.add('dark');if(localStorage.getItem('brimkern-sidebar')==='0')document.documentElement.classList.add('sb-closed')}catch(e){}`,
+          __html: `try{if(localStorage.getItem('brimkern-theme')==='light'){document.documentElement.classList.remove('dark')}else{document.documentElement.classList.add('dark')}if(localStorage.getItem('brimkern-sidebar')==='0')document.documentElement.classList.add('sb-closed')}catch(e){}`,
         }} />
         {/* Les BRIK sont servis par huggingface.co (Range + redirection CDN) : payer le handshake
             TLS pendant que l'utilisateur lit l'accueil, pas à la première requête de 15 Mo. */}

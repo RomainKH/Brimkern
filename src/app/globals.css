@@ -14,62 +14,89 @@
   --font-heading: var(--font-fraunces), Georgia, serif;
   --font-mono: var(--font-fira), 'Fira Code', monospace;
 
-  /* Color Palette — papier/encre (thème clair) */
+  /* Color Palette — DA Sombre par défaut : encre obsidian (#0d0d0c), ivoire tranché (#fbfaf7), carmin (#ef4444) */
+  --bg-main: #0d0d0c;
+  --bg-sidebar: #131211;
+  --bg-card: #161514;
+  --bg-card-hover: #1f1e1c;
+  --bg-input: #161514;
+  --bg-elevated: #1f1e1c;
+  --bg-code: #080807;
+  --bg-code-inline: #1c1b18;
+  --code-inline-text: #f87171;
+  --bubble-user-bg: #1e1d1b;
+  --bubble-user-border: rgba(255, 255, 255, 0.08);
+
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-focus: rgba(255, 255, 255, 0.22);
+
+  --accent: #ef4444;
+  --accent-hover: #f87171;
+  --accent-bg-rgba: rgba(239, 68, 68, 0.12);
+  --accent-text: #f87171;
+  --accent-solid: #dc2626;
+  --dot: #242321;
+
+  --text-primary: #fbfaf7;
+  --text-secondary: #dcd8cf;
+  --text-muted: #a6a29a;
+
+  --paper: #fbfaf7;
+  --muted: #dcd8cf;
+  --faint: #a6a29a;
+  --sand: #f3d498;
+  --cyan: #38bdf8;
+  --green: #4ade80;
+
+  --success: #4ade80;
+  --warning: #f3d498;
+  --error: #ef4444;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 22px -4px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 4px 16px rgba(239, 68, 68, 0.25);
+
+  box-sizing: border-box;
+}
+
+/* Repli clair (si activé explicitement via ThemeToggle) */
+html.light {
   --bg-main: #f2efe8;
   --bg-sidebar: #ebe8df;
   --bg-card: #ffffff;
   --bg-card-hover: #f7f5ef;
   --bg-input: #ffffff;
   --bg-elevated: #ffffff;
-  /* white surfaces (header, bubbles, buttons) — flips in dark mode */
   --bg-code: #f0ede5;
   --bg-code-inline: #ebe8df;
   --code-inline-text: #c72c1e;
   --bubble-user-bg: #e9e6dc;
   --bubble-user-border: #d8d4c8;
-
   --border-color: #ddd9ce;
   --border-focus: #c4bfb0;
-
   --accent: #c72c1e;
   --accent-hover: #a82418;
   --accent-bg-rgba: rgba(199, 44, 30, 0.08);
-  /* Rouge pour le TEXTE, distinct du rouge d'aplat. Sur le papier ils coïncident ; sur l'encre, le
-     rouge d'accent (éclairci pour rester visible en aplat) ne fait que 4,2:1 en petit texte — sous
-     la norme. Un jeton dédié évite de re-corriger au cas par cas à chaque nouvel élément rouge
-     (c'est arrivé deux fois : le sur-titre, puis les numéros du schéma). */
   --accent-text: #c72c1e;
-  /* Rouge d'APLAT portant du texte blanc. Troisième cas, distinct des deux précédents : sur l'encre,
-     `--accent` est éclairci pour rester visible en aplat, or du blanc dessus ne fait plus que 4,29:1.
-     `.btn-primary` avait été corrigé à la main le 2026-08-13 ; ce jeton évite de le refaire pour
-     chaque nouvel élément rouge plein (les pilules de /local-ai, trouvées le 14/08). */
   --accent-solid: #c72c1e;
-  --dot: #d8d3c6;            /* trame de fond de la landing */
-
+  --dot: #d8d3c6;
   --text-primary: #1a1a1a;
   --text-secondary: #52504a;
-  /* 4.5:1 minimum (WCAG AA) sur TOUS les fonds clairs — mesuré : 6.01 sur blanc, 5.23 sur
-     --bg-main, 4.91 sur --bg-sidebar. L'ancien #8b887f tombait à 3.37 (audit axe 2026-08-13). */
   --text-muted: #666359;
-
-  /* Sémantiques « encrées » — assez sombres pour tenir sur le papier (texte 11–13px). */
+  --paper: #1a1a1a;
+  --muted: #52504a;
+  --faint: #666359;
+  --sand: #a86a0c;
+  --cyan: #0284c7;
+  --green: #1a7f4e;
   --success: #1a7f4e;
   --warning: #a86a0c;
-  /* `--error` était resté au rouge VIF de Tailwind (#ef4444) alors que ses deux voisins avaient été
-     encrés : l'oubli se voyait sur `.btn-danger`, qui pose ce rouge sur un fond teinté à 10 % du même
-     rouge — mesuré à 3,29:1, donc sous la norme, et sur les boutons les plus destructifs de l'app
-     (« Tout supprimer », « Vider »). Relevé par axe-core le 2026-08-14 : le panneau Stockage n'avait
-     jamais été audité, parce qu'il faut l'ouvrir pour le voir.
-     #b42318 mesuré : 5,58:1 au repos et 5,11:1 au survol sur carte blanche, 5,32 / 4,87 sur le papier.
-     (L'accent lui-même, #c72c1e, ne tenait que 4,35:1 au survol — sous la norme.) */
   --error: #b42318;
-
   --shadow-sm: 0 1px 2px 0 rgba(26, 26, 26, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(26, 26, 26, 0.05), 0 2px 4px -1px rgba(26, 26, 26, 0.03);
-  --shadow-lg: 0 10px 15px -3px rgba(26, 26, 26, 0.05), 0 4px 6px -2px rgba(26, 26, 26, 0.03);
+  --shadow-md: 0 4px 6px -1px rgba(26, 26, 26, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(26, 26, 26, 0.05);
   --shadow-glow: 0 4px 12px rgba(199, 44, 30, 0.15);
-
-  box-sizing: border-box;
 }
 
 *,
@@ -1967,33 +1994,37 @@ html.sb-closed .sidebar.open {
 
 /* ── Dark mode (toggled by `html.dark`) — l'encre : le négatif du papier ── */
 html.dark {
-  --bg-main: #171614;
-  --bg-sidebar: #1c1b18;
-  --bg-card: #211f1c;
-  --bg-card-hover: #2a2823;
-  --bg-input: #211f1c;
-  --bg-elevated: #211f1c;
-  --bg-code: #1c1b18;
-  --bg-code-inline: #2a2823;
-  --code-inline-text: #ec7266;  /* éclairci le 14/08 : #e05a4e ne tenait que 4,02:1 sur le fond de code teinté (norme 4,5) */
-  --bubble-user-bg: #2a2823;
-  --bubble-user-border: #3a372f;
-  --border-color: #33302a;
-  --border-focus: #4a463d;
-  --accent: #d9463a;         /* rouge éclairci pour tenir le contraste sur l'encre */
-  --accent-hover: #c72c1e;
-  --accent-text: #e2604f;    /* 5,2:1 sur --bg-main : le rouge des petits textes */
-  --accent-solid: #b8291c;   /* aplat sous du texte blanc : 6,2:1 (le rouge profond du papier) */
-  --dot: #2b2925;
-  --accent-bg-rgba: rgba(217, 70, 58, 0.12);
-  --text-primary: #ece9e1;
-  --text-secondary: #b5b1a6;
-  /* Idem côté encre : 6.12 sur --bg-main, 4.98 sur --bg-card-hover (l'ancien #7b776c : 4.05). */
-  --text-muted: #9a968b;
-  /* Sémantiques éclaircies pour l'encre (les versions claires sont illisibles sur #171614). */
-  --success: #4cc38a;
-  --warning: #d9a13c;
-  --error: #f0655a;
+  --bg-main: #0d0d0c;
+  --bg-sidebar: #131211;
+  --bg-card: #161514;
+  --bg-card-hover: #1f1e1c;
+  --bg-input: #161514;
+  --bg-elevated: #1f1e1c;
+  --bg-code: #080807;
+  --bg-code-inline: #1c1b18;
+  --code-inline-text: #f87171;
+  --bubble-user-bg: #1e1d1b;
+  --bubble-user-border: rgba(255, 255, 255, 0.08);
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-focus: rgba(255, 255, 255, 0.22);
+  --accent: #ef4444;
+  --accent-hover: #f87171;
+  --accent-text: #f87171;
+  --accent-solid: #dc2626;
+  --dot: #242321;
+  --accent-bg-rgba: rgba(239, 68, 68, 0.12);
+  --text-primary: #fbfaf7;
+  --text-secondary: #dcd8cf;
+  --text-muted: #a6a29a;
+  --paper: #fbfaf7;
+  --muted: #dcd8cf;
+  --faint: #a6a29a;
+  --sand: #f3d498;
+  --cyan: #38bdf8;
+  --green: #4ade80;
+  --success: #4ade80;
+  --warning: #f3d498;
+  --error: #ef4444;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 12px 22px -4px rgba(0, 0, 0, 0.55);
@@ -2073,19 +2104,19 @@ html.dark ::-webkit-scrollbar-thumb:hover {
    ══════════════════════════════════════════════════════════════════════════════ */
 .lp-page {
   --ink: #0d0d0c;
-  --screen: #141413;
-  --screen-elevated: #1a1918;
-  --rule: rgba(255, 255, 255, 0.08);
-  --rule-bright: rgba(255, 255, 255, 0.16);
-  --paper: #ece7dc;
-  --muted: #a8a296;
-  --faint: #78746c;
-  --red: #dc2626;
-  --red-text: #f26d64;
-  --sand: #d8b984;
+  --screen: #161514;
+  --screen-elevated: #201f1d;
+  --rule: rgba(255, 255, 255, 0.1);
+  --rule-bright: rgba(255, 255, 255, 0.22);
+  --paper: #fbfaf7;
+  --muted: #dcd8cf;
+  --faint: #a6a29a;
+  --red: #ef4444;
+  --red-text: #f87171;
+  --sand: #f3d498;
   --cyan: #38bdf8;
   --green: #4ade80;
-  --ghost: #8b8b94;
+  --ghost: #a6a29a;
 
   /* Redirection des jetons de base pour les composants enfants */
   --bg-main: var(--ink);
@@ -2100,8 +2131,8 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   --text-muted: var(--faint);
   --accent: var(--red);
   --accent-text: var(--red-text);
-  --accent-solid: var(--red);
-  --accent-hover: #ef4444;
+  --accent-solid: #dc2626;
+  --accent-hover: #f87171;
 
   background: radial-gradient(ellipse 80% 50% at 50% -15%, rgba(220, 38, 38, 0.07), transparent 70%), var(--ink);
   color: var(--paper);
@@ -3277,9 +3308,42 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   position: relative;
   min-height: 100vh;
   background-color: #0d0d0c;
-  background-image: radial-gradient(ellipse 70% 40% at 50% -10%, rgba(220, 38, 38, 0.07), transparent 60%);
-  color: #ece9e1;
+  background-image: radial-gradient(ellipse 70% 40% at 50% -10%, rgba(239, 68, 68, 0.08), transparent 60%);
+  color: #fbfaf7;
   overflow-x: hidden;
+
+  --ink: #0d0d0c;
+  --screen: #161514;
+  --screen-elevated: #201f1d;
+  --rule: rgba(255, 255, 255, 0.1);
+  --rule-bright: rgba(255, 255, 255, 0.22);
+  --paper: #fbfaf7;
+  --muted: #dcd8cf;
+  --faint: #a6a29a;
+  --red: #ef4444;
+  --red-text: #f87171;
+  --sand: #f3d498;
+  --cyan: #38bdf8;
+  --green: #4ade80;
+
+  --bg-main: #0d0d0c;
+  --bg-sidebar: #131211;
+  --bg-card: #161514;
+  --bg-card-hover: #201f1d;
+  --bg-input: #161514;
+  --bg-elevated: #201f1d;
+  --bg-code: #080807;
+  --bg-code-inline: #1c1b18;
+  --code-inline-text: #f87171;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --border-focus: rgba(255, 255, 255, 0.22);
+  --text-primary: #fbfaf7;
+  --text-secondary: #dcd8cf;
+  --text-muted: #a6a29a;
+  --accent: #ef4444;
+  --accent-text: #f87171;
+  --accent-solid: #dc2626;
+  --accent-hover: #f87171;
 }
 
 .docs-smoke {
@@ -3310,10 +3374,10 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   justify-content: space-between;
   padding: 16px 0;
   margin-bottom: 24px;
-  background: rgba(13, 13, 12, 0.82);
+  background: rgba(13, 13, 12, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .docs-brand {
@@ -3323,7 +3387,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-family: var(--font-heading);
   font-size: 16px;
   font-weight: 700;
-  color: #f4f2ed;
+  color: #ffffff;
   text-decoration: none;
   letter-spacing: -0.01em;
 }
@@ -3331,14 +3395,14 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 .docs-brand-badge {
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 2px 7px;
   border-radius: 4px;
-  background: rgba(220, 38, 38, 0.12);
+  background: rgba(239, 68, 68, 0.15);
   color: #f87171;
-  border: 1px solid rgba(220, 38, 38, 0.28);
+  border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 .docs-header-actions {
@@ -3351,7 +3415,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-family: var(--font-mono);
   font-size: 12.5px;
   font-weight: 500;
-  color: #8e8c85;
+  color: #dcd8cf;
   text-decoration: none;
   padding: 6px 12px;
   border-radius: 6px;
@@ -3359,17 +3423,17 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .docs-header-link:hover {
-  color: #f4f2ed;
-  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .docs-header-lang {
   font-family: var(--font-mono);
   font-size: 11.5px;
-  font-weight: 600;
-  color: #a3a097;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+  color: #fbfaf7;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 5px 9px;
   border-radius: 5px;
   cursor: pointer;
@@ -3377,9 +3441,9 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .docs-header-lang:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 
 .docs-layout {
@@ -3393,6 +3457,39 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   max-width: 760px;
   min-width: 0;
   flex: 1;
+}
+
+.docs-content h1,
+.docs-content h2,
+.docs-content h3,
+.docs-content h4 {
+  color: #fbfaf7;
+}
+
+.docs-content p {
+  color: #dcd8cf;
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+.docs-content li {
+  color: #dcd8cf;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.docs-content strong {
+  color: #ffffff;
+}
+
+.docs-content a:not(.docs-chip):not(.btn) {
+  color: #f87171;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.docs-content a:not(.docs-chip):not(.btn):hover {
+  color: #ffffff;
 }
 
 .docs-side {
@@ -3420,7 +3517,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #716f68;
+  color: #a6a29a;
   margin-bottom: 6px;
 }
 
@@ -3429,32 +3526,32 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-size: 13px;
   line-height: 1.5;
   padding: 6px 12px;
-  border-left: 2px solid rgba(255, 255, 255, 0.06);
-  color: #8e8c85;
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  color: #dcd8cf;
   text-decoration: none;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
   border-radius: 0 4px 4px 0;
 }
 
 .docs-side-link:hover {
-  color: #f4f2ed;
-  border-left-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.02);
+  color: #ffffff;
+  border-left-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .docs-side-link.active {
-  color: #f4f2ed;
-  border-left-color: #dc2626;
+  color: #ffffff;
+  border-left-color: #ef4444;
   font-weight: 600;
-  background: linear-gradient(90deg, rgba(220, 38, 38, 0.08), transparent);
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.12), transparent);
 }
 
 .docs-code-wrap {
   position: relative;
-  margin: 16px 0;
+  margin: 18px 0;
   border-radius: 8px;
-  background: #080807;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #090908;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   overflow: hidden;
 }
@@ -3466,7 +3563,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-size: 13px;
   line-height: 1.65;
   overflow-x: auto;
-  color: #e6e3dc;
+  color: #fbfaf7;
   background: transparent;
   border: none;
 }
@@ -3478,9 +3575,9 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
-  color: #8e8c85;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #dcd8cf;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 5px;
   padding: 4px 9px;
   cursor: pointer;
@@ -3489,15 +3586,15 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .docs-code-copy:hover {
-  color: #f4f2ed;
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
-.docs-code .c-com { color: #8d8779; font-style: italic; }
-.docs-code .c-str { color: #d8b984; }
-.docs-code .c-kw  { color: #ef8a7a; }
-.docs-code .c-num { color: #9fc0b4; }
+.docs-code .c-com { color: #a6a29a; font-style: italic; }
+.docs-code .c-str { color: #f3d498; }
+.docs-code .c-kw  { color: #f87171; }
+.docs-code .c-num { color: #67e8f9; }
 
 .docs-chips {
   display: none;
@@ -3512,17 +3609,17 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   font-size: 11.5px;
   padding: 5px 12px;
   border-radius: 100px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #8e8c85;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #dcd8cf;
   text-decoration: none;
   transition: all 0.15s ease;
 }
 
 .docs-chip:hover {
-  color: #f4f2ed;
-  border-color: rgba(220, 38, 38, 0.4);
-  background: rgba(220, 38, 38, 0.08);
+  color: #ffffff;
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 @media (max-width: 1000px) {
