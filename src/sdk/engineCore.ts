@@ -415,7 +415,9 @@ export function getModel(url: string, onProgress?: (s: LoadPhase, p?: LoadProgre
     e = entry;
   }
   if (onProgress) {
-    onProgress(e.status, e.progress);
+    if (e.state !== 'ready') {
+      onProgress(e.status, e.progress);
+    }
     e.listeners.add(onProgress);
     void e.promise.finally(() => e!.listeners.delete(onProgress)).catch(() => { /* signalé à l'appelant */ });
   }

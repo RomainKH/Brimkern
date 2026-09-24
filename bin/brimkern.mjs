@@ -326,7 +326,7 @@ function buildProjectContext(cwd = process.cwd()) {
     if (entries.length) parts.push(`top-level files: ${entries.join(', ')}`);
   } catch {}
   if (!parts.length || (!readme && parts.length < 3 && !git)) return '';
-  return `\n\nThe user is working in the directory ${cwd}. When they say "this project", "ce projet" or "le repo", they mean this one:\n${parts.join('\n')}`;
+  return `\n\n[Project context: ${cwd}]\n${parts.join('\n')}`;
 }
 
 // ── Économies estimées vs une API payante ─────────────────────────────────────────────
@@ -2707,7 +2707,13 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
         },
         onProgress: (phase, loaded, total) => {
           if (total) {
-            spinner.setPhase(t(`Downloading: ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} MB`, `Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`));
+            const loadedMb = Math.round(loaded / 1048576);
+            const totalMb = Math.round(total / 1048576);
+            if (phase === 'gpu') {
+              spinner.setPhase(t(`Loading to VRAM: ${loadedMb} / ${totalMb} MB`, `Chargement en VRAM : ${loadedMb} / ${totalMb} Mo`));
+            } else {
+              spinner.setPhase(t(`Downloading: ${loadedMb} / ${totalMb} MB`, `Téléchargement : ${loadedMb} / ${totalMb} Mo`));
+            }
           } else {
             spinner.setPhase(`Phase${t(':', ' :')} ${phase}`);
           }
@@ -3335,7 +3341,13 @@ async function main() {
       },
       onProgress: (phase, loaded, total) => {
         if (!raw && !isQuiet && !isJson && total) {
-          spinner.setPhase(t(`Downloading: ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} MB`, `Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`));
+          const loadedMb = Math.round(loaded / 1048576);
+          const totalMb = Math.round(total / 1048576);
+          if (phase === 'gpu') {
+            spinner.setPhase(t(`Loading to VRAM: ${loadedMb} / ${totalMb} MB`, `Chargement en VRAM : ${loadedMb} / ${totalMb} Mo`));
+          } else {
+            spinner.setPhase(t(`Downloading: ${loadedMb} / ${totalMb} MB`, `Téléchargement : ${loadedMb} / ${totalMb} Mo`));
+          }
         }
       },
     });
