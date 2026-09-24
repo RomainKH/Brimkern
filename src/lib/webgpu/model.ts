@@ -318,6 +318,11 @@ export class CustomWebModel {
 	private async dequantGpuQ8(name: string): Promise<any> {
 		const t = this.manifest.tensors[name];
 		const bytes = await this.rawTensor(name);
+		// GGUF Q4_K : les blocs partent TELS QUELS (GEMV K-quant natif), au lieu d'être requantifiés en
+		// int8 — la requantification DOUBLAIT l'empreinte d'un GGUF Q4_K_M (un 7-8B passait de ~5 à
+		// ~8,5 Go) sans rien gagner en qualité (le Q4_K est déjà la source). Cf. GraphModel.mat pour la
+		// mesure (Gemma 4 : 64/64 contre llama.cpp, décodage plus rapide qu'en int8). ?kq=0 → int8.
+		if (t.type === 'Q4_K' && this.engine.kqOk && t.shape[0] % 256 === 0) return this.engine.uploadKq('Q4_K', bytes);
 		if (t.type !== 'Q8W') {
 			const f32gpu = this.engine.dequantizeToGpu(t.type, bytes, t.nElems);
 			const q = this.engine.f32ToQ8Gpu(f32gpu, t.nElems);
@@ -549,6 +554,9 @@ export class CustomWebModel {
 		for (let i = 0; i < blockCount; i += BATCH) {
 			const n = Math.min(BATCH, blockCount - i);
 			await Promise.all(Array.from({ length: n }, (_, j) => this.layerWeightsGpu(i + j)));
+			// Vidange entre deux lots : sans elle, les intermédiaires détruits mais pas encore libérés par
+			// Dawn natif s'empilaient sur tout le chargement (cf. GraphModel, 2× le modèle au pic).
+			await this.engine.settleGpu();
 			for (let j = 0; j < n; j++) done += layerBytes[i + j];
 			onProgress?.(done, totalBytes);
 		}
@@ -647,6 +655,25 @@ export class CustomWebModel {
 					rows, r0,
 				});
 			}
+			this.projQ8 = tiles;
+			return tiles;
+		}
+		// GGUF déquantifiable sur GPU : tuiles int8 construites SUR LE GPU avec UN f32 de travail. Le
+		// chemin ci-dessous matérialise un blob int8 COMPLET côté JS (≈ 1 Go pour une tête 248k × 4 096)
+		// puis le recopie tuile par tuile : l'essentiel du pic de chargement d'un GGUF.
+		if (['Q6_K', 'Q4_K', 'Q5_K', 'Q8_0', 'Q4_0', 'Q5_0'].includes(info.type) && info.bytes % vocab === 0) {
+			const rowBytes = info.bytes / vocab;
+			const TILE_F32 = Math.max(1, Math.floor(Math.min(this.engine.maxStorageBufferBindingSize * 0.9, 256 << 20) / (d * 4)));
+			const G = globalThis as any;
+			const scratch = this.engine.device.createBuffer({ size: TILE_F32 * d * 4, usage: G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.COPY_SRC });
+			for (let r0 = 0; r0 < vocab; r0 += TILE_F32) {
+				const rows = Math.min(TILE_F32, vocab - r0);
+				this.engine.dequantizeIntoGpu(info.type, raw.subarray(r0 * rowBytes, (r0 + rows) * rowBytes), rows * d, scratch);
+				tiles.push({ w: this.engine.f32ToQ8Gpu(scratch, rows * d), rows, r0 });
+				await this.engine.settleGpu();
+			}
+			scratch.destroy();
+			if (name === 'output.weight') this.rawCache.delete(name);
 			this.projQ8 = tiles;
 			return tiles;
 		}
