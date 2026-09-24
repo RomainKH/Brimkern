@@ -27,7 +27,7 @@ import { SDK_URL } from '@/lib/site';
 import HfModelInput from './HfModelInput';
 import GithubMark from './GithubMark';
 import ByLine from './ByLine';
-import ThemeToggle from './ThemeToggle';
+import Smoke from './Smoke';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
 // mort serait la pire première impression pour un visiteur venu de Hugging Face).
@@ -162,41 +162,47 @@ export default function LandingClient() {
   };
 
   return (
-    <div className="lp">
-      <header className="lp-nav">
-        <Link href={href('/')} className="lp-brand" aria-label="Brimkern">
-          <BrandMark size={28} />
-          <span>Brimkern</span>
-        </Link>
-        <nav className="lp-nav-links" aria-label={t('Main', 'Principale')}>
-          <Link href={href('/docs')}>{t('Docs', 'Doc')}</Link>
-          <Link href={href('/local-ai')}>SDK</Link>
-          <Link href={href('/cli')}>CLI</Link>
-          <Link href={href('/changelog')} className="lp-nav-wide">Changelog</Link>
-          <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="lp-nav-icon">
-            <GithubMark size={16} />
-          </a>
-          <button
-            onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
-            aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
-            className="lp-nav-lang"
-          >
-            {locale === 'fr' ? 'EN' : 'FR'}
-          </button>
-          <ThemeToggle size={16} />
-          <Link href={href('/chat')} className="btn btn-primary lp-nav-cta">{t('Open the chat', 'Ouvrir le chat')}</Link>
-        </nav>
-      </header>
+    <div className="lp-page">
+      <Smoke className="lp-smoke" />
+      <div className="lp">
+        <header className="lp-nav">
+          <Link href={href('/')} className="lp-brand" aria-label="Brimkern">
+            <BrandMark size={28} />
+            <span>Brimkern</span>
+          </Link>
+          <nav className="lp-nav-links" aria-label={t('Main', 'Principale')}>
+            <Link href={href('/docs')}>{t('Docs', 'Doc')}</Link>
+            <Link href={href('/local-ai')}>SDK</Link>
+            <Link href={href('/cli')}>CLI</Link>
+            <Link href={href('/changelog')} className="lp-nav-wide">Changelog</Link>
+            <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="lp-nav-icon">
+              <GithubMark size={16} />
+            </a>
+            <button
+              onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
+              aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
+              className="lp-nav-lang"
+            >
+              {locale === 'fr' ? 'EN' : 'FR'}
+            </button>
+            <Link href={href('/chat')} className="btn btn-primary lp-nav-cta">{t('Open the chat', 'Ouvrir le chat')}</Link>
+          </nav>
+        </header>
 
-      <main>
-        {/* ── HERO ─────────────────────────────────────────────────────────────────────────────── */}
-        <section className="lp-hero-wrap">
-          <div className="lp-hero">
-            <div className="lp-eyebrow">{t('WebGPU · 100% local · Nothing leaves your browser', 'WebGPU · 100 % local · Rien ne sort de votre navigateur')}</div>
-            <h1 className="lp-h1">
-              {t('Powerful AI models.', 'Des modèles d’IA puissants.')}<br />
-              <span className="lp-h1-accent">{t('Directly in your browser.', 'Directement dans votre navigateur.')}</span>
-            </h1>
+        <main>
+          {/* ── HERO ─────────────────────────────────────────────────────────────────────────────── */}
+          <section className="lp-hero-wrap">
+            <div className="lp-hero">
+              <div className="lp-eyebrow">
+                <span className="lp-quick-kicker">GPU</span>
+                <span>{t('WebGPU · 100% local · Nothing leaves your browser', 'WebGPU · 100 % local · Rien ne sort de votre navigateur')}</span>
+              </div>
+              <h1 className="lp-h1">
+                {t('Powerful AI models.', 'Des modèles d’IA puissants.')}<br />
+                <span className="lp-h1-accent glitch-text" data-text={t('Directly in your browser.', 'Directement dans votre navigateur.')}>
+                  {t('Directly in your browser.', 'Directement dans votre navigateur.')}
+                </span>
+              </h1>
             <p className="lp-lede">
               {t('Brimkern runs open-source models straight from Hugging Face on your own GPU: no installation, no server, and no subscription. Weights stream in once, stay on your device, and work completely offline.',
                  'Brimkern fait tourner des modèles open source directement sur votre carte graphique : sans installation, sans serveur tiers et sans abonnement. Les modèles arrivent en streaming, restent sur votre appareil et fonctionnent hors-ligne.')}
@@ -607,5 +613,6 @@ export default function LandingClient() {
         <ByLine />
       </footer>
     </div>
+  </div>
   );
 }
