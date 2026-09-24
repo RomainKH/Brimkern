@@ -41,7 +41,7 @@ export default function AgentsClient() {
   "mcpServers": {
     "brimkern": {
       "command": "brimkern",
-      "args": ["mcp", "--model=coder-3b"]
+      "args": ["mcp", "--model=coder"]
     }
   }
 }`;
@@ -51,7 +51,7 @@ export default function AgentsClient() {
   const jsonExampleOutput = `{
   "success": true,
   "output": "feat(auth): add webauthn biometric passkey support",
-  "model": "coder-3b",
+  "model": "coder",
   "stats": {
     "tokens": 28,
     "tokPerSec": 22.4,
@@ -166,7 +166,7 @@ prompt: |
               )}
             </p>
 
-            <CodeSnippet code="brimkern mcp --model=coder-3b" />
+            <CodeSnippet code="brimkern mcp --model=coder" />
 
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '14px 0 8px', fontWeight: 600 }}>
               {t('Add to your Claude Desktop or Cursor MCP config (claude_desktop_config.json):', 'Ajoutez à votre configuration MCP Claude Desktop ou Cursor (claude_desktop_config.json) :')}

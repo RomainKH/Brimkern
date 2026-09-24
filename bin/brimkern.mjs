@@ -98,19 +98,6 @@ const PRESET_CLI_MODELS = {
     desc: t('The most reliable of the models tested: correct explanations and code, ~13-16 tok/s. Reasoning: /think deep.',
       'Le plus fiable des modèles testés : explications et code justes, ~13-16 tok/s. Réflexion : /think deep.'),
   },
-  'coder-3b': {
-    name: 'Qwen 2.5 Coder 3B (Claude Opus Distill)',
-    shortName: 'Qwen 2.5 Coder 3B',
-    url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
-    format: 'gguf',
-    formatLabel: 'GGUF Q4_K_M',
-    runtime: 'WebGPU (Chromium)',
-    size: t('1.93 GB', '1,93 Go'),
-    badge: t('Opus Distilled', 'Distillé Opus'),
-    defaultSystem: 'You are Brimkern Opus Coder, an expert software architect. Provide elegant, robust and concise code solutions with clear explanations.',
-    desc: t('Distilled on Claude Opus 4.6 traces: exceptional reasoning & code quality in a lightweight 3B format (~20 tok/s).',
-      'Distillé sur des traces Claude Opus 4.6 : qualité de code et raisonnement remarquables en format 3B léger (~20 tok/s).'),
-  },
   'super-coder': {
     name: 'Qwen 3.5 4B Super Coder (GGUF)',
     shortName: 'Qwen 3.5 4B Super Coder',
@@ -124,46 +111,40 @@ const PRESET_CLI_MODELS = {
     desc: t('Next-generation hybrid SSM (DeltaNet) + attention: continuous recurrent state with 4B capacity (~14 tok/s).',
       'Nouvelle génération hybride SSM (DeltaNet) + attention : état récurrent continu avec puissance 4B (~14 tok/s).'),
   },
-  'reason': {
-    name: 'DeepSeek-R1 Distill Qwen 1.5B (GGUF)',
-    shortName: 'DeepSeek-R1 1.5B',
-    url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
-    format: 'gguf',
-    formatLabel: 'GGUF Q4_K_M',
-    runtime: 'WebGPU (Chromium)',
-    size: t('1.12 GB', '1,12 Go'),
-    badge: t('Reasoning', 'Raisonnement'),
-    defaultSystem: 'You are Brimkern Reasoning, an analytical assistant that reasons thoroughly inside <think>...</think> before answering.',
-    desc: t('Step-by-step mathematical, architectural and logic reasoning with internal monologue (~18 tok/s).',
-      'Raisonnement mathématique, architectural et logique étape par étape avec monologue intérieur (~18 tok/s).'),
-  },
 };
 
 // Anciennes clés : alias vers les nouvelles (redirection transparente) ou raccourcis pratiques
 const MODEL_ALIASES = {
   'qwen3-4b': 'coder',
-  'fast': 'coder-3b',
-  'coder-1.5b': 'coder-3b',
-  'smol': 'coder-3b',
-  'smollm': 'coder-3b',
+  'qwen3': 'coder',
   'pro': 'super-coder',
+  'super': 'super-coder',
+  'qwen35': 'super-coder',
+  'qwen-3.5': 'super-coder',
+  'deltanet': 'super-coder',
   'coder-7b': 'super-coder',
   'qwen-7b': 'super-coder',
   '7b': 'super-coder',
   'heavy': 'super-coder',
-  'deepseek': 'reason',
-  'r1': 'reason',
-  '3b': 'coder-3b',
-  'opus': 'coder-3b',
-  'opus-coder': 'coder-3b',
-  'qwen-3b': 'coder-3b',
-  'super': 'super-coder',
-  'super-coder': 'super-coder',
-  'qwen35': 'super-coder',
-  'qwen-3.5': 'super-coder',
-  'deltanet': 'super-coder',
+  'coder-3b': 'coder',
+  'fast': 'coder',
+  'coder-1.5b': 'coder',
+  'smol': 'coder',
+  'smollm': 'coder',
+  '3b': 'coder',
+  'opus': 'coder',
+  'opus-coder': 'coder',
+  'qwen-3b': 'coder',
+  'reason': 'coder',
+  'deepseek': 'coder',
+  'r1': 'coder',
 };
-const RETIRED_MODELS = new Set(['coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b']);
+const RETIRED_MODELS = new Set([
+  'coder-3b', 'opus', 'opus-coder', '3b', 'qwen-3b',
+  'reason', 'deepseek', 'r1',
+  'fast', 'coder-1.5b', 'smol', 'smollm',
+  'coder-0.5b', 'qwen-0.5b', 'lfm2', 'rwkv', 'rwkv-0.4b', 'rwkv-0.1b'
+]);
 
 function resolveModelKey(key) {
   if (!key) {
@@ -2871,7 +2852,7 @@ async function runMcpServer(initialOptions = {}) {
                       },
                       model: {
                         type: 'string',
-                        description: 'Model preset: "coder" (default, Qwen 3 4B), "coder-3b" (Qwen 2.5 3B Opus), "super-coder" (Qwen 3.5 4B SSM), "reason" (DeepSeek-R1 1.5B)',
+                        description: 'Model preset: "coder" (default, Qwen 3 4B), "super-coder" (Qwen 3.5 4B SSM)',
                       },
                       mode: {
                         type: 'string',

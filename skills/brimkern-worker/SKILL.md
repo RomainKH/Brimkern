@@ -54,11 +54,8 @@ cat src/utils/math.ts | npx brimkern -q "Write comprehensive vitest unit tests"
 ```
 
 ### 4. Choosing the right model preset
-- `-m coder` (default): Qwen 3 4B — reliable code intelligence and explanations (~15 tok/s).
-- `-m fast`: Qwen 2.5 1.5B — ultra-fast (~25 tok/s), ideal for basic scaffolding.
-- `-m coder-3b`: Qwen 2.5 Coder 3B distilled on Claude Opus 4.6 traces (~20 tok/s).
-- `-m coder-7b`: Qwen 2.5 7B — deep refactoring and heavy logic for machines with 16GB+ RAM.
-- `-m reason`: DeepSeek-R1 1.5B — step-by-step mathematical and algorithmic reasoning.
+- `-m coder` (default): Qwen 3 4B — reliable code intelligence, explanations, and multilingual reasoning (~15 tok/s).
+- `-m super-coder`: Qwen 3.5 4B — next-generation hybrid SSM (DeltaNet) + attention with 4B capacity (~14 tok/s).
 
 ---
 
