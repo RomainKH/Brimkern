@@ -1357,13 +1357,26 @@ const RELEASES: Release[] = [
 // stable d'une locale à l'autre — un lien partagé depuis la page française doit ouvrir la bonne
 // section en anglais — et stable dans le temps, puisqu'une date publiée ne change plus.
 const slugDate = (en: string) => en.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+// Deux versions le même jour (0.2.0 et 0.2.1, le 24 août 2026) donnaient deux fois la même ancre :
+// clé React dupliquée dans le sommaire, et un lien vers la seconde qui ouvrait la première. La
+// PREMIÈRE de la date (la plus récente, la liste va du plus récent au plus ancien) garde l'ancre
+// nue, pour ne casser aucun lien déjà partagé ; les suivantes prennent -2, -3…
+const ANCHORS: string[] = (() => {
+  const seen = new Map<string, number>();
+  return RELEASES.map((r) => {
+    const base = slugDate(r.date.en);
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  });
+})();
 
 export default function ChangelogClient() {
   const t = useT();
   // Resolve a bilingual data string for the current locale (same semantics as t(en, fr)).
   const tr = (s: L) => t(s.en, s.fr);
   // Le sommaire du latéral : une entrée par version, libellée dans la langue courante.
-  const toc = RELEASES.map((r) => ({ id: slugDate(r.date.en), label: tr(r.date) }));
+  const toc = RELEASES.map((r, i) => ({ id: ANCHORS[i], label: tr(r.date) }));
 
   return (
     <DocsShell toc={toc}>
@@ -1381,7 +1394,7 @@ export default function ChangelogClient() {
       </p>
 
       {RELEASES.map((r, i) => (
-        <section key={i} id={slugDate(r.date.en)} style={{ marginBottom: 40, scrollMarginTop: 24 }}>
+        <section key={i} id={ANCHORS[i]} style={{ marginBottom: 40, scrollMarginTop: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
             <span className="status-badge gpu" style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{tr(r.date)}</span>
           </div>
