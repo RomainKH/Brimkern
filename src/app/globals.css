@@ -14,48 +14,48 @@
   --font-heading: var(--font-fraunces), Georgia, serif;
   --font-mono: var(--font-fira), 'Fira Code', monospace;
 
-  /* Color Palette — DA Sombre par défaut : encre obsidian (#0d0d0c), ivoire tranché (#fbfaf7), carmin (#ef4444) */
-  --bg-main: #0d0d0c;
-  --bg-sidebar: #131211;
-  --bg-card: #161514;
-  --bg-card-hover: #1f1e1c;
-  --bg-input: #161514;
-  --bg-elevated: #1f1e1c;
-  --bg-code: #080807;
-  --bg-code-inline: #1c1b18;
+  /* Color Palette — DA Sombre élégante style mise.jdx.dev : fond ardoise chaud (#1b1b1f), cartes (#222329), bordures (#33363f) */
+  --bg-main: #1b1b1f;
+  --bg-sidebar: #161618;
+  --bg-card: #222329;
+  --bg-card-hover: #292a32;
+  --bg-input: #202127;
+  --bg-elevated: #222329;
+  --bg-code: #161618;
+  --bg-code-inline: #25262e;
   --code-inline-text: #f87171;
-  --bubble-user-bg: #1e1d1b;
-  --bubble-user-border: rgba(255, 255, 255, 0.08);
+  --bubble-user-bg: #222329;
+  --bubble-user-border: #33363f;
 
-  --border-color: rgba(255, 255, 255, 0.1);
-  --border-focus: rgba(255, 255, 255, 0.22);
+  --border-color: #33363f;
+  --border-focus: #4b4f59;
 
   --accent: #ef4444;
   --accent-hover: #f87171;
   --accent-bg-rgba: rgba(239, 68, 68, 0.12);
   --accent-text: #f87171;
   --accent-solid: #dc2626;
-  --dot: #242321;
+  --dot: #2b2c34;
 
-  --text-primary: #fbfaf7;
-  --text-secondary: #dcd8cf;
-  --text-muted: #a6a29a;
+  --text-primary: #f0f0eb;
+  --text-secondary: #a3a6ad;
+  --text-muted: #787b84;
 
-  --paper: #fbfaf7;
-  --muted: #dcd8cf;
-  --faint: #a6a29a;
-  --sand: #f3d498;
+  --paper: #f0f0eb;
+  --muted: #a3a6ad;
+  --faint: #787b84;
+  --sand: #f9b44e;
   --cyan: #38bdf8;
-  --green: #4ade80;
+  --green: #3dd68c;
 
-  --success: #4ade80;
-  --warning: #f3d498;
+  --success: #3dd68c;
+  --warning: #f9b44e;
   --error: #ef4444;
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 12px 22px -4px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 4px 16px rgba(239, 68, 68, 0.25);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px -1px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 28px -4px rgba(0, 0, 0, 0.45);
+  --shadow-glow: 0 4px 16px rgba(239, 68, 68, 0.2);
 
   box-sizing: border-box;
 }
@@ -284,11 +284,11 @@ textarea {
    touchait tous les boutons primaires en mode sombre). On reprend donc le rouge profond du papier —
    6,2:1 au repos, 5,5:1 au survol. */
 html.dark .btn-primary {
-  background: #b8291c;
+  background: var(--accent-solid);
 }
 
 html.dark .btn-primary:hover:not(:disabled) {
-  background: #c72c1e;
+  background: var(--accent);
 }
 
 .btn-secondary {
@@ -1992,42 +1992,42 @@ html.sb-closed .sidebar.open {
   box-shadow: var(--shadow-md);
 }
 
-/* ── Dark mode (toggled by `html.dark`) — l'encre : le négatif du papier ── */
+/* ── Dark mode (toggled by `html.dark`) — DA ardoise sombre moderne inspirée de mise.jdx.dev ── */
 html.dark {
-  --bg-main: #0d0d0c;
-  --bg-sidebar: #131211;
-  --bg-card: #161514;
-  --bg-card-hover: #1f1e1c;
-  --bg-input: #161514;
-  --bg-elevated: #1f1e1c;
-  --bg-code: #080807;
-  --bg-code-inline: #1c1b18;
+  --bg-main: #1b1b1f;
+  --bg-sidebar: #161618;
+  --bg-card: #222329;
+  --bg-card-hover: #292a32;
+  --bg-input: #202127;
+  --bg-elevated: #222329;
+  --bg-code: #161618;
+  --bg-code-inline: #25262e;
   --code-inline-text: #f87171;
-  --bubble-user-bg: #1e1d1b;
-  --bubble-user-border: rgba(255, 255, 255, 0.08);
-  --border-color: rgba(255, 255, 255, 0.1);
-  --border-focus: rgba(255, 255, 255, 0.22);
+  --bubble-user-bg: #222329;
+  --bubble-user-border: #33363f;
+  --border-color: #33363f;
+  --border-focus: #4b4f59;
   --accent: #ef4444;
   --accent-hover: #f87171;
   --accent-text: #f87171;
   --accent-solid: #dc2626;
-  --dot: #242321;
+  --dot: #2b2c34;
   --accent-bg-rgba: rgba(239, 68, 68, 0.12);
-  --text-primary: #fbfaf7;
-  --text-secondary: #dcd8cf;
-  --text-muted: #a6a29a;
-  --paper: #fbfaf7;
-  --muted: #dcd8cf;
-  --faint: #a6a29a;
-  --sand: #f3d498;
+  --text-primary: #f0f0eb;
+  --text-secondary: #a3a6ad;
+  --text-muted: #787b84;
+  --paper: #f0f0eb;
+  --muted: #a3a6ad;
+  --faint: #787b84;
+  --sand: #f9b44e;
   --cyan: #38bdf8;
-  --green: #4ade80;
-  --success: #4ade80;
-  --warning: #f3d498;
+  --green: #3dd68c;
+  --success: #3dd68c;
+  --warning: #f9b44e;
   --error: #ef4444;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.45), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 12px 22px -4px rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 12px -1px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 28px -4px rgba(0, 0, 0, 0.45);
 }
 
 html.dark body {
@@ -2097,32 +2097,30 @@ html.dark ::-webkit-scrollbar-thumb:hover {
    normalement. Tout est exprimé en variables de thème, donc le mode sombre suit sans règle en plus.
    Les classes sont préfixées `lp-` pour ne jamais entrer en collision avec l'app. */
 /* ══════════════════════════════════════════════════════════════════════════════
-   NOUVELLE DIRECTION ARTISTIQUE — LANDING (Cyberpunk, Encre #0d0d0c, Fumée GPU, Néon)
-/* ══════════════════════════════════════════════════════════════════════════════
-   DIRECTION ARTISTIQUE — LANDING (Obsidian Ink #0d0d0c, Fumée GPU, Rouge Carmin)
-   Élégance éditoriale, précision mécanique, aucun effet gadget.
+   DIRECTION ARTISTIQUE — LANDING (Ardoise sombre #1b1b1f, Cartes #222329, style mise.jdx.dev)
+   Élégance éditoriale, contraste maîtrisé, aucun noir étouffant.
    ══════════════════════════════════════════════════════════════════════════════ */
 .lp-page {
-  --ink: #0d0d0c;
-  --screen: #161514;
-  --screen-elevated: #201f1d;
-  --rule: rgba(255, 255, 255, 0.1);
-  --rule-bright: rgba(255, 255, 255, 0.22);
-  --paper: #fbfaf7;
-  --muted: #dcd8cf;
-  --faint: #a6a29a;
+  --ink: #1b1b1f;
+  --screen: #222329;
+  --screen-elevated: #292a32;
+  --rule: #33363f;
+  --rule-bright: #4b4f59;
+  --paper: #f0f0eb;
+  --muted: #a3a6ad;
+  --faint: #787b84;
   --red: #ef4444;
   --red-text: #f87171;
-  --sand: #f3d498;
+  --sand: #f9b44e;
   --cyan: #38bdf8;
-  --green: #4ade80;
-  --ghost: #a6a29a;
+  --green: #3dd68c;
+  --ghost: #787b84;
 
   /* Redirection des jetons de base pour les composants enfants */
   --bg-main: var(--ink);
   --bg-card: var(--screen);
   --bg-card-hover: var(--screen-elevated);
-  --bg-input: var(--screen);
+  --bg-input: #202127;
   --bg-elevated: var(--screen-elevated);
   --border-color: var(--rule);
   --border-focus: var(--rule-bright);
@@ -2134,7 +2132,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   --accent-solid: #dc2626;
   --accent-hover: #f87171;
 
-  background: radial-gradient(ellipse 80% 50% at 50% -15%, rgba(220, 38, 38, 0.07), transparent 70%), var(--ink);
+  background: radial-gradient(ellipse 80% 50% at 50% -15%, rgba(220, 38, 38, 0.06), transparent 70%), var(--ink);
   color: var(--paper);
   min-height: 100vh;
   position: relative;
@@ -2206,10 +2204,10 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   gap: 16px;
   padding: 16px 0;
   margin-bottom: 24px;
-  background: rgba(13, 13, 12, 0.75);
+  background: rgba(27, 27, 31, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .lp-brand {
@@ -2487,22 +2485,22 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 
 /* ── Workbench interactif ─────────────────────────────────────────────────── */
 .lp-workbench {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  background: rgba(18, 18, 17, 0.8);
+  background: var(--bg-card);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   color: var(--paper);
   overflow: hidden;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  box-shadow: var(--shadow-lg);
   margin-top: 10px;
   font-family: var(--font-mono);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .lp-workbench:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-color: var(--border-focus);
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.5);
 }
 
 .lp-workbench-bar {
@@ -2510,8 +2508,8 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: rgba(13, 13, 12, 0.9);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1e1f24;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .lp-workbench-dots {
@@ -2752,10 +2750,8 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   flex-direction: column;
   padding: 20px 22px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  background: rgba(26, 25, 23, 0.4);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
   text-decoration: none;
   color: var(--paper);
   transition: all 0.2s ease;
@@ -2764,14 +2760,14 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 
 .lp-quick-card:hover {
-  border-color: rgba(242, 109, 100, 0.35);
-  background: rgba(30, 29, 27, 0.65);
+  border-color: var(--border-focus);
+  background: var(--bg-card-hover);
   transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(239, 68, 68, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 .lp-quick-card.highlight {
-  border-color: rgba(242, 109, 100, 0.25);
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .lp-quick-card-top {
@@ -3307,39 +3303,39 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 .docs-page {
   position: relative;
   min-height: 100vh;
-  background-color: #0d0d0c;
-  background-image: radial-gradient(ellipse 70% 40% at 50% -10%, rgba(239, 68, 68, 0.08), transparent 60%);
-  color: #fbfaf7;
+  background-color: #1b1b1f;
+  background-image: radial-gradient(ellipse 70% 40% at 50% -10%, rgba(239, 68, 68, 0.06), transparent 60%);
+  color: #f0f0eb;
   overflow-x: hidden;
 
-  --ink: #0d0d0c;
-  --screen: #161514;
-  --screen-elevated: #201f1d;
-  --rule: rgba(255, 255, 255, 0.1);
-  --rule-bright: rgba(255, 255, 255, 0.22);
-  --paper: #fbfaf7;
-  --muted: #dcd8cf;
-  --faint: #a6a29a;
+  --ink: #1b1b1f;
+  --screen: #222329;
+  --screen-elevated: #292a32;
+  --rule: #33363f;
+  --rule-bright: #4b4f59;
+  --paper: #f0f0eb;
+  --muted: #a3a6ad;
+  --faint: #787b84;
   --red: #ef4444;
   --red-text: #f87171;
-  --sand: #f3d498;
+  --sand: #f9b44e;
   --cyan: #38bdf8;
-  --green: #4ade80;
+  --green: #3dd68c;
 
-  --bg-main: #0d0d0c;
-  --bg-sidebar: #131211;
-  --bg-card: #161514;
-  --bg-card-hover: #201f1d;
-  --bg-input: #161514;
-  --bg-elevated: #201f1d;
-  --bg-code: #080807;
-  --bg-code-inline: #1c1b18;
+  --bg-main: #1b1b1f;
+  --bg-sidebar: #161618;
+  --bg-card: #222329;
+  --bg-card-hover: #292a32;
+  --bg-input: #202127;
+  --bg-elevated: #292a32;
+  --bg-code: #161618;
+  --bg-code-inline: #25262e;
   --code-inline-text: #f87171;
-  --border-color: rgba(255, 255, 255, 0.1);
-  --border-focus: rgba(255, 255, 255, 0.22);
-  --text-primary: #fbfaf7;
-  --text-secondary: #dcd8cf;
-  --text-muted: #a6a29a;
+  --border-color: #33363f;
+  --border-focus: #4b4f59;
+  --text-primary: #f0f0eb;
+  --text-secondary: #a3a6ad;
+  --text-muted: #787b84;
   --accent: #ef4444;
   --accent-text: #f87171;
   --accent-solid: #dc2626;
@@ -3374,10 +3370,10 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   justify-content: space-between;
   padding: 16px 0;
   margin-bottom: 24px;
-  background: rgba(13, 13, 12, 0.85);
+  background: rgba(27, 27, 31, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .docs-brand {

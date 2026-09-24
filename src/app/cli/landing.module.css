@@ -14,18 +14,18 @@
    #151514 (écrans) : rouge 4.86, sable 9.74, cyan 8.53, vert 10.49, grisé 5.41. */
 
 .page {
-  --ink: #0d0d0c;
-  --screen: #151514;
-  --rule: #34322e;
-  --paper: #ece7dc;
-  --muted: #a8a296;
-  --faint: #8e897e;
+  --ink: #1b1b1f;
+  --screen: #222329;
+  --rule: #33363f;
+  --paper: #f0f0eb;
+  --muted: #a3a6ad;
+  --faint: #787b84;
   --red: #ef4444;
-  --red-text: #f26d64;
-  --sand: #d8b984;
+  --red-text: #f87171;
+  --sand: #f9b44e;
   --cyan: #38bdf8;
-  --green: #4ade80;
-  --ghost: #8b8b94;
+  --green: #3dd68c;
+  --ghost: #787b84;
   background: var(--ink);
   color: var(--paper);
   min-height: 100vh;
