@@ -97,6 +97,10 @@ export class TransformerWebModel {
     const temp = opts?.temperature ?? 0.55;
     const topK = opts?.topK ?? 40;
     const REPEAT_WINDOW = 64;
+    const spec = this.model as unknown as SpeculativeModel;
+    if (typeof spec.speculativeReady === 'function' && spec.speculativeReady()) {
+      return this.generateSpeculative(spec, prompt, maxTokens, onToken, stop, { sid, penalty, temp, topK, sample: opts?.sample !== false, window: REPEAT_WINDOW });
+    }
 
     this.model.reset();
     const promptTokens = this.tok.encode(prompt);
@@ -166,6 +170,86 @@ export class TransformerWebModel {
 
     return this.tok.decode(generatedTokens);
   }
+
+  // Dernière génération spéculative : propositions faites / acceptées (banc, diagnostic).
+  lastSpecStats: { drafts: number; accepted: number } | null = null;
+
+  // DÉCODAGE SPÉCULATIF : le MTP propose le token suivant, le modèle principal vérifie DEUX positions
+  // par passe (y et la proposition d). On échantillonne TOUJOURS dans la distribution du modèle
+  // principal (mêmes pénalités, même température) : si le token tiré à la position de d est d, la
+  // passe a produit deux tokens, sinon un seul et les couches récurrentes reviennent à l'instantané.
+  // La sortie a donc la loi de la génération classique — seul le nombre de passes change.
+  private async generateSpeculative(
+    m: SpeculativeModel,
+    prompt: string,
+    maxTokens: number,
+    onToken: ((text: string) => void) | undefined,
+    stop: (() => boolean) | undefined,
+    o: { sid: string; penalty: number; temp: number; topK: number; sample: boolean; window: number },
+  ): Promise<string> {
+    this.model.reset();
+    const promptTokens = this.tok.encode(prompt);
+    if (!promptTokens.length) return '';
+    const draw = (r: { ids: Uint32Array; vals: Float32Array }) => sampleFromTopK(r.ids, r.vals, { temperature: o.sample ? o.temp : 0, topK: o.topK });
+    const PREFILL_CHUNK = 256;
+    let pre: { ids: Uint32Array; vals: Float32Array } | null = null;
+    for (let i = 0; i < promptTokens.length; i += PREFILL_CHUNK) {
+      if (stop?.()) return '';
+      const chunk = promptTokens.slice(i, i + PREFILL_CHUNK);
+      const isLast = i + PREFILL_CHUNK >= promptTokens.length;
+      pre = await m.specPrefill(chunk, i, o.sid, isLast ? promptTokens.slice(-o.window) : [], isLast ? o.penalty : 1.0);
+    }
+    let y = draw(pre!);
+    if (!Number.isInteger(y) || y < 0 || this.stops.has(y)) return '';
+    const out: number[] = [y];
+    const win: number[] = [...promptTokens.slice(-o.window), y].slice(-o.window);
+    const counts = new Map<number, number>();
+    for (const id of win) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const push = (id: number) => {
+      out.push(id);
+      win.push(id); counts.set(id, (counts.get(id) ?? 0) + 1);
+      if (win.length > o.window) { const old = win.shift()!; const c = counts.get(old)! - 1; if (c === 0) counts.delete(old); else counts.set(old, c); }
+      onToken?.(this.tok.decode(out));
+    };
+    onToken?.(this.tok.decode(out));
+    let P = promptTokens.length;
+    let d = await m.specDraft([y], P, 'last');
+    const stats = { drafts: 0, accepted: 0 };
+    while (out.length < maxTokens && !stop?.()) {
+      const recent0 = [...counts.keys()];
+      const recent1 = counts.has(d) ? recent0 : [...recent0, d];
+      const [r0, r1] = await m.specVerify(y, d, P, o.sid, recent0, recent1, o.penalty);
+      stats.drafts++;
+      const z1 = draw(r0);
+      if (!Number.isInteger(z1) || z1 < 0 || this.stops.has(z1)) break;
+      if (z1 === d) {
+        stats.accepted++;
+        push(d);
+        if (out.length >= maxTokens || stop?.()) break;
+        const z2 = draw(r1);
+        if (!Number.isInteger(z2) || z2 < 0 || this.stops.has(z2)) break;
+        push(z2);
+        d = await m.specDraft([z1, z2], P + 1, 'verify');
+        y = z2; P += 2;
+      } else {
+        m.specRollback();
+        push(z1);
+        d = await m.specDraft([z1], P + 1, 'verify0');
+        y = z1; P += 1;
+      }
+    }
+    this.lastSpecStats = stats;
+    return this.tok.decode(out);
+  }
+}
+
+// Modèle capable de décodage spéculatif (Qwen35Model : couche MTP). Cf. qwen35Model.ts.
+interface SpeculativeModel {
+  speculativeReady(): boolean;
+  specPrefill(tokens: number[], pastLen: number, sid: string, recent: number[], penalty: number): Promise<{ ids: Uint32Array; vals: Float32Array }>;
+  specDraft(tokens: number[], pos0: number, from: 'last' | 'verify0' | 'verify'): Promise<number>;
+  specVerify(y: number, draft: number, P: number, sid: string, recent0: number[], recent1: number[], penalty: number): Promise<[{ ids: Uint32Array; vals: Float32Array }, { ids: Uint32Array; vals: Float32Array }]>;
+  specRollback(): void;
 }
 
 // Les classes pures partagent le même contrat (load/residentAvailable/generate/generateResident).

@@ -80,6 +80,7 @@ if (!engine.attnWideOk) console.log('⚠️ attention large KO : repli un-thread
 fp('après selfValidate');
 console.log(`GGUF ${(size / 1e9).toFixed(2)} Go · ${manifest.config.blockCount} couches · selfValidate OK`);
 
+if (process.env.G4_LAYERFP) { const orig = engine.settleGpu.bind(engine); let nSettle = 0; engine.settleGpu = async () => { await orig(); if (++nSettle % 4 === 0 || nSettle > 31) fp(`après ${nSettle} vidanges`); }; }
 const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : new M.Qwen35Model(engine, source, manifest);
 let t0 = performance.now();
 await model.prewarmGpu();

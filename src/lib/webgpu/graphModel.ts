@@ -10,7 +10,7 @@
 // normée sur le GPU) et `prepareInputs` (ce que son graphe doit téléverser en plus des embeddings).
 
 import { CustomWebModel, type TensorSource } from './model';
-import { type WebGpuEngine, dequantQ6KCpu } from './kernels';
+import { type WebGpuEngine, dequantQ6KCpu, dequantQ4KCpu } from './kernels';
 import { type Manifest } from './ggufParser';
 import { urlFlag } from './urlFlags';
 
@@ -71,15 +71,17 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 	}
 
 	// Embeddings : lignes de token_embd (× embedScale). Q6_K déquantifié sur le CPU.
+	// Embeddings : lignes de token_embd (× embedScale), déquantifiées sur le CPU pour Q6_K et Q4_K.
 	public async embed(tokens: number[], d: number): Promise<Float32Array> {
 		const info = this.manifest.tensors['token_embd.weight'];
-		if (info.type !== 'Q6_K') return super.embed(tokens, d);
+		const cpu = info.type === 'Q6_K' ? dequantQ6KCpu : info.type === 'Q4_K' ? dequantQ4KCpu : null;
+		if (!cpu) return super.embed(tokens, d);
 		const raw = await this.rawTensor('token_embd.weight');
-		const rowBytes = (d / 256) * 210;
+		const rowBytes = (d / 256) * (info.type === 'Q6_K' ? 210 : 144);
 		const s = this.manifest.config.embedScale ?? 1;
 		const out = new Float32Array(tokens.length * d);
 		for (let i = 0; i < tokens.length; i++) {
-			const row = dequantQ6KCpu(raw.subarray(tokens[i] * rowBytes, (tokens[i] + 1) * rowBytes), d / 256);
+			const row = cpu(raw.subarray(tokens[i] * rowBytes, (tokens[i] + 1) * rowBytes), d / 256);
 			for (let j = 0; j < d; j++) out[i * d + j] = row[j] * s;
 		}
 		return out;
@@ -91,13 +93,16 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 	// vocabulaire de 262 144 — l'essentiel du pic qui restait au chargement de Gemma 4.
 	protected async getProjectionQ8(d: number): Promise<{ w: any; rows: number; r0: number }[]> {
 		if (this.projQ8) return this.projQ8;
-		const info = this.manifest.tensors['token_embd.weight'];
-		if (info.type !== 'Q6_K' || this.manifest.tensors['output.weight']) return super.getProjectionQ8(d);
+		// Tête séparée (output.weight : Qwen 3.5 9B) ou liée à token_embd (Gemma 4, Qwen 3.5 4B).
+		const name = this.manifest.tensors['output.weight'] ? 'output.weight' : 'token_embd.weight';
+		const info = this.manifest.tensors[name];
+		const gpuDequant = ['Q6_K', 'Q4_K', 'Q5_K', 'Q8_0', 'Q4_0', 'Q5_0'].includes(info.type);
+		if (!gpuDequant) return super.getProjectionQ8(d);
 		const vocab = info.nElems / d;
 		this.projVocab = vocab;
-		const raw = await this.rawTensor('token_embd.weight');
-		const rowBytes = (d / 256) * 210;
-		if (this.engine.kqOk && !GraphModel.q4Requant && GraphModel.q6Native) {
+		const raw = await this.rawTensor(name);
+		const rowBytes = info.bytes / vocab;
+		if (info.type === 'Q6_K' && this.engine.kqOk && !GraphModel.q4Requant && GraphModel.q6Native) {
 			const T6 = Math.max(1, Math.floor((this.engine.maxStorageBufferBindingSize * 0.9) / rowBytes));
 			const tiles6: { w: any; rows: number; r0: number }[] = [];
 			for (let r0 = 0; r0 < vocab; r0 += T6) {
@@ -111,13 +116,20 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 		// de liaison (plusieurs Go sur Metal), chaque tuile allouait un f32 géant d'un coup.
 		const TILE = Math.max(1, Math.floor(Math.min(this.engine.maxStorageBufferBindingSize * 0.9, 256 << 20) / (d * 4)));
 		const tiles: { w: any; rows: number; r0: number }[] = [];
+		// UN intermédiaire f32 réutilisé par toutes les tuiles (les passes s'exécutent dans l'ordre de
+		// soumission) : en allouer un par tuile laissait ~4 Go de tampons détruits mais pas encore
+		// libérés par Dawn natif sur la tête de Qwen 3.5 9B (pic 13,9 Go pour 8 Go en régime).
+		const G = globalThis as any;
+		const scratch = this.engine.device.createBuffer({ size: TILE * d * 4, usage: G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.COPY_SRC });
 		for (let r0 = 0; r0 < vocab; r0 += TILE) {
 			const rows = Math.min(TILE, vocab - r0);
-			const f32 = this.engine.dequantizeToGpu('Q6_K', raw.subarray(r0 * rowBytes, (r0 + rows) * rowBytes), rows * d);
-			tiles.push({ w: this.engine.f32ToQ8Gpu(f32, rows * d), rows, r0 });
-			f32.destroy?.();
+			this.engine.dequantizeIntoGpu(info.type, raw.subarray(r0 * rowBytes, (r0 + rows) * rowBytes), rows * d, scratch);
+			tiles.push({ w: this.engine.f32ToQ8Gpu(scratch, rows * d), rows, r0 });
 			await this.engine.settleGpu();
 		}
+		scratch.destroy();
+		// Tête séparée : ses octets bruts ne servent plus (token_embd, lui, reste pour les embeddings).
+		if (name === 'output.weight') this.rawCache.delete(name);
 		this.projQ8 = tiles;
 		return tiles;
 	}
@@ -166,21 +178,10 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 		return { embeds, extra, tiles };
 	}
 
-	// Chemin du chat (TransformerWebModel) : forward + tête + softcap + pénalité + top-K, UNE
-	// soumission, K ids + K valeurs relus. Même queue de passes que engine.decodeTopKQ8.
-	async topKKV(tokens: number[], pastLen: number, sessionId: string, recent: number[], penalty: number): Promise<{ ids: Uint32Array; vals: Float32Array }> {
-		const e = this.engine, G = globalThis as any, K = 64;
-		const { embeds, extra, tiles } = await this.prepare(tokens, pastLen, sessionId);
-		const { d } = this.manifest.config;
-		const vocab = this.projVocab;
-		const trash: Gpu[] = [];
-		const enc = e.device.createCommandEncoder();
-		const last = this.recordForward(enc, trash, embeds, extra, tokens.length, pastLen);
-		const logits = e.storage(vocab * 4); trash.push(logits);
-		for (const t of tiles) {
-			const tl = e.recMM(enc, trash, last, t.w, 1, d, t.rows, false);
-			enc.copyBufferToBuffer(tl, 0, logits, t.r0 * 4, t.rows * 4);
-		}
+	// Queue de sélection d'UNE ligne de logits (softcap → pénalité → top-K) dans l'encodeur ; rend le
+	// tampon [K ids | K valeurs]. Partagée par topKKV et la vérification du décodage spéculatif.
+	protected recordTopK(enc: Gpu, trash: Gpu[], logits: Gpu, vocab: number, recent: number[], penalty: number, K = 64): Gpu {
+		const e = this.engine;
 		const cap = this.manifest.config.finalLogitSoftcap ?? 0;
 		if (cap > 0) {
 			const p = e.uniform([vocab], { offset: 4, value: cap });
@@ -198,14 +199,45 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 		const out = e.storage(K * 2 * 4); trash.push(out);
 		const pk = e.uniform([vocab, K]); trash.push(pk);
 		e.recordPass(enc, e.topKParOk ? 'top_k_par' : 'top_k', [pk, logits, out], [1, 1, 1]);
-		const read = e.device.createBuffer({ size: K * 2 * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
-		enc.copyBufferToBuffer(out, 0, read, 0, K * 2 * 4);
+		return out;
+	}
+
+	// Tête de logits sur `rows` lignes consécutives de `hidden` ([rows, d]) → logits [rows, vocab].
+	protected recordHead(enc: Gpu, trash: Gpu[], hidden: Gpu, rows: number, tiles: { w: any; rows: number; r0: number }[]): Gpu {
+		const e = this.engine, { d } = this.manifest.config, vocab = this.projVocab;
+		const logits = e.storage(rows * vocab * 4); trash.push(logits);
+		for (const t of tiles) {
+			const tl = e.recMM(enc, trash, hidden, t.w, rows, d, t.rows, false);
+			for (let r = 0; r < rows; r++) enc.copyBufferToBuffer(tl, r * t.rows * 4, logits, (r * vocab + t.r0) * 4, t.rows * 4);
+		}
+		return logits;
+	}
+
+	// Relit plusieurs tampons top-K ([K ids | K valeurs]) en une seule attente.
+	protected async readTopKs(enc: Gpu, outs: Gpu[], K = 64): Promise<{ ids: Uint32Array; vals: Float32Array }[]> {
+		const e = this.engine, G = globalThis as any;
+		const read = e.device.createBuffer({ size: outs.length * K * 8, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		outs.forEach((o, i) => enc.copyBufferToBuffer(o, 0, read, i * K * 8, K * 8));
 		e.device.queue.submit([enc.finish()]);
 		await read.mapAsync(G.GPUMapMode.READ);
 		const raw = new Uint32Array(read.getMappedRange().slice(0));
 		read.unmap(); read.destroy();
+		return outs.map((_, i) => ({ ids: raw.slice(i * 2 * K, i * 2 * K + K), vals: new Float32Array(raw.buffer, (i * 2 * K + K) * 4, K) }));
+	}
+
+	// Chemin du chat (TransformerWebModel) : forward + tête + softcap + pénalité + top-K, UNE
+	// soumission, K ids + K valeurs relus. Même queue de passes que engine.decodeTopKQ8.
+	async topKKV(tokens: number[], pastLen: number, sessionId: string, recent: number[], penalty: number): Promise<{ ids: Uint32Array; vals: Float32Array }> {
+		const e = this.engine;
+		const { embeds, extra, tiles } = await this.prepare(tokens, pastLen, sessionId);
+		const trash: Gpu[] = [];
+		const enc = e.device.createCommandEncoder();
+		const last = this.recordForward(enc, trash, embeds, extra, tokens.length, pastLen);
+		const logits = this.recordHead(enc, trash, last, 1, tiles);
+		const out = this.recordTopK(enc, trash, logits, this.projVocab, recent, penalty);
+		const [r] = await this.readTopKs(enc, [out]);
 		e.release(trash);
-		return { ids: raw.slice(0, K), vals: new Float32Array(raw.buffer, K * 4, K) };
+		return r;
 	}
 
 	// Logits complets (softcap appliqué) — bancs et comparaison à llama.cpp.

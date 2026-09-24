@@ -1291,6 +1291,286 @@ export const SHADERS = {
 			if (tid == 0u && col < d.n) { c[col] = part[0]; }
 		}`,
 
+	// ── GEMV à DEUX lignes (m = 2 : la vérification du décodage spéculatif) ───────────────────────────
+	// Même structure que les GEMV de décodage (un workgroup de 64 par colonne, qui gagnent en situation
+	// sur les petites matrices du modèle), avec exactement deux accumulateurs et aucune branche : les
+	// poids d'un groupe, lus et déquantifiés une fois, servent les deux lignes.
+	matmul_t_q8_vec2: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read_write> c: array<f32>;
+		var<workgroup> p0: array<f32, 64>;
+		var<workgroup> p1: array<f32, 64>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let kv = d.k / 4u;
+			let nGroups = d.k / 32u;
+			var a0 = 0.0; var a1 = 0.0;
+			if (col < d.n) {
+				let wordCol = col * kv; let gBase = col * nGroups;
+				for (var g = tid; g < nGroups; g = g + 64u) {
+					let si = gBase + g;
+					let s = unpack2x16float(sc[si >> 1u])[si & 1u];
+					let w0 = wordCol + g * 8u; let aBase = g * 8u;
+					var s0 = 0.0; var s1 = 0.0;
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let word = codes[w0 + j];
+						let q = vec4<f32>(f32(i32(word << 24u) >> 24u), f32(i32(word << 16u) >> 24u), f32(i32(word << 8u) >> 24u), f32(i32(word) >> 24u));
+						s0 = s0 + dot(a[aBase + j], q);
+						s1 = s1 + dot(a[kv + aBase + j], q);
+					}
+					a0 = a0 + s0 * s; a1 = a1 + s1 * s;
+				}
+			}
+			p0[tid] = a0; p1[tid] = a1;
+			workgroupBarrier();
+			for (var st = 32u; st > 0u; st = st >> 1u) {
+				if (tid < st) { p0[tid] = p0[tid] + p0[tid + st]; p1[tid] = p1[tid] + p1[tid + st]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = p0[0]; c[d.n + col] = p1[0]; }
+		}`,
+
+	// Q4_K natif à deux lignes, sommes FACTORISÉES comme matmul_t_q4k_vec : par sous-bloc et par ligne,
+	// d·sc·Σa·q − dmin·mn·Σa (une seule multiplication par poids et par ligne).
+	matmul_t_q4k_vec2: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> q: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+		var<workgroup> p0: array<f32, 64>;
+		var<workgroup> p1: array<f32, 64>;
+		fn byteAt(base: u32, k: u32) -> u32 { return (q[base + (k >> 2u)] >> ((k & 3u) * 8u)) & 0xFFu; }
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let kv = d.k / 4u;
+			let nSub = d.k / 32u;
+			var a0 = 0.0; var a1 = 0.0;
+			if (col < d.n) {
+				let rowBase = col * (d.k / 256u) * 36u;
+				for (var g = tid; g < nSub; g = g + 64u) {
+					let base = rowBase + (g >> 3u) * 36u;
+					let j = g & 7u;
+					var sc6: u32; var mn6: u32;
+					if (j < 4u) {
+						sc6 = byteAt(base, 4u + j) & 63u;
+						mn6 = byteAt(base, 8u + j) & 63u;
+					} else {
+						sc6 = (byteAt(base, 8u + j) & 0xFu) | ((byteAt(base, j) >> 6u) << 4u);
+						mn6 = (byteAt(base, 8u + j) >> 4u) | ((byteAt(base, 4u + j) >> 6u) << 4u);
+					}
+					let dm = unpack2x16float(q[base]);
+					let w0 = base + 4u + (j >> 1u) * 8u;
+					let sh = (j & 1u) * 4u;
+					let aBase = g * 8u;
+					var s0 = 0.0; var t0 = 0.0; var s1 = 0.0; var t1 = 0.0;
+					for (var w = 0u; w < 8u; w = w + 1u) {
+						let word = q[w0 + w] >> sh;
+						let v = vec4<f32>(f32(word & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 16u) & 0xFu), f32((word >> 24u) & 0xFu));
+						let x0 = a[aBase + w]; let x1 = a[kv + aBase + w];
+						s0 = s0 + dot(x0, v); t0 = t0 + x0.x + x0.y + x0.z + x0.w;
+						s1 = s1 + dot(x1, v); t1 = t1 + x1.x + x1.y + x1.z + x1.w;
+					}
+					let dd = dm.x * f32(sc6); let mm = dm.y * f32(mn6);
+					a0 = a0 + dd * s0 - mm * t0; a1 = a1 + dd * s1 - mm * t1;
+				}
+			}
+			p0[tid] = a0; p1[tid] = a1;
+			workgroupBarrier();
+			for (var st = 32u; st > 0u; st = st >> 1u) {
+				if (tid < st) { p0[tid] = p0[tid] + p0[tid + st]; p1[tid] = p1[tid] + p1[tid + st]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = p0[0]; c[d.n + col] = p1[0]; }
+		}`,
+
+	// ── GEMV « 4 colonnes » (m = 1 à 8) : int8, q4 BRIK et Q4_K natif ─────────────────────────────
+	// Un workgroup de 128 voies traite 4 colonnes de sortie, 32 voies par colonne (au lieu d'un
+	// workgroup de 64 par colonne), réduction en mémoire partagée — PORTABLE, sans hypothèse sur la
+	// taille des sous-groupes. Les poids d'un groupe sont déquantifiés une fois et servent aux m lignes
+	// d'activation (accumulateurs NOMMÉS : pas de tableau privé indexé, spill/miscompile Adreno/Mali).
+	// Mesuré sur Qwen 3.5 4B (forward complet, bras alternés, Mac M4) : 2 tokens par passe en 75-86 ms
+	// contre 322 (int8) et 815 ms (Q4_K) avec les kernels de prefill, pour 49-72 ms à 1 token — la
+	// seconde ligne est quasi gratuite, ce qui rend rentables le décodage spéculatif (vérifier 2
+	// positions par passe) et les appels servis par lots. ⚠️ À m = 1 il PERD en situation (Q4_K 66
+	// contre 50 ms, int8 71 contre 63) alors qu'un banc isolé le donnait gagnant : les petites
+	// matrices du modèle (32 ou 1 024 sorties) n'alimentent que quelques workgroups de 4 colonnes.
+	// Le décodage garde donc les GEMV par colonne. Grille : ⌈n / 4⌉ workgroups (foulée stride).
+	matmul_t_q8_vecm: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 1024>;
+		@compute @workgroup_size(128)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let lane = lid.x & 31u;
+			let col = (wid.y * d.stride + wid.x) * 4u + (lid.x >> 5u);
+			let kv = d.k / 4u;
+			var a0 = 0.0; var a1 = 0.0; var a2 = 0.0; var a3 = 0.0;
+			var a4 = 0.0; var a5 = 0.0; var a6 = 0.0; var a7 = 0.0;
+			if (col < d.n) {
+				let nGroups = d.k / 32u;
+				let wordCol = col * kv; let gBase = col * nGroups;
+				for (var g = lane; g < nGroups; g = g + 32u) {
+					let si = gBase + g;
+					let s = unpack2x16float(sc[si >> 1u])[si & 1u];
+					let w0 = wordCol + g * 8u; let aBase = g * 8u;
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let word = codes[w0 + j];
+						let v = vec4<f32>(f32(i32(word << 24u) >> 24u), f32(i32(word << 16u) >> 24u), f32(i32(word << 8u) >> 24u), f32(i32(word) >> 24u)) * s;
+						let o = aBase + j;
+						a0 = a0 + dot(a[o], v);
+						if (d.m > 1u) { a1 = a1 + dot(a[kv + o], v); }
+						if (d.m > 2u) { a2 = a2 + dot(a[2u * kv + o], v); }
+						if (d.m > 3u) { a3 = a3 + dot(a[3u * kv + o], v); }
+						if (d.m > 4u) { a4 = a4 + dot(a[4u * kv + o], v); }
+						if (d.m > 5u) { a5 = a5 + dot(a[5u * kv + o], v); }
+						if (d.m > 6u) { a6 = a6 + dot(a[6u * kv + o], v); }
+						if (d.m > 7u) { a7 = a7 + dot(a[7u * kv + o], v); }
+					}
+				}
+			}
+			// Réduction : les 32 voies de CHAQUE colonne, lignes < m seulement.
+			part[lid.x] = a0; part[128u + lid.x] = a1; part[256u + lid.x] = a2; part[384u + lid.x] = a3;
+			part[512u + lid.x] = a4; part[640u + lid.x] = a5; part[768u + lid.x] = a6; part[896u + lid.x] = a7;
+			workgroupBarrier();
+			for (var st = 16u; st > 0u; st = st >> 1u) {
+				if (lane < st) {
+					for (var r = 0u; r < d.m; r = r + 1u) { part[r * 128u + lid.x] = part[r * 128u + lid.x] + part[r * 128u + lid.x + st]; }
+				}
+				workgroupBarrier();
+			}
+			if (lane < d.m && col < d.n) { c[lane * d.n + col] = part[lane * 128u + (lid.x & ~31u)]; }
+		}`,
+
+	// q4 du format BRIK (q4web : quartets + échelle f16 + min f16 par groupe de 32 ; valeur = q·s + mn).
+	matmul_t_q4_vecm: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> nib: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> mn: array<u32>;
+		@group(0) @binding(5) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 1024>;
+		@compute @workgroup_size(128)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let lane = lid.x & 31u;
+			let col = (wid.y * d.stride + wid.x) * 4u + (lid.x >> 5u);
+			let kv = d.k / 4u;
+			var a0 = 0.0; var a1 = 0.0; var a2 = 0.0; var a3 = 0.0;
+			var a4 = 0.0; var a5 = 0.0; var a6 = 0.0; var a7 = 0.0;
+			if (col < d.n) {
+				let nGroups = d.k / 32u;
+				let wordCol = col * (d.k / 8u); let gBase = col * nGroups;
+				for (var g = lane; g < nGroups; g = g + 32u) {
+					let si = gBase + g;
+					let s = unpack2x16float(sc[si >> 1u])[si & 1u];
+					let mnv = unpack2x16float(mn[si >> 1u])[si & 1u];
+					let w0 = wordCol + g * 4u; let aBase = g * 8u;
+					for (var j = 0u; j < 8u; j = j + 1u) {
+						let word = nib[w0 + (j >> 1u)] >> ((j & 1u) * 16u);
+						let v = vec4<f32>(f32(word & 0xFu), f32((word >> 4u) & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 12u) & 0xFu)) * s + vec4<f32>(mnv);
+						let o = aBase + j;
+						a0 = a0 + dot(a[o], v);
+						if (d.m > 1u) { a1 = a1 + dot(a[kv + o], v); }
+						if (d.m > 2u) { a2 = a2 + dot(a[2u * kv + o], v); }
+						if (d.m > 3u) { a3 = a3 + dot(a[3u * kv + o], v); }
+						if (d.m > 4u) { a4 = a4 + dot(a[4u * kv + o], v); }
+						if (d.m > 5u) { a5 = a5 + dot(a[5u * kv + o], v); }
+						if (d.m > 6u) { a6 = a6 + dot(a[6u * kv + o], v); }
+						if (d.m > 7u) { a7 = a7 + dot(a[7u * kv + o], v); }
+					}
+				}
+			}
+			// Réduction : les 32 voies de CHAQUE colonne, lignes < m seulement.
+			part[lid.x] = a0; part[128u + lid.x] = a1; part[256u + lid.x] = a2; part[384u + lid.x] = a3;
+			part[512u + lid.x] = a4; part[640u + lid.x] = a5; part[768u + lid.x] = a6; part[896u + lid.x] = a7;
+			workgroupBarrier();
+			for (var st = 16u; st > 0u; st = st >> 1u) {
+				if (lane < st) {
+					for (var r = 0u; r < d.m; r = r + 1u) { part[r * 128u + lid.x] = part[r * 128u + lid.x] + part[r * 128u + lid.x + st]; }
+				}
+				workgroupBarrier();
+			}
+			if (lane < d.m && col < d.n) { c[lane * d.n + col] = part[lane * 128u + (lid.x & ~31u)]; }
+		}`,
+
+	// Q4_K NATIF (super-blocs de 144 o / 256 poids, cf. matmul_t_q4k_vec pour les échelles 6 bits).
+	matmul_t_q4k_vecm: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> q: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+		fn byteAt(base: u32, k: u32) -> u32 { return (q[base + (k >> 2u)] >> ((k & 3u) * 8u)) & 0xFFu; }
+		var<workgroup> part: array<f32, 1024>;
+		@compute @workgroup_size(128)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let lane = lid.x & 31u;
+			let col = (wid.y * d.stride + wid.x) * 4u + (lid.x >> 5u);
+			let kv = d.k / 4u;
+			var a0 = 0.0; var a1 = 0.0; var a2 = 0.0; var a3 = 0.0;
+			var a4 = 0.0; var a5 = 0.0; var a6 = 0.0; var a7 = 0.0;
+			if (col < d.n) {
+				let nSub = d.k / 32u;
+				let rowBase = col * (d.k / 256u) * 36u;
+				for (var g = lane; g < nSub; g = g + 32u) {
+					let base = rowBase + (g >> 3u) * 36u;
+					let j8 = g & 7u;
+					var sc6: u32; var mn6: u32;
+					if (j8 < 4u) {
+						sc6 = byteAt(base, 4u + j8) & 63u;
+						mn6 = byteAt(base, 8u + j8) & 63u;
+					} else {
+						sc6 = (byteAt(base, 8u + j8) & 0xFu) | ((byteAt(base, j8) >> 6u) << 4u);
+						mn6 = (byteAt(base, 8u + j8) >> 4u) | ((byteAt(base, 4u + j8) >> 6u) << 4u);
+					}
+					let dm = unpack2x16float(q[base]);
+					let dd = dm.x * f32(sc6);
+					let mm = dm.y * f32(mn6);
+					let w0 = base + 4u + (j8 >> 1u) * 8u;
+					let sh = (j8 & 1u) * 4u;
+					let aBase = g * 8u;
+					for (var w = 0u; w < 8u; w = w + 1u) {
+						let word = q[w0 + w] >> sh;
+						let v = vec4<f32>(f32(word & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 16u) & 0xFu), f32((word >> 24u) & 0xFu)) * dd - vec4<f32>(mm);
+						let o = aBase + w;
+						a0 = a0 + dot(a[o], v);
+						if (d.m > 1u) { a1 = a1 + dot(a[kv + o], v); }
+						if (d.m > 2u) { a2 = a2 + dot(a[2u * kv + o], v); }
+						if (d.m > 3u) { a3 = a3 + dot(a[3u * kv + o], v); }
+						if (d.m > 4u) { a4 = a4 + dot(a[4u * kv + o], v); }
+						if (d.m > 5u) { a5 = a5 + dot(a[5u * kv + o], v); }
+						if (d.m > 6u) { a6 = a6 + dot(a[6u * kv + o], v); }
+						if (d.m > 7u) { a7 = a7 + dot(a[7u * kv + o], v); }
+					}
+				}
+			}
+			// Réduction : les 32 voies de CHAQUE colonne, lignes < m seulement.
+			part[lid.x] = a0; part[128u + lid.x] = a1; part[256u + lid.x] = a2; part[384u + lid.x] = a3;
+			part[512u + lid.x] = a4; part[640u + lid.x] = a5; part[768u + lid.x] = a6; part[896u + lid.x] = a7;
+			workgroupBarrier();
+			for (var st = 16u; st > 0u; st = st >> 1u) {
+				if (lane < st) {
+					for (var r = 0u; r < d.m; r = r + 1u) { part[r * 128u + lid.x] = part[r * 128u + lid.x] + part[r * 128u + lid.x + st]; }
+				}
+				workgroupBarrier();
+			}
+			if (lane < d.m && col < d.n) { c[lane * d.n + col] = part[lane * 128u + (lid.x & ~31u)]; }
+		}`,
+
 	// GEMV sur des poids Q4_K NATIFS (super-blocs GGUF de 144 o / 256 poids, lignes contiguës), sans
 	// requantification. Requantifier Q4_K → int4 ajoutait un second arrondi (Gemma 4 : 51/64 premiers
 	// choix communs avec llama.cpp au lieu de 64/64) et passer en int8 doublait les octets relus à
@@ -4511,13 +4791,16 @@ export const SHADERS = {
 	// w[c·4 + k], k = 0 multiplie la plus ANCIENNE des 4 entrées (ggml_ssm_conv sur concat(état, x)).
 	// État persistant [3, C] (st[s·C + c], s = 0 le plus ancien), mis à jour en fin de lot. Un thread
 	// par canal, les tokens en séquence : la récurrence est portée par des registres.
+	// Instantané (décodage spéculatif) : si snapT < T, l'état APRÈS le token snapT est recopié dans
+	// `snap` — c'est l'état à restaurer quand le token suivant (la proposition du MTP) est refusé.
 	qwen35_conv_batch: `
-		struct P { T: u32, C: u32 };
+		struct P { T: u32, C: u32, snapT: u32 };
 		@group(0) @binding(0) var<uniform> p: P;
 		@group(0) @binding(1) var<storage, read> x: array<f32>;
 		@group(0) @binding(2) var<storage, read> w: array<f32>;
 		@group(0) @binding(3) var<storage, read_write> st: array<f32>;
 		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> snap: array<f32>;
 		@compute @workgroup_size(64)
 		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
 			let c = (wid.y * nwg.x + wid.x) * 64u + lid.x;
@@ -4529,6 +4812,7 @@ export const SHADERS = {
 				let acc = s0 * w0 + s1 * w1 + s2 * w2 + xt * w3;
 				o[t * p.C + c] = acc / (1.0 + exp(-acc));
 				s0 = s1; s1 = s2; s2 = xt;
+				if (t == p.snapT) { snap[c] = s0; snap[p.C + c] = s1; snap[2u * p.C + c] = s2; }
 			}
 			st[c] = s0; st[p.C + c] = s1; st[2u * p.C + c] = s2;
 		}`,
@@ -4541,7 +4825,7 @@ export const SHADERS = {
 	// de valeur h : h mod Hk (ggml RÉPÈTE q/k en tuile : iq1 = iv1 % neq1, pas en entrelacé).
 	// q, k, v sont lus dans la sortie de la conv [T, convStride] aux décalages 0, kOff et vOff.
 	qwen35_gdn_batch: `
-		struct P { T: u32, Hv: u32, Hk: u32, S: u32, convStride: u32, kOff: u32, vOff: u32, eps: f32 };
+		struct P { T: u32, Hv: u32, Hk: u32, S: u32, convStride: u32, kOff: u32, vOff: u32, eps: f32, snapT: u32 };
 		@group(0) @binding(0) var<uniform> p: P;
 		@group(0) @binding(1) var<storage, read> conv: array<f32>;
 		@group(0) @binding(2) var<storage, read> alpha: array<f32>;
@@ -4550,6 +4834,7 @@ export const SHADERS = {
 		@group(0) @binding(5) var<storage, read> A: array<f32>;
 		@group(0) @binding(6) var<storage, read_write> S: array<f32>;
 		@group(0) @binding(7) var<storage, read_write> o: array<f32>;
+		@group(0) @binding(8) var<storage, read_write> snap: array<f32>;
 		var<workgroup> ks: array<f32, 128>;
 		var<workgroup> qs: array<f32, 128>;
 		var<workgroup> rk: array<f32, 128>;
@@ -4590,6 +4875,8 @@ export const SHADERS = {
 					acc = acc + sNew * qs[i];
 				}
 				o[(t * p.Hv + h) * p.S + j] = acc;
+				// Instantané après le token snapT (la colonne j de la lane : aucune course).
+				if (t == p.snapT) { for (var i = 0u; i < p.S; i = i + 1u) { snap[sOff + i * p.S + j] = S[sOff + i * p.S + j]; } }
 				workgroupBarrier(); // ks/qs/rk/rq réécrits au token suivant
 			}
 		}`,
