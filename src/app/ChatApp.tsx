@@ -573,6 +573,7 @@ function App() {
         hasF16: e.hasF16, f16SharedOk: e.f16SharedOk, attnDecodeOk: e.attnDecodeOk,
         attnPrefillOk: e.attnPrefillOk, attnFullWgOk: e.attnFullWgOk, swaOk: e.swaOk,
         convTiledOk: e.convTiledOk, qShared2Ok: e.qShared2Ok,
+        dequantQ3kOk: e.dequantQ3kOk, dequantQ41Ok: e.dequantQ41Ok,
       };
       const stage = e.validationFailure;
       e.destroy();

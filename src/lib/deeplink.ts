@@ -17,7 +17,7 @@ const HF_ID = /^[A-Za-z0-9][\w.-]*\/[\w.-]+$/;
 // Préférences de quantification, du meilleur compromis navigateur au repli. Un BRIK gagne toujours :
 // c'est notre format streamé (chargement par plages, tokenizer embarqué, quant native).
 const BRIK_ORDER = ['q4', 'mixed', 'q3', 'q8', 'f16'];
-const GGUF_ORDER = ['q4_k_m', 'q4_k_s', 'q4_0', 'q5_k_m', 'q5_k_s', 'q5_0', 'q8_0', 'q6_k', 'f16'];
+const GGUF_ORDER = ['q4_k_m', 'q4_k_s', 'q4_0', 'q4_1', 'q5_k_m', 'q5_k_s', 'q5_0', 'q3_k_m', 'q3_k_s', 'q8_0', 'q6_k', 'f16'];
 
 // Fichiers qu'on ne sait pas (ou ne veut pas) charger comme modèle de chat.
 function isLoadable(path: string): boolean {

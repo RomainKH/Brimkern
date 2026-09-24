@@ -9,8 +9,9 @@
 // menu « Use this model » de Hugging Face, donc le même code sert les deux entrées.
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Loader2, Sparkles } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { useT, useHref } from '@/lib/i18n';
 
 interface Props {
   // Rend un message d'erreur à afficher, ou null si le chargement est parti.
@@ -23,6 +24,7 @@ interface Props {
 
 export default function HfModelInput({ onLoad, disabled, examples, compact }: Props) {
   const t = useT();
+  const href = useHref();
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,9 +72,12 @@ export default function HfModelInput({ onLoad, disabled, examples, compact }: Pr
       ) : (
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, lineHeight: 1.45 }}>
           {t(
-            'Single-file GGUF and .brik, straight from the Hub. Nothing to configure: the best quantization is picked, and the tokenizer follows the file. Nothing leaves your browser.',
-            'GGUF mono-fichier et .brik, directement depuis le Hub. Rien à régler : la meilleure quantification est choisie, et le tokenizer suit le fichier. Rien ne sort de votre navigateur.',
+            'Single-file GGUF & .brik (Qwen, LLaMA, DeepSeek-R1, Gemma, Mistral, SmolLM, RWKV-7). ',
+            'GGUF mono-fichier & .brik (Qwen, LLaMA, DeepSeek-R1, Gemma, Mistral, SmolLM, RWKV-7). ',
           )}
+          <Link href={href('/docs/models')} style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
+            {t('View supported architectures & limits →', 'Voir les architectures & limites →')}
+          </Link>
         </div>
       )}
       {!!examples?.length && (

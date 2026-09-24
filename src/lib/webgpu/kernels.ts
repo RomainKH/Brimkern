@@ -238,6 +238,12 @@ export class WebGpuEngine {
 	// selfValidate, ou forcé par ?topkpar=0 → retour au kernel dont la phase finale tient sur un seul
 	// thread (correct, mais 866 µs par token relevés au profileur — 14 fois un GEMV).
 	topKParOk = true;
+	// Déquantification GPU Q3_K (K-quant 3-bit, 110 octets/bloc) : gate NON BLOQUANT posé par
+	// selfValidate, ou forcé par ?dequantq3k=0 → repli CPU (dequantQ3KCpu).
+	dequantQ3kOk = true;
+	// Déquantification GPU Q4_1 (20 octets/bloc) : gate NON BLOQUANT posé par
+	// selfValidate, ou forcé par ?dequantq41=0 → repli CPU (dequantQ4_1Cpu).
+	dequantQ41Ok = true;
 	// ?timing=1 → chronométrage interne du forward (diagnostic ; cf. decodeTopKQ8).
 	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
 	// ?gpuprofile=1 → budget GPU PAR PASSE via timestamp-query (cf. ./gpuProfile.ts pour le pourquoi :
@@ -372,6 +378,14 @@ export class WebGpuEngine {
 			if (urlFlag('videoresident') === '0') {
 				this.videoResidentOk = false;
 				console.warn('[webgpu] motion résident COUPÉ par ?videoresident=0 : chemin JS+readback');
+			}
+			if (urlFlag('dequantq3k') === '0') {
+				this.dequantQ3kOk = false;
+				console.warn('[webgpu] déquantification GPU Q3_K COUPÉE par ?dequantq3k=0 : repli CPU');
+			}
+			if (urlFlag('dequantq41') === '0') {
+				this.dequantQ41Ok = false;
+				console.warn('[webgpu] déquantification GPU Q4_1 COUPÉE par ?dequantq41=0 : repli CPU');
 			}
 		} catch { /* hors navigateur (tests Node) */ }
 		// device.lost est une promesse : elle résout quand le GPU disparaît (jamais sur un simple
@@ -956,11 +970,11 @@ export class WebGpuEngine {
 
 	// Number of weights per quant block, by GGML type. F32/F16 are "1 per block".
 	private static BLOCK_ELEMS: Record<string, number> = {
-		Q4_K: 256, Q5_K: 256, Q6_K: 256, Q8_0: 32, Q5_0: 32, Q4_0: 32, F32: 1, F16: 1
+		Q4_K: 256, Q5_K: 256, Q6_K: 256, Q8_0: 32, Q5_0: 32, Q4_0: 32, Q3_K: 256, Q4_1: 32, F32: 1, F16: 1
 	};
 	private static DEQUANT_SHADER: Record<string, string> = {
 		Q4_K: 'dequant_q4k', Q8_0: 'dequant_q8_0', Q5_0: 'dequant_q5_0', Q6_K: 'dequant_q6k',
-		Q4_0: 'dequant_q4_0', Q5_K: 'dequant_q5k'
+		Q4_0: 'dequant_q4_0', Q5_K: 'dequant_q5k', Q3_K: 'dequant_q3k', Q4_1: 'dequant_q4_1'
 	};
 
 	// Generic GPU dequant: upload the raw GGUF tensor bytes as u32, run the per-type kernel
@@ -1002,6 +1016,8 @@ export class WebGpuEngine {
 		if (type === 'Q4W') return dequantizeQ4(unpackQ4(data, nElems));
 		if (type === 'Q8W') return dequantizeQ8(unpackQ8(data, nElems));
 		if (type === 'Q3W') return dequantizeQ3(unpackQ3(data, nElems));
+		if (type === 'Q3_K' && !this.dequantQ3kOk) return dequantQ3KCpu(data, Math.floor(nElems / 256));
+		if (type === 'Q4_1' && !this.dequantQ41Ok) return dequantQ4_1Cpu(data, Math.floor(nElems / 32));
 		const shader = WebGpuEngine.DEQUANT_SHADER[type];
 		const blockElems = WebGpuEngine.BLOCK_ELEMS[type];
 		if (!shader || !blockElems) throw new Error(`dequant: unsupported GGML type ${type}`);
@@ -1047,6 +1063,8 @@ export class WebGpuEngine {
 		if (type === 'Q4W') return this.buf(dequantizeQ4(unpackQ4(data, nElems)), ST);
 		if (type === 'Q8W') return this.buf(dequantizeQ8(unpackQ8(data, nElems)), ST);
 		if (type === 'Q3W') return this.buf(dequantizeQ3(unpackQ3(data, nElems)), ST);
+		if (type === 'Q3_K' && !this.dequantQ3kOk) return this.buf(dequantQ3KCpu(data, Math.floor(nElems / 256)), ST);
+		if (type === 'Q4_1' && !this.dequantQ41Ok) return this.buf(dequantQ4_1Cpu(data, Math.floor(nElems / 32)), ST);
 		const shader = WebGpuEngine.DEQUANT_SHADER[type];
 		const blockElems = WebGpuEngine.BLOCK_ELEMS[type];
 		if (!shader || !blockElems) throw new Error(`dequant: unsupported GGML type ${type}`);
@@ -3690,6 +3708,35 @@ export class WebGpuEngine {
 				dv5.setUint16(blk * 176 + 2, f32ToF16(0.001 + Math.random() * 0.02), true);
 			}
 			if (!closeRel(await this.dequantizeByType('Q5_K', q5k, nb * 256), dequantQ5_KCpu(q5k, nb), 1e-4)) return fail('dequant.Q5_K');
+
+			// Q3_K (110-byte super-blocks): controlled f16 d at offset 108.
+			if (this.dequantQ3kOk) {
+				const q3k = randBytes(nb * 110);
+				const dv3 = new DataView(q3k.buffer);
+				for (let blk = 0; blk < nb; blk++) {
+					dv3.setUint16(blk * 110 + 108, f32ToF16(0.005 + Math.random() * 0.05), true);
+				}
+				const got3k = await this.dequantizeByType('Q3_K', q3k, nb * 256);
+				if (!closeRel(got3k, dequantQ3KCpu(q3k, nb), 1e-4)) {
+					this.dequantQ3kOk = false;
+					console.warn('[selfValidate] dequant.Q3_K en échec, repli sur CPU');
+				}
+			}
+
+			// Q4_1 (20-byte blocks): controlled f16 d (offset 0) + m (offset 2).
+			if (this.dequantQ41Ok) {
+				const q41 = randBytes(nb * 20);
+				const dv41 = new DataView(q41.buffer);
+				for (let blk = 0; blk < nb; blk++) {
+					dv41.setUint16(blk * 20, f32ToF16(0.005 + Math.random() * 0.05), true);
+					dv41.setUint16(blk * 20 + 2, f32ToF16(0.001 + Math.random() * 0.02), true);
+				}
+				const got41 = await this.dequantizeByType('Q4_1', q41, nb * 32);
+				if (!closeRel(got41, dequantQ4_1Cpu(q41, nb), 1e-4)) {
+					this.dequantQ41Ok = false;
+					console.warn('[selfValidate] dequant.Q4_1 en échec, repli sur CPU');
+				}
+			}
 		}
 
 		// KV cache correctness: a 2-token prefill followed by a 1-token decode (with the
@@ -4575,6 +4622,72 @@ function dequantQ6KCpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 				out[outB + l + 64] = d * si8(bytes[scB + is + 4]) * q3;
 				out[outB + l + 96] = d * si8(bytes[scB + is + 6]) * q4;
 			}
+		}
+	}
+	return out;
+}
+
+// Q3_K CPU reference (mirror llama.cpp dequantize_row_q3_K): 110-byte super-blocks (256 weights).
+function dequantQ3KCpu(bytes: Uint8Array, nBlocks: number): Float32Array {
+	const kmask1 = 0x03030303;
+	const kmask2 = 0x0f0f0f0f;
+	const out = new Float32Array(nBlocks * 256);
+	let yIdx = 0;
+	const dv = new DataView(bytes.buffer, bytes.byteOffset);
+	for (let i = 0; i < nBlocks; i++) {
+		const base = i * 110;
+		const d_all = f16ToF32(dv.getUint16(base + 108, true));
+		const aux = new Int32Array(4);
+		for (let w = 0; w < 3; w++) {
+			aux[w] = bytes[base + 96 + w * 4] | (bytes[base + 96 + w * 4 + 1] << 8) | (bytes[base + 96 + w * 4 + 2] << 16) | (bytes[base + 96 + w * 4 + 3] << 24);
+		}
+		const tmp = aux[2];
+		aux[2] = ((aux[0] >>> 4) & kmask2) | (((tmp >>> 4) & kmask1) << 4);
+		aux[3] = ((aux[1] >>> 4) & kmask2) | (((tmp >>> 6) & kmask1) << 4);
+		aux[0] = (aux[0] & kmask2) | (((tmp >>> 0) & kmask1) << 4);
+		aux[1] = (aux[1] & kmask2) | (((tmp >>> 2) & kmask1) << 4);
+		const scales = new Int8Array(aux.buffer);
+		let is = 0;
+		let qBase = base + 32;
+		const hmBase = base;
+		let m = 1;
+		for (let n = 0; n < 256; n += 128) {
+			let shift = 0;
+			for (let j = 0; j < 4; j++) {
+				const dl0 = d_all * (scales[is++] - 32);
+				for (let l = 0; l < 16; l++) {
+					const qVal = (bytes[qBase + l] >>> shift) & 3;
+					const hSub = (bytes[hmBase + l] & m) ? 0 : 4;
+					out[yIdx++] = dl0 * (qVal - hSub);
+				}
+				const dl1 = d_all * (scales[is++] - 32);
+				for (let l = 0; l < 16; l++) {
+					const qVal = (bytes[qBase + 16 + l] >>> shift) & 3;
+					const hSub = (bytes[hmBase + 16 + l] & m) ? 0 : 4;
+					out[yIdx++] = dl1 * (qVal - hSub);
+				}
+				shift += 2;
+				m = (m << 1) & 0xff;
+			}
+			qBase += 32;
+		}
+	}
+	return out;
+}
+
+// Q4_1 CPU reference (mirror llama.cpp dequantize_row_q4_1): 20-byte blocks (32 weights).
+function dequantQ4_1Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
+	const out = new Float32Array(nBlocks * 32);
+	const dv = new DataView(bytes.buffer, bytes.byteOffset);
+	for (let blk = 0; blk < nBlocks; blk++) {
+		const base = blk * 20;
+		const d = f16ToF32(dv.getUint16(base, true));
+		const m = f16ToF32(dv.getUint16(base + 2, true));
+		const ob = blk * 32;
+		for (let j = 0; j < 16; j++) {
+			const qsj = bytes[base + 4 + j];
+			out[ob + j] = (qsj & 0x0f) * d + m;
+			out[ob + j + 16] = (qsj >> 4) * d + m;
 		}
 	}
 	return out;

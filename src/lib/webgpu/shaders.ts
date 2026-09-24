@@ -4071,6 +4071,119 @@ export const SHADERS = {
 			}
 		}`,
 
+	// Q3_K dequantization (GGML "k-quant"): super-blocks of 256 weights. Each block is
+	// 110 bytes: 32 bytes hmask, 64 bytes qs, 12 bytes scales, 2 bytes fp16 d.
+	// Mirrors llama.cpp dequantize_row_q3_K exactly.
+	dequant_q3k: `
+		struct DQ { nBlocks: u32 };
+		@group(0) @binding(0) var<uniform> p: DQ;
+		@group(0) @binding(1) var<storage, read> q: array<u32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		fn gb(i: u32) -> u32 { return (q[i >> 2u] >> ((i & 3u) * 8u)) & 0xFFu; }
+		fn f16(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u;
+			let e = (h >> 10u) & 0x1Fu;
+			let m = h & 0x3FFu;
+			var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; }
+			else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let blk = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (blk >= p.nBlocks) { return; }
+			let base = blk * 110u;
+			let d = f16(gb(base + 108u) | (gb(base + 109u) << 8u));
+
+			let aux0 = gb(base + 96u)  | (gb(base + 97u) << 8u)  | (gb(base + 98u) << 16u)  | (gb(base + 99u) << 24u);
+			let aux1 = gb(base + 100u) | (gb(base + 101u) << 8u) | (gb(base + 102u) << 16u) | (gb(base + 103u) << 24u);
+			let aux2 = gb(base + 104u) | (gb(base + 105u) << 8u) | (gb(base + 106u) << 16u) | (gb(base + 107u) << 24u);
+
+			let kmask1 = 0x03030303u;
+			let kmask2 = 0x0f0f0f0fu;
+
+			let tmp = aux2;
+			let a2 = ((aux0 >> 4u) & kmask2) | (((tmp >> 4u) & kmask1) << 4u);
+			let a3 = ((aux1 >> 4u) & kmask2) | (((tmp >> 6u) & kmask1) << 4u);
+			let a0 = (aux0 & kmask2) | (((tmp >> 0u) & kmask1) << 4u);
+			let a1 = (aux1 & kmask2) | (((tmp >> 2u) & kmask1) << 4u);
+
+			let outBase = blk * 256u;
+			var is = 0u;
+			var qOffset = base + 32u;
+			let hmOffset = base;
+			var m = 1u;
+
+			for (var n = 0u; n < 256u; n = n + 128u) {
+				var shift = 0u;
+				for (var j = 0u; j < 4u; j = j + 1u) {
+					var w0: u32;
+					if (is < 4u) { w0 = a0; }
+					else if (is < 8u) { w0 = a1; }
+					else if (is < 12u) { w0 = a2; }
+					else { w0 = a3; }
+					let sc0 = f32(i32((w0 >> ((is & 3u) * 8u)) & 0xFFu) - 32);
+					let dl0 = d * sc0;
+					is = is + 1u;
+
+					for (var l = 0u; l < 16u; l = l + 1u) {
+						let qval = (gb(qOffset + l) >> shift) & 3u;
+						let hmBit = gb(hmOffset + l) & m;
+						let hSub = select(4.0, 0.0, hmBit != 0u);
+						o[outBase + n + j * 32u + l] = dl0 * (f32(qval) - hSub);
+					}
+
+					var w1: u32;
+					if (is < 4u) { w1 = a0; }
+					else if (is < 8u) { w1 = a1; }
+					else if (is < 12u) { w1 = a2; }
+					else { w1 = a3; }
+					let sc1 = f32(i32((w1 >> ((is & 3u) * 8u)) & 0xFFu) - 32);
+					let dl1 = d * sc1;
+					is = is + 1u;
+
+					for (var l = 0u; l < 16u; l = l + 1u) {
+						let qval = (gb(qOffset + 16u + l) >> shift) & 3u;
+						let hmBit = gb(hmOffset + 16u + l) & m;
+						let hSub = select(4.0, 0.0, hmBit != 0u);
+						o[outBase + n + j * 32u + 16u + l] = dl1 * (f32(qval) - hSub);
+					}
+
+					shift = shift + 2u;
+					m = m << 1u;
+				}
+				qOffset = qOffset + 32u;
+			}
+		}`,
+
+	// Q4_1 dequant: 20-byte blocks (fp16 d + fp16 m + 16×4-bit), 32 weights. y[i] = d*q + m.
+	dequant_q4_1: `
+		struct DQ { nBlocks: u32 };
+		@group(0) @binding(0) var<uniform> p: DQ;
+		@group(0) @binding(1) var<storage, read> q: array<u32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		fn gb(i: u32) -> u32 { return (q[i >> 2u] >> ((i & 3u) * 8u)) & 0xFFu; }
+		fn f16(h: u32) -> f32 {
+			let s=(h>>15u)&1u; let e=(h>>10u)&0x1Fu; let m=h&0x3FFu; var v:f32;
+			if(e==0u){v=f32(m)*5.9604645e-8;}else if(e==31u){v=65504.0;}else{v=(1.0+f32(m)/1024.0)*pow(2.0,f32(e)-15.0);}
+			return select(v,-v,s==1u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let blk=(wid.y*nwg.x+wid.x)*64u+lid.x; if(blk>=p.nBlocks){return;}
+			let base=blk*20u;
+			let d=f16(gb(base)|(gb(base+1u)<<8u));
+			let m=f16(gb(base+2u)|(gb(base+3u)<<8u));
+			let ob=blk*32u;
+			for(var j=0u;j<16u;j=j+1u){
+				let qsj=gb(base+4u+j);
+				o[ob+j]     = d*f32(qsj&0xFu) + m;
+				o[ob+j+16u] = d*f32(qsj>>4u) + m;
+			}
+		}`,
+
 	// Row-broadcast bias add: o[r, c] = x[r, c] + bias[c]  (Qwen2 q/k/v projections).
 	addbias: `
 		struct BP { rows: u32, cols: u32 };
