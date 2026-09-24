@@ -14,6 +14,7 @@ import { useT, useHref } from '@/lib/i18n';
 import DocsShell, { Code, P } from '../DocsShell';
 import s from '../../cli/cli.module.css';
 import { SESSION, type Seg } from '../../cli/captures';
+import BenchChart from './BenchChart';
 
 const BANNER = `██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
 ██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
@@ -258,6 +259,13 @@ export default function CliDocsClient() {
           'Deux presets, classés à notre banc de code : 41 problèmes HumanEval, décodage glouton, chaque réponse exécutée contre les tests officiels.'
         )}
       </P>
+      <BenchChart />
+      <p className={s.caption}>
+        {t(
+          'pass@1 on 41 HumanEval problems (one in four), 2026-09-24. Local models: native Dawn on an M-series Mac, greedy decoding. Claude: same prompt and tests through claude -p. GPT scores are OpenAI’s own, on the full benchmark: shown for scale, not comparable point for point. Reproduce: node scripts/bench-code.mjs.',
+          'pass@1 sur 41 problèmes HumanEval (un sur quatre), 24/09/2026. Modèles locaux : Dawn natif sur Mac série M, décodage glouton. Claude : même prompt et mêmes tests via claude -p. Les scores GPT sont ceux d’OpenAI, sur le banc complet : montrés pour l’ordre de grandeur, pas comparables point à point. Reproduire : node scripts/bench-code.mjs.'
+        )}
+      </p>
       <div className={s.models}>
         <Screen title="coder · default" className={s.modelCard}>
           <div className={s.modelHead}>
