@@ -40,6 +40,9 @@ export interface EngineBackend {
 	state(url: string): ModelState | undefined;
 	/** Un tour complet. `onToken` reçoit le texte CUMULÉ nettoyé, comme l'API publique le promet. */
 	turn(req: TurnRequest, onToken?: (text: string) => void, signal?: AbortSignal): Promise<string>;
+	/** Tours indépendants servis ENSEMBLE (même modèle, même maxTokens/température). Optionnel :
+	 *  absent (worker), la session les enchaîne avec turn(). */
+	turnBatch?(reqs: TurnRequest[]): Promise<string[]>;
 	/** Libère le worker s'il y en a un. Le backend local n'a rien à libérer (singleton de page). */
 	dispose(): void;
 	/** Pour le diagnostic et les bancs : où l'inférence tourne réellement. */

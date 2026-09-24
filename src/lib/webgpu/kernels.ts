@@ -2658,6 +2658,140 @@ export class WebGpuEngine {
 		return { ids: raw.slice(0, K), vals: new Float32Array(raw.buffer, K * 4, K) };
 	}
 
+	// ── APPELS PAR LOTS : plusieurs séquences décodées dans la MÊME passe ─────────────────────────
+	// Chaque séquence a son propre cache KV (un « contexte ») ; le préremplissage d'une séquence
+	// réutilise le chemin habituel après useKvContext(id). Le décodage groupé fait ensuite UNE passe
+	// pour B séquences : matmuls, normes, FFN et tête sur B lignes (GEMV multi-lignes : les poids sont
+	// lus une fois), RoPE et attention séquence par séquence (position et cache propres à chacune).
+	private kvStore = new Map<string, Map<number, KvEntry>>();
+	private kvCtxId = '';
+	// Bascule le cache KV courant sur le contexte `id` (créé vide au besoin), sans détruire les autres.
+	useKvContext(id: string): void {
+		if (id === this.kvCtxId) return;
+		this.kvStore.set(this.kvCtxId, this.kvGpu);
+		this.kvGpu = this.kvStore.get(id) ?? new Map();
+		this.kvStore.delete(id);
+		this.kvCtxId = id;
+		this.kvSession = id;
+	}
+	// Libère tous les contextes de lot et revient au contexte par défaut.
+	dropKvContexts(): void {
+		this.useKvContext('');
+		for (const m of this.kvStore.values()) for (const e of m.values()) { e.k.destroy?.(); e.v.destroy?.(); e.kScale?.destroy?.(); e.vScale?.destroy?.(); }
+		this.kvStore.clear();
+	}
+	private kvMapFor(id: string): Map<number, KvEntry> {
+		if (id === this.kvCtxId) return this.kvGpu;
+		let m = this.kvStore.get(id);
+		if (!m) { m = new Map(); this.kvStore.set(id, m); }
+		return m;
+	}
+	private ensureKvIn(map: Map<number, KvEntry>, layer: number, rows: number, kvDim: number): KvEntry {
+		const e = map.get(layer);
+		if (e && e.cap >= rows) return e;
+		const cap = Math.max(rows, (e?.cap ?? 0) + 1024, 1024);
+		const k = this.storage(cap * kvDim * 4), v = this.storage(cap * kvDim * 4);
+		if (e) {
+			const enc = this.device.createCommandEncoder();
+			enc.copyBufferToBuffer(e.k, 0, k, 0, e.cap * kvDim * 4);
+			enc.copyBufferToBuffer(e.v, 0, v, 0, e.cap * kvDim * 4);
+			this.device.queue.submit([enc.finish()]);
+			e.k.destroy?.(); e.v.destroy?.();
+		}
+		const ne: KvEntry = { k, v, cap };
+		map.set(layer, ne);
+		return ne;
+	}
+
+	// Une couche pour B séquences (une ligne chacune). `seqs[b]` : cache KV et position de la séquence b.
+	private recordLayerBatch(enc: GPUAny, trash: GPUAny[], x: GPUAny, cfg: LayerCfg, w: LayerWeightsGpu, idx: number, seqs: { kv: Map<number, KvEntry>; pastLen: number }[]): GPUAny {
+		const B = seqs.length;
+		const { d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps } = cfg;
+		const kvDim = nKvHeads * headDim, qDim = nHeads * headDim;
+		const f16 = w.matF16 === true, onePlus = cfg.rmsGainOnePlus === true, softcap = cfg.attnLogitSoftcap ?? 0;
+		const actName = cfg.act === 'gelu' ? 'geglu' : 'swiglu';
+		const n1 = this.recRmsnorm(enc, trash, x, w.attnNorm, B, d, eps, onePlus);
+		let qP = this.recMM(enc, trash, n1, w.wq, B, d, qDim, f16);
+		let kP = this.recMM(enc, trash, n1, w.wk, B, d, kvDim, f16);
+		let vP = this.recMM(enc, trash, n1, w.wv, B, d, kvDim, f16);
+		if (w.bq) qP = this.recAddBias(enc, trash, qP, w.bq, B, qDim);
+		if (w.bk) kP = this.recAddBias(enc, trash, kP, w.bk, B, kvDim);
+		if (w.bv) vP = this.recAddBias(enc, trash, vP, w.bv, B, kvDim);
+		if (w.qNorm) qP = this.recRmsnorm(enc, trash, qP, w.qNorm, B * nHeads, headDim, eps, onePlus);
+		if (w.kNorm) kP = this.recRmsnorm(enc, trash, kP, w.kNorm, B * nKvHeads, headDim, eps, onePlus);
+		const ffGpu = cfg._ffGpu, inter = cfg.ropeInterleaved === true;
+		const rope = (v: GPUAny, nH: number, past: number) => cfg.skipRope ? v
+			: ffGpu ? this.recRopeFactors(enc, trash, v, ffGpu, nH, headDim, nH, past, ropeTheta, inter)
+			: this.recRope(enc, trash, v, nH, headDim, nH, past, ropeTheta, inter);
+		const attAll = this.storage(B * qDim * 4); trash.push(attAll);
+		for (let b = 0; b < B; b++) {
+			const past = seqs[b].pastLen;
+			const kv = this.ensureKvIn(seqs[b].kv, idx, past + 1, kvDim);
+			const qb = this.storage(qDim * 4), kb = this.storage(kvDim * 4); trash.push(qb, kb);
+			enc.copyBufferToBuffer(qP, b * qDim * 4, qb, 0, qDim * 4);
+			enc.copyBufferToBuffer(kP, b * kvDim * 4, kb, 0, kvDim * 4);
+			const q = rope(qb, nHeads, past);
+			enc.copyBufferToBuffer(rope(kb, nKvHeads, past), 0, kv.k, past * kvDim * 4, kvDim * 4);
+			enc.copyBufferToBuffer(vP, b * kvDim * 4, kv.v, past * kvDim * 4, kvDim * 4);
+			const att = this.recAttention(enc, trash, q, kv.k, kv.v, 1, nHeads, nKvHeads, headDim, past + 1, past, cfg.attnScale, softcap, cfg.window ?? 0);
+			enc.copyBufferToBuffer(att, 0, attAll, b * qDim * 4, qDim * 4);
+		}
+		let proj = this.recMM(enc, trash, attAll, w.wo, B, qDim, d, f16);
+		if (w.postAttnNorm) proj = this.recRmsnorm(enc, trash, proj, w.postAttnNorm, B, d, eps, onePlus);
+		const h = this.recBinary(enc, trash, 'add', x, proj, B * d);
+		const n2 = this.recRmsnorm(enc, trash, h, w.ffnNorm, B, d, eps, onePlus);
+		const g = this.recBinary(enc, trash, actName, this.recMM(enc, trash, n2, w.wgate, B, d, ffn, f16), this.recMM(enc, trash, n2, w.wup, B, d, ffn, f16), B * ffn);
+		let down = this.recMM(enc, trash, g, w.wdown, B, ffn, d, f16);
+		if (w.postFfnNorm) down = this.recRmsnorm(enc, trash, down, w.postFfnNorm, B, d, eps, onePlus);
+		return this.recBinary(enc, trash, 'add', h, down, B * d);
+	}
+
+	// Décodage GROUPÉ : B séquences, un token chacune (`embeds` [B, d]), une soumission, B top-K.
+	// `ctx[b]` : contexte KV de la séquence b (cf. useKvContext), `pastLen[b]` sa position.
+	async decodeTopKBatch(embeds: Float32Array, cfg: LayerCfg, layers: LayerWeightsGpu[], ctx: string[], pastLen: number[], finalNorm: GPUAny, projTiles: { w: GPUAny; rows: number; r0: number }[], vocab: number, recents: number[][], penalty: number, softcap: number, K = 64): Promise<{ ids: Uint32Array; vals: Float32Array }[]> {
+		const G = globalThis as any;
+		const B = ctx.length, { d, eps } = cfg;
+		if (cfg.mropeSections) throw new Error('decodeTopKBatch : M-RoPE non géré (vision)');
+		const seqs = ctx.map((id, b) => ({ kv: this.kvMapFor(id), pastLen: pastLen[b] }));
+		const trash: GPUAny[] = [];
+		this.preparePositions(cfg, trash);
+		const enc = this.device.createCommandEncoder();
+		let x = this.storage(embeds.byteLength); trash.push(x);
+		this.device.queue.writeBuffer(x, 0, embeds);
+		for (let i = 0; i < layers.length; i++) x = this.recordLayerBatch(enc, trash, x, layerCfg(cfg, B, i, this.swaOk), layers[i], i, seqs);
+		const normed = this.recRmsnorm(enc, trash, x, finalNorm, B, d, eps, cfg.rmsGainOnePlus === true);
+		const logits = this.storage(B * vocab * 4); trash.push(logits);
+		for (const t of projTiles) {
+			const tl = this.recMM(enc, trash, normed, t.w, B, d, t.rows, false);
+			for (let b = 0; b < B; b++) enc.copyBufferToBuffer(tl, b * t.rows * 4, logits, (b * vocab + t.r0) * 4, t.rows * 4);
+		}
+		const outs: GPUAny[] = [];
+		for (let b = 0; b < B; b++) {
+			const row = this.storage(vocab * 4); trash.push(row);
+			enc.copyBufferToBuffer(logits, b * vocab * 4, row, 0, vocab * 4);
+			if (softcap && softcap > 0) { const p = this.uniform([vocab], { offset: 4, value: softcap }); this.recordPass(enc, 'softcap_logits', [p, row], this.grid1D(vocab)); trash.push(p); }
+			if (penalty && penalty !== 1 && recents[b]?.length) {
+				const ids = Uint32Array.from(recents[b]);
+				const idsBuf = this.bufU32(ids, G.GPUBufferUsage.STORAGE | G.GPUBufferUsage.COPY_DST);
+				const p = this.uniform([ids.length], { offset: 4, value: penalty });
+				this.recordPass(enc, 'penalize_logits', [p, idsBuf, row], this.grid1D(ids.length));
+				trash.push(p, idsBuf);
+			}
+			const out = this.storage(K * 8); trash.push(out);
+			const pk = this.uniform([vocab, K]); trash.push(pk);
+			this.recordPass(enc, this.topKParOk ? 'top_k_par' : 'top_k', [pk, row, out], [1, 1, 1]);
+			outs.push(out);
+		}
+		const read = this.device.createBuffer({ size: B * K * 8, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		outs.forEach((o, b) => enc.copyBufferToBuffer(o, 0, read, b * K * 8, K * 8));
+		this.device.queue.submit([enc.finish()]);
+		await read.mapAsync(G.GPUMapMode.READ);
+		const raw = new Uint32Array(read.getMappedRange().slice(0));
+		read.unmap(); read.destroy();
+		this.release(trash);
+		return outs.map((_, b) => ({ ids: raw.slice(b * 2 * K, b * 2 * K + K), vals: new Float32Array(raw.buffer, (b * 2 * K + K) * 4, K) }));
+	}
+
 	// ── LFM2 (hybride conv+attention) 100 % RÉSIDENT ────────────────────────────
 	// Même recette que le décodage transformer (rec* chaînés, une soumission, un readback), mais graphe
 	// HYBRIDE et état conv persistant. On enregistre les T tokens (prefill ou décodage) dans UN encoder :

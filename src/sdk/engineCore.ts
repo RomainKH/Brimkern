@@ -171,6 +171,70 @@ export class TransformerWebModel {
     return this.tok.decode(generatedTokens);
   }
 
+  // APPELS PAR LOTS : B prompts générés ENSEMBLE. Chacun est prérempli dans son propre contexte KV,
+  // puis toutes les séquences actives décodent dans la même passe (les poids ne sont lus qu'une fois
+  // pour B lignes) ; une séquence sort du lot à son token d'arrêt ou à maxTokens. Même échantillonnage
+  // que generateResident (pénalité de répétition par séquence, température, top-K). Modèle sans
+  // décodage groupé (hybride, vision, KV int8) : les prompts passent l'un après l'autre.
+  batchAvailable(): boolean {
+    const m = this.model as unknown as { batchAvailable?: boolean };
+    return m.batchAvailable === true && typeof (this.model as unknown as { topKBatch?: unknown }).topKBatch === 'function';
+  }
+
+  async generateBatch(
+    prompts: string[],
+    maxTokens: number,
+    opts?: { temperature?: number; topK?: number; repeatPenalty?: number; sample?: boolean },
+    onToken?: (i: number, text: string) => void,
+  ): Promise<string[]> {
+    if (!this.batchAvailable() || prompts.length < 2) {
+      const out: string[] = [];
+      for (let i = 0; i < prompts.length; i++) out.push(await this.generateResident(prompts[i], maxTokens, (t) => onToken?.(i, t), undefined, opts));
+      return out;
+    }
+    const engine = this.engine as unknown as { useKvContext(id: string): void; dropKvContexts(): void };
+    const model = this.model as unknown as { topKBatch(tokens: number[], ctx: string[], pastLen: number[], recents: number[][], penalty: number): Promise<{ ids: Uint32Array; vals: Float32Array }[]> };
+    const penalty = opts?.repeatPenalty ?? (opts?.sample ? 1.3 : 1.0);
+    const temp = opts?.sample === false ? 0 : (opts?.temperature ?? 0.55);
+    const topK = opts?.topK ?? 40;
+    const WINDOW = 64, CHUNK = 256;
+    type Seq = { i: number; ctx: string; pos: number; last: number; out: number[]; win: number[]; done: boolean };
+    const seqs: Seq[] = [];
+    try {
+      this.model.reset();
+      for (let i = 0; i < prompts.length; i++) {
+        const ctx = `batch-${i}`;
+        engine.useKvContext(ctx);
+        const toks = this.tok.encode(prompts[i]);
+        let r: { ids: Uint32Array; vals: Float32Array } | null = null;
+        for (let p = 0; p < toks.length; p += CHUNK) {
+          const chunk = toks.slice(p, p + CHUNK), last = p + CHUNK >= toks.length;
+          r = await this.model.topKKV(chunk, p, ctx, last ? toks.slice(-WINDOW) : [], last ? penalty : 1.0);
+        }
+        const first = r ? sampleFromTopK(r.ids, r.vals, { temperature: temp, topK }) : -1;
+        const done = !toks.length || !Number.isInteger(first) || first < 0 || this.stops.has(first);
+        seqs.push({ i, ctx, pos: toks.length, last: first, out: done ? [] : [first], win: [...toks.slice(-WINDOW), first].slice(-WINDOW), done });
+        if (!done) onToken?.(i, this.tok.decode([first]));
+      }
+      for (let step = 1; step < maxTokens; step++) {
+        const act = seqs.filter((q) => !q.done);
+        if (!act.length) break;
+        const rs = await model.topKBatch(act.map((q) => q.last), act.map((q) => q.ctx), act.map((q) => q.pos), act.map((q) => [...new Set(q.win)]), penalty);
+        act.forEach((q, j) => {
+          q.pos++;
+          const next = sampleFromTopK(rs[j].ids, rs[j].vals, { temperature: temp, topK });
+          if (!Number.isInteger(next) || next < 0 || this.stops.has(next)) { q.done = true; return; }
+          q.out.push(next); q.last = next;
+          q.win.push(next); if (q.win.length > WINDOW) q.win.shift();
+          onToken?.(q.i, this.tok.decode(q.out));
+        });
+      }
+    } finally {
+      engine.dropKvContexts();
+    }
+    return seqs.map((q) => this.tok.decode(q.out));
+  }
+
   // Dernière génération spéculative : propositions faites / acceptées (banc, diagnostic).
   lastSpecStats: { drafts: number; accepted: number } | null = null;
 
@@ -611,6 +675,26 @@ export async function runTurn(
   return acc;
 }
 
+
+// Tours GROUPÉS (appels indépendants servis dans la même passe : serveur MCP de la CLI). Mêmes
+// réglages d'échantillonnage que runTurn (température, top-K 40, pénalité 1,3) et même nettoyage ;
+// sans décodage groupé (modèle hybride, pur récurrent, KV int8), les tours passent l'un après l'autre.
+export async function runTurnBatch(
+  core: PureModel,
+  reqs: { history: Msg[]; system: string; pinned?: Msg[] }[],
+  maxTokens: number,
+  temperature: number,
+): Promise<string[]> {
+  const tr = core as unknown as TransformerWebModel;
+  if (!(core instanceof TransformerWebModel) || !tr.batchAvailable() || reqs.length < 2) {
+    const out: string[] = [];
+    for (const r of reqs) out.push(await runTurn(core, r.history, r.system, maxTokens, temperature, undefined, undefined, r.pinned ?? []));
+    return out;
+  }
+  const prompts = reqs.map((r) => formatPrompt([...(r.pinned ?? []), ...r.history.slice(-HISTORY_WINDOW)] as any, tr.arch as any, r.system));
+  const raw = await tr.generateBatch(prompts, maxTokens, { sample: true, temperature, topK: 40, repeatPenalty: 1.3 });
+  return raw.map((t, i) => cleanOutput(cutAtTurnMarker(t).text, reqs[i].history.some((m) => m.role === 'assistant')));
+}
 
 // Composition du prompt, au même endroit pour la session programmatique ET pour le widget — il était
 // reconstruit dans les deux, ce qui garantissait qu'un ajout (les documents de connaissance)

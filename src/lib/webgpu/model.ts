@@ -909,6 +909,21 @@ export class CustomWebModel {
 		return out;
 	}
 
+	// Décodage GROUPÉ (appels MCP par lots) : un token par séquence, chacune dans son contexte KV
+	// (engine.useKvContext) à sa position ; une passe, un top-K par séquence. Cf. engine.decodeTopKBatch.
+	get batchAvailable(): boolean { return !this.engine.kvQuant && !this.manifest.config.mropeSections && this.engine.gemvMOk; }
+	async topKBatch(tokens: number[], ctx: string[], pastLen: number[], recents: number[][], penalty: number): Promise<{ ids: Uint32Array; vals: Float32Array }[]> {
+		const m = this.manifest;
+		const { d, nHeads, nKvHeads, headDim, ffn, blockCount, ropeTheta, rmsEps } = m.config;
+		const cfg: LayerCfg = { seq: tokens.length, d, nHeads, nKvHeads, headDim, ffn, ropeTheta, eps: rmsEps, ...this.archFlags() };
+		cfg.ropeFactors = (await this.getRopeFactors()) ?? undefined;
+		const embeds = await this.embed(tokens, d);
+		const layers = await Promise.all(Array.from({ length: blockCount }, (_, i) => this.layerWeightsGpu(i)));
+		const finalNorm = await this.getFinalNormGpu();
+		const tiles = await this.getProjectionQ8(d);
+		return this.engine.decodeTopKBatch(embeds, cfg, layers, ctx, pastLen, finalNorm, tiles, this.projVocab, recents, penalty, m.config.finalLogitSoftcap ?? 0);
+	}
+
 	// BANC : l'état caché APRÈS CHAQUE COUCHE, pour dichotomiser une divergence.
 	//
 	// Pourquoi ce hook existe : la référence CPU (__refForward) ne comparait que les LOGITS. Un écart

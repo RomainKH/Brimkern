@@ -579,6 +579,12 @@ function knowledgeExamples(fr = false): { user: string; assistant: string }[] {
 // ── API programmatique : sessions sans DOM ──
 export interface BrimkernSession {
   ask(text: string, opts?: AskOptions): Promise<string>;
+  /**
+   * Plusieurs questions INDÉPENDANTES générées ensemble (une passe pour toutes quand le modèle le
+   * permet — les poids ne sont lus qu'une fois). Sans historique : ni lu, ni modifié. Rend les
+   * réponses dans l'ordre des questions.
+   */
+  askBatch(texts: string[], opts?: { maxTokens?: number }): Promise<string[]>;
   reset(): void;    // vide l'historique, GARDE le moteur chargé
   destroy(): void;
   readonly history: Msg[];
@@ -671,6 +677,28 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
         history.pop(); // le tour user n'a pas abouti
         // Émis ET relevé : l'appelant de ask() a son `catch`, mais un abonné `error` (journalisation,
         // supervision) doit voir la panne sans avoir à envelopper chaque appel.
+        bus.emit('error', e instanceof Error ? e : new Error(String(e)));
+        throw e;
+      } finally { busy = false; }
+    },
+    async askBatch(texts: string[], opts: { maxTokens?: number } = {}): Promise<string[]> {
+      if (destroyed) throw new Error('session détruite');
+      if (busy) throw new Error('génération déjà en cours sur cette session');
+      if (!texts.length) return [];
+      busy = true;
+      try {
+        const b = await backend();
+        await b.preload(url, (phase, pr) => bus.emit('progress', phase, pr));
+        if (!annonce) { annonce = true; bus.emit('ready'); }
+        const reqs: TurnRequest[] = texts.map((text) => ({
+          url, history: [{ role: 'user', content: promptOf.userTurn(text, '').text }], system: promptOf.system(text),
+          maxTokens: opts.maxTokens ?? maxTokens, temperature: temperature(), pinned: promptOf.pinned,
+        }));
+        if (b.turnBatch) return await b.turnBatch(reqs);
+        const out: string[] = [];
+        for (const r of reqs) out.push(await b.turn(r));
+        return out;
+      } catch (e) {
         bus.emit('error', e instanceof Error ? e : new Error(String(e)));
         throw e;
       } finally { busy = false; }

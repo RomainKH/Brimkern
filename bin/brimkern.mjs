@@ -1371,6 +1371,14 @@ class BrimkernNativeDawnEngine {
     }
   }
 
+  // Questions indépendantes servies ENSEMBLE (SDK session.askBatch, ≥ 0.5.0) : une passe pour toutes
+  // quand le modèle le permet. null si le SDK chargé ne sait pas le faire (l'appelant enchaîne).
+  async askBatch(prompts, { maxTokens } = {}) {
+    if (!this.isReady) await this.init();
+    if (typeof this.session.askBatch !== 'function') return null;
+    return withQuietSdkLogs(() => this.session.askBatch(prompts, { maxTokens }));
+  }
+
   async close() {
     try {
       if (this.session) {
@@ -2848,15 +2856,10 @@ async function runMcpServer(initialOptions = {}) {
   let totalInCharsServed = 0;
   let callsServed = 0;
 
-  // Une seule génération à la fois : la session du SDK refuse un 2e ask concurrent (« génération
-  // déjà en cours »), et deux appels simultanés chargeaient chacun LEUR moteur (3 × 2,5 Go en VRAM
-  // pour 3 appels groupés, deux jamais refermés). Les appels d'outils passent donc en file.
-  let queue = Promise.resolve();
-  const serial = (fn) => {
-    const run = queue.then(fn);
-    queue = run.catch(() => {});
-    return run;
-  };
+  // Une seule génération à la fois sur le moteur : la session du SDK refuse un 2e ask concurrent
+  // (« génération déjà en cours »), et deux appels simultanés chargeaient chacun LEUR moteur (3 × 2,5
+  // Go en VRAM pour 3 appels groupés, deux jamais refermés). Les appels passent donc par une file
+  // (pump, plus bas), qui sert ensemble ceux qui attendent.
 
   async function getEngine(modelKey) {
     const resolved = resolveModelKey(modelKey);
@@ -2939,17 +2942,75 @@ Provide concise, actionable findings and corrected code blocks where applicable.
     }, null, 2);
   }
 
+  // APPELS PAR LOTS. Un agent envoie souvent plusieurs appels d'outils d'un coup : au lieu de les
+  // servir l'un après l'autre, les générations qui attendent quand le moteur se libère partent
+  // ENSEMBLE (jusqu'à MCP_BATCH_MAX, même modèle et même plafond de tokens), en une passe par token
+  // pour toutes (session.askBatch). Les stats gardent leur place dans la file : elles comptent les
+  // appels envoyés AVANT elles. Un moteur sans lots (Chromium, SDK < 0.5) les enchaîne comme avant.
+  const MCP_BATCH_MAX = 4;
+  const pending = [];
+  let pumping = false;
+  const limitOf = (maxTokens) => Math.min(Math.max(1, Number.parseInt(maxTokens, 10) || MCP_DEFAULT_MAX_TOKENS), MCP_MAX_TOKENS_CEILING);
+  const batchKey = (it) => `${resolveModelKey(it.args.model || currentModelKey)}|${limitOf(it.args.maxTokens)}`;
+
+  async function generateGroup(argsList) {
+    const eng = await getEngine(argsList[0].model || currentModelKey);
+    const limit = limitOf(argsList[0].maxTokens);
+    const composed = argsList.map((a) => a.prompt + thinkSuffixFor(eng.modelKey, 'auto'));
+    const outs = eng.askBatch ? await eng.askBatch(composed, { maxTokens: limit }) : null;
+    if (!outs) {
+      const res = [];
+      for (const a of argsList) res.push(await generate(a));
+      return res;
+    }
+    callsServed += outs.length;
+    outs.forEach((t, i) => {
+      totalTokensServed += Math.round(t.length / 4); // estimation (la génération groupée ne rend pas de compte exact)
+      totalInCharsServed += eng.systemPrompt.length + composed[i].length;
+    });
+    process.stderr.write(`[Brimkern MCP] ${outs.length} appels servis ensemble.\n`);
+    return outs.map((t) => ({ text: stripThink(t), truncated: false }));
+  }
+
+  async function pump() {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (pending.length) {
+        const first = pending.shift();
+        if (first.kind === 'stats') { first.resolve(statsText()); continue; }
+        const group = [first];
+        const key = batchKey(first);
+        while (group.length < MCP_BATCH_MAX && pending.length && pending[0].kind === 'gen' && batchKey(pending[0]) === key) group.push(pending.shift());
+        try {
+          const res = group.length === 1 ? [await generate(first.args)] : await generateGroup(group.map((g) => g.args));
+          group.forEach((g, i) => g.resolve(res[i]));
+        } catch (e) {
+          group.forEach((g) => g.reject(e));
+        }
+      }
+    } finally {
+      pumping = false;
+    }
+  }
+
+  // Un court délai avant de démarrer : des appels parallèles arrivent sur des lignes stdin
+  // successives, pas dans le même événement — sans lui, le premier partirait seul.
+  const enqueue = (item) => new Promise((resolve, reject) => {
+    pending.push({ ...item, resolve, reject });
+    setTimeout(pump, 15);
+  });
+
   async function callTool(name, args) {
-    // Stats en file aussi : elles comptent les appels envoyés AVANT elles, même encore en cours.
-    if (name === 'brimkern_stats') return serial(() => statsText());
+    if (name === 'brimkern_stats') return enqueue({ kind: 'stats' });
     const build = TOOL_PROMPTS[name];
     if (!build) throw new Error(`Unknown tool "${name}"`);
     const prompt = build(args);
-    const { text, truncated } = await serial(() => generate({
+    const { text, truncated } = await enqueue({ kind: 'gen', args: {
       prompt,
       model: name === 'brimkern_ask' ? args.model : undefined,
       maxTokens: args.max_tokens,
-    }));
+    } });
     return truncated ? `${text}\n\n[truncated at max_tokens]` : text;
   }
 
@@ -3021,7 +3082,12 @@ Provide concise, actionable findings and corrected code blocks where applicable.
   };
   // Fin de stdin (client parti, ou `printf … | brimkern mcp`) : on finit les appels en file, puis
   // on referme le moteur. Sans ça, un moteur Chromium gardait le processus en vie.
-  rl.on('close', () => { queue.then(cleanup); });
+  // Fin de stdin : on laisse finir les appels en cours ET en attente (file de pump), puis on quitte.
+  const drained = () => new Promise((resolve) => {
+    const tick = () => (pumping || pending.length ? setTimeout(tick, 20) : resolve());
+    setTimeout(tick, 20); // après le délai de regroupement d'enqueue
+  });
+  rl.on('close', () => { drained().then(cleanup); });
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 }

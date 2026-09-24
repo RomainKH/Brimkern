@@ -6,7 +6,7 @@
 // pourquoi il ne marche pas. C'est aussi ce que fait tourner le worker LUI-MÊME, de l'autre côté
 // de la frontière (cf. engineWorker.ts) : une seule implémentation d'inférence, jamais deux.
 
-import { getModel, models, withDeviceRetry, runTurn, type LoadProgress } from './engineCore';
+import { getModel, models, withDeviceRetry, runTurn, runTurnBatch, type LoadProgress } from './engineCore';
 import type { EngineBackend, ModelState, TurnRequest } from './backend';
 
 export class LocalBackend implements EngineBackend {
@@ -23,6 +23,11 @@ export class LocalBackend implements EngineBackend {
 	turn(req: TurnRequest, onToken?: (t: string) => void, signal?: AbortSignal): Promise<string> {
 		return withDeviceRetry(req.url, (core) =>
 			runTurn(core, req.history, req.system, req.maxTokens, req.temperature, onToken, () => !!signal?.aborted, req.pinned));
+	}
+
+	turnBatch(reqs: TurnRequest[]): Promise<string[]> {
+		const r0 = reqs[0];
+		return withDeviceRetry(r0.url, (core) => runTurnBatch(core, reqs, r0.maxTokens, r0.temperature));
 	}
 
 	dispose(): void { /* singleton de page : rien à libérer ici (cf. engineCore.models) */ }
