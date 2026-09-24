@@ -1,6 +1,7 @@
 "use client";
 
-// Banc de code des modèles de la CLI face aux modèles cloud (docs/ROADMAP.md § 17).
+// Banc de code des deux presets de la CLI face aux modèles cloud (docs/ROADMAP.md § 17). Les modèles
+// testés mais non retenus (Opus distill Qwen 3.5 et Gemma 4) sont dans les résultats bruts, pas ici.
 //
 // Deux sortes de chiffres, qui ne se mélangent pas :
 //   · MESURÉS (nos modèles locaux ET Claude) : même banc, scripts/bench-code.mjs, 41 problèmes
@@ -20,8 +21,6 @@ interface Row { name: string; sub?: { en: string; fr: string }; pct: number; det
 const LOCAL: Row[] = [
   { name: 'coder · Qwen 3 4B', sub: { en: 'default preset, no reasoning', fr: 'preset par défaut, sans réflexion' }, pct: (35 / 41) * 100, detail: { en: '35/41 · ~15 s per problem', fr: '35/41 · ~15 s par problème' } },
   { name: 'super-coder · Qwen 3.5 4B', sub: { en: 'reasons before answering', fr: 'réfléchit avant de répondre' }, pct: (33 / 41) * 100, detail: { en: '33/41 · ~60 s per problem', fr: '33/41 · ~60 s par problème' } },
-  { name: 'Qwen 3.5 4B · Opus 4.6 distill', sub: { en: 'not kept', fr: 'non retenu' }, pct: (32 / 41) * 100, detail: { en: '32/41 · ~65 s per problem', fr: '32/41 · ~65 s par problème' } },
-  { name: 'Gemma 4 E4B · Opus distill', sub: { en: 'not kept', fr: 'non retenu' }, pct: (26 / 41) * 100, detail: { en: '26/41 · ~28 s per problem', fr: '26/41 · ~28 s par problème' } },
 ];
 
 const CLAUDE: Row[] = [
