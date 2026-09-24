@@ -1848,6 +1848,7 @@ ${C.boldRed}BRIMKERN CLI${C.reset} — ${t('Local AI inference on WebGPU (WGSL) 
 ${C.bold}${t('USAGE', 'UTILISATION')}${C.reset}
 ${use('brimkern [options] [prompt]')}
 ${use('brimkern chat                   ', t('Interactive REPL', 'Mode REPL interactif'))}
+${use('brimkern mcp                    ', t('Model Context Protocol (MCP) stdio server for AI agents', 'Serveur stdio MCP (Model Context Protocol) pour agents IA'))}
 ${use('brimkern models                 ', t('Lists the preset models', 'Liste les modèles pré-configurés'))}
 ${use('brimkern update                 ', t('Updates the CLI to the latest version', 'Met à jour la CLI vers la dernière version'))}
 ${use(`cat file.ts | brimkern "${t('Find the bugs', 'Trouve les bugs')}"`)}
@@ -1863,6 +1864,8 @@ ${opt('--think=<off|auto|deep>', t('Step-by-step reasoning level (default: auto)
 ${opt('--lang=<en|fr>', t('Interface language (default: en; also BRIMKERN_LANG)', 'Langue de l’interface (défaut : en ; aussi BRIMKERN_LANG)'))}
 ${opt('--native', t('Forces the native Dawn engine (in-process)', "Force l'exécution native Dawn (in-process)"))}
 ${opt('--chromium, --headless', t('Forces headless Chromium (universal fallback)', "Force l'exécution via Chromium headless (repli universel)"))}
+${opt('-q, --quiet', t('Quiet output only (raw model output, no banners or stats)', 'Sortie brute silencieuse (sans bannière ni stats)'))}
+${opt('--json', t('Output execution results as structured JSON', 'Sortie au format JSON structuré pour agents et scripts'))}
 ${opt('--raw', t('Raw output only (no header or stats)', 'Sortie brute uniquement (sans en-tête ni stats)'))}
 ${opt('-h, --help', t('Shows this help', 'Affiche cette aide'))}
 
@@ -1881,7 +1884,7 @@ function printModels() {
   console.log(`${C.gray}${t('You can also pass a local file: --model=/path/to/model.brik', 'Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik')}${C.reset}\n`);
 }
 
-const KNOWN_COMMANDS = ['chat', 'models', 'list', 'update', 'upgrade', 'help', 'version', 'config', 'status'];
+const KNOWN_COMMANDS = ['chat', 'models', 'list', 'update', 'upgrade', 'help', 'version', 'config', 'status', 'mcp', 'serve-mcp'];
 const COMMON_ALIASES = {
   'run': 'chat',
   'start': 'chat',
@@ -1892,6 +1895,8 @@ const COMMON_ALIASES = {
   'doctor': 'status',
   'model': 'models',
   'install': 'update',
+  'mcp-server': 'mcp',
+  'server': 'mcp',
 };
 
 function levenshtein(a, b) {
@@ -2682,6 +2687,367 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
   });
 }
 
+// ── Serveur MCP (Model Context Protocol) JSON-RPC 2.0 stdio ──────────────────────────
+async function runMcpServer(initialOptions = {}) {
+  let engine = null;
+  let currentModelKey = initialOptions.model || 'coder';
+  let totalTokensServed = 0;
+  let totalInCharsServed = 0;
+
+  async function getEngine(modelKey = currentModelKey) {
+    const resolved = resolveModelKey(modelKey);
+    if (engine && engine.modelKey === resolved) {
+      return engine;
+    }
+    if (engine) {
+      try { await engine.close(); } catch {}
+      engine = null;
+    }
+    process.stderr.write(`[Brimkern MCP] Loading model "${resolved}" on WebGPU...\n`);
+    engine = await createCliEngine({
+      model: resolved,
+      maxTokens: 1024,
+      raw: true,
+      native: initialOptions.native,
+      chromium: initialOptions.chromium,
+    });
+    await engine.init();
+    currentModelKey = resolved;
+    process.stderr.write(`[Brimkern MCP] Model "${resolved}" ready (${engine.gpuBackend || 'WebGPU'}).\n`);
+    return engine;
+  }
+
+  const send = (msg) => {
+    process.stdout.write(JSON.stringify(msg) + '\n');
+  };
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false,
+  });
+
+  process.stderr.write(`[Brimkern MCP] Stdio server running (pid ${process.pid}). Listening on stdin...\n`);
+
+  rl.on('line', async (line) => {
+    line = line.trim();
+    if (!line) return;
+
+    let req;
+    try {
+      req = JSON.parse(line);
+    } catch (e) {
+      process.stderr.write(`[Brimkern MCP] JSON-RPC parse error: ${e.message}\n`);
+      send({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error' },
+      });
+      return;
+    }
+
+    const { id, method, params } = req;
+
+    if (id === undefined || id === null) {
+      if (method === 'notifications/initialized') {
+        process.stderr.write('[Brimkern MCP] Client initialized.\n');
+      }
+      return;
+    }
+
+    try {
+      switch (method) {
+        case 'initialize': {
+          send({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              protocolVersion: '2024-11-05',
+              capabilities: {
+                tools: {},
+              },
+              serverInfo: {
+                name: 'brimkern',
+                version: '0.1.0',
+              },
+            },
+          });
+          break;
+        }
+
+        case 'ping': {
+          send({
+            jsonrpc: '2.0',
+            id,
+            result: {},
+          });
+          break;
+        }
+
+        case 'tools/list': {
+          send({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              tools: [
+                {
+                  name: 'brimkern_ask',
+                  description: 'Execute a fast, local WebGPU AI query at $0.00 cost (0 API tokens consumed). Perfect for routine questions, boilerplate generation, explanations, regex crafting, or fast subagent experiments.',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      prompt: {
+                        type: 'string',
+                        description: 'The instruction, prompt, or question for the WebGPU model',
+                      },
+                      model: {
+                        type: 'string',
+                        description: 'Model preset: "coder" (default, Qwen 3 4B), "fast" (Qwen 2.5 1.5B), "smollm" (SmolLM2 360M), "coder-7b" (Qwen 2.5 7B), "super-coder" (Qwen 3.5 4B)',
+                      },
+                      mode: {
+                        type: 'string',
+                        description: 'Behavior mode: "code" (default), "plan", "review", "auto"',
+                      },
+                      max_tokens: {
+                        type: 'integer',
+                        description: 'Maximum tokens to generate (default: 512)',
+                      },
+                    },
+                    required: ['prompt'],
+                  },
+                },
+                {
+                  name: 'brimkern_review',
+                  description: 'Run an in-depth code review on a file or code snippet using local WebGPU inference. Analyzes bugs, edge cases, vulnerabilities, and perf without spending API credits.',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      code: {
+                        type: 'string',
+                        description: 'The source code content to review',
+                      },
+                      file_path: {
+                        type: 'string',
+                        description: 'Optional file path or name for context',
+                      },
+                    },
+                    required: ['code'],
+                  },
+                },
+                {
+                  name: 'brimkern_generate_tests',
+                  description: 'Generate unit tests for a code snippet locally on WebGPU with zero API cost.',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      code: {
+                        type: 'string',
+                        description: 'The source code to write unit tests for',
+                      },
+                      test_framework: {
+                        type: 'string',
+                        description: 'Test framework: vitest (default), jest, pytest, bats, etc.',
+                      },
+                    },
+                    required: ['code'],
+                  },
+                },
+                {
+                  name: 'brimkern_stats',
+                  description: 'Get local WebGPU engine telemetry, active model, token counter, and cumulative token savings ($).',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {},
+                  },
+                },
+              ],
+            },
+          });
+          break;
+        }
+
+        case 'tools/call': {
+          const toolName = params?.name;
+          const toolArgs = params?.arguments || {};
+
+          if (toolName === 'brimkern_ask') {
+            const prompt = toolArgs.prompt;
+            if (!prompt) throw new Error('Missing parameter "prompt"');
+            const targetModel = toolArgs.model || currentModelKey;
+            const targetMode = toolArgs.mode || 'code';
+            const eng = await getEngine(targetModel);
+
+            let composedPrompt = prompt;
+            if (CLI_MODES[targetMode]?.systemSuffix) {
+              composedPrompt += CLI_MODES[targetMode].systemSuffix;
+            }
+            composedPrompt += thinkSuffixFor(eng.modelKey, 'auto');
+
+            let generatedTokens = 0;
+            const res = await eng.ask(composedPrompt, {
+              onToken: () => { generatedTokens++; },
+            });
+
+            totalTokensServed += generatedTokens;
+            totalInCharsServed += eng.systemPrompt.length + composedPrompt.length;
+
+            send({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: res.text || '',
+                  },
+                ],
+              },
+            });
+            break;
+          }
+
+          if (toolName === 'brimkern_review') {
+            const code = toolArgs.code;
+            if (!code) throw new Error('Missing parameter "code"');
+            const filePath = toolArgs.file_path || 'snippet';
+            const eng = await getEngine(currentModelKey);
+
+            let composedPrompt = `Perform an in-depth, rigorous code review of ${filePath}. Focus on:
+1. Potential bugs, off-by-one errors, null/undefined crashes
+2. Performance bottlenecks and memory leaks
+3. Edge cases and error handling robustness
+4. Security vulnerabilities
+Provide concise, actionable findings and corrected code blocks where applicable.\n\n\`\`\`\n${code}\n\`\`\``;
+
+            if (CLI_MODES.review?.systemSuffix) {
+              composedPrompt += CLI_MODES.review.systemSuffix;
+            }
+
+            let generatedTokens = 0;
+            const res = await eng.ask(composedPrompt, {
+              onToken: () => { generatedTokens++; },
+            });
+
+            totalTokensServed += generatedTokens;
+            totalInCharsServed += eng.systemPrompt.length + composedPrompt.length;
+
+            send({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: res.text || '',
+                  },
+                ],
+              },
+            });
+            break;
+          }
+
+          if (toolName === 'brimkern_generate_tests') {
+            const code = toolArgs.code;
+            if (!code) throw new Error('Missing parameter "code"');
+            const fw = toolArgs.test_framework || 'vitest';
+            const eng = await getEngine(currentModelKey);
+
+            let composedPrompt = `Generate a complete, production-grade test suite using ${fw} for the following code. Include happy path, boundary values, invalid inputs, and mock dependencies if needed:\n\n\`\`\`\n${code}\n\`\`\``;
+
+            if (CLI_MODES.code?.systemSuffix) {
+              composedPrompt += CLI_MODES.code.systemSuffix;
+            }
+
+            let generatedTokens = 0;
+            const res = await eng.ask(composedPrompt, {
+              onToken: () => { generatedTokens++; },
+            });
+
+            totalTokensServed += generatedTokens;
+            totalInCharsServed += eng.systemPrompt.length + composedPrompt.length;
+
+            send({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: res.text || '',
+                  },
+                ],
+              },
+            });
+            break;
+          }
+
+          if (toolName === 'brimkern_stats') {
+            const eng = await getEngine(currentModelKey);
+            const saved = estimateSavings(totalInCharsServed, totalTokensServed);
+            const stats = {
+              model: eng.displayName || eng.modelKey,
+              backend: eng.gpuBackend || 'WebGPU',
+              totalTokensServed,
+              estimatedSavingsUsd: Number(saved.toFixed(5)),
+              privacy: '100% on-device WebGPU (0 bytes sent to external cloud)',
+            };
+            send({
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: JSON.stringify(stats, null, 2),
+                  },
+                ],
+              },
+            });
+            break;
+          }
+
+          throw new Error(`Unknown tool "${toolName}"`);
+        }
+
+        default: {
+          send({
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: -32601,
+              message: `Method not found: ${method}`,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      process.stderr.write(`[Brimkern MCP] Error handling ${method}: ${err.message}\n`);
+      send({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: `[Brimkern Error] ${err.message}`,
+            },
+          ],
+          isError: true,
+        },
+      });
+    }
+  });
+
+  const cleanup = async () => {
+    if (engine) {
+      try { await engine.close(); } catch {}
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+}
+
 // ── Point d'entrée principal ──────────────────────────────────────────────────────────
 async function main() {
   const args = process.argv.slice(2);
@@ -2694,6 +3060,8 @@ async function main() {
   let mode = 'code';
   let think = 'auto';
   let raw = false;
+  let isJson = false;
+  let isQuiet = false;
   let native = false;
   let chromium = false;
   let promptParts = [];
@@ -2729,6 +3097,20 @@ async function main() {
     }
     if (a === 'chat') {
       isChat = true;
+      continue;
+    }
+    if (a === 'mcp' || a === 'serve-mcp') {
+      await runMcpServer({ model, native, chromium });
+      return;
+    }
+    if (a === '--json') {
+      isJson = true;
+      raw = true;
+      continue;
+    }
+    if (a === '-q' || a === '--quiet') {
+      isQuiet = true;
+      raw = true;
       continue;
     }
     if (a.startsWith('--model=')) {
@@ -2810,7 +3192,7 @@ async function main() {
   if (prompt) {
     const { prompt: resolvedPrompt, files } = resolveFileReferences(prompt);
     prompt = resolvedPrompt;
-    if (!raw && files.length > 0) {
+    if (!raw && !isQuiet && !isJson && files.length > 0) {
       for (const f of files) {
         process.stderr.write(`${C.dim}📎 ${t('Context loaded:', 'Contexte chargé :')} @${f.path} (${f.lineCount} ${t('lines', 'lignes')})${C.reset}\n`);
       }
@@ -2858,31 +3240,59 @@ async function main() {
 
   // Mode One-shot
   const spinner = new ActivitySpinner();
-  if (!raw) {
+  if (!raw && !isQuiet && !isJson) {
     spinner.start(`[Brimkern WGSL] ${engine.displayName} · ${t('Computing logits...', 'Calcul des logits...')}`);
   }
 
   let tokenCount = 0;
 
-  const thinkFilter = createStreamPrinter(spinner, () => { tokenCount++; }, { markdown: process.stdout.isTTY && !raw });
+  const thinkFilter = (!isJson && !isQuiet)
+    ? createStreamPrinter(spinner, () => { tokenCount++; }, { markdown: process.stdout.isTTY && !raw })
+    : null;
 
   try {
     const res = await engine.ask(prompt, {
       signal: abortController.signal,
       onToken: (tok) => {
-        thinkFilter.feed(tok);
+        if (isJson) {
+          tokenCount++;
+        } else if (isQuiet) {
+          tokenCount++;
+          process.stdout.write(tok);
+        } else if (thinkFilter) {
+          thinkFilter.feed(tok);
+        }
       },
       onProgress: (phase, loaded, total) => {
-        if (!raw && total) {
+        if (!raw && !isQuiet && !isJson && total) {
           spinner.setPhase(t(`Downloading: ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} MB`, `Téléchargement : ${Math.round(loaded / 1048576)} / ${Math.round(total / 1048576)} Mo`));
         }
       },
     });
 
-    thinkFilter.flush();
-    spinner.stop(true);
+    if (thinkFilter) thinkFilter.flush();
+    if (!raw && !isQuiet && !isJson) spinner.stop(true);
 
-    if (!raw && !res.aborted) {
+    if (isJson) {
+      const speed = res.elapsedMs > 0 ? Number(((tokenCount / res.elapsedMs) * 1000).toFixed(1)) : 0;
+      const saved = estimateSavings(engine.systemPrompt.length + prompt.length, tokenCount);
+      const jsonOutput = {
+        ok: !res.aborted,
+        content: res.text || '',
+        tokens: tokenCount,
+        elapsedMs: Math.round(res.elapsedMs || 0),
+        tokPerSec: speed,
+        model: engine.displayName || engine.modelKey,
+        backend: engine.gpuBackend || 'WebGPU',
+        savedUsd: Number(saved.toFixed(5)),
+      };
+      process.stdout.write(JSON.stringify(jsonOutput, null, 2) + '\n');
+    } else if (isQuiet) {
+      if (!tokenCount && res.text) {
+        process.stdout.write(res.text);
+      }
+      process.stdout.write('\n');
+    } else if (!raw && !res.aborted) {
       console.log('\n');
       const speed = res.elapsedMs > 0 ? ((tokenCount / res.elapsedMs) * 1000).toFixed(1) : '—';
       const saved = estimateSavings(engine.systemPrompt.length + prompt.length, tokenCount);
@@ -2891,7 +3301,11 @@ async function main() {
       process.stdout.write('\n');
     }
   } catch (e) {
-    spinner.stop(true);
+    if (!raw && !isQuiet && !isJson) spinner.stop(true);
+    if (isJson) {
+      process.stdout.write(JSON.stringify({ ok: false, error: e.message }) + '\n');
+      process.exit(1);
+    }
     if (!abortController.signal.aborted) {
       console.error(`\n${C.red}${t('WebGPU execution error:', "Erreur d'exécution WebGPU :")} ${e.message}${C.reset}`);
     }
