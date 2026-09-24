@@ -1181,6 +1181,12 @@ a.welcome-card:hover, button.welcome-card:hover {
   padding: 12px 16px 8px;
 }
 
+/* Le focus se lit sur la carte arrondie (.claude-composer-card:focus-within) : le contour carré
+   de la règle globale textarea:focus-visible faisait doublon, à angles droits dans un bloc arrondi. */
+.claude-chat-textarea:focus-visible {
+  outline: none;
+}
+
 .claude-chat-textarea.hero {
   min-height: 72px;
   padding: 16px 18px 10px;
