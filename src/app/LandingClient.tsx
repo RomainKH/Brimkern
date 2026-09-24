@@ -81,12 +81,11 @@ function Figure({ value, label, i = 0 }: { value: string; label: string; i?: num
 }
 
 // Une force du moteur, tenue par un filet d'encre (même grammaire que l'accueil du chat).
-function Strength({ eyebrow, title, children, command, i = 0 }: { eyebrow: string; title: string; children: React.ReactNode; command?: string; i?: number }) {
+function Strength({ eyebrow, title, children, i = 0 }: { eyebrow: string; title: string; children: React.ReactNode; i?: number }) {
   return (
     // `--i` : rang dans la rangée, qui décale l'apparition. Trois blocs qui surgissent ensemble
     // font un clignotement ; décalés de 90 ms, ils se LISENT de gauche à droite.
     <div className="lp-strength" style={{ '--i': i } as React.CSSProperties}>
-      {command && <div className="lp-station-cmd">{command}</div>}
       <div className="lp-eyebrow">{eyebrow}</div>
       <h3 className="lp-strength-title">{title}</h3>
       <p className="lp-strength-desc">{children}</p>
@@ -194,12 +193,12 @@ export default function LandingClient() {
           <section className="lp-hero-wrap">
             <div className="lp-hero">
               <div className="lp-eyebrow">
-                <span className="lp-quick-kicker">GPU</span>
-                <span>{t('WebGPU · 100% local · Nothing leaves your browser', 'WebGPU · 100 % local · Rien ne sort de votre navigateur')}</span>
+                <span className="lp-quick-kicker">WebGPU</span>
+                <span>{t('100% on-device · Private · Zero server calls', '100 % on-device · Privé · Zéro appel serveur')}</span>
               </div>
               <h1 className="lp-h1">
                 {t('Powerful AI models.', 'Des modèles d’IA puissants.')}<br />
-                <span className="lp-h1-accent glitch-text" data-text={t('Directly in your browser.', 'Directement dans votre navigateur.')}>
+                <span className="lp-h1-accent">
                   {t('Directly in your browser.', 'Directement dans votre navigateur.')}
                 </span>
               </h1>
@@ -449,7 +448,6 @@ export default function LandingClient() {
           <div className="lp-strengths">
             <Strength
               i={0}
-              command="$ brimkern privacy --audit"
               eyebrow={t('privacy first', 'confidentialité totale')}
               title={t('100% Private & offline', '100 % Privé & hors-ligne')}
             >
@@ -458,7 +456,6 @@ export default function LandingClient() {
             </Strength>
             <Strength
               i={1}
-              command="$ brimkern stream --range"
               eyebrow={t('instant streaming', 'streaming instantané')}
               title={t('Zero install, zero configuration', 'Zéro installation, zéro configuration')}
             >
@@ -467,7 +464,6 @@ export default function LandingClient() {
             </Strength>
             <Strength
               i={2}
-              command="$ brimkern models --hub"
               eyebrow={t('open ecosystem', 'écosystème ouvert')}
               title={t('Any open-source model', 'N’importe quel modèle open source')}
             >

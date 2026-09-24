@@ -15,6 +15,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useT, useLocale, useHref } from '@/lib/i18n';
 import ByLine from '../ByLine';
+import BrandMark from '../BrandMark';
+import Smoke from '../Smoke';
 
 export interface TocEntry { id: string; label: string }
 
@@ -88,22 +90,32 @@ function colorer(code: string, lang: Lang): React.ReactNode {
   return out;
 }
 
-// Un bloc de code copiable. Le fond vient de `.docs-code` (globals.css) : de l'encre, pour que les
-// commandes RESSORTENT du papier ; les couleurs des jetons sont des classes, donc elles vivent avec
-// lui dans la feuille de style.
+// Un bloc de code copiable avec bouton copie en haut à droite.
 export function Code({ children, lang = 'text' }: { children: string; lang?: Lang }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(children).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <pre
-      tabIndex={0}
-      className="docs-code"
-      style={{
-        margin: '8px 0 0', padding: '12px 14px', borderRadius: 10, overflowX: 'auto',
-        border: '1px solid',
-        fontFamily: 'var(--font-mono)', fontSize: 12.5, lineHeight: 1.6,
-      }}
-    >
-      {colorer(children, lang)}
-    </pre>
+    <div className="docs-code-wrap">
+      <pre
+        tabIndex={0}
+        className="docs-code"
+      >
+        {colorer(children, lang)}
+      </pre>
+      <button
+        type="button"
+        className="docs-code-copy"
+        onClick={handleCopy}
+        aria-label="Copy snippet"
+      >
+        {copied ? '✓' : 'Copy'}
+      </button>
+    </div>
   );
 }
 
@@ -223,62 +235,72 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
   ];
 
   return (
-    <main style={{ maxWidth: 1080, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <Link href={href('/')} style={{ color: 'var(--accent-text)', textDecoration: 'none', fontSize: 14, fontWeight: 500 }}>
-          ← Brimkern
-        </Link>
-        <button
-          onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
-          aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
-          style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 6, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-        >
-          {locale === 'fr' ? 'EN' : 'FR'}
-        </button>
-      </div>
+    <div className="docs-page">
+      <Smoke className="docs-smoke" />
+      <div className="docs-shell">
+        <header className="docs-header">
+          <Link href={href('/')} className="docs-brand" aria-label="Brimkern">
+            <BrandMark size={24} />
+            <span>Brimkern</span>
+            <span className="docs-brand-badge">docs</span>
+          </Link>
+          <div className="docs-header-actions">
+            <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
+            <Link href={href('/cli')} className="docs-header-link">CLI</Link>
+            <Link href={href('/local-ai')} className="docs-header-link">SDK</Link>
+            <button
+              onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
+              aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
+              className="docs-header-lang"
+            >
+              {locale === 'fr' ? 'EN' : 'FR'}
+            </button>
+          </div>
+        </header>
 
-      <div className="docs-layout">
-        <aside className="docs-side" aria-label={t('Documentation menu', 'Menu de la documentation')}>
-          <nav className="docs-side-block">
-            <span className="docs-side-title">Documentation</span>
-            {pages.map((p) => (
-              <Link key={p.path} href={href(p.path)} className={`docs-side-link${current === p.path ? ' active' : ''}`}>
-                {p.label}
-              </Link>
-            ))}
-          </nav>
-          {toc.length > 1 && (
-            <nav className="docs-side-block" aria-label={t('On this page', 'Sur cette page')}>
-              <span className="docs-side-title">{t('On this page', 'Sur cette page')}</span>
-              {toc.map((s) => (
-                <a key={s.id} href={`#${s.id}`} onClick={versAncre(s.id)} className={`docs-side-link${active === s.id ? ' active' : ''}`}>
-                  {s.label}
-                </a>
+        <div className="docs-layout">
+          <aside className="docs-side" aria-label={t('Documentation menu', 'Menu de la documentation')}>
+            <nav className="docs-side-block">
+              <span className="docs-side-title">Documentation</span>
+              {pages.map((p) => (
+                <Link key={p.path} href={href(p.path)} className={`docs-side-link${current === p.path ? ' active' : ''}`}>
+                  {p.label}
+                </Link>
               ))}
             </nav>
-          )}
-        </aside>
+            {toc.length > 1 && (
+              <nav className="docs-side-block" aria-label={t('On this page', 'Sur cette page')}>
+                <span className="docs-side-title">{t('On this page', 'Sur cette page')}</span>
+                {toc.map((s) => (
+                  <a key={s.id} href={`#${s.id}`} onClick={versAncre(s.id)} className={`docs-side-link${active === s.id ? ' active' : ''}`}>
+                    {s.label}
+                  </a>
+                ))}
+              </nav>
+            )}
+          </aside>
 
-        <div className="docs-content">
-          {/* Le sommaire mobile : mêmes ancres que le latéral, en pastilles, seulement < 1000 px. */}
-          {toc.length > 1 && (
-            <nav className="docs-chips" aria-label={t('Table of contents', 'Sommaire')}>
-              {toc.map((s) => (
-                <a
-                  key={s.id}
-                  href={`#${s.id}`}
-                  onClick={versAncre(s.id)}
-                  style={{ fontSize: 12, padding: '4px 10px', borderRadius: 999, textDecoration: 'none', color: 'var(--text-secondary)', background: 'var(--bg-card-hover, rgba(127,127,127,0.1))', border: '1px solid var(--border-color)' }}
-                >
-                  {s.label}
-                </a>
-              ))}
-            </nav>
-          )}
-          {children}
-          <ByLine />
+          <main className="docs-content">
+            {/* Le sommaire mobile : mêmes ancres que le latéral, en pastilles, seulement < 1000 px. */}
+            {toc.length > 1 && (
+              <nav className="docs-chips" aria-label={t('Table of contents', 'Sommaire')}>
+                {toc.map((s) => (
+                  <a
+                    key={s.id}
+                    href={`#${s.id}`}
+                    onClick={versAncre(s.id)}
+                    className="docs-chip"
+                  >
+                    {s.label}
+                  </a>
+                ))}
+              </nav>
+            )}
+            {children}
+            <ByLine />
+          </main>
         </div>
       </div>
-    </main>
+    </div>
   );
 }

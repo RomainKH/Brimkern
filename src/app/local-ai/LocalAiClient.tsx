@@ -8,7 +8,8 @@ import Link from 'next/link';
 import { Zap, ShieldCheck, ServerOff, MessageSquareText, WifiOff, Cpu, ArrowRight } from 'lucide-react';
 import { useLocale, useT, useHref } from '@/lib/i18n';
 import ByLine from '../ByLine';
-import BackLink from '../BackLink';
+import BrandMark from '../BrandMark';
+import Smoke from '../Smoke';
 import LocalAiDemo from './LocalAiDemo';
 
 export default function LocalAiClient() {
@@ -71,20 +72,32 @@ export default function LocalAiClient() {
   ];
 
   return (
-    <main style={{ maxWidth: 860, margin: '0 auto', padding: '48px 24px 80px' }}>
-      {/* Barre haut : retour + toggle langue (même patron que /changelog) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <BackLink />
-        <button
-          onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
-          style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}
-        >
-          {locale === 'fr' ? 'EN' : 'FR'}
-        </button>
-      </div>
+    <div className="docs-page">
+      <Smoke className="docs-smoke" />
+      <div className="docs-shell" style={{ maxWidth: 860 }}>
+        <header className="docs-header">
+          <Link href={href('/')} className="docs-brand" aria-label="Brimkern">
+            <BrandMark size={24} />
+            <span>Brimkern</span>
+            <span className="docs-brand-badge">sdk</span>
+          </Link>
+          <div className="docs-header-actions">
+            <Link href={href('/docs/sdk')} className="docs-header-link">{t('API Reference', 'Référence API')}</Link>
+            <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
+            <Link href={href('/cli')} className="docs-header-link">CLI</Link>
+            <button
+              onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
+              aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}
+              className="docs-header-lang"
+            >
+              {locale === 'fr' ? 'EN' : 'FR'}
+            </button>
+          </div>
+        </header>
 
-      {/* Hero */}
-      <div style={{ borderTop: '2px solid var(--accent)', marginTop: 20, paddingTop: 22 }}>
+        <main>
+          {/* Hero */}
+          <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', marginTop: 24, paddingTop: 28 }}>
         <span className="section-title" style={{ fontSize: 12, color: 'var(--accent-text)' }}>
           {t('For websites', 'Pour les sites web')}
         </span>
@@ -217,6 +230,8 @@ export default function LocalAiClient() {
           "Brimkern : inférence WebGPU locale. Le SDK embarquable est disponible et gratuit : le moteur est open source (MIT).")}
       </p>
       <ByLine />
-    </main>
+        </main>
+      </div>
+    </div>
   );
 }
