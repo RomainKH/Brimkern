@@ -27,7 +27,6 @@ import { SDK_URL } from '@/lib/site';
 import HfModelInput from './HfModelInput';
 import GithubMark from './GithubMark';
 import ByLine from './ByLine';
-import Smoke from './Smoke';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
 // mort serait la pire première impression pour un visiteur venu de Hugging Face).
@@ -162,7 +161,6 @@ export default function LandingClient() {
 
   return (
     <div className="lp-page">
-      <Smoke className="lp-smoke" />
       <div className="lp">
         <header className="lp-nav">
           <Link href={href('/')} className="lp-brand" aria-label="Brimkern">
@@ -170,9 +168,10 @@ export default function LandingClient() {
             <span>Brimkern</span>
           </Link>
           <nav className="lp-nav-links" aria-label={t('Main', 'Principale')}>
+            <Link href={href('/agents')}>{t('Agents & MCP', 'Agents & MCP')}</Link>
+            <Link href={href('/cli')}>CLI</Link>
             <Link href={href('/docs')}>{t('Docs', 'Doc')}</Link>
             <Link href={href('/local-ai')}>SDK</Link>
-            <Link href={href('/cli')}>CLI</Link>
             <Link href={href('/changelog')} className="lp-nav-wide">Changelog</Link>
             <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="lp-nav-icon">
               <GithubMark size={16} />

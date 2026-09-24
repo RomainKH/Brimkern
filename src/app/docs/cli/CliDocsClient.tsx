@@ -300,6 +300,9 @@ export default function CliDocsClient() {
       <Param name="-s, --system=<prompt>" type="string">{t('Replaces the default system prompt (the project context is then not added).', 'Remplace le prompt système par défaut (le contexte du projet n’est alors pas ajouté).')}</Param>
       <Param name="-n, --max-tokens=<n>" type="number">{t('Cap on generated tokens. Default: 512.', 'Plafond de tokens générés. Défaut : 512.')}</Param>
       <Param name="-t, --temperature=<value>" type="number">{t('Sampling temperature. Default: 0.3.', 'Température d’échantillonnage. Défaut : 0.3.')}</Param>
+      <Param name="-q, --quiet" type="flag">{t('Quiet mode: emits raw output only, suppressing ASCII banners and stats.', 'Mode silencieux : émet uniquement le texte brut, sans bannières ni statistiques.')}</Param>
+      <Param name="--json" type="flag">{t('Structured JSON output with token counts, tok/s speed, duration and model name. Ideal for sub-agents and scripts.', 'Sortie JSON structurée avec nombre de tokens, vitesse en tok/s, durée et nom du modèle. Idéal pour sous-agents et scripts.')}</Param>
+      <Param name="mcp" type="command">{t('Starts the stdio Model Context Protocol (MCP) server for Claude Desktop, Cursor, Windsurf, or Antigravity.', 'Démarre le serveur stdio Model Context Protocol (MCP) pour Claude Desktop, Cursor, Windsurf ou Antigravity.')}</Param>
       <Param name="--raw" type="flag">{t('Model text only on stdout: no header, timing or colours.', 'Seulement le texte du modèle sur stdout : ni en-tête, ni temps, ni couleurs.')}</Param>
       <Param name="--native · --chromium" type="flag">{t('Forces the in-process Dawn engine, or the headless Chromium one (used automatically for GGUF).', 'Force le moteur Dawn in-process, ou Chromium headless (utilisé automatiquement pour les GGUF).')}</Param>
       <Param name="chat" type="command">{t('Starts the multi-turn REPL.', 'Lance le REPL multi-tours.')}</Param>

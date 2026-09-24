@@ -16,7 +16,6 @@ import { usePathname } from 'next/navigation';
 import { useT, useLocale, useHref } from '@/lib/i18n';
 import ByLine from '../ByLine';
 import BrandMark from '../BrandMark';
-import Smoke from '../Smoke';
 
 export interface TocEntry { id: string; label: string }
 
@@ -226,6 +225,7 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
   // existaient déjà hors de /docs : le menu les rend atteignables sans repasser par le hub.
   const pages: { path: string; label: string }[] = [
     { path: '/docs', label: t('Overview', "Vue d'ensemble") },
+    { path: '/agents', label: t('AI Agents & MCP', 'Agents IA & MCP') },
     { path: '/docs/models', label: t('Models & the .brik format', 'Modèles & format .brik') },
     { path: '/docs/sdk', label: t('SDK & npm package', 'SDK & paquet npm') },
     { path: '/docs/cli', label: t('CLI reference', 'Référence CLI') },
@@ -236,7 +236,6 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
 
   return (
     <div className="docs-page">
-      <Smoke className="docs-smoke" />
       <div className="docs-shell">
         <header className="docs-header">
           <Link href={href('/')} className="docs-brand" aria-label="Brimkern">
@@ -245,8 +244,9 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
             <span className="docs-brand-badge">docs</span>
           </Link>
           <div className="docs-header-actions">
-            <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
+            <Link href={href('/agents')} className="docs-header-link">Agents</Link>
             <Link href={href('/cli')} className="docs-header-link">CLI</Link>
+            <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
             <Link href={href('/local-ai')} className="docs-header-link">SDK</Link>
             <button
               onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}

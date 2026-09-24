@@ -9,7 +9,6 @@ import { Zap, ShieldCheck, ServerOff, MessageSquareText, WifiOff, Cpu, ArrowRigh
 import { useLocale, useT, useHref } from '@/lib/i18n';
 import ByLine from '../ByLine';
 import BrandMark from '../BrandMark';
-import Smoke from '../Smoke';
 import LocalAiDemo from './LocalAiDemo';
 
 export default function LocalAiClient() {
@@ -73,7 +72,6 @@ export default function LocalAiClient() {
 
   return (
     <div className="docs-page">
-      <Smoke className="docs-smoke" />
       <div className="docs-shell" style={{ maxWidth: 860 }}>
         <header className="docs-header">
           <Link href={href('/')} className="docs-brand" aria-label="Brimkern">
