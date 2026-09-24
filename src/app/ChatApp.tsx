@@ -3059,17 +3059,6 @@ function App() {
           </div>
         </div>
 
-        <div style={{ padding: '16px 20px 0 20px' }}>
-          <button
-            className="new-chat-btn"
-            onClick={() => { handleNewChat(); if (isMobile) setIsSidebarOpen(false); }}
-            disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
-          >
-            <Plus size={16} />
-            <span>{t('New conversation', 'Nouvelle conversation')}</span>
-          </button>
-        </div>
-
         <div className="sidebar-content">
           {/* Section: Conversation history */}
           {conversations.length > 0 && (
