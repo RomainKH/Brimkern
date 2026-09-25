@@ -47,7 +47,9 @@ function lastBlock(text, langs) {
   return tagged.at(-1) ?? any.at(-1) ?? t;
 }
 const hasDef = (code, name) => new RegExp(`def\\s+${name}\\s*\\(`).test(code);
-const lastLine = (r) => (r.stderr || r.error?.message || '').trim().split('\n').slice(-1)[0];
+// Ligne d'erreur utile : la première qui nomme une erreur (Node finit par « Node.js v24… », Python
+// par la ligne d'exception), sinon la dernière.
+const lastLine = (r) => { const ls = (r.stderr || r.error?.message || '').trim().split('\n'); return (ls.find((l) => /^\w*Error\b|^\w+Error \[/.test(l.trim())) ?? ls.at(-1)).trim(); };
 function runPython(prog, timeout = 30_000) {
   const r = spawnSync('python3', ['-c', prog], { timeout, encoding: 'utf8', maxBuffer: 64 << 20 });
   return { pass: r.status === 0, err: r.status === 0 ? '' : (r.signal ? `délai dépassé (${timeout / 1000} s)` : lastLine(r)) };
