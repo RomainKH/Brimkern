@@ -2367,6 +2367,1358 @@
       ],
       "tokPerSec": 0,
       "date": "2026-09-24T18:48:09.629Z"
+    },
+    {
+      "key": "qwen35-9b",
+      "name": "Qwen3.5-9B (5.87 Go, GGUF)",
+      "arch": "qwen35",
+      "loadS": 4.371381666,
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 691,
+          "seconds": 64.28,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 614,
+          "seconds": 62.25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 512,
+          "seconds": 55.41,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 705,
+          "seconds": 98.16,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 386,
+          "seconds": 44.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 1019,
+          "seconds": 111.45,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 1018,
+          "seconds": 139.84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 848,
+          "seconds": 139.54,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/32",
+          "pass": false,
+          "tokens": 1420,
+          "seconds": 247.31,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": false,
+          "tokens": 2048,
+          "seconds": 348,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 791,
+          "seconds": 140.32,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 829,
+          "seconds": 143.01,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 418,
+          "seconds": 75.53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 393,
+          "seconds": 71.53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 498,
+          "seconds": 87.15,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 591,
+          "seconds": 102.14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": true,
+          "tokens": 947,
+          "seconds": 166.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 1251,
+          "seconds": 222.74,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": false,
+          "tokens": 2048,
+          "seconds": 369.42,
+          "err": "IndentationError: unexpected indent",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": true,
+          "tokens": 1008,
+          "seconds": 180.79,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 659,
+          "seconds": 117.6,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 687,
+          "seconds": 433.49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 1043,
+          "seconds": 134.59,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 809,
+          "seconds": 100.31,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 1008,
+          "seconds": 124.33,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 941,
+          "seconds": 109.8,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 818,
+          "seconds": 56.25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": true,
+          "tokens": 1233,
+          "seconds": 130.99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 616,
+          "seconds": 65.86,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 1351,
+          "seconds": 145.99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 1029,
+          "seconds": 116.49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": true,
+          "tokens": 1500,
+          "seconds": 180.45,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 818,
+          "seconds": 146.83,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 2048,
+          "seconds": 340.82,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 713,
+          "seconds": 121.25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": true,
+          "tokens": 764,
+          "seconds": 129.19,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 873,
+          "seconds": 149.68,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 803,
+          "seconds": 145.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 1955,
+          "seconds": 344.76,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 804,
+          "seconds": 137.68,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": true,
+          "tokens": 1226,
+          "seconds": 219.02,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 6.286377598121975,
+      "date": "2026-09-24T21:22:54.338Z"
+    },
+    {
+      "key": "spark-x2.5",
+      "name": "Hf_Format (2.60 Go, GGUF)",
+      "arch": "spark",
+      "loadS": 6.036036458000001,
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 224,
+          "seconds": 46.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 182,
+          "seconds": 37.71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 165,
+          "seconds": 35.71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 166,
+          "seconds": 41.83,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 148,
+          "seconds": 26.76,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 300,
+          "seconds": 62.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": false,
+          "tokens": 361,
+          "seconds": 67.93,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 77,
+          "seconds": 13.21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/32",
+          "pass": false,
+          "tokens": 2048,
+          "seconds": 431.81,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 147,
+          "seconds": 27.97,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 353,
+          "seconds": 79.17,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 170,
+          "seconds": 38.34,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 130,
+          "seconds": 15.24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 99,
+          "seconds": 11.49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 155,
+          "seconds": 16.87,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 119,
+          "seconds": 13.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": true,
+          "tokens": 205,
+          "seconds": 23.28,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 467,
+          "seconds": 55.56,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 341,
+          "seconds": 39.18,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": false,
+          "tokens": 2048,
+          "seconds": 231.43,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 196,
+          "seconds": 20.31,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 225,
+          "seconds": 24.96,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 345,
+          "seconds": 40.01,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 216,
+          "seconds": 23.98,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 260,
+          "seconds": 28.64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 198,
+          "seconds": 22.55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 209,
+          "seconds": 22.53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 1511,
+          "seconds": 167.54,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 274,
+          "seconds": 29.81,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": false,
+          "tokens": 2048,
+          "seconds": 234.07,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 296,
+          "seconds": 35.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": true,
+          "tokens": 550,
+          "seconds": 64.14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": false,
+          "tokens": 227,
+          "seconds": 24.15,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 382,
+          "seconds": 41.99,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 237,
+          "seconds": 26.79,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 174,
+          "seconds": 19.19,
+          "err": "NameError: name 're' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 312,
+          "seconds": 34.43,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 393,
+          "seconds": 46.68,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 259,
+          "seconds": 32.11,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 414,
+          "seconds": 44.84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": false,
+          "tokens": 364,
+          "seconds": 43.71,
+          "err": "AssertionError",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 7.25181425690129,
+      "date": "2026-09-25T00:03:07.657Z"
+    },
+    {
+      "key": "parable-8b",
+      "name": "28bbf2fca3be77b1b80b7548f08c80cfe1bfbe08 (5.03 Go, GGUF)",
+      "arch": "qwen3",
+      "loadS": 6.627061583,
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 168,
+          "seconds": 32.31,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 158,
+          "seconds": 27.43,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 155,
+          "seconds": 27.96,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 153,
+          "seconds": 27.2,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 79,
+          "seconds": 15.39,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 312,
+          "seconds": 50.22,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": false,
+          "tokens": 109,
+          "seconds": 19.4,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 65,
+          "seconds": 12.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/32",
+          "pass": false,
+          "tokens": 392,
+          "seconds": 65.88,
+          "err": "ValueError: math domain error",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 133,
+          "seconds": 22.61,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 273,
+          "seconds": 43.66,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 145,
+          "seconds": 25.25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 81,
+          "seconds": 14.93,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 106,
+          "seconds": 19.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 148,
+          "seconds": 25.92,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 123,
+          "seconds": 22.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": true,
+          "tokens": 203,
+          "seconds": 33.2,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 412,
+          "seconds": 72.39,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 300,
+          "seconds": 53.21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": true,
+          "tokens": 195,
+          "seconds": 33.71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 189,
+          "seconds": 30.9,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 173,
+          "seconds": 30.15,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 271,
+          "seconds": 44.92,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 181,
+          "seconds": 29.87,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": false,
+          "tokens": 248,
+          "seconds": 39.96,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 184,
+          "seconds": 31.18,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 161,
+          "seconds": 25.29,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 228,
+          "seconds": 34.28,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 226,
+          "seconds": 33.02,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": false,
+          "tokens": 263,
+          "seconds": 36.4,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 326,
+          "seconds": 46.38,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": true,
+          "tokens": 570,
+          "seconds": 77.14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 228,
+          "seconds": 29.85,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 195,
+          "seconds": 25.64,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 201,
+          "seconds": 25.9,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 214,
+          "seconds": 27.33,
+          "err": "AssertionError: This prints if this assert fails 3 (good for debugging!)",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 224,
+          "seconds": 29.23,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 319,
+          "seconds": 41.69,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 149,
+          "seconds": 23.64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 249,
+          "seconds": 31.19,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": false,
+          "tokens": 337,
+          "seconds": 42.75,
+          "err": "AssertionError",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 6.402614102275116,
+      "date": "2026-09-25T00:26:18.171Z"
+    },
+    {
+      "key": "parable-4b",
+      "name": "Merged (2.50 Go, GGUF)",
+      "arch": "qwen3",
+      "loadS": 3.059004417,
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 213,
+          "seconds": 17.81,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 158,
+          "seconds": 12.98,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 149,
+          "seconds": 12.65,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 144,
+          "seconds": 11.99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 79,
+          "seconds": 7.36,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 187,
+          "seconds": 15.89,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 88,
+          "seconds": 7.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 65,
+          "seconds": 5.98,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/32",
+          "pass": false,
+          "tokens": 355,
+          "seconds": 31.68,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 136,
+          "seconds": 11.48,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 218,
+          "seconds": 18.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 164,
+          "seconds": 13.38,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 84,
+          "seconds": 7.25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 100,
+          "seconds": 9.14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 145,
+          "seconds": 11.97,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 123,
+          "seconds": 10.6,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": false,
+          "tokens": 179,
+          "seconds": 14.57,
+          "err": "AssertionError: Test 5",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 411,
+          "seconds": 37.16,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 304,
+          "seconds": 26.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": true,
+          "tokens": 104,
+          "seconds": 9.66,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 189,
+          "seconds": 15.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 199,
+          "seconds": 16.62,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 259,
+          "seconds": 21.61,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 181,
+          "seconds": 15.5,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 251,
+          "seconds": 20.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 192,
+          "seconds": 15.77,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 160,
+          "seconds": 13.27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 214,
+          "seconds": 17.59,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 224,
+          "seconds": 19.21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 232,
+          "seconds": 19.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": false,
+          "tokens": 357,
+          "seconds": 31.27,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": true,
+          "tokens": 377,
+          "seconds": 33.64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 214,
+          "seconds": 17.79,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 193,
+          "seconds": 15.82,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 209,
+          "seconds": 17.14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 165,
+          "seconds": 13.74,
+          "err": "NameError: name 're' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 181,
+          "seconds": 16.26,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 126,
+          "seconds": 11.88,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 250,
+          "seconds": 22.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 249,
+          "seconds": 21.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": true,
+          "tokens": 253,
+          "seconds": 23.92,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 11.642731439838176,
+      "date": "2026-09-25T00:37:57.332Z"
     }
   ]
 }
