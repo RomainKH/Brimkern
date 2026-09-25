@@ -37,8 +37,9 @@ const load = (f) => readFileSync(join(ROOT, 'scripts/bench', f), 'utf8').trim().
 // (sinon le dernier bloc ```), sinon le texte brut.
 function lastBlock(text, langs) {
   let t = text;
-  const endThink = t.lastIndexOf('</think>');
-  if (endThink >= 0) t = t.slice(endThink + 8);
+  // Fin de réflexion : </think> (Qwen, Spark…) ou </ifm|think…> (K2-Horizon).
+  const ends = [...t.matchAll(/<\/(?:ifm\|)?think(?:_fast|_faster)?>/g)];
+  if (ends.length) { const m = ends.at(-1); t = t.slice(m.index + m[0].length); }
   t = t.replace(/<\|channel>[\s\S]*?<channel\|>/g, '');
   const tagged = [...t.matchAll(new RegExp('```(?:' + langs + ')\\s*\\n([\\s\\S]*?)```', 'g'))].map((m) => m[1]);
   const any = [...t.matchAll(/```[\w+-]*\s*\n([\s\S]*?)```/g)].map((m) => m[1]);
@@ -167,6 +168,7 @@ export { parseGguf } from ${s('src/lib/webgpu/ggufParser.ts')};
 export { CustomWebModel } from ${s('src/lib/webgpu/model.ts')};
 export { Gemma4Model } from ${s('src/lib/webgpu/gemma4Model.ts')};
 export { SparkModel } from ${s('src/lib/webgpu/sparkModel.ts')};
+export { K2hModel } from ${s('src/lib/webgpu/k2hModel.ts')};
 export { Qwen35Model } from ${s('src/lib/webgpu/qwen35Model.ts')};
 export { gemma4TokenizerFromGguf } from ${s('src/lib/gemma4Tokenizer.ts')};
 export { tokenizerFromGguf } from ${s('src/lib/ggufTokenizer.ts')};
@@ -190,10 +192,10 @@ export { formatPrompt, declaredStopIds } from ${s('src/lib/chatFormat.ts')};`);
     const manifest = await M.parseGguf(new Blob([head]));
     const source = { bytes: async (off, len) => { const b = Buffer.alloc(len); readSync(fd, b, 0, len, off); return new Uint8Array(b.buffer, b.byteOffset, len); } };
     const engine = new M.WebGpuEngine(); await engine.init(); await engine.selfValidate();
-    arch = manifest.arch === 'gemma4' ? 'gemma4' : (manifest.arch === 'qwen35' || manifest.arch === 'qwen35moe') ? 'qwen35' : manifest.arch === 'spark2_5' ? 'spark' : manifest.arch;
+    arch = manifest.arch === 'gemma4' ? 'gemma4' : (manifest.arch === 'qwen35' || manifest.arch === 'qwen35moe') ? 'qwen35' : manifest.arch === 'spark2_5' ? 'spark' : manifest.arch === 'k2-horizon' ? 'k2h' : manifest.arch;
     const tk = arch === 'gemma4' ? M.gemma4TokenizerFromGguf(manifest) : M.tokenizerFromGguf(manifest);
     const stops = [...M.declaredStopIds(manifest.metadata), ...(tk.eosId != null ? [tk.eosId] : []), ...(tk.controlIds || []), ...(arch === 'gemma4' ? [106, 1, 50] : [])];
-    const model = arch === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : arch === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : arch === 'spark' ? new M.SparkModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
+    const model = arch === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : arch === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : arch === 'spark' ? new M.SparkModel(engine, source, manifest) : arch === 'k2h' ? new M.K2hModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
     await model.prewarmGpu();
     core = new M.TransformerWebModel(engine, model, tk.tokenizer, arch, stops);
     name = `${manifest.metadata['general.name'] || key} (${(fstatSync(fd).size / 1e9).toFixed(2)} Go, GGUF)`;

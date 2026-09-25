@@ -12,6 +12,8 @@ export const TURN_MARKERS = [
   '<｜end▁of▁sentence｜>', '<｜Assistant｜>', '<｜User｜>', '<｜begin▁of▁sentence｜>',
   // Spark-X2.5 : ses tours s'ouvrent par <｜start▁of▁sentence｜><|Rôle|> (bos, pas ｜begin｜).
   '<｜start▁of▁sentence｜>',
+  // K2-Horizon.
+  '<|ifm|im_end|>', '<|ifm|im_start|>',
   '<|im_end|>', '<|im_start|>', '<|eot_id|>', '<|begin_of_text|>',
   '<|start_header_id|>', '<|end_header_id|>',
   '</s>', '<s>', '<end_of_turn>', '<start_of_turn>',
@@ -43,6 +45,8 @@ export const THINK_BUDGETS: Record<ReflectionLevel, number> = { off: 0, low: 200
 // préfixe KV, et un bloc resté OUVERT (génération coupée en pleine réflexion) injecterait un
 // <think> nu au milieu de l'historique — le modèle en déduit qu'il est encore en train de penser.
 export function stripReasoning(s: string): string {
+  // K2-Horizon balise sa réflexion <ifm|think>…</ifm|think> (et _fast/_faster) : ramenée à <think>.
+  s = s.replace(/<(\/?)ifm\|think(?:_fast|_faster)?>/g, '<$1think>');
   const i = s.indexOf('<think>');
   if (i === -1) return s;
   const j = s.indexOf('</think>', i);
@@ -65,6 +69,21 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       else if (msg.role === 'assistant') formatted += `<｜Assistant｜>${msg.content}<｜end▁of▁sentence｜>`;
     }
     formatted += '<｜Assistant｜>';
+    return formatted;
+  }
+
+  if (archType === 'k2h') {
+    // K2-Horizon (gabarit du GGUF) : tours <|ifm|im_start|>rôle\n…<|ifm|im_end|> SANS saut de ligne
+    // entre eux ; le BOS vient du tokenizer (add_bos). Réflexion ouverte par défaut (« <ifm|think>\n »,
+    // reasoning_effort=high) ; « /no_think » final la ferme (enable_thinking=false du gabarit).
+    let think = true;
+    if (systemText.trim()) formatted += `<|ifm|im_start|>system\n${systemText.trim()}<|ifm|im_end|>`;
+    chatMsgs.forEach((msg, i) => {
+      let c = msg.content;
+      if (msg.role === 'user' && i === chatMsgs.length - 1 && /\s*\/no_think\s*$/.test(c)) { c = c.replace(/\s*\/no_think\s*$/, ''); think = false; }
+      formatted += `<|ifm|im_start|>${msg.role}\n${c}<|ifm|im_end|>`;
+    });
+    formatted += `<|ifm|im_start|>assistant\n<ifm|think>\n${think ? '' : '</ifm|think>\n'}`;
     return formatted;
   }
 

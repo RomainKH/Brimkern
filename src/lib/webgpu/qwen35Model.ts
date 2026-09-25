@@ -348,10 +348,16 @@ export class Qwen35Model extends GraphModel<null> {
 		const { nExpert: E, nUsed: K, ffExp: F, ffShexp: FS, scale } = this.q.moe!;
 		const logits = e.recMM(enc, trash, n2, m.router, T, d, E, false);
 		const r = e.recMoeRoute(enc, trash, logits, T, E, K, scale);
-		const g = e.recMoeGemv(enc, trash, n2, m.gateExps, r.ids, T * K, K, d, F);
-		const u = e.recMoeGemv(enc, trash, n2, m.upExps, r.ids, T * K, K, d, F);
+		// Prefill (T ≥ 8) : cases triées par expert puis GEMM groupé — la tuile de poids d'un expert
+		// sert à toutes ses cases. Décodage : GEMV par case (une case par expert, rien à mutualiser).
+		const grp = T >= 8 && e.moeGemmOk ? e.recMoeGroup(enc, trash, r.ids, T * K, E) : null;
+		const mm = (a: Gpu, w: Gpu, aDiv: number, k: number, n: number) => grp
+			? e.recMoeGemm(enc, trash, a, w, grp, T * K, E, T, aDiv, k, n)
+			: e.recMoeGemv(enc, trash, a, w, r.ids, T * K, aDiv, k, n);
+		const g = mm(n2, m.gateExps, K, d, F);
+		const u = mm(n2, m.upExps, K, d, F);
 		const hE = e.recBinary(enc, trash, 'swiglu', g, u, T * K * F);
-		const y = e.recMoeGemv(enc, trash, hE, m.downExps, r.ids, T * K, 1, F, d);
+		const y = mm(hE, m.downExps, 1, F, d);
 		const routed = e.recMoeSum(enc, trash, y, r.w, T, K, d);
 		const sh = e.recMM(enc, trash, e.recBinary(enc, trash, 'swiglu', e.recMM(enc, trash, n2, m.shGate, T, d, FS, false), e.recMM(enc, trash, n2, m.shUp, T, d, FS, false), T * FS), m.shDown, T, FS, d, false);
 		const sg = e.recMM(enc, trash, n2, m.shInp, T, d, 1, false);

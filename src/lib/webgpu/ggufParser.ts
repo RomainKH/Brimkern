@@ -55,6 +55,8 @@ export interface Manifest {
     // ≥ nLayerKv sans K/V propres : elles relisent le cache de kvSrc[i].
     // Spark-X2.5 (sparkModel.ts) : 3 couches à fenêtre glissante (θ ropeThetaSwa, RoPE plein) pour
     // 1 globale (θ ropeTheta, RoPE NEOX partiel sur nRot dimensions de la tête).
+    // K2-Horizon (k2hModel.ts) : RMSNorm groupée en normGroups segments ; nExpert > 0 = variante MoE.
+    k2h?: { normGroups: number; nExpert: number };
     spark?: { swa: boolean[]; window: number; ropeThetaSwa: number; nRot: number; nRotSwa: number };
     gemma4?: { swa: boolean[]; headDimSwa: number; ropeThetaSwa: number; window: number; perLayer: number; nLayerKv: number; kvSrc: number[] };
   };
@@ -485,6 +487,11 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   // Spark-X2.5 (spark2_5) : cf. llama.cpp src/models/spark2-5.cpp. sliding_window_pattern est un
   // tableau de booléens (true = fenêtre) ; rope.dimension_count (64) vaut pour les couches globales,
   // rope.dimension_count_swa (256 = la tête entière) pour les autres. GELU (tanh, comme ggml_gelu).
+  // K2-Horizon : attention.group_norm_groups = nombre de segments de ses RMSNorm groupées.
+  if (arch === 'k2-horizon') {
+    config.k2h = { normGroups: getMetaU32('attention.group_norm_groups', 1) || 1, nExpert: getMetaU32('expert_count', 0) };
+  }
+
   if (arch === 'spark2_5') {
     const pat = metadata['spark2_5.attention.sliding_window_pattern'];
     const swa = Array.isArray(pat) && pat.length === blockCount ? pat.map((v) => v === true || v === 1) : Array.from({ length: blockCount }, (_, i) => (i + 1) % 4 !== 0);

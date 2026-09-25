@@ -31,6 +31,7 @@ const LONG_CODE = LONG ? (await import('node:fs')).readFileSync(join(process.cwd
 // Gabarit par architecture (gemma4 : <|turn> ; qwen35 : ChatML + <think> ouvert, gabarit officiel).
 const fmt = (arch, sys, user) => arch === 'gemma4'
   ? `<|turn>system\n${sys}<turn|>\n<|turn>user\n${user}<turn|>\n<|turn>model\n`
+  : arch === 'k2-horizon' ? `<|ifm|im_start|>system\n${sys}<|ifm|im_end|><|ifm|im_start|>user\n${user}<|ifm|im_end|><|ifm|im_start|>assistant\n<ifm|think>\n</ifm|think>\n`
   : arch === 'spark2_5' ? `<｜start▁of▁sentence｜><|System|>\nyou are a helpful assistant.\n\n${sys}<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>${user}<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|></think>`
   : arch === 'qwen35' ? `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user}<|im_end|>\n<|im_start|>assistant\n<think>\n`
   : `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user} /no_think<|im_end|>\n<|im_start|>assistant\n`;
@@ -48,6 +49,7 @@ export { parseGguf } from ${src('src/lib/webgpu/ggufParser.ts')};
 export { Gemma4Model } from ${src('src/lib/webgpu/gemma4Model.ts')};
 export { Qwen35Model } from ${src('src/lib/webgpu/qwen35Model.ts')};
 export { SparkModel } from ${src('src/lib/webgpu/sparkModel.ts')};
+export { K2hModel } from ${src('src/lib/webgpu/k2hModel.ts')};
 export { CustomWebModel } from ${src('src/lib/webgpu/model.ts')};
 export { gemma4TokenizerFromGguf } from ${src('src/lib/gemma4Tokenizer.ts')};
 export { tokenizerFromGguf } from ${src('src/lib/ggufTokenizer.ts')};
@@ -112,7 +114,7 @@ if (process.argv.includes('--llama-ref-only')) {
 }
 
 if (process.env.G4_LAYERFP) { const orig = engine.settleGpu.bind(engine); let nSettle = 0; engine.settleGpu = async () => { await orig(); if (++nSettle % 4 === 0 || nSettle > 31) fp(`après ${nSettle} vidanges`); }; }
-const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : ARCH === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : ARCH === 'spark2_5' ? new M.SparkModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
+const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : ARCH === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : ARCH === 'spark2_5' ? new M.SparkModel(engine, source, manifest) : ARCH === 'k2-horizon' ? new M.K2hModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
 let t0 = performance.now();
 await model.prewarmGpu();
 console.log(`poids en VRAM : ${((performance.now() - t0) / 1000).toFixed(1)} s`);

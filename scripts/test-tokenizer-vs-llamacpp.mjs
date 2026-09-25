@@ -36,8 +36,9 @@ console.log(`tokenizer : ${man.metadata['tokenizer.ggml.model']} / pré-découpa
 
 const G4 = man.metadata['tokenizer.ggml.model'] === 'gemma4';
 const SPARK = man.metadata['tokenizer.ggml.pre'] === 'spark2_5';
+const K2H = man.metadata['tokenizer.ggml.pre'] === 'k2-horizon';
 const CASES = [
-  SPARK ? '<｜start▁of▁sentence｜><|System|>\nyou are a helpful assistant.\n\nBe concise.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>Write is_prime(n).<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>' : G4 ? '<|turn>system\nYou are a concise coding assistant.<turn|>\n<|turn>user\nWrite a Python function is_prime(n) that returns True if n is prime.<turn|>\n<|turn>model\n'
+  K2H ? '<|ifm|im_start|>system\nBe concise.<|ifm|im_end|><|ifm|im_start|>user\nWrite is_prime(n).<|ifm|im_end|><|ifm|im_start|>assistant\n<ifm|think>\n</ifm|think>\n' : SPARK ? '<｜start▁of▁sentence｜><|System|>\nyou are a helpful assistant.\n\nBe concise.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>Write is_prime(n).<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>' : G4 ? '<|turn>system\nYou are a concise coding assistant.<turn|>\n<|turn>user\nWrite a Python function is_prime(n) that returns True if n is prime.<turn|>\n<|turn>model\n'
      : '<|im_start|>system\nYou are a concise coding assistant.<|im_end|>\n<|im_start|>user\nWrite a Python function is_prime(n).<|im_end|>\n<|im_start|>assistant\n<think>\n',
   'Hello  world!\n\n  def f(x):\n\treturn x**2  # carré é 日本 🙂\n',
   'Écris une fonction qui dédoublonne un tableau d’objets par clé.',

@@ -38,6 +38,9 @@ const PRE_SPLIT: Record<string, string> = {
 	// « \\s+(?!\\S) » accepte d'être suivi d'un chiffre ou d'un CJK (fin de morceau). Dernier recours :
 	// le texte qu'aucune branche ne prend reste un morceau (llama.cpp le garde, match() le perdrait).
 	'spark2_5': "\\p{N}|[一-龥぀-ゟ゠-ヿ]+|[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\\r\\n\\p{L}\\p{P}\\p{S}\\p{N}]?(?:(?![一-龥぀-ゟ゠-ヿ])[\\p{L}\\p{M}])+| ?(?:(?![一-龥぀-ゟ゠-ヿ])[\\p{P}\\p{S}])+|[\\r\\n]|\\s+(?![^\\s\\p{N}一-龥぀-ゟ゠-ヿ])|\\s+|[^\\s\\p{L}\\p{M}\\p{P}\\p{S}\\p{N}]+",
+	// K2-Horizon (fork llama.cpp MBZUAI-IFM) : motif Qwen 2 + marques combinantes et ZWNJ/ZWJ dans les
+	// mots, chiffres par 1 à 3. L'original écrit « (?i:'s|…) », réécrit en classes explicites.
+	'k2-horizon': "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?(?:\\p{L}|\\p{M}|\\u200C|\\u200D)+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
 	'qwen35': "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+|\\p{N}| ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
 };
 

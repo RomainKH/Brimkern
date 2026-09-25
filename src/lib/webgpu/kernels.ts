@@ -190,6 +190,10 @@ export class WebGpuEngine {
 	sparkOk = true;
 	// MoE (qwen35moe) : routage top-K, GEMV K-quant indexés par expert, somme pondérée.
 	moeOk = true;
+	// Prefill MoE : GEMM groupé par expert (repli : le GEMV par case, correct mais relit les poids).
+	moeGemmOk = true;
+	// K2-Horizon (k2hModel.ts) : RMSNorm groupée.
+	k2hOk = true;
 	// Attention LARGE (têtes de 129 à 512 : Gemma 4, Gemma 3, Qwen 3.5) : un workgroup par (token,
 	// tête) au lieu d'un thread (kernel `attention`). Gate NON BLOQUANT posé par selfValidate, ou forcé
 	// par ?attnwide=0 → repli sur `attention` (correct partout, 0,4 tok/s à 1,7k de contexte sur le E4B).
@@ -394,6 +398,14 @@ export class WebGpuEngine {
 			if (urlFlag('moe') === '0') {
 				this.moeOk = false;
 				console.warn('[webgpu] chemin MoE COUPÉ par ?moe=0 : un modèle à experts refusera de charger');
+			}
+			if (urlFlag('moegemm') === '0') {
+				this.moeGemmOk = false;
+				console.warn('[webgpu] GEMM MoE groupé COUPÉ par ?moegemm=0 : prefill MoE par GEMV par case');
+			}
+			if (urlFlag('k2h') === '0') {
+				this.k2hOk = false;
+				console.warn('[webgpu] chemin K2-Horizon COUPÉ par ?k2h=0 : un modèle k2-horizon refusera de charger');
 			}
 			if (urlFlag('spark') === '0') {
 				this.sparkOk = false;
@@ -2349,6 +2361,15 @@ export class WebGpuEngine {
 		trash.push(p, out);
 		return out;
 	}
+	// RMSNorm groupée : x [rows, dim] normé par segments de dim/groups, poids complet [dim].
+	recRmsnormGrouped(enc: GPUAny, trash: GPUAny[], x: GPUAny, w: GPUAny, rows: number, dim: number, groups: number, eps: number): GPUAny {
+		const p = this.uniform([rows, dim, groups], { offset: 12, value: eps });
+		const out = this.storage(rows * dim * 4);
+		this.recordPass(enc, 'rmsnorm_grouped', [p, x, w, out], [rows * groups, 1, 1]);
+		trash.push(p, out);
+		return out;
+	}
+
 	// ── MoE ───────────────────────────────────────────────────────────────────────────────────
 	// Routage : logits [T, E] → ids u32 [T, K] et poids f32 [T, K] (softmax sur les K retenus × scale).
 	recMoeRoute(enc: GPUAny, trash: GPUAny[], logits: GPUAny, T: number, E: number, K: number, scale = 1): { ids: GPUAny; w: GPUAny } {
@@ -2367,6 +2388,24 @@ export class WebGpuEngine {
 		const out = this.storage(slots * n * 4);
 		const dims = this.uniform([aDiv, k, n, g.stride]);
 		this.recordPass(enc, w.kq === 'Q4_K' ? 'moe_q4k_vec' : 'moe_q6k_vec', [dims, a, w.buf, out, ids], [g.grid[0], g.grid[1], slots]);
+		trash.push(dims, out);
+		return out;
+	}
+	// Cases triées par expert : perm [S] (ordre stable) et off [E+1].
+	recMoeGroup(enc: GPUAny, trash: GPUAny[], ids: GPUAny, S: number, E: number): { perm: GPUAny; off: GPUAny } {
+		if (E > 512) throw new Error(`MoE : E = ${E} > 512 non géré par moe_group`);
+		const p = this.uniform([S, E]);
+		const perm = this.storage(S * 4), off = this.storage((E + 1) * 4);
+		this.recordPass(enc, 'moe_group', [p, ids, perm, off], [1, 1, 1]);
+		trash.push(p, perm, off);
+		return { perm, off };
+	}
+	// GEMM groupé : même contrat que recMoeGemv (rend [S, n]), une tuile de poids pour 32 cases d'un
+	// même expert. maxRows = plafond de cases par expert (T : un token ne choisit un expert qu'une fois).
+	recMoeGemm(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: { kq: 'Q4_K' | 'Q6_K'; buf: GPUAny }, grp: { perm: GPUAny; off: GPUAny }, S: number, E: number, maxRows: number, aDiv: number, k: number, n: number): GPUAny {
+		const out = this.storage(S * n * 4);
+		const dims = this.uniform([S, k, n, aDiv]);
+		this.recordPass(enc, w.kq === 'Q4_K' ? 'moe_q4k_grouped' : 'moe_q6k_grouped', [dims, a, w.buf, out, grp.perm, grp.off], [Math.ceil(n / 64), Math.ceil(maxRows / 32), E]);
 		trash.push(dims, out);
 		return out;
 	}
@@ -4726,6 +4765,94 @@ export class WebGpuEngine {
 				this.moeOk = false;
 				console.error('[selfValidate] MoE KO :', err);
 			}
+		}
+
+		// GEMM MoE groupé (non bloquant) : contre la référence CPU, avec un expert CHAUD (l'expert 0 est
+		// choisi par chaque token : 40 cases → deux tuiles de 32) et des experts absents (tuiles vides).
+		// Le chemin témoin (GEMV par case) est couvert par le gate MoE ci-dessus.
+		if (this.moeOk && this.moeGemmOk) {
+			const G = globalThis as any;
+			const up = (a: Float32Array | Uint32Array) => { const b = this.storage(a.byteLength); this.device.queue.writeBuffer(b, 0, a); return b; };
+			const mkBlocks = (type: 'Q4_K' | 'Q6_K', n: number, k: number): Uint8Array => {
+				const bs = type === 'Q4_K' ? 144 : 210, nb = (n * k) / 256;
+				const b = new Uint8Array(nb * bs);
+				for (let i = 0; i < b.length; i++) b[i] = (Math.random() * 256) | 0;
+				for (let j = 0; j < nb; j++) {
+					const dv = new DataView(b.buffer, j * bs);
+					if (type === 'Q4_K') { dv.setUint16(0, f32ToF16(0.01 + Math.random() * 0.02), true); dv.setUint16(2, f32ToF16(0.005 + Math.random() * 0.01), true); }
+					else dv.setUint16(208, f32ToF16(0.002 + Math.random() * 0.004), true);
+				}
+				return b;
+			};
+			const relK = (x: Float32Array, y: Float32Array, tol: number) => { let mx = 0; for (const v of y) mx = Math.max(mx, Math.abs(v)); return x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) <= tol * (mx + 1)); };
+			let bad: string | null = null;
+			try {
+				for (const [type, k, n, aDivK] of [['Q4_K', 2048, 512, true], ['Q6_K', 512, 2048, false], ['Q4_K', 512, 130, false]] as ['Q4_K' | 'Q6_K', number, number, boolean][]) {
+					const T = 40, E = 16, K = 4, S = T * K;
+					const blocks = mkBlocks(type, E * n, k);
+					const wf = type === 'Q4_K' ? dequantQ4KCpu(blocks, (E * n * k) / 256) : dequantQ6KCpu(blocks, (E * n * k) / 256);
+					const ids = new Uint32Array(S);
+					for (let t = 0; t < T; t++) {
+						const pool = Array.from({ length: E - 4 }, (_, i) => i + 1).sort(() => Math.random() - 0.5); // 13-15 jamais choisis
+						ids[t * K] = 0;
+						for (let j = 1; j < K; j++) ids[t * K + j] = pool[j];
+					}
+					const a = rand((aDivK ? T : S) * k);
+					const ref = new Float32Array(S * n);
+					for (let sl = 0; sl < S; sl++) {
+						const ar = aDivK ? Math.floor(sl / K) : sl, ex = ids[sl];
+						for (let c = 0; c < n; c++) { let acc = 0; for (let i = 0; i < k; i++) acc += a[ar * k + i] * wf[(ex * n + c) * k + i]; ref[sl * n + c] = acc; }
+					}
+					const w = this.uploadKq(type, blocks);
+					const ab = up(a), ib = up(ids);
+					const trash: GPUAny[] = [];
+					const enc = this.device.createCommandEncoder();
+					const grp = this.recMoeGroup(enc, trash, ib, S, E);
+					const out = this.recMoeGemm(enc, trash, ab, w, grp, S, E, T, aDivK ? K : 1, k, n);
+					const read = this.device.createBuffer({ size: S * n * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+					enc.copyBufferToBuffer(out, 0, read, 0, S * n * 4);
+					this.device.queue.submit([enc.finish()]);
+					await read.mapAsync(G.GPUMapMode.READ);
+					const got = new Float32Array(read.getMappedRange().slice(0));
+					read.unmap(); read.destroy(); w.buf.destroy();
+					this.release([...trash, ab, ib]);
+					if (!relK(got, ref, 2e-3)) { bad = `${type} k=${k} n=${n}`; break; }
+				}
+			} catch (err) { bad = String(err); }
+			if (bad) { this.moeGemmOk = false; console.error(`[selfValidate] GEMM MoE groupé KO (${bad}) : prefill MoE par GEMV par case.`); }
+			else console.log('[selfValidate] GEMM MoE groupé OK (Q4_K/Q6_K, expert chaud sur deux tuiles, experts absents)');
+		}
+
+		// K2-Horizon (non bloquant) : RMSNorm groupée aux formes réelles (d = 4 096, 4 groupes), en
+		// décodage (1 ligne) et en prefill (3 lignes), poids non uniformes — un poids lu au mauvais
+		// décalage de groupe passerait avec des poids constants.
+		if (this.k2hOk) {
+			const G = globalThis as any;
+			try {
+				for (const rows of [1, 3]) {
+					const dim = 4096, groups = 4, eps = 1e-6, gs = dim / groups;
+					const x = rand(rows * dim), w = rand(dim).map((v) => 1 + v);
+					const xb = this.storage(x.byteLength), wb = this.storage(w.byteLength);
+					this.device.queue.writeBuffer(xb, 0, x); this.device.queue.writeBuffer(wb, 0, w);
+					const trash: GPUAny[] = [];
+					const enc = this.device.createCommandEncoder();
+					const out = this.recRmsnormGrouped(enc, trash, xb, wb, rows, dim, groups, eps);
+					const read = this.device.createBuffer({ size: rows * dim * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+					enc.copyBufferToBuffer(out, 0, read, 0, rows * dim * 4);
+					this.device.queue.submit([enc.finish()]);
+					await read.mapAsync(G.GPUMapMode.READ);
+					const got = new Float32Array(read.getMappedRange().slice(0));
+					read.unmap(); read.destroy();
+					this.release([...trash, xb, wb]);
+					for (let r = 0; r < rows && this.k2hOk; r++) for (let g = 0; g < groups && this.k2hOk; g++) {
+						let ss = 0; for (let i = 0; i < gs; i++) ss += x[r * dim + g * gs + i] ** 2;
+						const inv = 1 / Math.sqrt(ss / gs + eps);
+						for (let i = 0; i < gs; i++) { const ref = x[r * dim + g * gs + i] * inv * w[g * gs + i]; if (Math.abs(got[r * dim + g * gs + i] - ref) > 1e-3 * (1 + Math.abs(ref))) { this.k2hOk = false; break; } }
+					}
+				}
+				if (this.k2hOk) console.log('[selfValidate] K2-Horizon OK (RMSNorm groupée)');
+				else console.error('[selfValidate] K2-Horizon KO (RMSNorm groupée) : un modèle k2-horizon refuserait de charger.');
+			} catch (err) { this.k2hOk = false; console.error('[selfValidate] K2-Horizon KO :', err); }
 		}
 
 		// Spark-X2.5 (non bloquant) : ce que son graphe ajoute au chemin transformer, aux formes réelles

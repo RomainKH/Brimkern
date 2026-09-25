@@ -5059,3 +5059,184 @@ function moeGemv(src: string, rowOld: string, rowNew: string, aOld: string, aNew
 (SHADERS as Record<string, string>).moe_q6k_vec = moeGemv(SHADERS.matmul_t_q6k_vec,
 	'let rowBase = col * nBlk * 210u;', 'let rowBase = (ex * d.n + col) * nBlk * 210u;',
 	'let aB = b * 256u + half * 128u;', 'let aB = arow * d.k + b * 256u + half * 128u;');
+
+// ── Prefill MoE : GEMM GROUPÉ PAR EXPERT ─────────────────────────────────────────────────────
+// Le GEMV par case (moe_q4k_vec…) relit la ligne de poids de l'expert pour CHAQUE case : au prefill
+// (T·K cases) un expert choisi par 20 tokens est lu 20 fois. Ici les cases sont d'abord triées par
+// expert (moe_group), puis chaque workgroup calcule une tuile 32 cases × 64 colonnes d'UN expert :
+// la tuile de poids, décodée du K-quant natif en mémoire partagée, sert aux 32 cases à la fois.
+//
+// moe_group : ids [S] → perm [S] (cases rangées par expert, ordre stable) et off [E+1] (débuts).
+// Un seul workgroup ; un thread par expert, qui balaie toutes les cases (S·E ≤ ~10⁶ tests).
+(SHADERS as Record<string, string>).moe_group = `
+	struct P { S: u32, E: u32 };
+	@group(0) @binding(0) var<uniform> p: P;
+	@group(0) @binding(1) var<storage, read> ids: array<u32>;
+	@group(0) @binding(2) var<storage, read_write> perm: array<u32>;
+	@group(0) @binding(3) var<storage, read_write> off: array<u32>;
+	var<workgroup> cnt: array<u32, 512>;
+	@compute @workgroup_size(256)
+	fn main(@builtin(local_invocation_index) tid: u32) {
+		for (var e = tid; e < p.E; e = e + 256u) {
+			var c = 0u;
+			for (var s = 0u; s < p.S; s = s + 1u) { if (ids[s] == e) { c = c + 1u; } }
+			cnt[e] = c;
+		}
+		workgroupBarrier();
+		if (tid == 0u) {
+			var acc = 0u;
+			for (var e = 0u; e < p.E; e = e + 1u) { off[e] = acc; acc = acc + cnt[e]; }
+			off[p.E] = acc;
+		}
+		workgroupBarrier();
+		for (var e = tid; e < p.E; e = e + 256u) {
+			var o = off[e];
+			for (var s = 0u; s < p.S; s = s + 1u) { if (ids[s] == e) { perm[o] = s; o = o + 1u; } }
+		}
+	}`;
+
+// Tuile 32 cases × 64 colonnes, k par pas de 16 (même découpe que matmul_t_q8_shared). wid.x : tuile
+// de colonnes ; wid.y : tuile de cases DANS l'expert (au plus T cases par expert : un token ne
+// choisit un expert qu'une fois) ; wid.z : expert. Les tuiles au-delà du compte de l'expert sortent
+// tout de suite. L'entrée d'une case est la ligne case / aDiv (aDiv = K pour gate/up, 1 pour down).
+function moeGrouped(dq: string, helpers: string): string {
+	return `
+	struct Dims { S: u32, k: u32, n: u32, aDiv: u32 };
+	@group(0) @binding(0) var<uniform> d: Dims;
+	@group(0) @binding(1) var<storage, read> a: array<f32>;
+	@group(0) @binding(2) var<storage, read> q: array<u32>;
+	@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+	@group(0) @binding(4) var<storage, read> perm: array<u32>;
+	@group(0) @binding(5) var<storage, read> off: array<u32>;
+	var<workgroup> As: array<f32, 512>;   // [16 k][32 cases]
+	var<workgroup> Ws: array<f32, 1024>;  // [16 k][64 colonnes]
+	var<workgroup> mOff: u32;
+	var<workgroup> mEnd: u32;
+	fn f16d(h: u32) -> f32 {
+		let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let mm = h & 0x3FFu; var v: f32;
+		if (e == 0u) { v = f32(mm) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+		else { v = (1.0 + f32(mm) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+		return select(v, -v, s == 1u);
+	}
+	${helpers}
+	@compute @workgroup_size(256)
+	fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+		let ex = wid.z;
+		// Bornes lues par un thread puis diffusées par workgroupUniformLoad : la sortie anticipée qui
+		// suit doit être UNIFORME (les barrières de la boucle l'exigent — analyse d'uniformité WGSL).
+		if (tid == 0u) { mOff = off[ex]; mEnd = off[ex + 1u]; }
+		let o0 = workgroupUniformLoad(&mOff);
+		let cnt = workgroupUniformLoad(&mEnd) - o0;
+		let row0 = wid.y * 32u;
+		if (row0 >= cnt) { return; }
+		let k = d.k; let n = d.n;
+		let col0 = wid.x * 64u;
+		let aRow = tid >> 3u; let aK = (tid & 7u) * 2u;
+		let aOk = row0 + aRow < cnt;
+		var aBase = 0u;
+		if (aOk) { aBase = (perm[o0 + row0 + aRow] / d.aDiv) * k; }
+		let wCol = tid >> 2u; let wK = (tid & 3u) * 4u;
+		let wGCol = col0 + wCol;
+		let tr = (tid >> 4u) * 2u; let tc = (tid & 15u) * 4u;
+		var acc0 = 0.0; var acc1 = 0.0; var acc2 = 0.0; var acc3 = 0.0;
+		var acc4 = 0.0; var acc5 = 0.0; var acc6 = 0.0; var acc7 = 0.0;
+		for (var kk = 0u; kk < k; kk = kk + 16u) {
+			As[aK * 32u + aRow] = select(0.0, a[aBase + kk + aK], aOk);
+			As[(aK + 1u) * 32u + aRow] = select(0.0, a[aBase + kk + aK + 1u], aOk);
+			var v = vec4<f32>(0.0);
+			if (wGCol < n) { v = ${dq}(ex * n + wGCol, kk + wK); }
+			Ws[wK * 64u + wCol] = v.x;
+			Ws[(wK + 1u) * 64u + wCol] = v.y;
+			Ws[(wK + 2u) * 64u + wCol] = v.z;
+			Ws[(wK + 3u) * 64u + wCol] = v.w;
+			workgroupBarrier();
+			for (var i = 0u; i < 16u; i = i + 1u) {
+				let ab = i * 32u + tr; let wb = i * 64u + tc;
+				let av0 = As[ab]; let av1 = As[ab + 1u];
+				let wv0 = Ws[wb]; let wv1 = Ws[wb + 1u]; let wv2 = Ws[wb + 2u]; let wv3 = Ws[wb + 3u];
+				acc0 = acc0 + av0 * wv0; acc1 = acc1 + av0 * wv1; acc2 = acc2 + av0 * wv2; acc3 = acc3 + av0 * wv3;
+				acc4 = acc4 + av1 * wv0; acc5 = acc5 + av1 * wv1; acc6 = acc6 + av1 * wv2; acc7 = acc7 + av1 * wv3;
+			}
+			workgroupBarrier();
+		}
+		let gc = col0 + tc;
+		if (row0 + tr < cnt) {
+			let s = perm[o0 + row0 + tr];
+			if (gc < n) { c[s * n + gc] = acc0; }
+			if (gc + 1u < n) { c[s * n + gc + 1u] = acc1; }
+			if (gc + 2u < n) { c[s * n + gc + 2u] = acc2; }
+			if (gc + 3u < n) { c[s * n + gc + 3u] = acc3; }
+		}
+		if (row0 + tr + 1u < cnt) {
+			let s = perm[o0 + row0 + tr + 1u];
+			if (gc < n) { c[s * n + gc] = acc4; }
+			if (gc + 1u < n) { c[s * n + gc + 1u] = acc5; }
+			if (gc + 2u < n) { c[s * n + gc + 2u] = acc6; }
+			if (gc + 3u < n) { c[s * n + gc + 3u] = acc7; }
+		}
+	}`;
+}
+// Quatre poids consécutifs (kidx multiple de 4, dans un même sous-bloc de 32) de la ligne `row`
+// ([E·n] lignes, blocs contigus), mêmes formules que matmul_t_q4k_vec / matmul_t_q6k_vec.
+(SHADERS as Record<string, string>).moe_q4k_grouped = moeGrouped('dq4', `
+	fn byteAt(base: u32, i: u32) -> u32 { return (q[base + (i >> 2u)] >> ((i & 3u) * 8u)) & 0xFFu; }
+	fn dq4(row: u32, kidx: u32) -> vec4<f32> {
+		let base = row * (d.k / 256u) * 36u + (kidx / 256u) * 36u;
+		let j = (kidx % 256u) / 32u; let l = kidx % 32u;
+		let dm = q[base];
+		var sc6: u32; var mn6: u32;
+		if (j < 4u) { sc6 = byteAt(base, 4u + j) & 63u; mn6 = byteAt(base, 8u + j) & 63u; }
+		else {
+			sc6 = (byteAt(base, 8u + j) & 0xFu) | ((byteAt(base, j) >> 6u) << 4u);
+			mn6 = (byteAt(base, 8u + j) >> 4u) | ((byteAt(base, 4u + j) >> 6u) << 4u);
+		}
+		let word = q[base + 4u + (j >> 1u) * 8u + (l >> 2u)] >> ((j & 1u) * 4u);
+		let nib = vec4<f32>(f32(word & 0xFu), f32((word >> 8u) & 0xFu), f32((word >> 16u) & 0xFu), f32((word >> 24u) & 0xFu));
+		return f16d(dm & 0xFFFFu) * f32(sc6) * nib - vec4<f32>(f16d(dm >> 16u) * f32(mn6));
+	}`);
+(SHADERS as Record<string, string>).moe_q6k_grouped = moeGrouped('dq6', `
+	fn gb(i: u32) -> u32 { return (q[i >> 2u] >> ((i & 3u) * 8u)) & 0xFFu; }
+	fn si8(b: u32) -> f32 { let s = i32(b); return f32(select(s, s - 256, s > 127)); }
+	fn dq6one(base: u32, t: u32) -> f32 {
+		let half = t / 128u; let tt = t % 128u; let qd = tt / 32u; let l = tt % 32u;
+		let qlb = gb(base + half * 64u + l + (qd & 1u) * 32u);
+		let lo = select(qlb & 0xFu, qlb >> 4u, qd >= 2u);
+		let hi = (gb(base + 128u + half * 32u + l) >> (2u * qd)) & 3u;
+		let sc = si8(gb(base + 192u + half * 8u + l / 16u + 2u * qd));
+		return sc * f32(i32(lo | (hi << 4u)) - 32);
+	}
+	fn dq6(row: u32, kidx: u32) -> vec4<f32> {
+		let base = row * (d.k / 256u) * 210u + (kidx / 256u) * 210u;
+		let t = kidx % 256u;
+		let dd = f16d(gb(base + 208u) | (gb(base + 209u) << 8u));
+		return dd * vec4<f32>(dq6one(base, t), dq6one(base, t + 1u), dq6one(base, t + 2u), dq6one(base, t + 3u));
+	}`);
+
+// RMSNorm GROUPÉE (K2-Horizon, llama.cpp k2_horizon_group_rms_norm) : chaque ligne de `dim` est
+// coupée en `groups` segments normés SÉPARÉMENT (moyenne des carrés par segment), puis multipliée
+// par le poids complet [dim]. Un workgroup de 64 par (ligne, segment), réduction partagée — en
+// décodage il n'y a que `groups` segments : un thread par segment les ferait boucler sur 1 024.
+(SHADERS as Record<string, string>).rmsnorm_grouped = `
+	struct P { rows: u32, dim: u32, groups: u32, eps: f32 };
+	@group(0) @binding(0) var<uniform> p: P;
+	@group(0) @binding(1) var<storage, read> x: array<f32>;
+	@group(0) @binding(2) var<storage, read> w: array<f32>;
+	@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+	var<workgroup> part: array<f32, 64>;
+	@compute @workgroup_size(64)
+	fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+		let seg = wid.x;
+		let r = seg / p.groups; let g = seg % p.groups;
+		let gs = p.dim / p.groups;
+		let base = r * p.dim + g * gs;
+		var ss = 0.0;
+		for (var i = lid.x; i < gs; i = i + 64u) { let v = x[base + i]; ss = ss + v * v; }
+		part[lid.x] = ss;
+		workgroupBarrier();
+		for (var s = 32u; s > 0u; s = s >> 1u) {
+			if (lid.x < s) { part[lid.x] = part[lid.x] + part[lid.x + s]; }
+			workgroupBarrier();
+		}
+		let inv = 1.0 / sqrt(part[0] / f32(gs) + p.eps);
+		for (var i = lid.x; i < gs; i = i + 64u) { o[base + i] = x[base + i] * inv * w[g * gs + i]; }
+	}`;
