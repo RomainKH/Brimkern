@@ -14,7 +14,8 @@
 // dans son PROPRE processus : sa mémoire GPU est rendue au système avant le suivant.
 // Réflexion : réglage par défaut de chaque modèle dans la CLI (Qwen 3 : /no_think ; Qwen 3.5 :
 // <think> ouvert par son gabarit ; Gemma 4 : sans). Une réponse coupée au budget sans code = échec.
-// Le temps de réflexion compte dans les secondes par problème — c'est le coût réel à l'usage.
+// On ne mesure QUE la réussite : le temps dépend de l'état de la machine (swap, autres applis) et
+// ne se compare pas d'un tir à l'autre ; la vitesse se mesure à part, au calme (test-model-vs-llamacpp).
 
 import { build } from 'esbuild';
 import { spawn, spawnSync } from 'node:child_process';
@@ -144,14 +145,12 @@ async function workerClaude(key, model) {
     const S = SUITES[suite];
     const results = [];
     for (const p of problemsOf(suite)) {
-      const ts = performance.now();
       const r = spawnSync('claude', ['-p', S.prompt(p), '--model', model, '--system-prompt', S.system, '--tools', '', '--output-format', 'text'], { cwd, encoding: 'utf8', timeout: 300_000, input: '' });
-      const sec = (performance.now() - ts) / 1000;
       const { pass, err } = S.run(r.stdout || '', p);
-      results.push({ task: p.task_id, pass, tokens: 0, seconds: Number(sec.toFixed(2)), err: r.status === 0 ? err : `claude -p : code ${r.status} ${(r.stderr || '').slice(0, 80)}`, truncated: false });
-      process.stderr.write(`[${key}/${suite}] ${p.task_id.padEnd(22)} ${pass ? '✓' : '✗'} ${sec.toFixed(1).padStart(6)} s${pass ? '' : '  ' + results.at(-1).err.slice(0, 80)}\n`);
+      results.push({ task: p.task_id, pass, tokens: 0, err: r.status === 0 ? err : `claude -p : code ${r.status} ${(r.stderr || '').slice(0, 80)}`, truncated: false });
+      process.stderr.write(`[${key}/${suite}] ${p.task_id.padEnd(22)} ${pass ? '✓' : '✗'}${pass ? '' : '  ' + results.at(-1).err.slice(0, 80)}\n`);
     }
-    process.stdout.write(JSON.stringify({ key, suite, name: `${model} (claude -p)`, arch: 'cloud', loadS: 0, results, tokPerSec: 0 }) + '\n');
+    process.stdout.write(JSON.stringify({ key, suite, name: `${model} (claude -p)`, arch: 'cloud', results }) + '\n');
   }
   process.exit(0);
 }
@@ -184,7 +183,6 @@ export { formatPrompt, declaredStopIds } from ${s('src/lib/chatFormat.ts')};`);
   const quiet = console.log; console.log = () => {};
 
   let core, arch, name;
-  const t0 = performance.now();
   if (!/^https?:\/\//.test(src)) {
     // GGUF LOCAL : construit comme buildModel (engineCore) mais lu directement sur le disque.
     const fd = openSync(src, 'r');
@@ -206,14 +204,12 @@ export { formatPrompt, declaredStopIds } from ${s('src/lib/chatFormat.ts')};`);
     arch = core.arch;
     name = `${key} (${src.split('/').pop()})`;
   }
-  const loadS = (performance.now() - t0) / 1000;
   console.log = quiet;
-  process.stderr.write(`[${key}] chargé en ${loadS.toFixed(1)} s · arch ${arch}\n`);
+  process.stderr.write(`[${key}] chargé · arch ${arch}\n`);
 
   for (const suite of SUITE_NAMES) {
     const S = SUITES[suite];
     const results = [];
-    let genTokens = 0, genSeconds = 0;
     for (const p of problemsOf(suite)) {
       let user = S.prompt(p);
       // Réglage « auto » de la CLI pour Qwen 3 : sans réflexion. Clé suffixée « +think » : avec (modèles
@@ -221,15 +217,12 @@ export { formatPrompt, declaredStopIds } from ${s('src/lib/chatFormat.ts')};`);
       if (((arch === 'qwen3' || arch === 'spark') && !key.endsWith('+think')) || key.endsWith('+nothink')) user += ' /no_think'; // Spark, Qwen 3.5 (+nothink) : même convention (chatFormat)
       const prompt = M.formatPrompt([{ role: 'user', content: user }], arch, S.system);
       let n = 0;
-      const ts = performance.now();
       const text = await core.generateResident(prompt, MAX_TOKENS, () => { n++; }, undefined, { sample: false, repeatPenalty: 1.0 });
-      const sec = (performance.now() - ts) / 1000;
-      genTokens += n; genSeconds += sec;
       const { pass, err } = S.run(text, p);
-      results.push({ task: p.task_id, pass, tokens: n, seconds: Number(sec.toFixed(2)), err, truncated: n >= MAX_TOKENS });
-      process.stderr.write(`[${key}/${suite}] ${p.task_id.padEnd(22)} ${pass ? '✓' : '✗'} ${String(n).padStart(5)} tok ${sec.toFixed(1).padStart(6)} s${pass ? '' : '  ' + (n >= MAX_TOKENS ? '(budget épuisé) ' : '') + err.slice(0, 80)}\n`);
+      results.push({ task: p.task_id, pass, tokens: n, err, truncated: n >= MAX_TOKENS });
+      process.stderr.write(`[${key}/${suite}] ${p.task_id.padEnd(22)} ${pass ? '✓' : '✗'} ${String(n).padStart(5)} tok${pass ? '' : '  ' + (n >= MAX_TOKENS ? '(budget épuisé) ' : '') + err.slice(0, 80)}\n`);
     }
-    process.stdout.write(JSON.stringify({ key, suite, name, arch, loadS, results, tokPerSec: genTokens / genSeconds }) + '\n');
+    process.stdout.write(JSON.stringify({ key, suite, name, arch, results }) + '\n');
   }
   process.exit(0);
 }
@@ -269,7 +262,7 @@ if (WORKER) {
     all.runs.push(run);
     writeFileSync(OUT, JSON.stringify(all, null, 2));
     const passN = run.results.filter((x) => x.pass).length;
-    const secs = run.results.map((x) => x.seconds).sort((a, b) => a - b);
-    console.log(`${run.key.padEnd(14)} ${run.suite.padEnd(9)} pass@1 ${passN}/${run.results.length} (${(100 * passN / run.results.length).toFixed(1)} %) · médiane ${secs[secs.length >> 1].toFixed(1)} s/problème${run.tokPerSec ? ` · ${run.tokPerSec.toFixed(1)} tok/s · chargement ${run.loadS.toFixed(1)} s` : ''}`);
+    const cut = run.results.filter((x) => x.truncated).length;
+    console.log(`${run.key.padEnd(14)} ${run.suite.padEnd(9)} pass@1 ${passN}/${run.results.length} (${(100 * passN / run.results.length).toFixed(1)} %)${cut ? ` · ${cut} coupée(s) au budget` : ''}`);
   }
 }
