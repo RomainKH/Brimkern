@@ -1820,6 +1820,22 @@ export const SHADERS = {
 			o[i] = x[i] * p.s;
 		}`,
 
+	// o = x · sigmoid(g[ligne / hd]) : porte SCALAIRE par (token, tête) de Spark-X2.5 (llama.cpp
+	// src/models/spark2-5.cpp : attn_gate [d → nHeads], sigmoïde, diffusée sur les hd composantes de
+	// la tête, appliquée à la sortie d'attention AVANT attn_output). x [T·H·hd], g [T·H].
+	head_gate: `
+		struct HG { n: u32, hd: u32 };
+		@group(0) @binding(0) var<uniform> p: HG;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> g: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.n) { return; }
+			o[i] = x[i] / (1.0 + exp(-g[i / p.hd]));
+		}`,
+
 	// ── Image-generation primitives (diffusion: UNet + VAE). See docs/image-gen-feasibility.md. ──
 
 	// o = silu(x) = x · sigmoid(x). Standalone activation for diffusion ResBlocks. (The LLM path uses

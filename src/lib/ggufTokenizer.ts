@@ -31,6 +31,13 @@ const PRE_SPLIT: Record<string, string> = {
 	'qwen2': "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
 	'gpt2': "'(?:[sdmt]|ll|ve|re)| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+",
 	// Qwen 3.5 : motif Qwen 2 élargi aux marques combinantes (\p{M}) — llama-vocab.cpp, PRE_TYPE_QWEN35.
+	// Spark-X2.5 : llama.cpp applique QUATRE regex en cascade, chacune redécoupant les morceaux de la
+	// précédente (\\p{N}{1,3}, kana/kanji, le motif principal, \\p{N}) : chiffres isolés, blocs CJK, puis
+	// le motif principal DANS chaque morceau. Réécrit en un seul motif équivalent : les classes du
+	// motif principal excluent chiffres et CJK (ils ne traversent pas une frontière de morceau), et
+	// « \\s+(?!\\S) » accepte d'être suivi d'un chiffre ou d'un CJK (fin de morceau). Dernier recours :
+	// le texte qu'aucune branche ne prend reste un morceau (llama.cpp le garde, match() le perdrait).
+	'spark2_5': "\\p{N}|[一-龥぀-ゟ゠-ヿ]+|[!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~][A-Za-z]+|[^\\r\\n\\p{L}\\p{P}\\p{S}\\p{N}]?(?:(?![一-龥぀-ゟ゠-ヿ])[\\p{L}\\p{M}])+| ?(?:(?![一-龥぀-ゟ゠-ヿ])[\\p{P}\\p{S}])+|[\\r\\n]|\\s+(?![^\\s\\p{N}一-龥぀-ゟ゠-ヿ])|\\s+|[^\\s\\p{L}\\p{M}\\p{P}\\p{S}\\p{N}]+",
 	'qwen35': "(?:'[sS]|'[tT]|'[rR][eE]|'[vV][eE]|'[mM]|'[lL][lL]|'[dD])|[^\\r\\n\\p{L}\\p{N}]?[\\p{L}\\p{M}]+|\\p{N}| ?[^\\s\\p{L}\\p{M}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+",
 };
 

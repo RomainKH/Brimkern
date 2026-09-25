@@ -186,6 +186,8 @@ export class WebGpuEngine {
 	// ET 512, fenêtre 512, échelle 1). false → une archi gemma4 refuse de charger avec un message
 	// clair (jamais bloquant pour les autres). Posé par selfValidate, ou forcé par ?gemma4=0.
 	gemma4Ok = true;
+	// Spark-X2.5 (sparkModel.ts) : porte par tête + RoPE partiel 64/256 des couches globales.
+	sparkOk = true;
 	// Attention LARGE (têtes de 129 à 512 : Gemma 4, Gemma 3, Qwen 3.5) : un workgroup par (token,
 	// tête) au lieu d'un thread (kernel `attention`). Gate NON BLOQUANT posé par selfValidate, ou forcé
 	// par ?attnwide=0 → repli sur `attention` (correct partout, 0,4 tok/s à 1,7k de contexte sur le E4B).
@@ -386,6 +388,10 @@ export class WebGpuEngine {
 			if (urlFlag('gemma4') === '0') {
 				this.gemma4Ok = false;
 				console.warn('[webgpu] chemin Gemma 4 COUPÉ par ?gemma4=0 : un modèle gemma4 refusera de charger');
+			}
+			if (urlFlag('spark') === '0') {
+				this.sparkOk = false;
+				console.warn('[webgpu] chemin Spark-X2.5 COUPÉ par ?spark=0 : un modèle spark2_5 refusera de charger');
 			}
 			if (urlFlag('f16shared') === '0') {
 				this.f16SharedOk = false;
@@ -2334,6 +2340,14 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 20, new Uint32Array([nRot]));
 		const out = this.storage(rows * headDim * 4);
 		this.recordPass(enc, 'rope_partial', [p, x, out], [Math.ceil(rows / WG), 1, 1]);
+		trash.push(p, out);
+		return out;
+	}
+	// o = x · sigmoid(g[i / hd]) — porte scalaire par (token, tête), Spark-X2.5. g [T·H].
+	recHeadGate(enc: GPUAny, trash: GPUAny[], x: GPUAny, g: GPUAny, len: number, hd: number): GPUAny {
+		const p = this.uniform([len, hd]);
+		const out = this.storage(len * 4);
+		this.recordPass(enc, 'head_gate', [p, x, g, out], this.grid1D(len));
 		trash.push(p, out);
 		return out;
 	}
@@ -4574,6 +4588,63 @@ export class WebGpuEngine {
 			} catch (e) {
 				this.gemma4Ok = false;
 				console.error('[selfValidate] Gemma 4 KO :', e);
+			}
+		}
+
+		// Spark-X2.5 (non bloquant) : ce que son graphe ajoute au chemin transformer, aux formes réelles
+		// du 4B — porte par tête (16 têtes de 256) et RoPE NEOX partiel 64/256 des couches globales
+		// (θ 5e6), à position non nulle. L'attention hd 256 fenêtrée est couverte par le gate Gemma 4
+		// et attnWide.
+		if (this.sparkOk) {
+			const rel = (x: Float32Array, y: Float32Array) => x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) <= 1e-3 * (1 + Math.abs(y[i])));
+			const G = globalThis as any;
+			const runRec = async (outLen: number, record: (enc: GPUAny, trash: GPUAny[]) => GPUAny): Promise<Float32Array> => {
+				const trash: GPUAny[] = [];
+				const enc = this.device.createCommandEncoder();
+				const out = record(enc, trash);
+				const read = this.device.createBuffer({ size: outLen * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+				enc.copyBufferToBuffer(out, 0, read, 0, outLen * 4);
+				this.device.queue.submit([enc.finish()]);
+				await read.mapAsync(G.GPUMapMode.READ);
+				const r = new Float32Array(read.getMappedRange().slice(0));
+				read.unmap(); read.destroy();
+				this.release(trash);
+				return r;
+			};
+			const up = (a: Float32Array) => { const b = this.storage(a.byteLength); this.device.queue.writeBuffer(b, 0, a); return b; };
+			const sparkFail = async (): Promise<string | null> => {
+				{
+					const T = 3, H = 16, hd = 256, n = T * H * hd, x = rand(n), g = rand(T * H);
+					const xb = up(x), gb = up(g);
+					const got = await runRec(n, (enc, trash) => this.recHeadGate(enc, trash, xb, gb, n, hd));
+					this.release([xb, gb]);
+					if (!rel(got, x.map((v, i) => v / (1 + Math.exp(-g[Math.floor(i / hd)]))))) return 'head_gate';
+				}
+				{
+					const T = 2, H = 4, hd = 256, nRot = 64, past = 37, base = 5e6, rows = T * H, x = rand(rows * hd);
+					const xb = up(x);
+					const got = await runRec(rows * hd, (enc, trash) => this.recRopePartial(enc, trash, xb, rows, hd, H, past, base, nRot));
+					this.release([xb]);
+					const ref = x.slice(), half = nRot / 2;
+					for (let r = 0; r < rows; r++) {
+						const pos = past + Math.floor(r / H), o = r * hd;
+						for (let i = 0; i < half; i++) {
+							const a = pos / Math.pow(base, (2 * i) / nRot), c = Math.cos(a), s = Math.sin(a);
+							ref[o + i] = x[o + i] * c - x[o + i + half] * s;
+							ref[o + i + half] = x[o + i + half] * c + x[o + i] * s;
+						}
+					}
+					if (!rel(got, ref)) return 'rope_partial(hd=256, nRot=64)';
+				}
+				return null;
+			};
+			try {
+				const f = await sparkFail();
+				if (f) { this.sparkOk = false; console.error(`[selfValidate] Spark-X2.5 KO (${f}) : un modèle spark2_5 refuserait de charger (non bloquant pour le reste).`); }
+				else console.log('[selfValidate] Spark-X2.5 OK (porte par tête, RoPE partiel 64/256)');
+			} catch (e) {
+				this.sparkOk = false;
+				console.error('[selfValidate] Spark-X2.5 KO :', e);
 			}
 		}
 

@@ -10,6 +10,8 @@ import type { ArchType } from './presets';
 // generation as soon as one appears AND strip any that slip into the displayed text.
 export const TURN_MARKERS = [
   '<｜end▁of▁sentence｜>', '<｜Assistant｜>', '<｜User｜>', '<｜begin▁of▁sentence｜>',
+  // Spark-X2.5 : ses tours s'ouvrent par <｜start▁of▁sentence｜><|Rôle|> (bos, pas ｜begin｜).
+  '<｜start▁of▁sentence｜>',
   '<|im_end|>', '<|im_start|>', '<|eot_id|>', '<|begin_of_text|>',
   '<|start_header_id|>', '<|end_header_id|>',
   '</s>', '<s>', '<end_of_turn>', '<start_of_turn>',
@@ -63,6 +65,25 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       else if (msg.role === 'assistant') formatted += `<｜Assistant｜>${msg.content}<｜end▁of▁sentence｜>`;
     }
     formatted += '<｜Assistant｜>';
+    return formatted;
+  }
+
+  if (archType === 'spark') {
+    // Spark-X2.5 (gabarit du GGUF, version « 0826 ») : chaque tour s'ouvre par le bos
+    // <｜start▁of▁sentence｜> et se clôt par <｜end▁of▁sentence｜> (l'eos) ; le système par défaut
+    // « you are a helpful assistant. » précède toujours celui de l'appelant. La réflexion est
+    // ouverte par défaut (« <think> », comme enable_thinking=true) ; « /no_think » en fin du dernier
+    // message utilisateur la ferme d'emblée (« </think> »), même convention que Qwen 3.
+    const S = '<｜start▁of▁sentence｜>', E = '<｜end▁of▁sentence｜>';
+    let think = true;
+    formatted += `${S}<|System|>\nyou are a helpful assistant.${systemText.trim() ? `\n\n${systemText.trim()}` : ''}${E}`;
+    chatMsgs.forEach((msg, i) => {
+      let c = msg.content;
+      if (msg.role === 'user' && i === chatMsgs.length - 1 && /\s*\/no_think\s*$/.test(c)) { c = c.replace(/\s*\/no_think\s*$/, ''); think = false; }
+      if (msg.role === 'user') formatted += `${S}<|User|>${c}${E}`;
+      else if (msg.role === 'assistant') formatted += `${S}<|Bot|></think>${c}${E}`;
+    });
+    formatted += `${S}<|Bot|>${think ? '<think>' : '</think>'}`;
     return formatted;
   }
 
@@ -136,7 +157,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
 }
 
 // Le template de cette arch écrit-il LUI-MÊME le token de début de séquence ?
-//   llama3   → « <|begin_of_text|> »   mistral3 → « <s> »
+//   llama3   → « <|begin_of_text|> »   mistral3 → « <s> »   spark → « <｜start▁of▁sentence｜> »
 // Les autres (ChatML : qwen, qwen3, lfm2, smollm3 ; Gemma : <start_of_turn>) n'en écrivent pas et
 // comptent sur le tokenizer pour l'ajouter à l'encodage.
 //
@@ -146,7 +167,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
 // 2026-08-13 sur Llama 3.2 1B, symptôme identique à des poids corrompus, d'où le temps perdu à
 // soupçonner la dé-permutation Q/K et les kernels). Même piège pour Ministral 3 avec « <s> ».
 export function templateWritesBos(archType: ArchType): boolean {
-  return archType === 'llama3' || archType === 'mistral3';
+  return archType === 'llama3' || archType === 'mistral3' || archType === 'spark';
 }
 
 // Les ids d'arrêt DÉCLARÉS PAR LE FICHIER lui-même (GGUF : tokenizer.ggml.eos_token_id, et l'id de

@@ -11,6 +11,7 @@ import { Lfm2Model } from '../lib/webgpu/lfm2Model';
 import { RwkvModel } from '../lib/webgpu/rwkvModel';
 import { CustomWebModel, type TensorSource } from '../lib/webgpu/model';
 import { Gemma4Model } from '../lib/webgpu/gemma4Model';
+import { SparkModel } from '../lib/webgpu/sparkModel';
 import { Qwen35Model } from '../lib/webgpu/qwen35Model';
 import { gemma4TokenizerFromGguf } from '../lib/gemma4Tokenizer';
 import { loadBrikStream, loadGgufStream, prefetchGguf, fetchFullCached, fetchRange } from '../lib/webgpu/source';
@@ -35,6 +36,7 @@ function inferArchType(manifest: { arch?: string; metadata?: Record<string, unkn
   if (arch === 'smollm3' || arch.includes('smollm')) return 'smollm3';
   if (arch === 'mistral3' || arch.includes('mistral')) return 'mistral3';
   if (arch === 'gemma4') return 'gemma4';
+  if (arch === 'spark2_5') return 'spark';
   if (arch === 'gemma3') return 'gemma3';
   if (arch === 'gemma' || arch === 'gemma2') return 'gemma';
   if (arch === 'deepseek') return 'deepseek';
@@ -430,6 +432,7 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
 
     const customModel = archType === 'gemma4' ? new Gemma4Model(engine, source, manifest)
       : archType === 'qwen35' ? new Qwen35Model(engine, source, manifest)
+      : archType === 'spark' ? new SparkModel(engine, source, manifest)
       : new CustomWebModel(engine, source, manifest);
     onProgress('gpu');
     await customModel.prewarmGpu((done, total) => {

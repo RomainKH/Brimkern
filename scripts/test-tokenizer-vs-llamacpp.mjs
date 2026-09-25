@@ -4,7 +4,8 @@
 //
 //   node scripts/test-tokenizer-vs-llamacpp.mjs <fichier .gguf>
 //
-// Exige `llama-tokenize` (brew install llama.cpp). Le GGUF n'est lu que sur son en-tête.
+// Exige `llama-tokenize` (brew install llama.cpp ; LLAMA_TOKENIZE=<chemin> pour un build plus récent,
+// ex. Spark-X2.5 qui demande b10828+). Le GGUF n'est lu que sur son en-tête.
 
 import { build } from 'esbuild';
 import { spawnSync } from 'node:child_process';
@@ -34,8 +35,9 @@ if (!info) { console.error('✗ vocabulaire non couvert'); process.exit(1); }
 console.log(`tokenizer : ${man.metadata['tokenizer.ggml.model']} / pré-découpage ${man.metadata['tokenizer.ggml.pre'] ?? '-'}`);
 
 const G4 = man.metadata['tokenizer.ggml.model'] === 'gemma4';
+const SPARK = man.metadata['tokenizer.ggml.pre'] === 'spark2_5';
 const CASES = [
-  G4 ? '<|turn>system\nYou are a concise coding assistant.<turn|>\n<|turn>user\nWrite a Python function is_prime(n) that returns True if n is prime.<turn|>\n<|turn>model\n'
+  SPARK ? '<｜start▁of▁sentence｜><|System|>\nyou are a helpful assistant.\n\nBe concise.<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>Write is_prime(n).<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|><think>' : G4 ? '<|turn>system\nYou are a concise coding assistant.<turn|>\n<|turn>user\nWrite a Python function is_prime(n) that returns True if n is prime.<turn|>\n<|turn>model\n'
      : '<|im_start|>system\nYou are a concise coding assistant.<|im_end|>\n<|im_start|>user\nWrite a Python function is_prime(n).<|im_end|>\n<|im_start|>assistant\n<think>\n',
   'Hello  world!\n\n  def f(x):\n\treturn x**2  # carré é 日本 🙂\n',
   'Écris une fonction qui dédoublonne un tableau d’objets par clé.',
@@ -48,13 +50,15 @@ const CASES = [
   // « // » en début de ligne : le vocab a aussi « \ufeff// » (id 135260), que le parseur GGUF
   // confondait avec « // » (715) tant que TextDecoder avalait le BOM.
   '// Décoration\n// Module FEUILLE\n\n// Span contigu\n\ufeffBOM au milieu',
+  // Chiffres, CJK et blancs aux frontières (Spark découpe en cascade : chiffres, CJK, puis le reste).
+  'x = 12345 + 0.5e-3;  \n  42  日本語テスト  3x4\t\t7 abc123def ゛゜ ・ー ?.append(.5)',
 ];
 
 let fail = 0;
 for (const text of CASES) {
   const f = join(dir, 'case.txt');
   writeFileSync(f, text);
-  const r = spawnSync('llama-tokenize', ['-m', gguf, '-f', f, '--ids', '--log-disable'], { encoding: 'utf8' });
+  const r = spawnSync(process.env.LLAMA_TOKENIZE || 'llama-tokenize', ['-m', gguf, '-f', f, '--ids', '--log-disable'], { encoding: 'utf8' });
   const want = JSON.parse(r.stdout.trim().split('\n').pop());
   const got = info.tokenizer.encode(text);
   const ok = JSON.stringify(got) === JSON.stringify(want);

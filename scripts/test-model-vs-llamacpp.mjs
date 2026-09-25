@@ -31,7 +31,9 @@ const LONG_CODE = LONG ? (await import('node:fs')).readFileSync(join(process.cwd
 // Gabarit par architecture (gemma4 : <|turn> ; qwen35 : ChatML + <think> ouvert, gabarit officiel).
 const fmt = (arch, sys, user) => arch === 'gemma4'
   ? `<|turn>system\n${sys}<turn|>\n<|turn>user\n${user}<turn|>\n<|turn>model\n`
-  : `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user}<|im_end|>\n<|im_start|>assistant\n<think>\n`;
+  : arch === 'spark2_5' ? `<｜start▁of▁sentence｜><|System|>\nyou are a helpful assistant.\n\n${sys}<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|User|>${user}<｜end▁of▁sentence｜><｜start▁of▁sentence｜><|Bot|></think>`
+  : arch === 'qwen35' ? `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user}<|im_end|>\n<|im_start|>assistant\n<think>\n`
+  : `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${user} /no_think<|im_end|>\n<|im_start|>assistant\n`;
 // --long : > 1 000 tokens, pour exercer la fenêtre glissante (512) et les positions longues du
 // RoPE ; le prefill part alors par tranches de 256 comme dans le SDK (pastLen > 0, T > 1).
 const userMsg = LONG ? `Explain what this TypeScript module does, function by function.\n\n\`\`\`ts\n${LONG_CODE}\n\`\`\`` : 'Write a Python function is_prime(n) that returns True if n is prime.';
@@ -45,8 +47,11 @@ writeFileSync(entry, `export { WebGpuEngine } from ${src('src/lib/webgpu/kernels
 export { parseGguf } from ${src('src/lib/webgpu/ggufParser.ts')};
 export { Gemma4Model } from ${src('src/lib/webgpu/gemma4Model.ts')};
 export { Qwen35Model } from ${src('src/lib/webgpu/qwen35Model.ts')};
+export { SparkModel } from ${src('src/lib/webgpu/sparkModel.ts')};
+export { CustomWebModel } from ${src('src/lib/webgpu/model.ts')};
 export { gemma4TokenizerFromGguf } from ${src('src/lib/gemma4Tokenizer.ts')};
-export { tokenizerFromGguf } from ${src('src/lib/ggufTokenizer.ts')};`);
+export { tokenizerFromGguf } from ${src('src/lib/ggufTokenizer.ts')};
+export { formatProfile } from ${src('src/lib/webgpu/gpuProfile.ts')};`);
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: join(dir, 'out.mjs'), logLevel: 'error' });
 // AVANT l'import : certains commutateurs sont lus à l'initialisation statique des classes.
 globalThis.location = { search: process.env.BRIMKERN_FLAGS || '' };
@@ -75,13 +80,15 @@ const quiet = console.log; console.log = () => {};
 await engine.selfValidate();
 console.log = quiet;
 if (ARCH === 'gemma4' && !engine.gemma4Ok) throw new Error('gate gemma4Ok tombé');
+if (ARCH === 'spark2_5' && !engine.sparkOk) throw new Error('gate sparkOk tombé');
 if (ARCH === 'qwen35' && !engine.qwen35SsmOk) throw new Error('gate qwen35SsmOk tombé');
+// Autres archs (qwen3, llama, qwen2…) : le chemin transformer classique, CustomWebModel.
 if (!engine.attnWideOk) console.log('⚠️ attention large KO : repli un-thread-par-tête');
 fp('après selfValidate');
 console.log(`GGUF ${(size / 1e9).toFixed(2)} Go · ${manifest.config.blockCount} couches · selfValidate OK`);
 
 if (process.env.G4_LAYERFP) { const orig = engine.settleGpu.bind(engine); let nSettle = 0; engine.settleGpu = async () => { await orig(); if (++nSettle % 4 === 0 || nSettle > 31) fp(`après ${nSettle} vidanges`); }; }
-const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : new M.Qwen35Model(engine, source, manifest);
+const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : ARCH === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : ARCH === 'spark2_5' ? new M.SparkModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
 let t0 = performance.now();
 await model.prewarmGpu();
 console.log(`poids en VRAM : ${((performance.now() - t0) / 1000).toFixed(1)} s`);
@@ -104,6 +111,7 @@ console.log('top-10 moteur :', top.map((t) => `${JSON.stringify(tok.decode([t.id
 
 const gen = [];
 let next = top[0].id;
+engine.profiler?.reset(); // BRIMKERN_FLAGS='?gpuprofile=1' : budget GPU du décodage seul
 t0 = performance.now();
 for (let s = 0; s < N; s++) {
   gen.push(next);
@@ -115,6 +123,7 @@ for (let s = 0; s < N; s++) {
 const tDec = performance.now() - t0;
 console.log(`décodage : ${gen.length} tokens en ${(tDec / 1000).toFixed(2)} s → ${(gen.length / (tDec / 1000)).toFixed(1)} tok/s`);
 fp('après génération');
+if (engine.profiler) console.log(M.formatProfile(await engine.profiler.report()));
 if (engine.profiler) {
   const rep = await engine.profiler.report();
   const rows = (rep.rows || rep.passes || rep.entries || []);
@@ -125,7 +134,7 @@ console.log('--- sortie moteur ---\n' + tok.decode(gen) + '\n---');
 
 if (WITH_LLAMA) {
   const port = 18000 + Math.floor(Math.random() * 1000);
-  const srv = spawn('llama-server', ['-m', gguf, '--port', String(port), '-ngl', '99', '-c', '4096', '--log-disable', ...(process.env.LLAMA_ARGS || '').split(' ').filter(Boolean)], { stdio: 'ignore' });
+  const srv = spawn(process.env.LLAMA_SERVER || 'llama-server', ['-m', gguf, '--port', String(port), '-ngl', '99', '-c', '4096', '--log-disable', ...(process.env.LLAMA_ARGS || '').split(' ').filter(Boolean)], { stdio: 'ignore' });
   try {
     for (let i = 0; i < 120; i++) { try { const r = await fetch(`http://127.0.0.1:${port}/health`); if (r.ok) break; } catch {} await new Promise((r) => setTimeout(r, 500)); }
     const r = await fetch(`http://127.0.0.1:${port}/completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: ids, n_predict: gen.length, temperature: 0, top_k: 1, n_probs: 10, cache_prompt: false }) });
