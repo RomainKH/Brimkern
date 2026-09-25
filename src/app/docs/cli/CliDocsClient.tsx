@@ -14,7 +14,7 @@ import { useT, useHref } from '@/lib/i18n';
 import DocsShell, { Code, P } from '../DocsShell';
 import s from '../../cli/cli.module.css';
 import { SESSION, type Seg } from '../../cli/captures';
-import BenchChart from './BenchChart';
+import BenchChart, { SuitesTable } from './BenchChart';
 
 const BANNER = `██████╗ ██████╗ ██╗███╗   ███╗██╗  ██╗███████╗██████╗ ███╗   ██╗
 ██╔══██╗██╔══██╗██║████╗ ████║██║ ██╔╝██╔════╝██╔══██╗████╗  ██║
@@ -255,10 +255,17 @@ export default function CliDocsClient() {
       <H2 id="models" n="06">{t('Models', 'Modèles')}</H2>
       <P>
         {t(
-          'Two presets, ranked on our code benchmark: 41 HumanEval problems, greedy decoding, every answer executed against the official tests.',
-          'Deux presets, classés à notre banc de code : 41 problèmes HumanEval, décodage glouton, chaque réponse exécutée contre les tests officiels.'
+          'Three presets, ranked on our code benchmark: five suites, 202 problems, greedy decoding, every answer executed against tests. coder-max is within 2 problems of Claude Sonnet 5, but needs a machine with 20 GB of memory or more.',
+          'Trois presets, classés à notre banc de code : cinq suites, 202 problèmes, décodage glouton, chaque réponse exécutée contre des tests. coder-max est à 2 problèmes de Claude Sonnet 5, mais demande une machine de 20 Go de mémoire ou plus.'
         )}
       </P>
+      <SuitesTable />
+      <p className={s.caption}>
+        {t(
+          'HumanEval (41), HumanEval+ (EvalPlus, 40), MBPP+ (40), TypeScript (MultiPL-E, 40), bug fixing (HumanEvalFix, 41), 2026-09-25. Problems solved only: timings depended on the machine’s state and are not compared. Reproduce: node scripts/bench-code.mjs --suite=humaneval,heplus,mbppplus,ts,fix.',
+          'HumanEval (41), HumanEval+ (EvalPlus, 40), MBPP+ (40), TypeScript (MultiPL-E, 40), réparation de bug (HumanEvalFix, 41), 25/09/2026. Problèmes résolus seulement : les temps dépendaient de l’état de la machine et ne sont pas comparés. Reproduire : node scripts/bench-code.mjs --suite=humaneval,heplus,mbppplus,ts,fix.'
+        )}
+      </p>
       <BenchChart />
       <p className={s.caption}>
         {t(
@@ -267,6 +274,19 @@ export default function CliDocsClient() {
         )}
       </p>
       <div className={s.models}>
+        <Screen title="coder-max · moe" className={s.modelCard}>
+          <div className={s.modelHead}>
+            <span className={s.boldRed}>Qwen 3.6 35B-A3B Coder</span>
+            <span className={s.dim}>{t('11.4 GB', '11,4 Go')}</span>
+          </div>
+          <div className={s.kv}>
+            <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_K_M</span>
+            <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
+            <span className={s.kvKey}>{t('memory', 'mémoire')}</span><span>{t('20 GB+ machine', 'machine de 20 Go+')}</span>
+            <span className={s.kvKey}>{t('5 suites', '5 suites')}</span><span className={s.green}>184/202</span>
+          </div>
+          <p className={s.tagline}>{t('Mixture of experts: ~3 B of its 19 B parameters work per token. Coding specialist, 50 % of experts pruned.', 'Mélange d’experts : ~3 B de ses 19 B de paramètres travaillent par token. Spécialiste du code, 50 % des experts élagués.')}</p>
+        </Screen>
         <Screen title="coder · default" className={s.modelCard}>
           <div className={s.modelHead}>
             <span className={s.boldRed}>Qwen 3 4B</span>
@@ -275,8 +295,7 @@ export default function CliDocsClient() {
           <div className={s.kv}>
             <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>BRIK int4</span>
             <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
-            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>13–16 tok/s</span>
-            <span className={s.kvKey}>HumanEval-41</span><span className={s.green}>85 % · ~15 s / {t('problem', 'problème')}</span>
+            <span className={s.kvKey}>{t('5 suites', '5 suites')}</span><span className={s.green}>146/202</span>
           </div>
           <p className={s.tagline}>{t('Answers directly; reasoning on demand with /think deep.', 'Répond directement ; réflexion à la demande avec /think deep.')}</p>
         </Screen>
@@ -288,8 +307,7 @@ export default function CliDocsClient() {
           <div className={s.kv}>
             <span className={s.kvKey}>{t('format', 'format')}</span><span className={s.sand}>GGUF Q4_0</span>
             <span className={s.kvKey}>{t('engine', 'moteur')}</span><span className={s.green}>{t('native Dawn', 'Dawn natif')}</span>
-            <span className={s.kvKey}>{t('speed', 'vitesse')}</span><span>12–17 tok/s</span>
-            <span className={s.kvKey}>HumanEval-41</span><span className={s.cyan}>80 % · ~60 s / {t('problem', 'problème')}</span>
+            <span className={s.kvKey}>{t('5 suites', '5 suites')}</span><span className={s.cyan}>145/202</span>
           </div>
           <p className={s.tagline}>{t('Hybrid Gated DeltaNet + attention; always reasons before answering, hence slower.', 'Hybride Gated DeltaNet + attention ; réfléchit toujours avant de répondre, d’où la lenteur.')}</p>
         </Screen>
@@ -301,7 +319,7 @@ export default function CliDocsClient() {
 
       {/* ── OPTIONS ───────────────────────────────────────────────────────────────────────── */}
       <H2 id="options" n="07">{t('Options', 'Options')}</H2>
-      <Param name="-m, --model=<coder|super-coder|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
+      <Param name="-m, --model=<coder|coder-max|super-coder|url|path>" type="string">{t('Model to run. Default: coder (Qwen 3 4B).', 'Modèle à exécuter. Défaut : coder (Qwen 3 4B).')}</Param>
       <Param name="--mode=<code|plan|review|auto>" type="string">{t('How the assistant intervenes. Default: code.', 'Manière d’intervenir de l’assistant. Défaut : code.')}</Param>
       <Param name="--think=<off|auto|deep>" type="string">{t('Step-by-step reasoning. Default: auto (direct answers; deep turns reasoning on).', 'Raisonnement pas à pas. Défaut : auto (réponses directes ; deep l’active).')}</Param>
       <Param name="--lang=<en|fr>" type="string">{t('Interface language. Default: en (or BRIMKERN_LANG).', 'Langue de l’interface. Défaut : en (ou BRIMKERN_LANG).')}</Param>

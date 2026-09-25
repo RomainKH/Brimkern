@@ -1,6 +1,6 @@
 "use client";
 
-// Banc de code des deux presets de la CLI face aux modèles cloud (docs/ROADMAP.md § 17). Les modèles
+// Banc de code des presets de la CLI face aux modèles cloud (docs/ROADMAP.md § 17). Les modèles
 // testés mais non retenus (Opus distill Qwen 3.5 et Gemma 4) sont dans les résultats bruts, pas ici.
 //
 // Deux sortes de chiffres, qui ne se mélangent pas :
@@ -18,15 +18,17 @@ import c from './benchChart.module.css';
 type Kind = 'local' | 'claude' | 'gpt';
 interface Row { name: string; sub?: { en: string; fr: string }; pct: number; detail: { en: string; fr: string } }
 
+// Réussite seule : les temps dépendaient de l'état de la machine (swap) et ne se comparaient pas.
 const LOCAL: Row[] = [
-  { name: 'coder · Qwen 3 4B', sub: { en: 'default preset, no reasoning', fr: 'preset par défaut, sans réflexion' }, pct: (35 / 41) * 100, detail: { en: '35/41 · ~15 s per problem', fr: '35/41 · ~15 s par problème' } },
-  { name: 'super-coder · Qwen 3.5 4B', sub: { en: 'reasons before answering', fr: 'réfléchit avant de répondre' }, pct: (33 / 41) * 100, detail: { en: '33/41 · ~60 s per problem', fr: '33/41 · ~60 s par problème' } },
+  { name: 'coder-max · Qwen 3.6 35B-A3B', sub: { en: 'MoE, 20 GB+ of memory, no reasoning', fr: 'MoE, 20 Go+ de mémoire, sans réflexion' }, pct: 100, detail: { en: '41/41', fr: '41/41' } },
+  { name: 'coder · Qwen 3 4B', sub: { en: 'default preset, no reasoning', fr: 'preset par défaut, sans réflexion' }, pct: (35 / 41) * 100, detail: { en: '35/41', fr: '35/41' } },
+  { name: 'super-coder · Qwen 3.5 4B', sub: { en: 'reasons before answering', fr: 'réfléchit avant de répondre' }, pct: (33 / 41) * 100, detail: { en: '33/41', fr: '33/41' } },
 ];
 
 const CLAUDE: Row[] = [
-  { name: 'Claude Opus 5.5', pct: 100, detail: { en: '41/41 · ~7 s per problem (network included)', fr: '41/41 · ~7 s par problème (réseau compris)' } },
-  { name: 'Claude Sonnet 5', pct: 100, detail: { en: '41/41 · ~5 s per problem (network included)', fr: '41/41 · ~5 s par problème (réseau compris)' } },
-  { name: 'Claude Haiku 4.5', pct: (40 / 41) * 100, detail: { en: '40/41 · ~9 s per problem (network included)', fr: '40/41 · ~9 s par problème (réseau compris)' } },
+  { name: 'Claude Opus 5.5', pct: 100, detail: { en: '41/41', fr: '41/41' } },
+  { name: 'Claude Sonnet 5', pct: 100, detail: { en: '41/41', fr: '41/41' } },
+  { name: 'Claude Haiku 4.5', pct: (40 / 41) * 100, detail: { en: '40/41', fr: '40/41' } },
 ];
 
 const GPT: Row[] = [
@@ -93,5 +95,40 @@ export default function BenchChart() {
         </table>
       </details>
     </figure>
+  );
+}
+
+// Les cinq suites (matrice du 2026-09-25, scripts/bench/results-suites.json + HumanEval-41) : même
+// banc, chaque réponse exécutée ; Claude via claude -p avec le même prompt. Réussite seule.
+const SUITES: { key: string; en: string; fr: string }[] = [
+  { key: 'he', en: 'HumanEval', fr: 'HumanEval' },
+  { key: 'hep', en: 'HumanEval+', fr: 'HumanEval+' },
+  { key: 'mbpp', en: 'MBPP+', fr: 'MBPP+' },
+  { key: 'ts', en: 'TypeScript', fr: 'TypeScript' },
+  { key: 'fix', en: 'Bug fixing', fr: 'Réparation de bug' },
+];
+const SUITE_ROWS: { name: string; cells: string[]; total: string }[] = [
+  { name: 'coder-max', cells: ['41/41', '38/40', '35/40', '36/40', '34/41'], total: '184/202' },
+  { name: 'Claude Sonnet 5', cells: ['41/41', '36/40', '33/40', '36/40', '40/41'], total: '186/202' },
+  { name: 'coder', cells: ['35/41', '34/40', '28/40', '28/40', '21/41'], total: '146/202' },
+  { name: 'super-coder', cells: ['33/41', '30/40', '29/40', '27/40', '26/41'], total: '145/202' },
+];
+
+export function SuitesTable() {
+  const t = useT();
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className={c.table}>
+        <caption style={{ textAlign: 'left', fontSize: 12.5, color: 'var(--text-muted)', paddingBottom: 6 }}>
+          {t('Problems solved, five suites (202 problems)', 'Problèmes résolus, cinq suites (202 problèmes)')}
+        </caption>
+        <thead><tr><th scope="col">{t('Model', 'Modèle')}</th>{SUITES.map((x) => <th key={x.key} scope="col">{t(x.en, x.fr)}</th>)}<th scope="col">Total</th></tr></thead>
+        <tbody>
+          {SUITE_ROWS.map((r) => (
+            <tr key={r.name}><th scope="row">{r.name}</th>{r.cells.map((v, i) => <td key={i}>{v}</td>)}<td><strong>{r.total}</strong></td></tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

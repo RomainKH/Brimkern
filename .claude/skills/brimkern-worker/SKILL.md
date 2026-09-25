@@ -66,10 +66,13 @@ cat src/utils/math.ts | brimkern -q "Write vitest unit tests for this module"
 ```
 
 ### 4. Choosing the model
-- `-m coder` (default): Qwen 3 4B — best preset on our code benchmark (85 % pass@1 on 41 HumanEval problems, ~15 s each). Use it by default.
-- `-m super-coder`: Qwen 3.5 4B — hybrid DeltaNet + attention, always reasons first (80 % pass@1, ~60 s each, ~5.6 GB of GPU memory). Only when a harder problem justifies the wait.
+Scores: our five code suites (HumanEval, HumanEval+, MBPP+, TypeScript, bug fixing; 202 problems, every answer executed against tests). Claude Sonnet 5 scores 186/202 on the same suites.
 
-Run one CLI call at a time: each call loads the model into VRAM (~2.5 GB).
+- `-m coder` (default): Qwen 3 4B — light (~2.5 GB), runs anywhere. 146/202. Use it for small, well-specified tasks.
+- `-m coder-max`: Qwen 3.6 35B-A3B MoE — the strongest: 184/202, 34/41 at bug fixing (coder: 21/41). Needs a machine with 20 GB+ of memory (~12 GB in use); the CLI refuses to load it on less. Prefer it for bug fixes and anything non-trivial when the machine allows.
+- `-m super-coder`: Qwen 3.5 4B — always reasons first, slow. 145/202. Rarely worth it now.
+
+Run one CLI call at a time: each call loads the model into memory (~2.5 GB for coder, ~12 GB for coder-max).
 
 ---
 
@@ -77,7 +80,7 @@ Run one CLI call at a time: each call loads the model into VRAM (~2.5 GB).
 
 ```bash
 brimkern mcp                       # stdio server, model `coder`
-brimkern mcp --model=super-coder
+brimkern mcp --model=coder-max     # strongest, 20 GB+ of memory
 ```
 
 ### Adding it to Claude Code

@@ -18,7 +18,7 @@ import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { homedir } from 'node:os';
+import { homedir, totalmem } from 'node:os';
 import readline, { createInterface } from 'node:readline';
 import { execSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -97,9 +97,9 @@ const PRESET_CLI_MODELS = {
     badge: t('Recommended', 'Recommandé'),
     qwen3Think: true,
     defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
-    // Chiffres : banc HumanEval-41 du 2026-09-24 (scripts/bench-code.mjs, docs/ROADMAP.md § 17).
-    desc: t('Best of the presets on our code benchmark: 85 % pass@1 on HumanEval-41, ~15 s per problem without reasoning. Reasoning: /think deep.',
-      'Le meilleur des presets à notre banc de code : 85 % pass@1 sur HumanEval-41, ~15 s par problème sans réflexion. Réflexion : /think deep.'),
+    // Chiffres : matrice à cinq suites du 2026-09-25 (scripts/bench-code.mjs, docs/ROADMAP.md § 20).
+    desc: t('Light and fast, runs on any machine: 146/202 on our five code suites (35/41 on HumanEval), without reasoning. Reasoning: /think deep.',
+      'Léger et rapide, tourne partout : 146/202 sur nos cinq suites de code (35/41 sur HumanEval), sans réflexion. Réflexion : /think deep.'),
   },
   'super-coder': {
     name: 'Qwen 3.5 4B Super Coder (GGUF)',
@@ -114,8 +114,29 @@ const PRESET_CLI_MODELS = {
     size: t('2.61 GB', '2,61 Go'),
     badge: t('SSM Hybrid', 'Hybride SSM'),
     defaultSystem: 'You are Brimkern Super Coder, a specialized AI coding engineer. Generate accurate, concise, and clean code.',
-    desc: t('Qwen 3.5 hybrid (Gated DeltaNet + attention), always reasons before answering: 80 % pass@1 on HumanEval-41, ~60 s per problem.',
-      'Hybride Qwen 3.5 (Gated DeltaNet + attention), réfléchit toujours avant de répondre : 80 % pass@1 sur HumanEval-41, ~60 s par problème.'),
+    desc: t('Qwen 3.5 hybrid (Gated DeltaNet + attention), always reasons before answering: 145/202 on our five code suites, better than coder at bug fixing (26/41 vs 21/41).',
+      'Hybride Qwen 3.5 (Gated DeltaNet + attention), réfléchit toujours avant de répondre : 145/202 sur nos cinq suites de code, meilleur que coder en réparation de bug (26/41 contre 21/41).'),
+  },
+  'coder-max': {
+    name: 'Qwen 3.6 35B-A3B Coder REAP (GGUF)',
+    shortName: 'Qwen 3.6 35B-A3B Coder',
+    url: 'https://huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap50-GGUF/resolve/main/qwen36-reap50-Q4_K_M-imat.gguf',
+    format: 'gguf',
+    formatLabel: 'GGUF Q4_K_M',
+    // MoE (128 experts, 8 actifs : ~3 B de paramètres calculés par token sur 19 B) validé contre
+    // llama.cpp dans Dawn natif (docs/ROADMAP.md § 20). Mesuré SANS réflexion : le gabarit Qwen 3.5
+    // ouvre <think> d'office, « /no_think » (chatFormat) le ferme — toujours, /think deep compris.
+    engine: 'native',
+    noThink: true,
+    // ~12 Go en régime : en dessous de 20 Go de mémoire unifiée, la machine swappe (voire plante).
+    minMemGB: 20,
+    runtime: t('WebGPU (native Dawn)', 'WebGPU (Natif Dawn)'),
+    size: t('11.4 GB', '11,4 Go'),
+    badge: t('MoE · 20 GB+ RAM', 'MoE · 20 Go+ de RAM'),
+    defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
+    // Chiffres : matrice à cinq suites du 2026-09-25 (scripts/bench-code.mjs, docs/ROADMAP.md § 20).
+    desc: t('The strongest preset: 184/202 on our five code suites, 2 short of Claude Sonnet 5 (186). MoE with ~3 B of its 19 B parameters active per token. 12 GB of memory in use: needs a 20 GB+ machine.',
+      'Le preset le plus fort : 184/202 sur nos cinq suites de code, à 2 problèmes de Claude Sonnet 5 (186). MoE, ~3 B de ses 19 B de paramètres actifs par token. 12 Go de mémoire en régime : demande une machine de 20 Go ou plus.'),
   },
 };
 
@@ -123,7 +144,9 @@ const PRESET_CLI_MODELS = {
 const MODEL_ALIASES = {
   'qwen3-4b': 'coder',
   'qwen3': 'coder',
-  'pro': 'super-coder',
+  'pro': 'coder-max',
+  'max': 'coder-max',
+  'moe': 'coder-max',
   'super': 'super-coder',
   'qwen35': 'super-coder',
   'qwen-3.5': 'super-coder',
@@ -174,6 +197,8 @@ function resolveModelKey(key) {
 function thinkSuffixFor(modelKey, level) {
   // Un Qwen 3 venu du Hub (« Qwen3-0.6B-Q8_0.gguf ») a les mêmes interrupteurs que le preset ;
   // pas Qwen 2.5 ni Qwen 3.5 (autre famille).
+  // Presets mesurés sans réflexion et dont le gabarit l'ouvre d'office (Qwen 3.5 / 3.6) : toujours fermée.
+  if (PRESET_CLI_MODELS[modelKey]?.noThink) return ' /no_think';
   if (PRESET_CLI_MODELS[modelKey]?.qwen3Think || /qwen3[-_](?!\.)/i.test(String(modelKey).split('/').pop() || '')) {
     return level === 'deep' ? ' /think' : ' /no_think';
   }
@@ -1662,6 +1687,13 @@ async function createCliEngine(options = {}) {
     options.system = base + buildProjectContext();
   }
   MODEL_OPENS_THINK = !!PRESET_CLI_MODELS[options.model]?.opensThink;
+  // Garde mémoire : un modèle trop gros pour la machine la fait swapper jusqu'au blocage (un 7B a
+  // déjà planté un Mac de test). BRIMKERN_IGNORE_RAM=1 passe outre, à ses risques.
+  const minMem = PRESET_CLI_MODELS[options.model]?.minMemGB;
+  if (minMem && totalmem() / 2 ** 30 < minMem && process.env.BRIMKERN_IGNORE_RAM !== '1') {
+    throw new Error(t(`"${options.model}" needs ${minMem} GB of memory or more (this machine: ${(totalmem() / 2 ** 30).toFixed(0)} GB). Use "coder" instead, or BRIMKERN_IGNORE_RAM=1 to force it.`,
+      `« ${options.model} » demande ${minMem} Go de mémoire ou plus (cette machine : ${(totalmem() / 2 ** 30).toFixed(0)} Go). Prenez « coder », ou BRIMKERN_IGNORE_RAM=1 pour forcer.`));
+  }
   const forceChromium = !!options.chromium || !!options.headless || process.env.BRIMKERN_FORCE_CHROMIUM === '1';
   const forceNative = !!options.native || process.env.BRIMKERN_FORCE_NATIVE === '1';
   const modelKey = options.model || 'coder';
@@ -2805,7 +2837,7 @@ const MCP_TOOLS = [
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'The instruction, prompt, or question for the WebGPU model' },
-        model: { type: 'string', description: 'Model preset: "coder" (default, Qwen 3 4B), "super-coder" (Qwen 3.5 4B SSM), a Hugging Face repo or a .gguf/.brik URL' },
+        model: { type: 'string', description: 'Model preset: "coder" (default, Qwen 3 4B, light), "coder-max" (Qwen 3.6 35B-A3B MoE, strongest, needs 20 GB+ of memory), "super-coder" (Qwen 3.5 4B SSM), a Hugging Face repo or a .gguf/.brik URL' },
         mode: { type: 'string', enum: ['code', 'plan', 'review', 'auto'], description: 'Behavior mode (default: code)' },
         max_tokens: { type: 'integer', description: `Maximum tokens to generate (default: ${MCP_DEFAULT_MAX_TOKENS}, max: ${MCP_MAX_TOKENS_CEILING})` },
       },

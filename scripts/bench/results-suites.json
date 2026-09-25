@@ -1,0 +1,6286 @@
+{
+  "problems": 41,
+  "maxTokens": 2048,
+  "runs": [
+    {
+      "suite": "heplus",
+      "key": "claude-sonnet-5",
+      "name": "claude-sonnet-5 (claude -p)",
+      "arch": "cloud",
+      "loadS": 0,
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.46,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.95,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.5,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.58,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.54,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 8.43,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.58,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.56,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.6,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.57,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.56,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 4.6,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.9,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 7.01,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.73,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.13,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.02,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 7.37,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.02,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.97,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 10.46,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.61,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 23.94,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.06,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 4.1,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.54,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.89,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 6.4,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.61,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.69,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 0,
+      "date": "2026-09-25T09:58:39.452Z"
+    },
+    {
+      "suite": "mbppplus",
+      "key": "claude-sonnet-5",
+      "name": "claude-sonnet-5 (claude -p)",
+      "arch": "cloud",
+      "loadS": 0,
+      "results": [
+        {
+          "task": "Mbpp/2",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/14",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 2.9,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/59",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.01,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/69",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/82",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.07,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/92",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 3.54,
+          "err": "AssertionError: out: False, exp: True",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/101",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.95,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/113",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 3.09,
+          "err": "AssertionError: out: False, exp: None",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/127",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/138",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 5.61,
+          "err": "AssertionError: out: True, exp: False",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/165",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.04,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/224",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/238",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/252",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.95,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/264",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 5.87,
+          "err": "AssertionError: out: 64, exp: 61",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/273",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.2,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/283",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.81,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/296",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/310",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 2.93,
+          "err": "numpy._core._exceptions.UFuncTypeError: ufunc 'subtract' did not contain a loop with signature matching types (dtype('<U1'), dtype('float64')) -> None",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/395",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.54,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/413",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/425",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.59,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/436",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.05,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/450",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.07,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/460",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.05,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/474",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.01,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/557",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/567",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.04,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/580",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/591",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.48,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/602",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 10.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/612",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/624",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.08,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/637",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.04,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/723",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/734",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.16,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/744",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.2,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/755",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 3.04,
+          "err": "IndexError: list index out of range",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/766",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 6.53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/778",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.96,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 0,
+      "date": "2026-09-25T10:01:14.531Z"
+    },
+    {
+      "suite": "ts",
+      "key": "claude-sonnet-5",
+      "name": "claude-sonnet-5 (claude -p)",
+      "arch": "cloud",
+      "loadS": 0,
+      "results": [
+        {
+          "task": "HumanEval_0_has_close_elements",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_4_mean_absolute_deviation",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.11,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_8_sum_product",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.66,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_12_longest",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.05,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_16_count_distinct_characters",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.07,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_20_find_closest_elements",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.11,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_24_largest_divisor",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.56,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_28_concatenate",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.6,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_33_sort_third",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_37_sort_even",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.88,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_42_incr_list",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_46_fib4",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_51_remove_vowels",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.47,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_55_fib",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 6.96,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_59_largest_prime_factor",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.54,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_63_fibfib",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.62,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_67_fruit_distribution",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_71_triangle_area",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.04,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_75_is_multiply_prime",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_79_decimal_to_binary",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.48,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_83_starts_one_ends",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_87_get_row",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.9,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_91_is_bored",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_95_check_dict_case",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 6.89,
+          "err": "Node.js v24.15.0",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_99_closest_integer",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.59,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_103_rounded_avg",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 5.52,
+          "err": "Node.js v24.15.0",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_107_even_odd_palindrome",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_111_histogram",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.07,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_115_max_fill",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_119_match_parens",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_123_get_odd_collatz",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_127_intersection",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.6,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_131_digits",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.04,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_135_can_arrange",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.98,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_140_fix_spaces",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 4.09,
+          "err": "Node.js v24.15.0",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_144_simplify",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.59,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_149_sorted_list_sum",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 3.06,
+          "err": "Node.js v24.15.0",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_153_Strongest_Extension",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.05,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_157_right_angle_triangle",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.9,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_161_solve",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.51,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 0,
+      "date": "2026-09-25T10:04:12.706Z"
+    },
+    {
+      "suite": "fix",
+      "key": "claude-sonnet-5",
+      "name": "claude-sonnet-5 (claude -p)",
+      "arch": "cloud",
+      "loadS": 0,
+      "results": [
+        {
+          "task": "Fix/0",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.57,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/4",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.05,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/8",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/12",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/16",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/20",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.11,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/24",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.42,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/28",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.18,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/32",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/36",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/40",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/44",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/48",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 2.99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/52",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.09,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/56",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.6,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/60",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.03,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/64",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 9.42,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/68",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 7.9,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/72",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.48,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/76",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/80",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/84",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.47,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/88",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 6.71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/92",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 7.48,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/96",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.12,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/100",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/104",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/108",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 9.52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/112",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.09,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/116",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 9.02,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/120",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.11,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/124",
+          "pass": false,
+          "tokens": 0,
+          "seconds": 4.81,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/128",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/132",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 17.47,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/136",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.18,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/140",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.91,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/144",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 5.1,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/148",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 4.68,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/152",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/156",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.57,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/160",
+          "pass": true,
+          "tokens": 0,
+          "seconds": 3.08,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "tokPerSec": 0,
+      "date": "2026-09-25T10:07:41.082Z"
+    },
+    {
+      "suite": "heplus",
+      "key": "coder",
+      "name": "coder (qwen3-4b-q4.brik)",
+      "arch": "qwen3",
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 168,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 179,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 149,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 148,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 79,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 326,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 101,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 65,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 139,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 208,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 146,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 100,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 151,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 123,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": false,
+          "tokens": 169,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 431,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 294,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": false,
+          "tokens": 200,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 189,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 184,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 304,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 186,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 252,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 208,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 177,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 266,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 227,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 247,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 283,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": false,
+          "tokens": 279,
+          "err": "NameError: name 'use' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 219,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 220,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 204,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 225,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 225,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 355,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 166,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 270,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": true,
+          "tokens": 265,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T10:21:08.806Z"
+    },
+    {
+      "suite": "humaneval",
+      "key": "k2-horizon-7b+nothink",
+      "name": "Checkpoint_0002500 (5.59 Go, GGUF)",
+      "arch": "k2h",
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 167,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 152,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 142,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 119,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 74,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 266,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/32",
+          "pass": false,
+          "tokens": 446,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 122,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 274,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 132,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 88,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 145,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 106,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": false,
+          "tokens": 158,
+          "err": "AssertionError: Test 2",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 384,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 237,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": true,
+          "tokens": 80,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 190,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": false,
+          "tokens": 165,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 241,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 172,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 237,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 161,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 125,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 215,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 204,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 187,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": false,
+          "tokens": 225,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": true,
+          "tokens": 427,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 203,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 179,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 201,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 168,
+          "err": "AssertionError: This prints if this assert fails 2 (good for debugging!)",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 200,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 297,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 245,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 224,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": false,
+          "tokens": 305,
+          "err": "AssertionError",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T10:49:35.420Z"
+    },
+    {
+      "suite": "heplus",
+      "key": "k2-horizon-7b+nothink",
+      "name": "Checkpoint_0002500 (5.59 Go, GGUF)",
+      "arch": "k2h",
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 167,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 152,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 142,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 119,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 74,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 266,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 122,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": false,
+          "tokens": 274,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 132,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 88,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 145,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 106,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": false,
+          "tokens": 158,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 384,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 237,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": false,
+          "tokens": 80,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 190,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": false,
+          "tokens": 165,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 241,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 172,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 237,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 161,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 125,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 215,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 204,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 187,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": false,
+          "tokens": 225,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": false,
+          "tokens": 427,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 203,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 179,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 201,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 168,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 200,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 297,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 245,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 224,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": false,
+          "tokens": 305,
+          "err": "AssertionError",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T11:14:44.076Z"
+    },
+    {
+      "suite": "mbppplus",
+      "key": "k2-horizon-7b+nothink",
+      "name": "Checkpoint_0002500 (5.59 Go, GGUF)",
+      "arch": "k2h",
+      "results": [
+        {
+          "task": "Mbpp/2",
+          "pass": true,
+          "tokens": 24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/14",
+          "pass": true,
+          "tokens": 27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/59",
+          "pass": true,
+          "tokens": 22,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/69",
+          "pass": true,
+          "tokens": 62,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/82",
+          "pass": true,
+          "tokens": 34,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/92",
+          "pass": false,
+          "tokens": 65,
+          "err": "AssertionError: out: False, exp: True",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/101",
+          "pass": true,
+          "tokens": 19,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/113",
+          "pass": false,
+          "tokens": 28,
+          "err": "AssertionError: out: False, exp: None",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/127",
+          "pass": true,
+          "tokens": 17,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/138",
+          "pass": false,
+          "tokens": 44,
+          "err": "AssertionError: out: False, exp: True",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/165",
+          "pass": true,
+          "tokens": 36,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/224",
+          "pass": true,
+          "tokens": 39,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/238",
+          "pass": true,
+          "tokens": 29,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/252",
+          "pass": true,
+          "tokens": 20,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/264",
+          "pass": false,
+          "tokens": 43,
+          "err": "AssertionError: out: 84, exp: 61",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/273",
+          "pass": true,
+          "tokens": 32,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/283",
+          "pass": true,
+          "tokens": 35,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/296",
+          "pass": true,
+          "tokens": 64,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/310",
+          "pass": false,
+          "tokens": 15,
+          "err": "AssertionError: out: ('p', 'y', 't', 'h', 'o', 'n', ' ', '3', '.', '0'), exp: ('p', 'y', 't', 'h', 'o', 'n', '3', '.', '0')",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/395",
+          "pass": true,
+          "tokens": 46,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/413",
+          "pass": true,
+          "tokens": 24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/425",
+          "pass": true,
+          "tokens": 41,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/436",
+          "pass": true,
+          "tokens": 24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/450",
+          "pass": true,
+          "tokens": 26,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/460",
+          "pass": true,
+          "tokens": 24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/474",
+          "pass": true,
+          "tokens": 21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/557",
+          "pass": true,
+          "tokens": 15,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/567",
+          "pass": true,
+          "tokens": 34,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/580",
+          "pass": false,
+          "tokens": 47,
+          "err": "AssertionError: out: (4, 6, 8), exp: (4, (6, (2, 4)), 6, 8)",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/591",
+          "pass": true,
+          "tokens": 40,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/602",
+          "pass": true,
+          "tokens": 41,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/612",
+          "pass": true,
+          "tokens": 31,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/624",
+          "pass": true,
+          "tokens": 14,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/637",
+          "pass": true,
+          "tokens": 21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/723",
+          "pass": true,
+          "tokens": 36,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/734",
+          "pass": true,
+          "tokens": 63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/744",
+          "pass": true,
+          "tokens": 20,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/755",
+          "pass": false,
+          "tokens": 23,
+          "err": "IndexError: list index out of range",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/766",
+          "pass": true,
+          "tokens": 21,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/778",
+          "pass": true,
+          "tokens": 67,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T11:21:02.130Z"
+    },
+    {
+      "suite": "ts",
+      "key": "k2-horizon-7b+nothink",
+      "name": "Checkpoint_0002500 (5.59 Go, GGUF)",
+      "arch": "k2h",
+      "results": [
+        {
+          "task": "HumanEval_0_has_close_elements",
+          "pass": true,
+          "tokens": 78,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_4_mean_absolute_deviation",
+          "pass": true,
+          "tokens": 65,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_8_sum_product",
+          "pass": true,
+          "tokens": 61,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_12_longest",
+          "pass": true,
+          "tokens": 84,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_16_count_distinct_characters",
+          "pass": true,
+          "tokens": 46,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_20_find_closest_elements",
+          "pass": true,
+          "tokens": 140,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_24_largest_divisor",
+          "pass": true,
+          "tokens": 58,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_28_concatenate",
+          "pass": true,
+          "tokens": 53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_33_sort_third",
+          "pass": true,
+          "tokens": 85,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_37_sort_even",
+          "pass": true,
+          "tokens": 79,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_42_incr_list",
+          "pass": true,
+          "tokens": 29,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_46_fib4",
+          "pass": false,
+          "tokens": 126,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_51_remove_vowels",
+          "pass": true,
+          "tokens": 27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_55_fib",
+          "pass": true,
+          "tokens": 76,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_59_largest_prime_factor",
+          "pass": true,
+          "tokens": 105,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_63_fibfib",
+          "pass": true,
+          "tokens": 120,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_67_fruit_distribution",
+          "pass": true,
+          "tokens": 101,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_71_triangle_area",
+          "pass": false,
+          "tokens": 102,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_75_is_multiply_prime",
+          "pass": true,
+          "tokens": 126,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_79_decimal_to_binary",
+          "pass": true,
+          "tokens": 27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_83_starts_one_ends",
+          "pass": false,
+          "tokens": 47,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_87_get_row",
+          "pass": true,
+          "tokens": 103,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_91_is_bored",
+          "pass": false,
+          "tokens": 104,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_95_check_dict_case",
+          "pass": false,
+          "tokens": 80,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_99_closest_integer",
+          "pass": true,
+          "tokens": 108,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_103_rounded_avg",
+          "pass": false,
+          "tokens": 58,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_107_even_odd_palindrome",
+          "pass": true,
+          "tokens": 146,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_111_histogram",
+          "pass": true,
+          "tokens": 135,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_115_max_fill",
+          "pass": true,
+          "tokens": 73,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_119_match_parens",
+          "pass": false,
+          "tokens": 316,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_123_get_odd_collatz",
+          "pass": true,
+          "tokens": 115,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_127_intersection",
+          "pass": true,
+          "tokens": 139,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_131_digits",
+          "pass": true,
+          "tokens": 92,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_135_can_arrange",
+          "pass": false,
+          "tokens": 60,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_140_fix_spaces",
+          "pass": false,
+          "tokens": 50,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_144_simplify",
+          "pass": true,
+          "tokens": 90,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_149_sorted_list_sum",
+          "pass": false,
+          "tokens": 58,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_153_Strongest_Extension",
+          "pass": false,
+          "tokens": 146,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_157_right_angle_triangle",
+          "pass": true,
+          "tokens": 76,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_161_solve",
+          "pass": true,
+          "tokens": 134,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T11:35:01.207Z"
+    },
+    {
+      "suite": "fix",
+      "key": "k2-horizon-7b+nothink",
+      "name": "Checkpoint_0002500 (5.59 Go, GGUF)",
+      "arch": "k2h",
+      "results": [
+        {
+          "task": "Fix/0",
+          "pass": true,
+          "tokens": 112,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/4",
+          "pass": true,
+          "tokens": 49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/8",
+          "pass": true,
+          "tokens": 65,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/12",
+          "pass": true,
+          "tokens": 62,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/16",
+          "pass": true,
+          "tokens": 23,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/20",
+          "pass": true,
+          "tokens": 109,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/24",
+          "pass": true,
+          "tokens": 49,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/28",
+          "pass": true,
+          "tokens": 27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/32",
+          "pass": false,
+          "tokens": 195,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/36",
+          "pass": false,
+          "tokens": 82,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/40",
+          "pass": true,
+          "tokens": 72,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/44",
+          "pass": true,
+          "tokens": 46,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/48",
+          "pass": true,
+          "tokens": 47,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/52",
+          "pass": false,
+          "tokens": 35,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/56",
+          "pass": false,
+          "tokens": 65,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/60",
+          "pass": true,
+          "tokens": 24,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/64",
+          "pass": false,
+          "tokens": 41,
+          "err": "AssertionError: Test 4",
+          "truncated": false
+        },
+        {
+          "task": "Fix/68",
+          "pass": false,
+          "tokens": 63,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/72",
+          "pass": false,
+          "tokens": 73,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/76",
+          "pass": true,
+          "tokens": 55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/80",
+          "pass": false,
+          "tokens": 76,
+          "err": "AssertionError: aabb",
+          "truncated": false
+        },
+        {
+          "task": "Fix/84",
+          "pass": false,
+          "tokens": 26,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/88",
+          "pass": false,
+          "tokens": 2048,
+          "err": "AssertionError: Error",
+          "truncated": true
+        },
+        {
+          "task": "Fix/92",
+          "pass": true,
+          "tokens": 69,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/96",
+          "pass": true,
+          "tokens": 72,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/100",
+          "pass": true,
+          "tokens": 25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/104",
+          "pass": false,
+          "tokens": 65,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/108",
+          "pass": false,
+          "tokens": 97,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/112",
+          "pass": false,
+          "tokens": 40,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/116",
+          "pass": false,
+          "tokens": 26,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/120",
+          "pass": false,
+          "tokens": 37,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/124",
+          "pass": false,
+          "tokens": 155,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/128",
+          "pass": true,
+          "tokens": 60,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/132",
+          "pass": true,
+          "tokens": 129,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/136",
+          "pass": false,
+          "tokens": 63,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/140",
+          "pass": false,
+          "tokens": 158,
+          "err": "AssertionError: This prints if this assert fails 2 (good for debugging!)",
+          "truncated": false
+        },
+        {
+          "task": "Fix/144",
+          "pass": false,
+          "tokens": 87,
+          "err": "AssertionError: test4",
+          "truncated": false
+        },
+        {
+          "task": "Fix/148",
+          "pass": false,
+          "tokens": 141,
+          "err": "AssertionError: First test error: 0",
+          "truncated": false
+        },
+        {
+          "task": "Fix/152",
+          "pass": true,
+          "tokens": 28,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/156",
+          "pass": false,
+          "tokens": 148,
+          "err": "délai dépassé (30 s)",
+          "truncated": false
+        },
+        {
+          "task": "Fix/160",
+          "pass": true,
+          "tokens": 52,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T11:59:54.286Z"
+    },
+    {
+      "suite": "heplus",
+      "key": "super-coder",
+      "name": "super-coder (qwen3.5-4B-super-coder.Q4_0.gguf)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 564,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": false,
+          "tokens": 645,
+          "err": "ImportError: cannot import name 'sum' from 'math' (/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/lib-dynload/math.cpython-39-darwin.so)",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 816,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 453,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 287,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 753,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 833,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 370,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 2048,
+          "err": "",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 725,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 485,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 389,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 406,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 451,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 462,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": false,
+          "tokens": 2048,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 682,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 715,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": false,
+          "tokens": 934,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 708,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 375,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 754,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": false,
+          "tokens": 494,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": false,
+          "tokens": 1046,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 655,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 573,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": false,
+          "tokens": 755,
+          "err": "ValueError: invalid literal for int() with base 10: '-'",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 726,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 1247,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 458,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": false,
+          "tokens": 1447,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 576,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": false,
+          "tokens": 814,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 493,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": false,
+          "tokens": 563,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 1271,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 518,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 416,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 921,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": false,
+          "tokens": 946,
+          "err": "AssertionError",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T12:46:23.092Z"
+    },
+    {
+      "suite": "mbppplus",
+      "key": "super-coder",
+      "name": "super-coder (qwen3.5-4B-super-coder.Q4_0.gguf)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "Mbpp/2",
+          "pass": true,
+          "tokens": 276,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/14",
+          "pass": true,
+          "tokens": 331,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/59",
+          "pass": true,
+          "tokens": 262,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/69",
+          "pass": false,
+          "tokens": 471,
+          "err": "AssertionError: out: False, exp: True",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/82",
+          "pass": true,
+          "tokens": 281,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/92",
+          "pass": false,
+          "tokens": 530,
+          "err": "AssertionError: out: False, exp: True",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/101",
+          "pass": true,
+          "tokens": 495,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/113",
+          "pass": false,
+          "tokens": 2048,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": true
+        },
+        {
+          "task": "Mbpp/127",
+          "pass": true,
+          "tokens": 106,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/138",
+          "pass": false,
+          "tokens": 900,
+          "err": "AssertionError: out: True, exp: False",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/165",
+          "pass": true,
+          "tokens": 828,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/224",
+          "pass": true,
+          "tokens": 276,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/238",
+          "pass": true,
+          "tokens": 605,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/252",
+          "pass": true,
+          "tokens": 300,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/264",
+          "pass": false,
+          "tokens": 279,
+          "err": "AssertionError: out: 76, exp: 73",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/273",
+          "pass": false,
+          "tokens": 443,
+          "err": "NameError: name 'substract_elements' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/283",
+          "pass": true,
+          "tokens": 595,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/296",
+          "pass": true,
+          "tokens": 754,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/310",
+          "pass": false,
+          "tokens": 243,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/395",
+          "pass": true,
+          "tokens": 473,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/413",
+          "pass": true,
+          "tokens": 379,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/425",
+          "pass": true,
+          "tokens": 251,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/436",
+          "pass": true,
+          "tokens": 172,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/450",
+          "pass": false,
+          "tokens": 617,
+          "err": "AssertionError: out: ['abc', 'abc', 'abc'], exp: ['abc', 'abc', 'abc', 'abc']",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/460",
+          "pass": true,
+          "tokens": 226,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/474",
+          "pass": true,
+          "tokens": 292,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/557",
+          "pass": true,
+          "tokens": 405,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/567",
+          "pass": true,
+          "tokens": 512,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/580",
+          "pass": false,
+          "tokens": 391,
+          "err": "ValueError: operands could not be broadcast together with shapes (2,) (0,)",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/591",
+          "pass": true,
+          "tokens": 342,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/602",
+          "pass": false,
+          "tokens": 385,
+          "err": "TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/612",
+          "pass": true,
+          "tokens": 496,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/624",
+          "pass": true,
+          "tokens": 152,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/637",
+          "pass": true,
+          "tokens": 326,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/723",
+          "pass": true,
+          "tokens": 347,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/734",
+          "pass": true,
+          "tokens": 742,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/744",
+          "pass": true,
+          "tokens": 370,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/755",
+          "pass": false,
+          "tokens": 718,
+          "err": "AssertionError: out: inf, exp: None",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/766",
+          "pass": true,
+          "tokens": 259,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/778",
+          "pass": true,
+          "tokens": 427,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T13:18:27.716Z"
+    },
+    {
+      "suite": "ts",
+      "key": "super-coder",
+      "name": "super-coder (qwen3.5-4B-super-coder.Q4_0.gguf)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "HumanEval_0_has_close_elements",
+          "pass": true,
+          "tokens": 522,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_4_mean_absolute_deviation",
+          "pass": true,
+          "tokens": 487,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_8_sum_product",
+          "pass": true,
+          "tokens": 374,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_12_longest",
+          "pass": true,
+          "tokens": 413,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_16_count_distinct_characters",
+          "pass": true,
+          "tokens": 183,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_20_find_closest_elements",
+          "pass": true,
+          "tokens": 619,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_24_largest_divisor",
+          "pass": true,
+          "tokens": 795,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_28_concatenate",
+          "pass": true,
+          "tokens": 199,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_33_sort_third",
+          "pass": false,
+          "tokens": 595,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_37_sort_even",
+          "pass": true,
+          "tokens": 603,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_42_incr_list",
+          "pass": true,
+          "tokens": 355,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_46_fib4",
+          "pass": true,
+          "tokens": 544,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_51_remove_vowels",
+          "pass": true,
+          "tokens": 269,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_55_fib",
+          "pass": true,
+          "tokens": 627,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_59_largest_prime_factor",
+          "pass": false,
+          "tokens": 594,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_63_fibfib",
+          "pass": true,
+          "tokens": 507,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_67_fruit_distribution",
+          "pass": true,
+          "tokens": 609,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_71_triangle_area",
+          "pass": true,
+          "tokens": 292,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_75_is_multiply_prime",
+          "pass": true,
+          "tokens": 775,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_79_decimal_to_binary",
+          "pass": true,
+          "tokens": 485,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_83_starts_one_ends",
+          "pass": false,
+          "tokens": 1560,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_87_get_row",
+          "pass": true,
+          "tokens": 662,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_91_is_bored",
+          "pass": false,
+          "tokens": 591,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_95_check_dict_case",
+          "pass": false,
+          "tokens": 375,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_99_closest_integer",
+          "pass": false,
+          "tokens": 745,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_103_rounded_avg",
+          "pass": false,
+          "tokens": 636,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_107_even_odd_palindrome",
+          "pass": true,
+          "tokens": 923,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_111_histogram",
+          "pass": false,
+          "tokens": 667,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_115_max_fill",
+          "pass": false,
+          "tokens": 1243,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_119_match_parens",
+          "pass": false,
+          "tokens": 590,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_123_get_odd_collatz",
+          "pass": true,
+          "tokens": 717,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_127_intersection",
+          "pass": true,
+          "tokens": 952,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_131_digits",
+          "pass": true,
+          "tokens": 605,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_135_can_arrange",
+          "pass": true,
+          "tokens": 435,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_140_fix_spaces",
+          "pass": false,
+          "tokens": 947,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_144_simplify",
+          "pass": true,
+          "tokens": 685,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_149_sorted_list_sum",
+          "pass": false,
+          "tokens": 357,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_153_Strongest_Extension",
+          "pass": true,
+          "tokens": 691,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_157_right_angle_triangle",
+          "pass": true,
+          "tokens": 248,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_161_solve",
+          "pass": false,
+          "tokens": 439,
+          "err": "TypeError: s.some is not a function",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T13:50:44.517Z"
+    },
+    {
+      "suite": "fix",
+      "key": "super-coder",
+      "name": "super-coder (qwen3.5-4B-super-coder.Q4_0.gguf)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "Fix/0",
+          "pass": true,
+          "tokens": 897,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/4",
+          "pass": true,
+          "tokens": 673,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/8",
+          "pass": true,
+          "tokens": 612,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/12",
+          "pass": true,
+          "tokens": 390,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/16",
+          "pass": true,
+          "tokens": 585,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/20",
+          "pass": true,
+          "tokens": 754,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/24",
+          "pass": true,
+          "tokens": 756,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/28",
+          "pass": true,
+          "tokens": 253,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/32",
+          "pass": false,
+          "tokens": 1211,
+          "err": "NameError: name 'poly' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "Fix/36",
+          "pass": false,
+          "tokens": 1490,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/40",
+          "pass": true,
+          "tokens": 1512,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/44",
+          "pass": true,
+          "tokens": 752,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/48",
+          "pass": true,
+          "tokens": 569,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/52",
+          "pass": true,
+          "tokens": 580,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/56",
+          "pass": true,
+          "tokens": 680,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/60",
+          "pass": true,
+          "tokens": 681,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/64",
+          "pass": false,
+          "tokens": 668,
+          "err": "AssertionError: Test 3",
+          "truncated": false
+        },
+        {
+          "task": "Fix/68",
+          "pass": false,
+          "tokens": 796,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/72",
+          "pass": false,
+          "tokens": 801,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/76",
+          "pass": false,
+          "tokens": 2048,
+          "err": "AssertionError: This prints if this assert fails 1 (good for debugging!)",
+          "truncated": true
+        },
+        {
+          "task": "Fix/80",
+          "pass": false,
+          "tokens": 928,
+          "err": "AssertionError: aabb",
+          "truncated": false
+        },
+        {
+          "task": "Fix/84",
+          "pass": false,
+          "tokens": 368,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/88",
+          "pass": true,
+          "tokens": 1359,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/92",
+          "pass": false,
+          "tokens": 1117,
+          "err": "AssertionError: This prints if this assert fails 5 (good for debugging!)",
+          "truncated": false
+        },
+        {
+          "task": "Fix/96",
+          "pass": true,
+          "tokens": 1300,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/100",
+          "pass": true,
+          "tokens": 730,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/104",
+          "pass": true,
+          "tokens": 844,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/108",
+          "pass": true,
+          "tokens": 873,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/112",
+          "pass": true,
+          "tokens": 810,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/116",
+          "pass": false,
+          "tokens": 925,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/120",
+          "pass": false,
+          "tokens": 728,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/124",
+          "pass": false,
+          "tokens": 1608,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/128",
+          "pass": true,
+          "tokens": 899,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/132",
+          "pass": true,
+          "tokens": 630,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/136",
+          "pass": true,
+          "tokens": 652,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/140",
+          "pass": false,
+          "tokens": 2048,
+          "err": "IndentationError: expected an indented block",
+          "truncated": true
+        },
+        {
+          "task": "Fix/144",
+          "pass": false,
+          "tokens": 804,
+          "err": "AssertionError: test1",
+          "truncated": false
+        },
+        {
+          "task": "Fix/148",
+          "pass": true,
+          "tokens": 1073,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/152",
+          "pass": true,
+          "tokens": 680,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/156",
+          "pass": false,
+          "tokens": 2048,
+          "err": "IndentationError: expected an indented block",
+          "truncated": true
+        },
+        {
+          "task": "Fix/160",
+          "pass": true,
+          "tokens": 713,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T14:51:10.793Z"
+    },
+    {
+      "suite": "mbppplus",
+      "key": "coder",
+      "name": "coder (qwen3-4b-q4.brik)",
+      "arch": "qwen3",
+      "results": [
+        {
+          "task": "Mbpp/2",
+          "pass": true,
+          "tokens": 82,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/14",
+          "pass": true,
+          "tokens": 156,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/59",
+          "pass": false,
+          "tokens": 83,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/69",
+          "pass": true,
+          "tokens": 177,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/82",
+          "pass": true,
+          "tokens": 33,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/92",
+          "pass": false,
+          "tokens": 86,
+          "err": "AssertionError: out: True, exp: False",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/101",
+          "pass": true,
+          "tokens": 73,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/113",
+          "pass": false,
+          "tokens": 93,
+          "err": "AssertionError: out: False, exp: None",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/127",
+          "pass": true,
+          "tokens": 42,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/138",
+          "pass": false,
+          "tokens": 260,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/165",
+          "pass": true,
+          "tokens": 82,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/224",
+          "pass": true,
+          "tokens": 59,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/238",
+          "pass": true,
+          "tokens": 51,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/252",
+          "pass": true,
+          "tokens": 50,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/264",
+          "pass": false,
+          "tokens": 126,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/273",
+          "pass": true,
+          "tokens": 75,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/283",
+          "pass": true,
+          "tokens": 131,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/296",
+          "pass": true,
+          "tokens": 352,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/310",
+          "pass": false,
+          "tokens": 60,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/395",
+          "pass": true,
+          "tokens": 114,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/413",
+          "pass": true,
+          "tokens": 122,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/425",
+          "pass": true,
+          "tokens": 90,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/436",
+          "pass": true,
+          "tokens": 55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/450",
+          "pass": false,
+          "tokens": 142,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/460",
+          "pass": true,
+          "tokens": 68,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/474",
+          "pass": true,
+          "tokens": 50,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/557",
+          "pass": true,
+          "tokens": 35,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/567",
+          "pass": false,
+          "tokens": 132,
+          "err": "NameError: name 'issort_list' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/580",
+          "pass": false,
+          "tokens": 152,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/591",
+          "pass": false,
+          "tokens": 90,
+          "err": "NameError: name 'swap_List' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/602",
+          "pass": true,
+          "tokens": 62,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/612",
+          "pass": true,
+          "tokens": 67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/624",
+          "pass": true,
+          "tokens": 32,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/637",
+          "pass": true,
+          "tokens": 126,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/723",
+          "pass": true,
+          "tokens": 100,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/734",
+          "pass": false,
+          "tokens": 90,
+          "err": "NameError: name 'sum_Of_Subarray_Prod' is not defined",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/744",
+          "pass": true,
+          "tokens": 44,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/755",
+          "pass": false,
+          "tokens": 89,
+          "err": "IndexError: list index out of range",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/766",
+          "pass": true,
+          "tokens": 112,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/778",
+          "pass": true,
+          "tokens": 215,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T14:57:41.349Z"
+    },
+    {
+      "suite": "ts",
+      "key": "coder",
+      "name": "coder (qwen3-4b-q4.brik)",
+      "arch": "qwen3",
+      "results": [
+        {
+          "task": "HumanEval_0_has_close_elements",
+          "pass": true,
+          "tokens": 183,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_4_mean_absolute_deviation",
+          "pass": true,
+          "tokens": 206,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_8_sum_product",
+          "pass": true,
+          "tokens": 146,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_12_longest",
+          "pass": true,
+          "tokens": 156,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_16_count_distinct_characters",
+          "pass": true,
+          "tokens": 80,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_20_find_closest_elements",
+          "pass": false,
+          "tokens": 149,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_24_largest_divisor",
+          "pass": true,
+          "tokens": 97,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_28_concatenate",
+          "pass": true,
+          "tokens": 55,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_33_sort_third",
+          "pass": true,
+          "tokens": 141,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_37_sort_even",
+          "pass": true,
+          "tokens": 175,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_42_incr_list",
+          "pass": true,
+          "tokens": 127,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_46_fib4",
+          "pass": true,
+          "tokens": 169,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_51_remove_vowels",
+          "pass": true,
+          "tokens": 116,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_55_fib",
+          "pass": true,
+          "tokens": 137,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_59_largest_prime_factor",
+          "pass": true,
+          "tokens": 300,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_63_fibfib",
+          "pass": true,
+          "tokens": 144,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_67_fruit_distribution",
+          "pass": true,
+          "tokens": 116,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_71_triangle_area",
+          "pass": true,
+          "tokens": 166,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_75_is_multiply_prime",
+          "pass": false,
+          "tokens": 390,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_79_decimal_to_binary",
+          "pass": true,
+          "tokens": 61,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_83_starts_one_ends",
+          "pass": false,
+          "tokens": 158,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_87_get_row",
+          "pass": false,
+          "tokens": 199,
+          "err": "ReferenceError: use is not defined",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_91_is_bored",
+          "pass": false,
+          "tokens": 110,
+          "err": "TypeError: Cannot read properties of undefined (reading 'trim')",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_95_check_dict_case",
+          "pass": false,
+          "tokens": 86,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_99_closest_integer",
+          "pass": false,
+          "tokens": 138,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_103_rounded_avg",
+          "pass": false,
+          "tokens": 81,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_107_even_odd_palindrome",
+          "pass": true,
+          "tokens": 166,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_111_histogram",
+          "pass": true,
+          "tokens": 194,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_115_max_fill",
+          "pass": true,
+          "tokens": 154,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_119_match_parens",
+          "pass": true,
+          "tokens": 178,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_123_get_odd_collatz",
+          "pass": true,
+          "tokens": 169,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_127_intersection",
+          "pass": true,
+          "tokens": 241,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_131_digits",
+          "pass": false,
+          "tokens": 138,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_135_can_arrange",
+          "pass": false,
+          "tokens": 159,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_140_fix_spaces",
+          "pass": false,
+          "tokens": 75,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_144_simplify",
+          "pass": true,
+          "tokens": 291,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_149_sorted_list_sum",
+          "pass": false,
+          "tokens": 102,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_153_Strongest_Extension",
+          "pass": true,
+          "tokens": 184,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_157_right_angle_triangle",
+          "pass": true,
+          "tokens": 192,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_161_solve",
+          "pass": true,
+          "tokens": 139,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T15:08:43.758Z"
+    },
+    {
+      "suite": "fix",
+      "key": "coder",
+      "name": "coder (qwen3-4b-q4.brik)",
+      "arch": "qwen3",
+      "results": [
+        {
+          "task": "Fix/0",
+          "pass": true,
+          "tokens": 71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/4",
+          "pass": true,
+          "tokens": 53,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/8",
+          "pass": true,
+          "tokens": 83,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/12",
+          "pass": true,
+          "tokens": 65,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/16",
+          "pass": false,
+          "tokens": 26,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/20",
+          "pass": false,
+          "tokens": 109,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/24",
+          "pass": true,
+          "tokens": 48,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/28",
+          "pass": true,
+          "tokens": 29,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/32",
+          "pass": false,
+          "tokens": 233,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/36",
+          "pass": false,
+          "tokens": 88,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/40",
+          "pass": true,
+          "tokens": 76,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/44",
+          "pass": true,
+          "tokens": 62,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/48",
+          "pass": true,
+          "tokens": 52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/52",
+          "pass": false,
+          "tokens": 39,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/56",
+          "pass": true,
+          "tokens": 69,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/60",
+          "pass": true,
+          "tokens": 25,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/64",
+          "pass": false,
+          "tokens": 49,
+          "err": "AssertionError: Test 4",
+          "truncated": false
+        },
+        {
+          "task": "Fix/68",
+          "pass": false,
+          "tokens": 79,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/72",
+          "pass": false,
+          "tokens": 77,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/76",
+          "pass": false,
+          "tokens": 72,
+          "err": "délai dépassé (30 s)",
+          "truncated": false
+        },
+        {
+          "task": "Fix/80",
+          "pass": false,
+          "tokens": 70,
+          "err": "AssertionError: aabb",
+          "truncated": false
+        },
+        {
+          "task": "Fix/84",
+          "pass": false,
+          "tokens": 33,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/88",
+          "pass": false,
+          "tokens": 45,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/92",
+          "pass": true,
+          "tokens": 73,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/96",
+          "pass": false,
+          "tokens": 85,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/100",
+          "pass": true,
+          "tokens": 29,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/104",
+          "pass": false,
+          "tokens": 68,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/108",
+          "pass": true,
+          "tokens": 95,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/112",
+          "pass": true,
+          "tokens": 244,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/116",
+          "pass": false,
+          "tokens": 27,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/120",
+          "pass": false,
+          "tokens": 64,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/124",
+          "pass": false,
+          "tokens": 189,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/128",
+          "pass": false,
+          "tokens": 83,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/132",
+          "pass": false,
+          "tokens": 156,
+          "err": "AssertionError: This prints if this assert fails 1 (good for debugging!)",
+          "truncated": false
+        },
+        {
+          "task": "Fix/136",
+          "pass": true,
+          "tokens": 143,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/140",
+          "pass": true,
+          "tokens": 218,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/144",
+          "pass": true,
+          "tokens": 91,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/148",
+          "pass": true,
+          "tokens": 151,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/152",
+          "pass": true,
+          "tokens": 32,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/156",
+          "pass": false,
+          "tokens": 181,
+          "err": "SyntaxError: invalid syntax",
+          "truncated": false
+        },
+        {
+          "task": "Fix/160",
+          "pass": true,
+          "tokens": 59,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T15:17:37.049Z"
+    },
+    {
+      "suite": "heplus",
+      "key": "qwen36-reap50+nothink",
+      "name": "Qwen36 Reap50 (11.37 Go, GGUF)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "HumanEval/0",
+          "pass": true,
+          "tokens": 199,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/4",
+          "pass": true,
+          "tokens": 168,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/8",
+          "pass": true,
+          "tokens": 173,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/12",
+          "pass": true,
+          "tokens": 160,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/16",
+          "pass": true,
+          "tokens": 131,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/20",
+          "pass": true,
+          "tokens": 319,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/24",
+          "pass": true,
+          "tokens": 132,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/28",
+          "pass": true,
+          "tokens": 69,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/36",
+          "pass": true,
+          "tokens": 138,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/40",
+          "pass": true,
+          "tokens": 411,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/44",
+          "pass": true,
+          "tokens": 201,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/48",
+          "pass": true,
+          "tokens": 86,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/52",
+          "pass": true,
+          "tokens": 99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/56",
+          "pass": true,
+          "tokens": 157,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/60",
+          "pass": true,
+          "tokens": 124,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/64",
+          "pass": true,
+          "tokens": 229,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/68",
+          "pass": true,
+          "tokens": 430,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/72",
+          "pass": true,
+          "tokens": 297,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/76",
+          "pass": false,
+          "tokens": 229,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/80",
+          "pass": true,
+          "tokens": 182,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/84",
+          "pass": true,
+          "tokens": 215,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/88",
+          "pass": true,
+          "tokens": 352,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/92",
+          "pass": true,
+          "tokens": 218,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/96",
+          "pass": true,
+          "tokens": 297,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/100",
+          "pass": true,
+          "tokens": 227,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/104",
+          "pass": true,
+          "tokens": 184,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/108",
+          "pass": true,
+          "tokens": 308,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/112",
+          "pass": true,
+          "tokens": 261,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/116",
+          "pass": true,
+          "tokens": 378,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/120",
+          "pass": true,
+          "tokens": 279,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/124",
+          "pass": false,
+          "tokens": 688,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/128",
+          "pass": true,
+          "tokens": 238,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/132",
+          "pass": true,
+          "tokens": 823,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/136",
+          "pass": true,
+          "tokens": 212,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/140",
+          "pass": true,
+          "tokens": 214,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/144",
+          "pass": true,
+          "tokens": 279,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/148",
+          "pass": true,
+          "tokens": 384,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/152",
+          "pass": true,
+          "tokens": 256,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/156",
+          "pass": true,
+          "tokens": 424,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval/160",
+          "pass": true,
+          "tokens": 278,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T15:38:15.974Z"
+    },
+    {
+      "suite": "mbppplus",
+      "key": "qwen36-reap50+nothink",
+      "name": "Qwen36 Reap50 (11.37 Go, GGUF)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "Mbpp/2",
+          "pass": true,
+          "tokens": 104,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/14",
+          "pass": true,
+          "tokens": 134,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/59",
+          "pass": true,
+          "tokens": 104,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/69",
+          "pass": true,
+          "tokens": 164,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/82",
+          "pass": true,
+          "tokens": 99,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/92",
+          "pass": false,
+          "tokens": 565,
+          "err": "AssertionError: out: False, exp: True",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/101",
+          "pass": true,
+          "tokens": 136,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/113",
+          "pass": false,
+          "tokens": 85,
+          "err": "AssertionError: out: False, exp: None",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/127",
+          "pass": true,
+          "tokens": 18,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/138",
+          "pass": true,
+          "tokens": 457,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/165",
+          "pass": true,
+          "tokens": 287,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/224",
+          "pass": true,
+          "tokens": 140,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/238",
+          "pass": true,
+          "tokens": 204,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/252",
+          "pass": true,
+          "tokens": 131,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/264",
+          "pass": false,
+          "tokens": 93,
+          "err": "AssertionError: out: 60, exp: 61",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/273",
+          "pass": true,
+          "tokens": 111,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/283",
+          "pass": true,
+          "tokens": 242,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/296",
+          "pass": true,
+          "tokens": 296,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/310",
+          "pass": false,
+          "tokens": 73,
+          "err": "AssertionError: out: ('p', 'y', 't', 'h', 'o', 'n', ' ', '3', '.', '0'), exp: ('p', 'y', 't', 'h', 'o', 'n', '3', '.', '0')",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/395",
+          "pass": true,
+          "tokens": 160,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/413",
+          "pass": true,
+          "tokens": 97,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/425",
+          "pass": true,
+          "tokens": 117,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/436",
+          "pass": true,
+          "tokens": 82,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/450",
+          "pass": true,
+          "tokens": 102,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/460",
+          "pass": true,
+          "tokens": 87,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/474",
+          "pass": true,
+          "tokens": 101,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/557",
+          "pass": true,
+          "tokens": 122,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/567",
+          "pass": true,
+          "tokens": 98,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/580",
+          "pass": true,
+          "tokens": 171,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/591",
+          "pass": true,
+          "tokens": 145,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/602",
+          "pass": true,
+          "tokens": 116,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/612",
+          "pass": true,
+          "tokens": 125,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/624",
+          "pass": true,
+          "tokens": 70,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/637",
+          "pass": true,
+          "tokens": 83,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/723",
+          "pass": true,
+          "tokens": 125,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/734",
+          "pass": true,
+          "tokens": 181,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/744",
+          "pass": true,
+          "tokens": 71,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/755",
+          "pass": false,
+          "tokens": 156,
+          "err": "ValueError: List must contain at least 2 unique elements",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/766",
+          "pass": true,
+          "tokens": 94,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Mbpp/778",
+          "pass": true,
+          "tokens": 169,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T15:50:44.893Z"
+    },
+    {
+      "suite": "ts",
+      "key": "qwen36-reap50+nothink",
+      "name": "Qwen36 Reap50 (11.37 Go, GGUF)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "HumanEval_0_has_close_elements",
+          "pass": true,
+          "tokens": 192,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_4_mean_absolute_deviation",
+          "pass": true,
+          "tokens": 226,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_8_sum_product",
+          "pass": true,
+          "tokens": 93,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_12_longest",
+          "pass": true,
+          "tokens": 96,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_16_count_distinct_characters",
+          "pass": true,
+          "tokens": 47,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_20_find_closest_elements",
+          "pass": true,
+          "tokens": 212,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_24_largest_divisor",
+          "pass": true,
+          "tokens": 137,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_28_concatenate",
+          "pass": true,
+          "tokens": 59,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_33_sort_third",
+          "pass": true,
+          "tokens": 233,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_37_sort_even",
+          "pass": true,
+          "tokens": 178,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_42_incr_list",
+          "pass": true,
+          "tokens": 29,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_46_fib4",
+          "pass": true,
+          "tokens": 404,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_51_remove_vowels",
+          "pass": true,
+          "tokens": 33,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_55_fib",
+          "pass": true,
+          "tokens": 140,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_59_largest_prime_factor",
+          "pass": true,
+          "tokens": 234,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_63_fibfib",
+          "pass": true,
+          "tokens": 146,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_67_fruit_distribution",
+          "pass": true,
+          "tokens": 125,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_71_triangle_area",
+          "pass": true,
+          "tokens": 172,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_75_is_multiply_prime",
+          "pass": true,
+          "tokens": 378,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_79_decimal_to_binary",
+          "pass": true,
+          "tokens": 171,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_83_starts_one_ends",
+          "pass": true,
+          "tokens": 348,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_87_get_row",
+          "pass": true,
+          "tokens": 448,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_91_is_bored",
+          "pass": true,
+          "tokens": 227,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_95_check_dict_case",
+          "pass": false,
+          "tokens": 313,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_99_closest_integer",
+          "pass": true,
+          "tokens": 283,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_103_rounded_avg",
+          "pass": false,
+          "tokens": 279,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_107_even_odd_palindrome",
+          "pass": true,
+          "tokens": 408,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_111_histogram",
+          "pass": true,
+          "tokens": 446,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_115_max_fill",
+          "pass": false,
+          "tokens": 202,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_119_match_parens",
+          "pass": true,
+          "tokens": 388,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_123_get_odd_collatz",
+          "pass": true,
+          "tokens": 389,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_127_intersection",
+          "pass": true,
+          "tokens": 498,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_131_digits",
+          "pass": true,
+          "tokens": 88,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_135_can_arrange",
+          "pass": true,
+          "tokens": 175,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_140_fix_spaces",
+          "pass": true,
+          "tokens": 98,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_144_simplify",
+          "pass": true,
+          "tokens": 206,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_149_sorted_list_sum",
+          "pass": false,
+          "tokens": 268,
+          "err": "AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_153_Strongest_Extension",
+          "pass": true,
+          "tokens": 174,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_157_right_angle_triangle",
+          "pass": true,
+          "tokens": 280,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "HumanEval_161_solve",
+          "pass": true,
+          "tokens": 251,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T16:07:17.179Z"
+    },
+    {
+      "suite": "fix",
+      "key": "qwen36-reap50+nothink",
+      "name": "Qwen36 Reap50 (11.37 Go, GGUF)",
+      "arch": "qwen35",
+      "results": [
+        {
+          "task": "Fix/0",
+          "pass": true,
+          "tokens": 81,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/4",
+          "pass": true,
+          "tokens": 52,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/8",
+          "pass": true,
+          "tokens": 67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/12",
+          "pass": true,
+          "tokens": 66,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/16",
+          "pass": true,
+          "tokens": 46,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/20",
+          "pass": true,
+          "tokens": 146,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/24",
+          "pass": true,
+          "tokens": 42,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/28",
+          "pass": true,
+          "tokens": 27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/32",
+          "pass": true,
+          "tokens": 208,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/36",
+          "pass": true,
+          "tokens": 983,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/40",
+          "pass": true,
+          "tokens": 219,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/44",
+          "pass": true,
+          "tokens": 63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/48",
+          "pass": true,
+          "tokens": 47,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/52",
+          "pass": false,
+          "tokens": 38,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/56",
+          "pass": true,
+          "tokens": 322,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/60",
+          "pass": true,
+          "tokens": 26,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/64",
+          "pass": false,
+          "tokens": 45,
+          "err": "AssertionError: Test 4",
+          "truncated": false
+        },
+        {
+          "task": "Fix/68",
+          "pass": true,
+          "tokens": 713,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/72",
+          "pass": true,
+          "tokens": 416,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/76",
+          "pass": true,
+          "tokens": 95,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/80",
+          "pass": false,
+          "tokens": 557,
+          "err": "AssertionError: iopaxioi",
+          "truncated": false
+        },
+        {
+          "task": "Fix/84",
+          "pass": false,
+          "tokens": 17,
+          "err": "AssertionError: Error",
+          "truncated": false
+        },
+        {
+          "task": "Fix/88",
+          "pass": true,
+          "tokens": 539,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/92",
+          "pass": true,
+          "tokens": 67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/96",
+          "pass": true,
+          "tokens": 79,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/100",
+          "pass": true,
+          "tokens": 27,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/104",
+          "pass": true,
+          "tokens": 63,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/108",
+          "pass": true,
+          "tokens": 2048,
+          "err": "",
+          "truncated": true
+        },
+        {
+          "task": "Fix/112",
+          "pass": true,
+          "tokens": 41,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/116",
+          "pass": true,
+          "tokens": 1455,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/120",
+          "pass": false,
+          "tokens": 47,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/124",
+          "pass": false,
+          "tokens": 175,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/128",
+          "pass": true,
+          "tokens": 155,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/132",
+          "pass": false,
+          "tokens": 223,
+          "err": "AssertionError",
+          "truncated": false
+        },
+        {
+          "task": "Fix/136",
+          "pass": true,
+          "tokens": 67,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/140",
+          "pass": true,
+          "tokens": 165,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/144",
+          "pass": true,
+          "tokens": 816,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/148",
+          "pass": true,
+          "tokens": 155,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/152",
+          "pass": true,
+          "tokens": 30,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/156",
+          "pass": true,
+          "tokens": 321,
+          "err": "",
+          "truncated": false
+        },
+        {
+          "task": "Fix/160",
+          "pass": true,
+          "tokens": 57,
+          "err": "",
+          "truncated": false
+        }
+      ],
+      "date": "2026-09-25T17:30:15.576Z"
+    }
+  ]
+}
