@@ -108,7 +108,7 @@ export { formatPrompt, declaredStopIds } from ${s('src/lib/chatFormat.ts')};`);
     const manifest = await M.parseGguf(new Blob([head]));
     const source = { bytes: async (off, len) => { const b = Buffer.alloc(len); readSync(fd, b, 0, len, off); return new Uint8Array(b.buffer, b.byteOffset, len); } };
     const engine = new M.WebGpuEngine(); await engine.init(); await engine.selfValidate();
-    arch = manifest.arch === 'gemma4' ? 'gemma4' : manifest.arch === 'qwen35' ? 'qwen35' : manifest.arch === 'spark2_5' ? 'spark' : manifest.arch;
+    arch = manifest.arch === 'gemma4' ? 'gemma4' : (manifest.arch === 'qwen35' || manifest.arch === 'qwen35moe') ? 'qwen35' : manifest.arch === 'spark2_5' ? 'spark' : manifest.arch;
     const tk = arch === 'gemma4' ? M.gemma4TokenizerFromGguf(manifest) : M.tokenizerFromGguf(manifest);
     const stops = [...M.declaredStopIds(manifest.metadata), ...(tk.eosId != null ? [tk.eosId] : []), ...(tk.controlIds || []), ...(arch === 'gemma4' ? [106, 1, 50] : [])];
     const model = arch === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : arch === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : arch === 'spark' ? new M.SparkModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
@@ -132,7 +132,7 @@ export { formatPrompt, declaredStopIds } from ${s('src/lib/chatFormat.ts')};`);
     let user = userPrompt(p);
     // Réglage « auto » de la CLI pour Qwen 3 : sans réflexion. Clé suffixée « +think » : avec (modèles
     // de raisonnement comme X-Coder, dont c'est toute la force).
-    if ((arch === 'qwen3' || arch === 'spark') && !key.endsWith('+think')) user += ' /no_think'; // Spark : même convention (chatFormat)
+    if (((arch === 'qwen3' || arch === 'spark') && !key.endsWith('+think')) || key.endsWith('+nothink')) user += ' /no_think'; // Spark, Qwen 3.5 (+nothink) : même convention (chatFormat)
     const prompt = M.formatPrompt([{ role: 'user', content: user }], arch, SYSTEM);
     let n = 0;
     const ts = performance.now();

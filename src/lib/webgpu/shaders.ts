@@ -1693,6 +1693,58 @@ export const SHADERS = {
 			if (tid == 0u && col < d.n) { c[col] = part[0]; }
 		}`,
 
+	// ── MoE (qwen35moe, qwen3moe…) : experts indexés par un tampon d'ids, rien ne remonte au CPU. ──
+	// Routage : softmax sur les E experts, top-K, poids renormalisés sur les K retenus (norm_w de
+	// llama.cpp build_moe_ffn) — ce qui revient à un softmax sur les K logits choisis — × scale.
+	// Un thread par token (E ≤ 512, K ≤ 16 : quelques milliers de comparaisons).
+	moe_route: `
+		struct P { T: u32, E: u32, K: u32, scale: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> lg: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> ids: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> w: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+			let t = gid.x;
+			if (t >= p.T) { return; }
+			var sel: array<u32, 16>;
+			var val: array<f32, 16>;
+			for (var j = 0u; j < p.K; j = j + 1u) {
+				var best = 0xFFFFFFFFu; var bv = -3.4e38;
+				for (var i = 0u; i < p.E; i = i + 1u) {
+					var taken = false;
+					for (var q = 0u; q < j; q = q + 1u) { if (sel[q] == i) { taken = true; } }
+					let v = lg[t * p.E + i];
+					if (!taken && (best == 0xFFFFFFFFu || v > bv)) { best = i; bv = v; }
+				}
+				sel[j] = best; val[j] = bv;
+			}
+			var sum = 0.0;
+			let mx = val[0];
+			for (var j = 0u; j < p.K; j = j + 1u) { val[j] = exp(val[j] - mx); sum = sum + val[j]; }
+			for (var j = 0u; j < p.K; j = j + 1u) {
+				ids[t * p.K + j] = sel[j];
+				w[t * p.K + j] = val[j] / sum * p.scale;
+			}
+		}`,
+
+	// o[t, i] = Σ_j y[t·K + j, i] · w[t·K + j] : somme pondérée des K sorties d'experts d'un token.
+	moe_sum: `
+		struct P { T: u32, K: u32, d: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> y: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (idx >= p.T * p.d) { return; }
+			let t = idx / p.d; let i = idx % p.d;
+			var acc = 0.0;
+			for (var j = 0u; j < p.K; j = j + 1u) { acc = acc + y[(t * p.K + j) * p.d + i] * w[t * p.K + j]; }
+			o[idx] = acc;
+		}`,
+
 	// RMSNorm over the last dimension (dim = cols), with a per-channel weight.
 	rmsnorm: `
 		struct P { rows: u32, dim: u32, eps: f32, onePlus: u32 };
@@ -4988,3 +5040,22 @@ export const MATMUL_T_F16W = `
 		}
 		c[row * d.n + col] = acc.x + acc.y + acc.z + acc.w;
 	}`;
+
+// Variantes MoE des GEMV K-quant natifs, DÉRIVÉES du source des kernels denses (mêmes maths — seule
+// l'adresse change) : une « case » = (token, rang d'expert) portée par wid.z ; l'expert ex = ids[case]
+// décale la ligne de poids (tenseur [E][n][k] contigu), l'entrée est la ligne case / d.m (d.m = K
+// pour gate/up qui lisent x[t], 1 pour down qui lit h[case]), la sortie va en c[case·n + col].
+function moeGemv(src: string, rowOld: string, rowNew: string, aOld: string, aNew: string): string {
+	const rep = (s: string, a: string, b: string) => { if (!s.includes(a)) throw new Error(`moeGemv : motif absent « ${a} »`); return s.replace(a, b); };
+	let s = rep(src, '@group(0) @binding(3) var<storage, read_write> c: array<f32>;', '@group(0) @binding(3) var<storage, read_write> c: array<f32>;\n\t\t@group(0) @binding(4) var<storage, read> ids: array<u32>;');
+	s = rep(s, 'let col = wid.y * d.stride + wid.x;', 'let col = wid.y * d.stride + wid.x;\n\t\t\tlet slot = wid.z; let ex = ids[slot]; let arow = slot / d.m;');
+	s = rep(s, rowOld, rowNew);
+	s = rep(s, aOld, aNew);
+	return rep(s, 'if (tid == 0u && col < d.n) { c[col] = part[0]; }', 'if (tid == 0u && col < d.n) { c[slot * d.n + col] = part[0]; }');
+}
+(SHADERS as Record<string, string>).moe_q4k_vec = moeGemv(SHADERS.matmul_t_q4k_vec,
+	'let rowBase = col * (d.k / 256u) * 36u;', 'let rowBase = (ex * d.n + col) * (d.k / 256u) * 36u;',
+	'let aBase = g * 8u;', 'let aBase = arow * (d.k / 4u) + g * 8u;');
+(SHADERS as Record<string, string>).moe_q6k_vec = moeGemv(SHADERS.matmul_t_q6k_vec,
+	'let rowBase = col * nBlk * 210u;', 'let rowBase = (ex * d.n + col) * nBlk * 210u;',
+	'let aB = b * 256u + half * 128u;', 'let aB = arow * d.k + b * 256u + half * 128u;');

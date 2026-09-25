@@ -31,7 +31,7 @@ function inferArchType(manifest: { arch?: string; metadata?: Record<string, unkn
   if (arch === 'rwkv7' || manifest.config?.rwkv) return 'rwkv7';
   if (arch === 'qwen2' || arch.includes('qwen2')) return 'qwen';
   // qwen35 AVANT la règle qwen3 (« qwen35 ».includes(« qwen3 ») l'avalait, d'où le chemin transformer).
-  if (arch === 'qwen35' || arch === 'qwen3_5') return 'qwen35';
+  if (arch === 'qwen35' || arch === 'qwen3_5' || arch === 'qwen35moe') return 'qwen35'; // qwen35moe : même graphe, FFN à experts
   if (arch === 'qwen3' || arch.includes('qwen3')) return 'qwen3';
   if (arch === 'smollm3' || arch.includes('smollm')) return 'smollm3';
   if (arch === 'mistral3' || arch.includes('mistral')) return 'mistral3';

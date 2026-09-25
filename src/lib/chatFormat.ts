@@ -106,6 +106,15 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
   // SmolLM3 : ChatML aussi (<|im_start|>/<|im_end|>) ; l'arrêt passe par le marqueur textuel
   // <|im_end|> de TURN_MARKERS — son id dépend du vocab, on ne le code pas en dur.
   if (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35' || archType === 'lfm2' || archType === 'smollm3') {
+    // Qwen 3.5 : le gabarit officiel ouvre la réflexion par défaut (« <think>\n » ; « <think>\n\n
+    // </think>\n\n » quand enable_thinking=false). Le modèle n'obéit PAS aux interrupteurs /think de
+    // Qwen 3 : un « /no_think » final du dernier message est donc RETIRÉ ici et traduit en
+    // enable_thinking=false (bloc de réflexion vide), la même convention que Qwen 3 et Spark.
+    let q35Think = true;
+    if (archType === 'qwen35' && chatMsgs.length && chatMsgs[chatMsgs.length - 1].role === 'user' && /\s*\/no_think\s*$/.test(chatMsgs[chatMsgs.length - 1].content)) {
+      q35Think = false;
+      chatMsgs = [...chatMsgs.slice(0, -1), { ...chatMsgs[chatMsgs.length - 1], content: chatMsgs[chatMsgs.length - 1].content.replace(/\s*\/no_think\s*$/, '') }];
+    }
     if (systemText.trim()) {
       formatted += `<|im_start|>system\n${systemText}<|im_end|>\n`;
     }
@@ -113,9 +122,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
       formatted += `<|im_start|>${msg.role}\n${msg.content}<|im_end|>\n`;
     }
     formatted += `<|im_start|>assistant\n`;
-    // Qwen 3.5 : le gabarit officiel ouvre la réflexion par défaut (« <think>\n » ; « <think>\n\n
-    // </think>\n\n » quand enable_thinking=false). Il n'obéit PAS aux interrupteurs /think de Qwen 3.
-    if (archType === 'qwen35') formatted += '<think>\n';
+    if (archType === 'qwen35') formatted += q35Think ? '<think>\n' : '<think>\n\n</think>\n\n';
   } else if (archType === 'llama3') {
     // Llama 3.x header-id template. (Réintégré 2026-07-18 : les lignes Q/K des GGUF llama sont
     // dé-permutées au chargement + rope_freqs.weight supporté — cf. model.ts.)

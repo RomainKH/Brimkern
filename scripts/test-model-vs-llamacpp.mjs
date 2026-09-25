@@ -69,7 +69,7 @@ readSync(fd, head, 0, head.length, 0);
 const manifest = await M.parseGguf(new Blob([head]));
 if (process.env.G4_WINDOW && manifest.config.gemma4) manifest.config.gemma4.window = Number(process.env.G4_WINDOW);
 const source = { bytes: async (off, len) => { const b = Buffer.alloc(len); readSync(fd, b, 0, len, off); return new Uint8Array(b.buffer, b.byteOffset, len); } };
-const ARCH = manifest.arch;
+const ARCH = manifest.arch === 'qwen35moe' ? 'qwen35' : manifest.arch; // même graphe, FFN à experts
 const tok = (M.gemma4TokenizerFromGguf(manifest) ?? M.tokenizerFromGguf(manifest)).tokenizer;
 const PROMPT = fmt(ARCH, 'You are a concise coding assistant.', userMsg);
 const STOPS = ARCH === 'gemma4' ? [106, 1] : [Number(manifest.metadata['tokenizer.ggml.eos_token_id'])];
@@ -87,6 +87,30 @@ if (!engine.attnWideOk) console.log('⚠️ attention large KO : repli un-thread
 fp('après selfValidate');
 console.log(`GGUF ${(size / 1e9).toFixed(2)} Go · ${manifest.config.blockCount} couches · selfValidate OK`);
 
+// Référence llama.cpp. LLAMA_REF=<fichier> : lue depuis ce fichier si présent — sinon calculée puis
+// écrite. --llama-ref-only : calcule la référence et s'arrête AVANT de charger notre moteur. Pour
+// un gros modèle (qwen35moe 11 Go), les deux en mémoire à la fois ne tiennent pas sur 26 Go.
+const ids = tok.encode(PROMPT);
+const REF_FILE = process.env.LLAMA_REF;
+const { existsSync: exists, readFileSync: readF, writeFileSync: writeF } = await import('node:fs');
+async function llamaRef(nPredict) {
+  if (REF_FILE && exists(REF_FILE)) return JSON.parse(readF(REF_FILE, 'utf8'));
+  const port = 18000 + Math.floor(Math.random() * 1000);
+  const srv = spawn(process.env.LLAMA_SERVER || 'llama-server', ['-m', gguf, '--port', String(port), '-ngl', '99', '-c', '4096', '--log-disable', ...(process.env.LLAMA_ARGS || '').split(' ').filter(Boolean)], { stdio: 'ignore' });
+  try {
+    for (let i = 0; i < 240; i++) { try { const r = await fetch(`http://127.0.0.1:${port}/health`); if (r.ok) break; } catch {} await new Promise((r) => setTimeout(r, 500)); }
+    const r = await fetch(`http://127.0.0.1:${port}/completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: ids, n_predict: nPredict, temperature: 0, top_k: 1, n_probs: 10, cache_prompt: false }) });
+    const j = await r.json();
+    if (REF_FILE) writeF(REF_FILE, JSON.stringify(j));
+    return j;
+  } finally { srv.kill('SIGKILL'); }
+}
+if (process.argv.includes('--llama-ref-only')) {
+  const j = await llamaRef(N);
+  console.log(`référence llama.cpp : ${(j.completion_probabilities || []).length} tokens → ${REF_FILE || '(non écrite : LLAMA_REF absent)'}\n${j.content}`);
+  process.exit(0);
+}
+
 if (process.env.G4_LAYERFP) { const orig = engine.settleGpu.bind(engine); let nSettle = 0; engine.settleGpu = async () => { await orig(); if (++nSettle % 4 === 0 || nSettle > 31) fp(`après ${nSettle} vidanges`); }; }
 const model = ARCH === 'gemma4' ? new M.Gemma4Model(engine, source, manifest) : ARCH === 'qwen35' ? new M.Qwen35Model(engine, source, manifest) : ARCH === 'spark2_5' ? new M.SparkModel(engine, source, manifest) : new M.CustomWebModel(engine, source, manifest);
 let t0 = performance.now();
@@ -96,7 +120,6 @@ fp('après chargement');
 for (let i = 0; i < 3; i++) { engine.device.queue.submit([engine.device.createCommandEncoder().finish()]); await engine.device.queue.onSubmittedWorkDone(); await new Promise((r) => setTimeout(r, 300)); }
 fp('après chargement + 1 s de répit');
 
-const ids = tok.encode(PROMPT);
 const softmaxTop = (logits, k) => {
   let mx = -Infinity; for (const v of logits) if (v > mx) mx = v;
   let s = 0; const p = new Float32Array(logits.length); for (let i = 0; i < logits.length; i++) { p[i] = Math.exp(logits[i] - mx); s += p[i]; }
@@ -133,17 +156,14 @@ if (engine.profiler) {
 console.log('--- sortie moteur ---\n' + tok.decode(gen) + '\n---');
 
 if (WITH_LLAMA) {
-  const port = 18000 + Math.floor(Math.random() * 1000);
-  const srv = spawn(process.env.LLAMA_SERVER || 'llama-server', ['-m', gguf, '--port', String(port), '-ngl', '99', '-c', '4096', '--log-disable', ...(process.env.LLAMA_ARGS || '').split(' ').filter(Boolean)], { stdio: 'ignore' });
-  try {
-    for (let i = 0; i < 120; i++) { try { const r = await fetch(`http://127.0.0.1:${port}/health`); if (r.ok) break; } catch {} await new Promise((r) => setTimeout(r, 500)); }
-    const r = await fetch(`http://127.0.0.1:${port}/completion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: ids, n_predict: gen.length, temperature: 0, top_k: 1, n_probs: 10, cache_prompt: false }) });
-    const j = await r.json();
-    const ref = j.completion_probabilities || [];
+  {
+    const j = await llamaRef(gen.length);
+    const ref = (j.completion_probabilities || []).slice(0, gen.length);
     const refTop = (ref[0]?.top_logprobs || ref[0]?.probs || []).map((t) => ({ id: t.id, p: t.logprob !== undefined ? Math.exp(t.logprob) : t.prob }));
     console.log('top-10 llama.cpp :', refTop.map((t) => `${JSON.stringify(tok.decode([t.id]))} ${(t.p * 100).toFixed(1)}%`).join(' · '));
     const ov = top.filter((t) => refTop.some((r) => r.id === t.id)).length;
     const refIds = ref.map((c) => c.id);
+    if (!refIds.length) throw new Error('référence llama.cpp vide');
     let agree = 0; while (agree < Math.min(refIds.length, gen.length) && refIds[agree] === gen[agree]) agree++;
     console.log(`recouvrement top-10 : ${ov}/10 · accord glouton : ${agree}/${Math.min(refIds.length, gen.length)} premiers tokens`);
     console.log('--- sortie llama.cpp ---\n' + (j.content || '') + '\n---');
@@ -161,7 +181,7 @@ if (WITH_LLAMA) {
     }
     console.log(`forçage sur la séquence llama.cpp : ${hits}/${refIds.length} premiers choix identiques`);
     for (const m of misses) console.log('   ' + m);
-  } finally { srv.kill('SIGKILL'); }
+  }
 }
 closeSync(fd);
 model.unload();

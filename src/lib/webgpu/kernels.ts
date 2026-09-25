@@ -188,6 +188,8 @@ export class WebGpuEngine {
 	gemma4Ok = true;
 	// Spark-X2.5 (sparkModel.ts) : porte par tête + RoPE partiel 64/256 des couches globales.
 	sparkOk = true;
+	// MoE (qwen35moe) : routage top-K, GEMV K-quant indexés par expert, somme pondérée.
+	moeOk = true;
 	// Attention LARGE (têtes de 129 à 512 : Gemma 4, Gemma 3, Qwen 3.5) : un workgroup par (token,
 	// tête) au lieu d'un thread (kernel `attention`). Gate NON BLOQUANT posé par selfValidate, ou forcé
 	// par ?attnwide=0 → repli sur `attention` (correct partout, 0,4 tok/s à 1,7k de contexte sur le E4B).
@@ -388,6 +390,10 @@ export class WebGpuEngine {
 			if (urlFlag('gemma4') === '0') {
 				this.gemma4Ok = false;
 				console.warn('[webgpu] chemin Gemma 4 COUPÉ par ?gemma4=0 : un modèle gemma4 refusera de charger');
+			}
+			if (urlFlag('moe') === '0') {
+				this.moeOk = false;
+				console.warn('[webgpu] chemin MoE COUPÉ par ?moe=0 : un modèle à experts refusera de charger');
 			}
 			if (urlFlag('spark') === '0') {
 				this.sparkOk = false;
@@ -2343,6 +2349,35 @@ export class WebGpuEngine {
 		trash.push(p, out);
 		return out;
 	}
+	// ── MoE ───────────────────────────────────────────────────────────────────────────────────
+	// Routage : logits [T, E] → ids u32 [T, K] et poids f32 [T, K] (softmax sur les K retenus × scale).
+	recMoeRoute(enc: GPUAny, trash: GPUAny[], logits: GPUAny, T: number, E: number, K: number, scale = 1): { ids: GPUAny; w: GPUAny } {
+		if (K > 16) throw new Error(`MoE : K = ${K} > 16 non géré par moe_route`);
+		const p = this.uniform([T, E, K], { offset: 12, value: scale });
+		const ids = this.storage(T * K * 4), w = this.storage(T * K * 4);
+		this.recordPass(enc, 'moe_route', [p, logits, ids, w], [Math.ceil(T / 64), 1, 1]);
+		trash.push(p, ids, w);
+		return { ids, w };
+	}
+	// GEMV d'experts : pour chaque case (T·K), y[case] = W[ids[case]] · a[case / aDiv]. W = tenseur
+	// K-quant natif [E][n][k] ; aDiv = K quand toutes les cases d'un token lisent x[t] (gate/up), 1
+	// quand chaque case a sa propre entrée (down). Rend [slots, n].
+	recMoeGemv(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: { kq: 'Q4_K' | 'Q6_K'; buf: GPUAny }, ids: GPUAny, slots: number, aDiv: number, k: number, n: number): GPUAny {
+		const g = this.gemvGrid(n);
+		const out = this.storage(slots * n * 4);
+		const dims = this.uniform([aDiv, k, n, g.stride]);
+		this.recordPass(enc, w.kq === 'Q4_K' ? 'moe_q4k_vec' : 'moe_q6k_vec', [dims, a, w.buf, out, ids], [g.grid[0], g.grid[1], slots]);
+		trash.push(dims, out);
+		return out;
+	}
+	recMoeSum(enc: GPUAny, trash: GPUAny[], y: GPUAny, w: GPUAny, T: number, K: number, d: number): GPUAny {
+		const p = this.uniform([T, K, d]);
+		const out = this.storage(T * d * 4);
+		this.recordPass(enc, 'moe_sum', [p, y, w, out], this.grid1D(T * d));
+		trash.push(p, out);
+		return out;
+	}
+
 	// o = x · sigmoid(g[i / hd]) — porte scalaire par (token, tête), Spark-X2.5. g [T·H].
 	recHeadGate(enc: GPUAny, trash: GPUAny[], x: GPUAny, g: GPUAny, len: number, hd: number): GPUAny {
 		const p = this.uniform([len, hd]);
@@ -4588,6 +4623,108 @@ export class WebGpuEngine {
 			} catch (e) {
 				this.gemma4Ok = false;
 				console.error('[selfValidate] Gemma 4 KO :', e);
+			}
+		}
+
+		// MoE (non bloquant) : routage, GEMV d'experts Q4_K / Q6_K et somme pondérée, aux formes réelles
+		// de Qwen3.6-35B-A3B élagué (E = 128, K = 8, d = 2 048, ffn d'expert 512), en décodage (T = 1)
+		// ET en prefill (T = 3 : les cases d'un token partagent son entrée), contre une référence CPU
+		// sur les MÊMES blocs déquantifiés. Les ids sont tirés sans remise : chaque expert choisi est lu
+		// à SON décalage (un décalage faux lirait un autre expert, valide, et passerait inaperçu sans
+		// comparaison ligne à ligne).
+		if (this.moeOk) {
+			const G = globalThis as any;
+			const readF = async (enc: GPUAny, buf: GPUAny, n: number): Promise<Float32Array> => {
+				const read = this.device.createBuffer({ size: n * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+				enc.copyBufferToBuffer(buf, 0, read, 0, n * 4);
+				this.device.queue.submit([enc.finish()]);
+				await read.mapAsync(G.GPUMapMode.READ);
+				const r = new Float32Array(read.getMappedRange().slice(0));
+				read.unmap(); read.destroy();
+				return r;
+			};
+			const up = (a: Float32Array | Uint32Array) => { const b = this.storage(a.byteLength); this.device.queue.writeBuffer(b, 0, a); return b; };
+			const mkBlocks = (type: 'Q4_K' | 'Q6_K', n: number, k: number): Uint8Array => {
+				const bs = type === 'Q4_K' ? 144 : 210, nb = (n * k) / 256;
+				const b = new Uint8Array(nb * bs);
+				for (let i = 0; i < b.length; i++) b[i] = (Math.random() * 256) | 0;
+				for (let j = 0; j < nb; j++) {
+					const dv = new DataView(b.buffer, j * bs);
+					if (type === 'Q4_K') { dv.setUint16(0, f32ToF16(0.01 + Math.random() * 0.02), true); dv.setUint16(2, f32ToF16(0.005 + Math.random() * 0.01), true); }
+					else dv.setUint16(208, f32ToF16(0.002 + Math.random() * 0.004), true);
+				}
+				return b;
+			};
+			const relK = (x: Float32Array, y: Float32Array, tol: number) => { let mx = 0; for (const v of y) mx = Math.max(mx, Math.abs(v)); return x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) <= tol * (mx + 1)); };
+			const moeFail = async (): Promise<string | null> => {
+				// 1. Routage.
+				{
+					const T = 3, E = 128, K = 8, scale = 1.5, lg = rand(T * E).map((v) => v * 4);
+					const lb = up(lg);
+					const trash: GPUAny[] = [];
+					let enc = this.device.createCommandEncoder();
+					const r = this.recMoeRoute(enc, trash, lb, T, E, K, scale);
+					const w = await readF(enc, r.w, T * K);
+					enc = this.device.createCommandEncoder();
+					const ids = new Uint32Array((await readF(enc, r.ids, T * K)).buffer);
+					this.release([...trash, lb]);
+					for (let t = 0; t < T; t++) {
+						const order = Array.from({ length: E }, (_, i) => i).sort((a, b) => lg[t * E + b] - lg[t * E + a]).slice(0, K);
+						const m = lg[t * E + order[0]];
+						const ex = order.map((i) => Math.exp(lg[t * E + i] - m)), sum = ex.reduce((a, b) => a + b, 0);
+						for (let j = 0; j < K; j++) {
+							if (ids[t * K + j] !== order[j]) return `moe_route ids (t=${t}, j=${j})`;
+							if (Math.abs(w[t * K + j] - (ex[j] / sum) * scale) > 1e-4) return `moe_route poids (t=${t}, j=${j})`;
+						}
+					}
+				}
+				// 2. GEMV d'experts (gate/up : aDiv = K ; down : aDiv = 1) + somme pondérée.
+				for (const [type, T, k, n, aDivK] of [['Q4_K', 1, 2048, 512, true], ['Q4_K', 3, 2048, 512, true], ['Q6_K', 1, 512, 2048, false], ['Q6_K', 3, 512, 2048, false]] as ['Q4_K' | 'Q6_K', number, number, number, boolean][]) {
+					const E = 12, K = 4, slots = T * K;
+					const blocks = mkBlocks(type, E * n, k);
+					const wf = type === 'Q4_K' ? dequantQ4KCpu(blocks, (E * n * k) / 256) : dequantQ6KCpu(blocks, (E * n * k) / 256);
+					const ids = new Uint32Array(slots);
+					for (let t = 0; t < T; t++) {
+						const pool = Array.from({ length: E }, (_, i) => i).sort(() => Math.random() - 0.5);
+						for (let j = 0; j < K; j++) ids[t * K + j] = pool[j];
+					}
+					const aRows = aDivK ? T : slots;
+					const a = rand(aRows * k);
+					const ref = new Float32Array(slots * n);
+					for (let sl = 0; sl < slots; sl++) {
+						const ar = aDivK ? Math.floor(sl / K) : sl, ex = ids[sl];
+						for (let c = 0; c < n; c++) { let acc = 0; for (let i = 0; i < k; i++) acc += a[ar * k + i] * wf[(ex * n + c) * k + i]; ref[sl * n + c] = acc; }
+					}
+					const w = this.uploadKq(type, blocks);
+					const ab = up(a), ib = up(ids);
+					const trash: GPUAny[] = [];
+					const enc = this.device.createCommandEncoder();
+					const out = this.recMoeGemv(enc, trash, ab, w, ib, slots, aDivK ? K : 1, k, n);
+					const got = await readF(enc, out, slots * n);
+					w.buf.destroy();
+					this.release([...trash, ab, ib]);
+					if (!relK(got, ref, 2e-3)) return `moe gemv ${type} T=${T} k=${k} n=${n}`;
+				}
+				{
+					const T = 3, K = 8, d = 2048, y = rand(T * K * d), wv = rand(T * K);
+					const yb = up(y), wb = up(wv);
+					const trash: GPUAny[] = [];
+					const enc = this.device.createCommandEncoder();
+					const got = await readF(enc, this.recMoeSum(enc, trash, yb, wb, T, K, d), T * d);
+					this.release([...trash, yb, wb]);
+					const ref = new Float32Array(T * d);
+					for (let t = 0; t < T; t++) for (let i = 0; i < d; i++) { let acc = 0; for (let j = 0; j < K; j++) acc += y[(t * K + j) * d + i] * wv[t * K + j]; ref[t * d + i] = acc; }
+					if (!relK(got, ref, 1e-4)) return 'moe_sum';
+				}
+				return null;
+			};
+			try {
+				const f = await moeFail();
+				if (f) { this.moeOk = false; console.error(`[selfValidate] MoE KO (${f}) : un modèle à experts refuserait de charger (non bloquant pour le reste).`); }
+				else console.log('[selfValidate] MoE OK (routage top-K, GEMV d\'experts Q4_K/Q6_K, somme pondérée)');
+			} catch (err) {
+				this.moeOk = false;
+				console.error('[selfValidate] MoE KO :', err);
 			}
 		}
 

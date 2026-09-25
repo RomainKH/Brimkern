@@ -46,7 +46,9 @@ export interface Manifest {
     // (0 = bloc shortconv, >0 = bloc attention GQA).
     lfm2?: { lCache: number; kvHeadsPerLayer: number[] };
     // Qwen 3.5 (moteur v2, hybride SSM Gated DeltaNet + full attention).
-    qwen35?: { fullAttnInterval: number; dConv: number; dInner: number; dState: number; dtRank: number; nGroup: number; nRot: number; nLayer: number };
+    qwen35?: { fullAttnInterval: number; dConv: number; dInner: number; dState: number; dtRank: number; nGroup: number; nRot: number; nLayer: number;
+      // qwen35moe : FFN à experts (E routés, K actifs, ffn d'expert ffExp) + expert partagé (ffShexp).
+      moe?: { nExpert: number; nUsed: number; ffExp: number; ffShexp: number; scale: number } };
     // Gemma 4 (gemma4Model.ts) : têtes de taille DIFFÉRENTE selon la couche (fenêtre glissante :
     // headDimSwa, θ ropeThetaSwa ; globale : headDim, θ ropeTheta + RoPE partiel via rope_freqs),
     // embeddings PAR COUCHE (perLayer dims par couche, table lue à la demande), et les couches
@@ -378,7 +380,8 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   // time_step_rank / group_count. La version précédente lisait ssm.d_conv, d_inner… qui n'existent
   // pas : tout retombait sur les défauts, dont dInner = d (2 560) au lieu de 4 096 sur le 4B.
   // block_count COMPTE la couche MTP (nextn) finale, que le forward principal n'exécute pas.
-  if (arch === 'qwen35' || arch === 'qwen3_5') {
+  // qwen35moe (Qwen3.5/3.6-35B-A3B et leurs élagages) : mêmes couches, FFN remplacé par des experts.
+  if (arch === 'qwen35' || arch === 'qwen3_5' || arch === 'qwen35moe') {
     const fullAttnInterval = getMetaU32('full_attention_interval', 4);
     config.qwen35 = {
       fullAttnInterval,
@@ -389,6 +392,13 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
       nGroup: getMetaU32('ssm.group_count', 16),
       nRot: getMetaU32('rope.dimension_count', headDim),
       nLayer: blockCount - getMetaU32('nextn_predict_layers', 0),
+      moe: arch === 'qwen35moe' ? {
+        nExpert: getMetaU32('expert_count', 0),
+        nUsed: getMetaU32('expert_used_count', 8),
+        ffExp: getMetaU32('expert_feed_forward_length', 0),
+        ffShexp: getMetaU32('expert_shared_feed_forward_length', 0),
+        scale: getMetaF32('expert_weights_scale', 1) || 1,
+      } : undefined,
     };
   }
 

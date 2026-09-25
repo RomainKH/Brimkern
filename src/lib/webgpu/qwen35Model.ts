@@ -32,10 +32,16 @@ import { urlFlag } from './urlFlags';
 
 interface AttnWeights { wq: Gpu; wqGate: Gpu; wk: Gpu; wv: Gpu; wo: Gpu; qNorm: Gpu; kNorm: Gpu }
 
+// qwen35moe : experts routés (tenseurs K-quant NATIFS [E][n][k], lus à l'expert près par les GEMV
+// indexés) + expert partagé à porte sigmoïde. Routeur et porte en f32 : un arrondi int8 du routeur
+// ferait basculer les quasi-égalités du top-K vers d'autres experts.
+interface MoeWeights { router: Gpu; gateExps: Gpu; upExps: Gpu; downExps: Gpu; shGate: Gpu; shUp: Gpu; shDown: Gpu; shInp: Gpu }
+
 interface Q35Layer {
 	recurrent: boolean;
 	attnNorm: Gpu; ffnNorm: Gpu;
-	wgate: Gpu; wup: Gpu; wdown: Gpu;
+	wgate?: Gpu; wup?: Gpu; wdown?: Gpu;
+	moe?: MoeWeights;
 	// DeltaNet
 	wqkv?: Gpu; wz?: Gpu; walpha?: Gpu; wbeta?: Gpu; conv?: Gpu; dt?: Gpu; A?: Gpu; ssmNorm?: Gpu; wout?: Gpu;
 	// Attention
@@ -133,10 +139,23 @@ export class Qwen35Model extends GraphModel<null> {
 			recurrent,
 			attnNorm: await vec('attn_norm.weight'),
 			ffnNorm: await vec('post_attention_norm.weight'),
-			wgate: await this.mat(`${p}.ffn_gate.weight`),
-			wup: await this.mat(`${p}.ffn_up.weight`),
-			wdown: await this.mat(`${p}.ffn_down.weight`),
 		};
+		if (this.q.moe) {
+			L.moe = {
+				router: await vec('ffn_gate_inp.weight'),
+				gateExps: await this.experts(`${p}.ffn_gate_exps.weight`),
+				upExps: await this.experts(`${p}.ffn_up_exps.weight`),
+				downExps: await this.experts(`${p}.ffn_down_exps.weight`),
+				shGate: await this.mat(`${p}.ffn_gate_shexp.weight`),
+				shUp: await this.mat(`${p}.ffn_up_shexp.weight`),
+				shDown: await this.mat(`${p}.ffn_down_shexp.weight`),
+				shInp: await vec('ffn_gate_inp_shexp.weight'),
+			};
+		} else {
+			L.wgate = await this.mat(`${p}.ffn_gate.weight`);
+			L.wup = await this.mat(`${p}.ffn_up.weight`);
+			L.wdown = await this.mat(`${p}.ffn_down.weight`);
+		}
 		if (recurrent) {
 			L.wqkv = await this.mat(`${p}.attn_qkv.weight`);
 			L.wz = await this.mat(`${p}.attn_gate.weight`);
@@ -152,6 +171,14 @@ export class Qwen35Model extends GraphModel<null> {
 		}
 		this.dropLayerBytes(i);
 		return L;
+	}
+
+	// Tenseur d'experts [E][n][k] téléversé TEL QUEL : seuls Q4_K et Q6_K ont un GEMV indexé (les
+	// requantifier en int8 gonflerait de ~2× la part qui fait l'essentiel du fichier).
+	private async experts(name: string): Promise<Gpu> {
+		const t = this.manifest.tensors[name];
+		if ((t.type !== 'Q4_K' && t.type !== 'Q6_K') || t.shape[0] % 256 !== 0) throw new Error(`MoE : ${name} en ${t.type} (k = ${t.shape[0]}) non géré — Q4_K/Q6_K, k multiple de 256`);
+		return this.engine.uploadKq(t.type, await this.rawTensor(name));
 	}
 
 	private async loadMtp(): Promise<MtpLayer | null> {
@@ -179,6 +206,7 @@ export class Qwen35Model extends GraphModel<null> {
 
 	async prewarmGpu(onProgress?: (doneBytes: number, totalBytes: number) => void): Promise<void> {
 		if (!this.engine.qwen35SsmOk) throw new Error('Qwen 3.5 indisponible sur ce GPU (selfValidate, ou ?qwen35ssm=0).');
+		if (this.q.moe && !this.engine.moeOk) throw new Error('Modèle à experts indisponible sur ce GPU (selfValidate MoE, ou ?moe=0).');
 		const { d } = this.manifest.config;
 		const layerBytes = this.layerBytes(this.nLayer);
 		const total = layerBytes.reduce((a, b) => a + b, 0);
@@ -190,7 +218,8 @@ export class Qwen35Model extends GraphModel<null> {
 			onProgress?.(done, total);
 		}
 		// Le décodage spéculatif exige les GEMV à deux lignes (sinon une passe de 2 tokens coûte 5×).
-		if (Qwen35Model.mtpOn && this.engine.gemvMOk) {
+		// MTP : couche dense seulement pour l'instant (celle d'un qwen35moe a elle aussi des experts).
+		if (Qwen35Model.mtpOn && this.engine.gemvMOk && !this.q.moe) {
 			this.mtp = await this.loadMtp().catch((e) => { console.warn('[qwen35] couche MTP illisible, décodage classique :', e); return null; });
 			await this.engine.settleGpu();
 		}
@@ -299,11 +328,34 @@ export class Qwen35Model extends GraphModel<null> {
 			}
 			const h = e.recBinary(enc, trash, 'add', x, attnOut, T * d);
 			const n2 = e.recRmsnorm(enc, trash, h, w.ffnNorm, T, d, eps);
-			const g = e.recBinary(enc, trash, 'swiglu', e.recMM(enc, trash, n2, w.wgate, T, d, ffn, false), e.recMM(enc, trash, n2, w.wup, T, d, ffn, false), T * ffn);
-			x = e.recBinary(enc, trash, 'add', h, e.recMM(enc, trash, g, w.wdown, T, ffn, d, false), T * d);
+			if (w.moe) {
+				x = e.recBinary(enc, trash, 'add', h, this.recordMoe(enc, trash, n2, w.moe, T), T * d);
+			} else {
+				const g = e.recBinary(enc, trash, 'swiglu', e.recMM(enc, trash, n2, w.wgate, T, d, ffn, false), e.recMM(enc, trash, n2, w.wup, T, d, ffn, false), T * ffn);
+				x = e.recBinary(enc, trash, 'add', h, e.recMM(enc, trash, g, w.wdown, T, ffn, d, false), T * d);
+			}
 			e.recycleStorage(trash.slice(layerStart).filter((b) => b !== x));
 		}
 		return e.recRmsnorm(enc, trash, x, this.finalNormGpu, T, d, eps);
+	}
+
+	// FFN à experts (llama.cpp build_moe_ffn + expert partagé de qwen35moe) : routeur f32 → softmax
+	// top-K renormalisé → K experts SwiGLU lus à leur décalage → somme pondérée ; plus l'expert
+	// partagé multiplié par sigmoid(x · w_inp_shexp) (porte scalaire par token = head_gate, hd = d).
+	private recordMoe(enc: Gpu, trash: Gpu[], n2: Gpu, m: MoeWeights, T: number): Gpu {
+		const e = this.engine;
+		const { d } = this.manifest.config;
+		const { nExpert: E, nUsed: K, ffExp: F, ffShexp: FS, scale } = this.q.moe!;
+		const logits = e.recMM(enc, trash, n2, m.router, T, d, E, false);
+		const r = e.recMoeRoute(enc, trash, logits, T, E, K, scale);
+		const g = e.recMoeGemv(enc, trash, n2, m.gateExps, r.ids, T * K, K, d, F);
+		const u = e.recMoeGemv(enc, trash, n2, m.upExps, r.ids, T * K, K, d, F);
+		const hE = e.recBinary(enc, trash, 'swiglu', g, u, T * K * F);
+		const y = e.recMoeGemv(enc, trash, hE, m.downExps, r.ids, T * K, 1, F, d);
+		const routed = e.recMoeSum(enc, trash, y, r.w, T, K, d);
+		const sh = e.recMM(enc, trash, e.recBinary(enc, trash, 'swiglu', e.recMM(enc, trash, n2, m.shGate, T, d, FS, false), e.recMM(enc, trash, n2, m.shUp, T, d, FS, false), T * FS), m.shDown, T, FS, d, false);
+		const sg = e.recMM(enc, trash, n2, m.shInp, T, d, 1, false);
+		return e.recBinary(enc, trash, 'add', routed, e.recHeadGate(enc, trash, sh, sg, T * d, d), T * d);
 	}
 
 	protected recordForward(enc: Gpu, trash: Gpu[], embeds: Float32Array, _extra: null, T: number, pastLen: number): Gpu {
