@@ -1143,7 +1143,9 @@ export const status = (model?: string): 'unavailable' | 'idle' | 'loading' | 're
   if (typeof navigator === 'undefined' || !('gpu' in navigator)) return 'unavailable';
   // Synchrone par contrat : on lit l'état MIROITÉ du backend courant. Tant qu'aucun n'existe (rien
   // n'a encore été demandé), 'idle' — exactement la sémantique d'avant.
-  return backendNow?.state(resolveModelUrl(model)) ?? 'idle';
+  let url: string;
+  try { url = resolveModelUrl(model); } catch { return 'error'; } // modèle invalide : pas d'exception depuis un simple état
+  return backendNow?.state(url) ?? 'idle';
 };
 
 // La surface globale de la balise <script>. Conditionnée : importer le paquet côté serveur ne doit

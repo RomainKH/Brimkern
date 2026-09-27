@@ -563,9 +563,19 @@ export const models = new Map<string, ModelEntry>();
 
 // https exigé (un modèle servi en clair pourrait être substitué par un MITM et piloter
 // toutes les réponses) ; http toléré pour localhost/dev uniquement.
+//
+// Un modèle ni connu ni URL acceptée est une ERREUR, pas un repli : le repli silencieux sur le modèle
+// par défaut (230M) servait des réponses absurdes sans un mot — une clé mal tapée, une URL http non
+// locale ou un file:// (non géré) donnaient « le SDK marche mal » au lieu de « ce modèle n'est pas
+// chargeable ». Constaté en banc : une session « file://…reap50.gguf » répondait avec le LFM2 230M.
 export function resolveModelUrl(model?: string): string {
-  const isUrl = model && (model.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(model));
-  return isUrl ? model! : MODELS[model || 'lfm2.5-230m'] || MODELS['lfm2.5-230m'];
+  if (!model) return MODELS['lfm2.5-230m'];
+  if (model.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(model)) return model;
+  if (MODELS[model]) return MODELS[model];
+  const why = /^http:\/\//.test(model) ? 'plain http is only allowed for localhost (use https)'
+    : /^file:\/\//.test(model) ? 'file:// URLs are not supported (serve the file over http://localhost)'
+    : `unknown model key (known: ${Object.keys(MODELS).join(', ')})`;
+  throw new Error(`[brimkern] model "${model}" cannot be loaded: ${why}`);
 }
 
 export function getModel(url: string, onProgress?: (s: LoadPhase, p?: LoadProgress) => void): Promise<Loaded> {
