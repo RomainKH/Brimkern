@@ -150,7 +150,11 @@ export interface SessionConfig {
   model?: string;
   system?: string;
   maxTokens?: number;
+  // 0 = décodage GLOUTON (déterministe : le réglage des bancs de code).
   temperature?: number;
+  // Pénalité de répétition (défaut 1,3, bonne pour la conversation). Pour du code, 1 (aucune) :
+  // la pénalité punit les indentations et identifiants qu'un programme répète légitimement.
+  repeatPenalty?: number;
   // Exemples FEW-SHOT (tours user/assistant de démonstration). Épinglés en tête de chaque prompt,
   // jamais élagués par la fenêtre d'historique. C'est la forme instruct-native de LFM2.5 et le seul
   // levier efficace pour lui faire tenir un style : sur un 230M, DÉCRIRE le style dans le prompt
@@ -661,7 +665,7 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
         // premier ask() téléchargeait 149 Mo sans qu'aucun callback ne puisse le dire.
         await b.preload(url, (phase, pr) => bus.emit('progress', phase, pr));
         if (!annonce) { annonce = true; bus.emit('ready'); }
-        const req: TurnRequest = { url, history: envoye, system: promptOf.system(text), maxTokens, temperature: temperature(), pinned: promptOf.pinned };
+        const req: TurnRequest = { url, history: envoye, system: promptOf.system(text), maxTokens, temperature: temperature(), pinned: promptOf.pinned, repeatPenalty: cfg.repeatPenalty };
         let acc = await b.turn(req, opts.onToken, opts.signal);
         if (opts.signal?.aborted) { history.pop(); return ''; } // tour annulé : l'historique reste propre
         // LE FILET. Sur un tour conversationnel, la consigne envoyée disait qu'aucune fiche n'était
@@ -692,7 +696,7 @@ function createSession(cfg: SessionConfig = {}): BrimkernSession {
         if (!annonce) { annonce = true; bus.emit('ready'); }
         const reqs: TurnRequest[] = texts.map((text) => ({
           url, history: [{ role: 'user', content: promptOf.userTurn(text, '').text }], system: promptOf.system(text),
-          maxTokens: opts.maxTokens ?? maxTokens, temperature: temperature(), pinned: promptOf.pinned,
+          maxTokens: opts.maxTokens ?? maxTokens, temperature: temperature(), pinned: promptOf.pinned, repeatPenalty: cfg.repeatPenalty,
         }));
         if (b.turnBatch) return await b.turnBatch(reqs);
         const out: string[] = [];

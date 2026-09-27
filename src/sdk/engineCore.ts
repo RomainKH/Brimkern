@@ -659,6 +659,7 @@ export async function runTurn(
   onToken?: (t: string) => void,
   isStopped?: () => boolean,
   pinned: Msg[] = [],
+  repeatPenalty = 1.3,
 ): Promise<string> {
   // Les exemples few-shot restent EN TÊTE quoi qu'il arrive ; seule la conversation glisse.
   const arch: ArchType = (core as any).arch || (core instanceof RwkvModel ? 'rwkv7' : 'lfm2');
@@ -669,14 +670,16 @@ export async function runTurn(
   // Chemin RÉSIDENT (prefill par tranches + décodage rapide) si dispo, sinon repli forwardToken JS.
   const run = core.residentAvailable?.() ? core.generateResident.bind(core) : core.generate.bind(core);
   // Température modérée : 0.7 divague (small-talk halluciné, banc de Romain), 0.45 s'effondre
-  // en écho — 0.55 mesuré comme le bon compromis sur la conv-type de la démo.
+  // en écho — 0.55 mesuré comme le bon compromis sur la conv-type de la démo. Température 0 =
+  // GLOUTON (le réglage des bancs de code, avec repeatPenalty 1 : la pénalité 1,3 punit les
+  // indentations et identifiants qu'un code répète légitimement).
   await run(prompt, maxTokens, (t: string) => {
     const cut = cutAtTurnMarker(t);
     if (cut.hit) turnHit = true;
     acc = cleanOutput(cut.text, greeted);
     onToken?.(acc);
   }, () => turnHit || !!isStopped?.(), {
-    sample: true, temperature, topK: 40, repeatPenalty: 1.3,
+    sample: temperature > 0, temperature, topK: 40, repeatPenalty,
   });
   return acc;
 }
@@ -690,15 +693,16 @@ export async function runTurnBatch(
   reqs: { history: Msg[]; system: string; pinned?: Msg[] }[],
   maxTokens: number,
   temperature: number,
+  repeatPenalty = 1.3,
 ): Promise<string[]> {
   const tr = core as unknown as TransformerWebModel;
   if (!(core instanceof TransformerWebModel) || !tr.batchAvailable() || reqs.length < 2) {
     const out: string[] = [];
-    for (const r of reqs) out.push(await runTurn(core, r.history, r.system, maxTokens, temperature, undefined, undefined, r.pinned ?? []));
+    for (const r of reqs) out.push(await runTurn(core, r.history, r.system, maxTokens, temperature, undefined, undefined, r.pinned ?? [], repeatPenalty));
     return out;
   }
   const prompts = reqs.map((r) => formatPrompt([...(r.pinned ?? []), ...r.history.slice(-HISTORY_WINDOW)] as any, tr.arch as any, r.system));
-  const raw = await tr.generateBatch(prompts, maxTokens, { sample: true, temperature, topK: 40, repeatPenalty: 1.3 });
+  const raw = await tr.generateBatch(prompts, maxTokens, { sample: temperature > 0, temperature, topK: 40, repeatPenalty });
   return raw.map((t, i) => cleanOutput(cutAtTurnMarker(t).text, reqs[i].history.some((m) => m.role === 'assistant')));
 }
 

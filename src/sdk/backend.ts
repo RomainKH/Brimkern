@@ -29,6 +29,8 @@ export interface TurnRequest {
 	maxTokens: number;
 	temperature: number;
 	pinned: Msg[];
+	// Pénalité de répétition (défaut 1,3). 1 = aucune — ce que mesurent les bancs de code.
+	repeatPenalty?: number;
 }
 
 export type ModelState = 'loading' | 'ready' | 'error';

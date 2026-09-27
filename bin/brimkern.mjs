@@ -85,6 +85,13 @@ const t = (en, fr) => (LANG === 'fr' ? fr : en);
 // qui répondent juste ; les 230M / RWKV / 0.5B donnaient l'impression d'un outil cassé (réponses
 // hors sujet, présentations de soi en boucle). C'est la seule source : aide, sélecteur et /models
 // lisent cette table.
+// Échantillonnage des presets de code = celui du banc qui les classe (scripts/bench-code.mjs) :
+// GLOUTON, sans pénalité de répétition. La session du SDK part sinon de 1,3, qui punit les
+// indentations et identifiants qu'un programme répète légitimement : coder-max divaguait en CLI sur
+// un debounce TS que le banc lui voyait réussir. -t / --temperature garde la main ; les modèles du
+// Hub gardent les défauts du SDK (0,3 ici, pénalité 1,3).
+const CODE_SAMPLING = { temperature: 0, repeatPenalty: 1 };
+
 const PRESET_CLI_MODELS = {
   'coder': {
     name: 'Qwen 3 4B (BRIK int4)',
@@ -96,6 +103,7 @@ const PRESET_CLI_MODELS = {
     size: t('2.53 GB', '2,53 Go'),
     badge: t('Recommended', 'Recommandé'),
     qwen3Think: true,
+    ...CODE_SAMPLING,
     defaultSystem: 'You are Brimkern Code, an expert software engineer. Answer the question asked, with correct code and concise explanations. Format code blocks using markdown.',
     // Chiffres : matrice à cinq suites du 2026-09-25 (scripts/bench-code.mjs, docs/ROADMAP.md § 20).
     desc: t('Light and fast, runs on any machine: 146/202 on our five code suites (35/41 on HumanEval), without reasoning. Reasoning: /think deep.',
@@ -110,6 +118,7 @@ const PRESET_CLI_MODELS = {
     // Graphe Qwen 3.5 validé contre llama.cpp dans Dawn natif (docs/ROADMAP.md § 17).
     engine: 'native',
     opensThink: true,
+    ...CODE_SAMPLING,
     runtime: t('WebGPU (native Dawn)', 'WebGPU (Natif Dawn)'),
     size: t('2.61 GB', '2,61 Go'),
     badge: t('SSM Hybrid', 'Hybride SSM'),
@@ -128,6 +137,7 @@ const PRESET_CLI_MODELS = {
     // ouvre <think> d'office, « /no_think » (chatFormat) le ferme — toujours, /think deep compris.
     engine: 'native',
     noThink: true,
+    ...CODE_SAMPLING,
     // ~12 Go en régime : en dessous de 20 Go de mémoire unifiée, la machine swappe (voire plante).
     minMemGB: 20,
     runtime: t('WebGPU (native Dawn)', 'WebGPU (Natif Dawn)'),
@@ -1271,7 +1281,9 @@ class BrimkernNativeDawnEngine {
   constructor(options = {}) {
     this.modelKey = options.model || 'coder';
     this.maxTokens = options.maxTokens || 512;
-    this.temperature = options.temperature ?? 0.3;
+    this.userTemperature = options.temperature; // -t explicite : suit l'utilisateur d'un modèle à l'autre
+    this.temperature = options.temperature ?? PRESET_CLI_MODELS[this.modelKey]?.temperature ?? 0.3;
+    this.repeatPenalty = PRESET_CLI_MODELS[this.modelKey]?.repeatPenalty;
     this.systemPrompt = options.system || PRESET_CLI_MODELS[this.modelKey]?.defaultSystem || 'You are a code assistant.';
     this.raw = !!options.raw;
     this.localBrikFile = null;
@@ -1353,6 +1365,7 @@ class BrimkernNativeDawnEngine {
       model: targetUrl,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
+      repeatPenalty: this.repeatPenalty,
       system: this.systemPrompt,
     }));
 
@@ -1421,7 +1434,9 @@ class BrimkernChromiumEngine {
   constructor(options = {}) {
     this.modelKey = options.model || 'coder';
     this.maxTokens = options.maxTokens || 512;
-    this.temperature = options.temperature ?? 0.3;
+    this.userTemperature = options.temperature; // -t explicite : suit l'utilisateur d'un modèle à l'autre
+    this.temperature = options.temperature ?? PRESET_CLI_MODELS[this.modelKey]?.temperature ?? 0.3;
+    this.repeatPenalty = PRESET_CLI_MODELS[this.modelKey]?.repeatPenalty;
     this.systemPrompt = options.system || PRESET_CLI_MODELS[this.modelKey]?.defaultSystem || 'You are a code assistant.';
     this.raw = !!options.raw;
     this.localBrikFile = null;
@@ -1519,11 +1534,12 @@ class BrimkernChromiumEngine {
     await this.page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
 
     // Initialisation de la session Brimkern dans le contexte WebGPU et préchauffage en VRAM
-    await this.page.evaluate(async ({ modelUrl, maxTokens, temperature, systemPrompt }) => {
+    await this.page.evaluate(async ({ modelUrl, maxTokens, temperature, repeatPenalty, systemPrompt }) => {
       window.session = await window.Brimkern.createSession({
         model: modelUrl,
         maxTokens,
         temperature,
+        repeatPenalty,
         system: systemPrompt,
       });
 
@@ -1555,6 +1571,7 @@ class BrimkernChromiumEngine {
       modelUrl: this.modelUrl,
       maxTokens: this.maxTokens,
       temperature: this.temperature,
+      repeatPenalty: this.repeatPenalty,
       systemPrompt: this.systemPrompt,
     });
 
@@ -1987,7 +2004,7 @@ ${C.bold}OPTIONS${C.reset}
 ${opt(t('-m, --model=<name|url|file>', '-m, --model=<nom|url|fichier>'), t(`Model (default: ${defaultModel})`, `Modèle (défaut : ${defaultModel})`))}
 ${opt('-s, --system=<prompt>', t('System prompt', 'Prompt système'))}
 ${opt('-n, --max-tokens=<n>', t('Max generated tokens (default: 512)', 'Plafond de tokens générés (défaut : 512)'))}
-${opt('-t, --temperature=<val>', t('Temperature (default: 0.3)', 'Température (défaut : 0.3)'))}
+${opt('-t, --temperature=<val>', t('Temperature (default: 0 = greedy for the code presets, 0.3 otherwise)', 'Température (défaut : 0 = glouton pour les presets de code, 0.3 sinon)'))}
 ${opt('--mode=<code|plan|review|auto>', t('AI mode (default: code)', "Mode d'intervention IA (défaut : code)"))}
 ${opt('--think=<off|auto|deep>', t('Step-by-step reasoning level (default: auto)', 'Niveau de réflexion pas à pas (défaut : auto)'))}
 ${opt('--lang=<en|fr>', t('Interface language (default: en; also BRIMKERN_LANG)', 'Langue de l’interface (défaut : en ; aussi BRIMKERN_LANG)'))}
@@ -2676,7 +2693,7 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
           model: targetModel,
           system: engine.systemPrompt,
           maxTokens: engine.maxTokens,
-          temperature: engine.temperature,
+          temperature: engine.userTemperature, // pas celle du modèle quitté : chaque preset a la sienne
         });
         let lastSwitchProgress = '';
         await engine.init({
@@ -3132,7 +3149,7 @@ async function main() {
   let model = resolveModelKey(cfg.lastModel || 'coder');
   let system = null;
   let maxTokens = 512;
-  let temperature = 0.3;
+  let temperature; // non fixée : le preset décide (glouton pour le code), sinon 0,3
   let mode = 'code';
   let think = 'auto';
   let raw = false;
