@@ -570,8 +570,8 @@ export default function LandingClient() {
           <div className="lp-eyebrow"><span className="lp-quick-kicker">06</span> {t('also in your terminal', 'aussi dans votre terminal')}</div>
           <h2 className="lp-h2">{t('The same engine, as a coding assistant for your shell', 'Le même moteur, en assistant de code pour votre terminal')}</h2>
           <p className="lp-strength-desc" style={{ maxWidth: 640 }}>
-            {t('It reads the project you are in and runs Qwen 3 4B on your GPU. Nothing leaves the machine.',
-               'Il lit le projet dans lequel vous êtes et fait tourner Qwen 3 4B sur votre GPU. Rien ne quitte la machine.')}
+            {t('It reads the project you are in and runs Qwen 3 4B on your GPU, or Qwen 3.6 35B-A3B, a mixture of experts, on machines with 20 GB of memory. Nothing leaves the machine.',
+               'Il lit le projet dans lequel vous êtes et fait tourner Qwen 3 4B sur votre GPU, ou Qwen 3.6 35B-A3B, un mélange d’experts, sur les machines de 20 Go de mémoire. Rien ne quitte la machine.')}
           </p>
           <Link href={href('/cli')} className="lp-cta-ghost">
             {t('See the CLI', 'Voir la CLI')} <ArrowRight size={14} />

@@ -326,7 +326,7 @@ export default function CliLanding() {
             <div>
               <div className={s.tableWrap} tabIndex={0}>
                 <table className={s.table}>
-                  <caption>{t('Speed measured on an M-series Mac.', 'Vitesse mesurée sur un Mac série M.')}</caption>
+                  <caption>{t('Speed measured on an M-series Mac. Scores: our five code suites, in the docs.', 'Vitesse mesurée sur un Mac série M. Scores : nos cinq suites de code, dans la doc.')}</caption>
                   <thead>
                     <tr><th scope="col">preset</th><th scope="col">{t('model', 'modèle')}</th><th scope="col">{t('speed', 'vitesse')}</th><th scope="col">{t('for', 'pour')}</th></tr>
                   </thead>
@@ -335,13 +335,19 @@ export default function CliLanding() {
                       <td>coder</td>
                       <td><span className={s.strong}>Qwen 3 4B</span><br />BRIK int4 · {t('2.53 GB', '2,53 Go')}</td>
                       <td>13–16 tok/s</td>
-                      <td className={s.strong}>{t('the default, the most accurate', 'le défaut, le plus juste')}</td>
+                      <td className={s.strong}>{t('the default, runs on any machine', 'le défaut, tourne sur toute machine')}</td>
                     </tr>
                     <tr>
-                      <td>fast</td>
-                      <td><span className={s.strong}>Qwen 2.5 Coder 1.5B</span><br />GGUF Q4_K_M · {t('1.12 GB', '1,12 Go')}</td>
-                      <td>~25 tok/s</td>
-                      <td>{t('quick questions, lighter download', 'questions rapides, plus léger')}</td>
+                      <td>super-coder</td>
+                      <td><span className={s.strong}>Qwen 3.5 4B</span><br />GGUF Q4_0 · {t('2.61 GB', '2,61 Go')}</td>
+                      <td>~24 tok/s</td>
+                      <td>{t('reasons before answering, better at bug fixing', 'réfléchit avant de répondre, meilleur en réparation de bug')}</td>
+                    </tr>
+                    <tr>
+                      <td>coder-max</td>
+                      <td><span className={s.strong}>Qwen 3.6 35B-A3B</span><br />GGUF Q4_K_M · {t('11.4 GB', '11,4 Go')}</td>
+                      <td>~15 tok/s</td>
+                      <td className={s.strong}>{t('the strongest, 2 problems short of Claude Sonnet 5 · 20 GB+ machine', 'le plus fort, à 2 problèmes de Claude Sonnet 5 · machine de 20 Go+')}</td>
                     </tr>
                   </tbody>
                 </table>

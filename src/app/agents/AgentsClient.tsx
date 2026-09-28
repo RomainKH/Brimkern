@@ -120,7 +120,7 @@ export default function AgentsClient() {
           <span className={s.dim}>{'   │ '}</span><span className={s.cyan}>tools/call</span> <span className={s.sand}>brimkern_review</span> <span className={s.dim}>{'{ code, file_path }'}</span>{'\n'}
           <span className={s.dim}>{'   ▼'}</span>{'\n'}
           <span className={s.boldRed}>brimkern mcp</span>{'  (stdio, JSON-RPC 2.0)'}{'\n'}
-          <span className={s.dim}>{'   │ '}</span>{t('model loaded once, calls queued one at a time', 'modèle chargé une fois, appels en file un par un')}{'\n'}
+          <span className={s.dim}>{'   │ '}</span>{t('model loaded once, parallel calls grouped (up to 4 per pass)', 'modèle chargé une fois, appels parallèles groupés (jusqu’à 4 par passe)')}{'\n'}
           <span className={s.dim}>{'   ▼'}</span>{'\n'}
           <span className={s.green}>{t('your GPU', 'votre GPU')}</span>{t('  (WebGPU, hand-written WGSL kernels)', '  (WebGPU, kernels WGSL écrits à la main)')}{'\n'}
           <span className={s.dim}>{'   │'}</span>{'\n'}
@@ -134,7 +134,7 @@ export default function AgentsClient() {
         </div>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('Keep on the main agent', 'À garder sur l’agent principal')}</p>
-          <p className={s.pointText}>{t('Architecture, security-critical code, anything that needs the whole repository in context. A 4B model helps; it does not decide.', 'L’architecture, le code critique pour la sécurité, tout ce qui demande le dépôt entier en contexte. Un modèle de 4B aide ; il ne tranche pas.')}</p>
+          <p className={s.pointText}>{t('Architecture, security-critical code, anything that needs the whole repository in context. A local model helps; it does not decide.', 'L’architecture, le code critique pour la sécurité, tout ce qui demande le dépôt entier en contexte. Un modèle local aide ; il ne tranche pas.')}</p>
         </div>
       </div>
 
@@ -142,6 +142,8 @@ export default function AgentsClient() {
       <H2 id="mcp" n="02">{t('MCP server', 'Serveur MCP')}</H2>
       <P>{t('With the CLI installed, one command registers it in Claude Code:', 'La CLI installée, une commande l’enregistre dans Claude Code :')}</P>
       <Code lang="sh">{'claude mcp add brimkern -- brimkern mcp --model=coder'}</Code>
+      <P>{t('On a machine with 20 GB of memory or more, coder-max is the strongest preset: 184/202 on our five code suites, 2 short of Claude Sonnet 5.', 'Sur une machine de 20 Go de mémoire ou plus, coder-max est le preset le plus fort : 184/202 sur nos cinq suites de code, à 2 de Claude Sonnet 5.')}</P>
+      <Code lang="sh">{'claude mcp add brimkern -- brimkern mcp --model=coder-max'}</Code>
       <P>{t('For Claude Desktop, Cursor and other clients, the same server in their JSON config:', 'Pour Claude Desktop, Cursor et les autres clients, le même serveur dans leur config JSON :')}</P>
       <Code lang="js">{mcpConfigJson}</Code>
       <P>
@@ -224,12 +226,12 @@ export default function AgentsClient() {
       <H2 id="limits" n="06">{t('Limits', 'Limites')}</H2>
       <div className={s.points}>
         <div className={s.point}>
-          <p className={s.pointTitle}>{t('One generation at a time', 'Une génération à la fois')}</p>
-          <p className={s.pointText}>{t('Parallel tool calls are queued: the model is loaded once and serves them in turn.', 'Les appels d’outils parallèles sont mis en file : le modèle est chargé une fois et les sert à tour de rôle.')}</p>
+          <p className={s.pointTitle}>{t('Parallel calls', 'Appels parallèles')}</p>
+          <p className={s.pointText}>{t('With coder, up to four calls are served together in one pass. super-coder and coder-max (hybrid models) serve them in turn.', 'Avec coder, jusqu’à quatre appels sont servis ensemble, en une passe. super-coder et coder-max (modèles hybrides) les servent à tour de rôle.')}</p>
         </div>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('Memory', 'Mémoire')}</p>
-          <p className={s.pointText}>{t('The default model takes about 2.5 GB of GPU memory while the server runs.', 'Le modèle par défaut occupe environ 2,5 Go de mémoire GPU tant que le serveur tourne.')}</p>
+          <p className={s.pointText}>{t('The default model takes about 2.5 GB of GPU memory while the server runs; coder-max about 12 GB, for machines with 20 GB or more.', 'Le modèle par défaut occupe environ 2,5 Go de mémoire GPU tant que le serveur tourne ; coder-max environ 12 Go, pour les machines de 20 Go ou plus.')}</p>
         </div>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('First call', 'Premier appel')}</p>
