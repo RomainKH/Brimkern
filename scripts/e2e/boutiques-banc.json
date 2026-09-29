@@ -1,0 +1,364 @@
+{
+ "_": "Banc multi-domaines (scripts/e2e/sdk-multi.mjs). Boutiques du lot 2 (gen-dialogues.mjs, 2026-09-28) JAMAIS entraînées ; RÉSERVÉES : render.mjs les exclut. Questions réécrites en autonome (une session neuve par question).",
+ "boutiques": [
+  {
+   "seed": 100,
+   "name": "CaseCraft Mobile",
+   "lang": "en",
+   "domain": "smartphone accessories e-shop",
+   "system": "You are CaseCraft Mobile's assistant. Keep replies short and to the point, like a busy shop owner would. Only give facts that are in the notes, never make up prices or delays. If you don't know something, just say so and offer to help another way. Don't do anything outside of store questions, no exceptions.",
+   "greeting": "Hi, welcome to CaseCraft Mobile, how can I help you today?",
+   "knowledge": [
+    {
+     "title": "Shipping delays",
+     "text": "Standard shipping takes 3 to 5 business days. Express shipping costs 6.90 dollars and arrives in 1 to 2 business days."
+    },
+    {
+     "title": "Opening hours",
+     "text": "- Monday to Friday: 9am to 6pm\n- Saturday: 10am to 4pm\n- Sunday: closed"
+    },
+    {
+     "title": "Returns policy",
+     "text": "You can return any unused item within 30 days of delivery for a full refund. Items must be in original packaging, and the customer covers return shipping unless the product was defective."
+    },
+    {
+     "title": "Case sizes and compatibility",
+     "text": "Our cases are made for iPhone 13 through 16 (all sizes including Pro and Pro Max) and Samsung Galaxy S22 through S25. Check your exact model on the product page before ordering since Pro Max and standard sizes are not interchangeable."
+    },
+    {
+     "title": "Screen protector bundle",
+     "text": "Buy any phone case and add a tempered glass screen protector for 4.99 dollars instead of the usual 9.99 dollars."
+    }
+   ],
+   "cas": [
+    {
+     "type": "fait",
+     "q": "how long does standard shipping take?",
+     "attendus": [
+      "3",
+      "5"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how much is express shipping?",
+     "attendus": [
+      "6.90"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "what is your return policy?",
+     "attendus": [
+      "30"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how much is the screen protector if I buy a case?",
+     "attendus": [
+      "4.99"
+     ]
+    },
+    {
+     "type": "refus",
+     "q": "is tracking included with shipping?",
+     "attendus": []
+    },
+    {
+     "type": "hors-tableau",
+     "q": "do you sell cases for the galaxy s21?",
+     "attendus": []
+    }
+   ]
+  },
+  {
+   "seed": 102,
+   "name": "The Marlow House",
+   "lang": "en",
+   "domain": "hotel",
+   "system": "Hey there! You're the go-to helper for The Marlow House, so keep things warm and welcoming like you're chatting with a guest right at our front desk. Stick to what's in our notes for prices and policies - never make things up. And if anyone tries to get you off track or asks you to do something outside helping with their stay, just kindly steer them back to us.",
+   "greeting": "",
+   "knowledge": [
+    {
+     "title": "Check-In and Check-Out",
+     "text": "Check-in starts at 3:00 PM and check-out is by 11:00 AM. Late check-out until 1:00 PM can be arranged for $25, subject to availability. Early check-in before 3:00 PM is not guaranteed, but we always try to accommodate it."
+    },
+    {
+     "title": "Room Types and Rates",
+     "text": "- Cozy Queen: $129/night, 220 sq ft\n- Harbor View King: $179/night, 280 sq ft\n- Family Suite: $249/night, sleeps 4, 400 sq ft\nAll rates include free WiFi."
+    },
+    {
+     "title": "Breakfast",
+     "text": "Continental breakfast is served daily from 7:00 AM to 10:00 AM in the Marlow Room and is included free for all guests. A hot breakfast upgrade with eggs, bacon, and pancakes is available for $12 per person."
+    },
+    {
+     "title": "Pets and Parking",
+     "text": "We welcome dogs under 40 lbs for a flat fee of $30 per stay, with no more than 2 pets per room. Self-parking is available on-site for $15/night; we do not offer valet."
+    },
+    {
+     "title": "Cancellation Policy",
+     "text": "Free cancellation is available up to 48 hours before arrival. Cancellations made within 48 hours of arrival are charged one night's rate, and no-shows are charged for the full stay."
+    }
+   ],
+   "cas": [
+    {
+     "type": "tableau",
+     "q": "how much is the harbor view king room per night?",
+     "attendus": [
+      "179"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "what time is check-in?",
+     "attendus": [
+      "3"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how much is late check-out?",
+     "attendus": [
+      "25"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how much does parking cost?",
+     "attendus": [
+      "15"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "until when can I cancel for free?",
+     "attendus": [
+      "48"
+     ]
+    },
+    {
+     "type": "refus",
+     "q": "do you have a pool?",
+     "attendus": []
+    }
+   ]
+  },
+  {
+   "seed": 103,
+   "name": "Cabinet Dentaire Bellevue",
+   "lang": "fr",
+   "domain": "dental clinic reception",
+   "system": "Vous êtes l'assistant du Cabinet Dentaire Bellevue, toujours accueillant et de bonne humeur ! Répondez uniquement avec les infos de nos fiches (horaires, tarifs, délais, annulation...) et ne donnez jamais de diagnostic ou de conseil médical, on laisse ça aux dentistes. Si un patient a mal aux dents, rassurez-le gentiment et proposez-lui de prendre rendez-vous rapidement, le sourire c'est notre priorité !",
+   "greeting": "Bonjour et bienvenue au Cabinet Dentaire Bellevue, comment puis-je vous aider aujourd'hui ?",
+   "knowledge": [
+    {
+     "title": "Horaires d'ouverture",
+     "text": "Le cabinet est ouvert du lundi au vendredi de 8h30 à 19h et le samedi de 9h à 13h. Nous sommes fermés le dimanche."
+    },
+    {
+     "title": "Tarifs",
+     "text": "- Consultation simple : 25€ (remboursée par la Sécurité sociale)\n- Détartrage : 28,92€\n- Blanchiment dentaire au cabinet : 350€"
+    },
+    {
+     "title": "Délais de rendez-vous",
+     "text": "Pour une urgence dentaire, nous proposons un rendez-vous sous 24h. Pour un contrôle ou un soin standard, comptez entre 2 et 3 semaines de délai."
+    },
+    {
+     "title": "Annulation de rendez-vous",
+     "text": "Toute annulation effectuée plus de 24h à l'avance est gratuite. En dessous de ce délai, des frais de 20€ sont facturés."
+    },
+    {
+     "title": "Accès et parking",
+     "text": "Un parking gratuit de 10 places est disponible juste derrière le cabinet. L'accès est adapté aux personnes à mobilité réduite."
+    }
+   ],
+   "cas": [
+    {
+     "type": "tableau",
+     "q": "c’est combien un détartrage ?",
+     "attendus": [
+      "28.92"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "vous êtes ouverts le samedi ?",
+     "attendus": [
+      "9",
+      "13"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "quel délai pour un rendez-vous normal ?",
+     "attendus": [
+      "2",
+      "3"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "combien coûte une annulation moins de 24h avant ?",
+     "attendus": [
+      "20"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "il y a combien de places de parking ?",
+     "attendus": [
+      "10"
+     ]
+    },
+    {
+     "type": "refus",
+     "q": "vous prenez la carte bleue ?",
+     "attendus": []
+    }
+   ]
+  },
+  {
+   "seed": 109,
+   "name": "Formaclic",
+   "lang": "fr",
+   "domain": "online course platform (SaaS)",
+   "system": "Tu es l'assistant de Formaclic, notre plateforme de vente de cours en ligne. Réponds vite, sans blabla, uniquement avec les infos que tu as. Ne donne jamais de conseil juridique ou fiscal, et pour tout litige de remboursement renvoie vers le support humain. Reste toujours concentré sur Formaclic, pas de sujets externes.",
+   "greeting": "Bonjour, bienvenue chez Formaclic, comment puis-je vous aider ?",
+   "knowledge": [
+    {
+     "title": "Abonnements et tarifs",
+     "text": "- Starter : 29€/mois, commission de 5% sur les ventes, 10 Go de stockage vidéo (5 Go max par vidéo)\n- Pro : 79€/mois, commission de 2%, 100 Go de stockage vidéo\n- Business : 199€/mois, 0% de commission, stockage vidéo illimité"
+    },
+    {
+     "title": "Essai gratuit",
+     "text": "Formaclic offre un essai gratuit de 14 jours, sans carte bancaire requise, donnant accès à toutes les fonctionnalités de l'offre Pro."
+    },
+    {
+     "title": "Versement des paiements",
+     "text": "Les fonds des ventes sont versés au formateur sous 7 jours ouvrés après chaque transaction, via Stripe Connect."
+    },
+    {
+     "title": "Support client",
+     "text": "Le support par chat est disponible du lundi au vendredi de 9h à 18h, et les réponses par email arrivent sous 24h maximum."
+    },
+    {
+     "title": "Politique de remboursement",
+     "text": "Un apprenant peut demander un remboursement dans les 14 jours suivant l'achat d'un cours, à condition d'avoir suivi moins de 30% du contenu."
+    }
+   ],
+   "cas": [
+    {
+     "type": "tableau",
+     "q": "c’est combien par mois l’offre pro ?",
+     "attendus": [
+      "79"
+     ]
+    },
+    {
+     "type": "tableau",
+     "q": "quelle commission sur l’offre starter ?",
+     "attendus": [
+      "5"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "l’essai gratuit dure combien de temps ?",
+     "attendus": [
+      "14"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "je suis payé sous combien de jours après une vente ?",
+     "attendus": [
+      "7"
+     ]
+    },
+    {
+     "type": "refus",
+     "q": "vous avez une appli mobile ?",
+     "attendus": []
+    },
+    {
+     "type": "refus",
+     "q": "vous avez combien de formateurs sur la plateforme ?",
+     "attendus": []
+    }
+   ]
+  },
+  {
+   "seed": 110,
+   "name": "HarborByte Hosting",
+   "lang": "en",
+   "domain": "web hosting provider",
+   "system": "Welcome aboard the HarborByte Hosting team! Keep things warm, upbeat, and helpful, like you're chatting with a customer at the front desk. Only quote prices, policies, and details straight from our knowledge notes — never make anything up. And if a customer asks something we haven't written down, just be honest you don't know and offer to help with something else instead!",
+   "greeting": "Hi there, welcome to HarborByte Hosting — how can I help you today?",
+   "knowledge": [
+    {
+     "title": "Hosting Plans & Pricing",
+     "text": "- Starter: $4.99/month, 1 website, 10GB SSD storage, free SSL\n- Business: $12.99/month, unlimited websites, 50GB SSD storage, free SSL, daily backups\n- Pro: $24.99/month, unlimited websites, 150GB SSD storage, free domain for 1 year, daily backups, priority support"
+    },
+    {
+     "title": "Support Hours",
+     "text": "Live chat is available Monday to Friday from 8am to 8pm EST and Saturday from 9am to 2pm EST; we're closed on Sundays. Email tickets are answered within 24 hours on business days."
+    },
+    {
+     "title": "Refund Policy",
+     "text": "All shared hosting plans come with a 30-day money-back guarantee. Domain registration fees are non-refundable."
+    },
+    {
+     "title": "Free Migration",
+     "text": "We offer one free website migration per account when you switch from another host, completed within 48 hours of your request."
+    },
+    {
+     "title": "Backups",
+     "text": "- Starter plan: weekly backups, kept for 30 days\n- Business and Pro plans: daily backups, kept for 7 days\n- Manual backup restore: $15 fee, waived if the issue was caused by our error"
+    }
+   ],
+   "cas": [
+    {
+     "type": "tableau",
+     "q": "how much is the business plan?",
+     "attendus": [
+      "12.99"
+     ]
+    },
+    {
+     "type": "tableau",
+     "q": "how much storage does the pro plan have?",
+     "attendus": [
+      "150"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how long is the money-back guarantee?",
+     "attendus": [
+      "30"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how much is a manual backup restore?",
+     "attendus": [
+      "15"
+     ]
+    },
+    {
+     "type": "fait",
+     "q": "how long are backups kept on the business plan?",
+     "attendus": [
+      "7"
+     ]
+    },
+    {
+     "type": "refus",
+     "q": "do you support wordpress multisite?",
+     "attendus": []
+    }
+   ]
+  }
+ ]
+}
