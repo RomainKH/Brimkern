@@ -43,6 +43,10 @@ function inferArchType(manifest: { arch?: string; metadata?: Record<string, unkn
   if (arch === 'gemma' || arch === 'gemma2') return 'gemma';
   if (arch === 'deepseek') return 'deepseek';
   if (arch === 'llama') {
+    // MiniCPM5 : GGUF « llama » (mêmes tenseurs, lignes Q/K permutées comme llama) mais gabarit
+    // ChatML — le gabarit llama2/llama3 choisi à la taille du vocab lui donnait des tours faux.
+    const tpl = manifest.metadata?.['tokenizer.chat_template'];
+    if (typeof tpl === 'string' && tpl.includes('<|im_start|>')) return 'minicpm';
     const emb = manifest.tensors?.['token_embd.weight'];
     const d = manifest.config?.d;
     const vocab = emb && d ? emb.nElems / d : null;

@@ -150,16 +150,21 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
   // LFM2/LFM2.5 : ChatML identique (le BOS <|startoftext|> est ajouté par le tokenizer à l'encode).
   // SmolLM3 : ChatML aussi (<|im_start|>/<|im_end|>) ; l'arrêt passe par le marqueur textuel
   // <|im_end|> de TURN_MARKERS — son id dépend du vocab, on ne le code pas en dur.
-  if (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35' || archType === 'lfm2' || archType === 'smollm3') {
+  // MiniCPM5 : GGUF déclaré « llama » mais gabarit ChatML (cf. inferArchType du SDK) ; son gabarit
+  // n'ouvre AUCUNE réflexion par défaut et écrit « <think>\n\n</think>\n\n » pour enable_thinking=false.
+  if (archType === 'qwen' || archType === 'qwen3' || archType === 'qwen35' || archType === 'lfm2' || archType === 'smollm3' || archType === 'minicpm') {
     // Qwen 3.5 : le gabarit officiel ouvre la réflexion par défaut (« <think>\n » ; « <think>\n\n
     // </think>\n\n » quand enable_thinking=false). Le modèle n'obéit PAS aux interrupteurs /think de
     // Qwen 3 : un « /no_think » final du dernier message est donc RETIRÉ ici et traduit en
     // enable_thinking=false (bloc de réflexion vide), la même convention que Qwen 3 et Spark.
     let q35Think = true;
-    if (archType === 'qwen35' && chatMsgs.length && chatMsgs[chatMsgs.length - 1].role === 'user' && /\s*\/no_think\s*$/.test(chatMsgs[chatMsgs.length - 1].content)) {
+    if ((archType === 'qwen35' || archType === 'minicpm') && chatMsgs.length && chatMsgs[chatMsgs.length - 1].role === 'user' && /\s*\/no_think\s*$/.test(chatMsgs[chatMsgs.length - 1].content)) {
       q35Think = false;
       chatMsgs = [...chatMsgs.slice(0, -1), { ...chatMsgs[chatMsgs.length - 1], content: chatMsgs[chatMsgs.length - 1].content.replace(/\s*\/no_think\s*$/, '') }];
     }
+    // MiniCPM5 : son gabarit écrit « <s> » en tête et son GGUF ne l'ajoute PAS à l'encodage
+    // (add_bos absent) — sans lui, llama.cpp comme nous produisent « You have a **** size… ».
+    if (archType === 'minicpm') formatted += '<s>';
     if (systemText.trim()) {
       formatted += `<|im_start|>system\n${systemText}<|im_end|>\n`;
     }
@@ -168,6 +173,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
     }
     formatted += `<|im_start|>assistant\n`;
     if (archType === 'qwen35') formatted += q35Think ? '<think>\n' : '<think>\n\n</think>\n\n';
+    else if (archType === 'minicpm' && !q35Think) formatted += '<think>\n\n</think>\n\n';
   } else if (archType === 'llama3') {
     // Llama 3.x header-id template. (Réintégré 2026-07-18 : les lignes Q/K des GGUF llama sont
     // dé-permutées au chargement + rope_freqs.weight supporté — cf. model.ts.)
@@ -209,7 +215,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
 }
 
 // Le template de cette arch écrit-il LUI-MÊME le token de début de séquence ?
-//   llama3   → « <|begin_of_text|> »   mistral3 → « <s> »   spark → « <｜start▁of▁sentence｜> »
+//   llama3   → « <|begin_of_text|> »   mistral3 / minicpm → « <s> »   spark → « <｜start▁of▁sentence｜> »
 // Les autres (ChatML : qwen, qwen3, lfm2, smollm3 ; Gemma : <start_of_turn>) n'en écrivent pas et
 // comptent sur le tokenizer pour l'ajouter à l'encodage.
 //
@@ -219,7 +225,7 @@ export function formatPrompt(chatMsgs: { role: string; content: string }[], arch
 // 2026-08-13 sur Llama 3.2 1B, symptôme identique à des poids corrompus, d'où le temps perdu à
 // soupçonner la dé-permutation Q/K et les kernels). Même piège pour Ministral 3 avec « <s> ».
 export function templateWritesBos(archType: ArchType): boolean {
-  return archType === 'llama3' || archType === 'mistral3' || archType === 'spark';
+  return archType === 'llama3' || archType === 'mistral3' || archType === 'spark' || archType === 'minicpm';
 }
 
 // Les ids d'arrêt DÉCLARÉS PAR LE FICHIER lui-même (GGUF : tokenizer.ggml.eos_token_id, et l'id de
