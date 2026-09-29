@@ -31,6 +31,8 @@ export interface TurnRequest {
 	pinned: Msg[];
 	// Pénalité de répétition (défaut 1,3). 1 = aucune — ce que mesurent les bancs de code.
 	repeatPenalty?: number;
+	// Réflexion native gardée (true) ou coupée et masquée (défaut) — cf. SessionConfig.reasoning.
+	reasoning?: boolean;
 }
 
 export type ModelState = 'loading' | 'ready' | 'error';

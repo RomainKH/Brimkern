@@ -22,12 +22,12 @@ export class LocalBackend implements EngineBackend {
 
 	turn(req: TurnRequest, onToken?: (t: string) => void, signal?: AbortSignal): Promise<string> {
 		return withDeviceRetry(req.url, (core) =>
-			runTurn(core, req.history, req.system, req.maxTokens, req.temperature, onToken, () => !!signal?.aborted, req.pinned, req.repeatPenalty));
+			runTurn(core, req.history, req.system, req.maxTokens, req.temperature, onToken, () => !!signal?.aborted, req.pinned, req.repeatPenalty, req.reasoning));
 	}
 
 	turnBatch(reqs: TurnRequest[]): Promise<string[]> {
 		const r0 = reqs[0];
-		return withDeviceRetry(r0.url, (core) => runTurnBatch(core, reqs, r0.maxTokens, r0.temperature, r0.repeatPenalty));
+		return withDeviceRetry(r0.url, (core) => runTurnBatch(core, reqs, r0.maxTokens, r0.temperature, r0.repeatPenalty, r0.reasoning));
 	}
 
 	dispose(): void { /* singleton de page : rien à libérer ici (cf. engineCore.models) */ }

@@ -53,6 +53,32 @@ export function stripReasoning(s: string): string {
   return (j === -1 ? s.slice(0, i) : s.slice(0, i) + s.slice(j + 8)).trim();
 }
 
+// Réflexion native COUPÉE par défaut (SessionConfig.reasoning) : un « /no_think » final du dernier
+// message utilisateur, la convention que formatPrompt traduit pour chaque arch (Qwen 3 l'obéit
+// nativement ; Qwen 3.5, Spark et K2-Horizon le reçoivent en bloc de réflexion vide prérempli).
+// Sans lui, Qwen3-0.6B ouvrait « <think> Okay, the user just said "Hello!"… » à CHAQUE tour du
+// widget (banc sdk-dialogue, 2026-09-28) — et ce banc le comptait comme réussi.
+const ARCHS_A_REFLEXION = new Set<string>(['qwen3', 'qwen35', 'spark', 'k2h', 'minicpm']);
+export function sansReflexion<M extends { role: string; content: string }>(msgs: M[], arch: string): M[] {
+  if (!ARCHS_A_REFLEXION.has(arch)) return msgs;
+  const i = msgs.length - 1;
+  if (i < 0 || msgs[i].role !== 'user' || /\/no_think\s*$/.test(msgs[i].content)) return msgs;
+  return [...msgs.slice(0, i), { ...msgs[i], content: `${msgs[i].content} /no_think` }];
+}
+
+// Et le filet côté sortie, pour ce que la consigne ne couvre pas (DeepSeek-R1, qui réfléchit
+// toujours ; un modèle qui passe outre) : les blocs fermés sont retirés, un bloc encore OUVERT
+// cache tout ce qui suit (streaming : la réflexion ne s'affiche jamais, même le temps d'un token),
+// et un « </think> » orphelin (gabarit qui ouvre la réflexion dans le prompt) coupe ce qui précède.
+export function masquerReflexion(t: string): string {
+  let s = t.replace(/<(\/?)ifm\|think(?:_fast|_faster)?>/g, '<$1think>').replace(/<think>[\s\S]*?<\/think>/g, '');
+  const ouvert = s.indexOf('<think>');
+  if (ouvert !== -1) s = s.slice(0, ouvert);
+  const orphelin = s.lastIndexOf('</think>');
+  if (orphelin !== -1) s = s.slice(orphelin + 8);
+  return s.replace(/^\s+/, '');
+}
+
 // Build the model-ready prompt string from the chat history, per architecture chat template.
 // Les messages assistant de l'HISTORIQUE sont débarrassés de leur raisonnement (cf. stripReasoning).
 export function formatPrompt(chatMsgs: { role: string; content: string }[], archType: ArchType, systemText: string): string {

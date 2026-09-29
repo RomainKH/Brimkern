@@ -17,7 +17,7 @@ import { Qwen35Model } from '../lib/webgpu/qwen35Model';
 import { gemma4TokenizerFromGguf } from '../lib/gemma4Tokenizer';
 import { loadBrikStream, loadGgufStream, prefetchGguf, fetchFullCached, fetchRange } from '../lib/webgpu/source';
 import { spanRawTensor } from '../lib/webgpu/layerSpans';
-import { formatPrompt, declaredStopIds, TURN_MARKERS } from '../lib/chatFormat';
+import { formatPrompt, declaredStopIds, TURN_MARKERS, sansReflexion, masquerReflexion } from '../lib/chatFormat';
 import { BpeTokenizer } from '../lib/bpeTokenizer';
 import { tokenizerFromGguf } from '../lib/ggufTokenizer';
 import { sampleFromTopK } from '../lib/webgpu/sampling';
@@ -670,10 +670,12 @@ export async function runTurn(
   isStopped?: () => boolean,
   pinned: Msg[] = [],
   repeatPenalty = 1.3,
+  reasoning = false,
 ): Promise<string> {
   // Les exemples few-shot restent EN TÊTE quoi qu'il arrive ; seule la conversation glisse.
   const arch: ArchType = (core as any).arch || (core instanceof RwkvModel ? 'rwkv7' : 'lfm2');
-  const prompt = formatPrompt([...pinned, ...history.slice(-HISTORY_WINDOW)] as any, arch as any, system);
+  const msgs = [...pinned, ...history.slice(-HISTORY_WINDOW)];
+  const prompt = formatPrompt((reasoning ? msgs : sansReflexion(msgs, arch)) as any, arch as any, system);
   const greeted = pinned.some((m) => m.role === 'assistant') || history.some((m) => m.role === 'assistant');
   let acc = '';
   let turnHit = false; // marqueur de tour vu → on arrête la génération, pas seulement l'affichage
@@ -686,7 +688,7 @@ export async function runTurn(
   await run(prompt, maxTokens, (t: string) => {
     const cut = cutAtTurnMarker(t);
     if (cut.hit) turnHit = true;
-    acc = cleanOutput(cut.text, greeted);
+    acc = cleanOutput(reasoning ? cut.text : masquerReflexion(cut.text), greeted);
     onToken?.(acc);
   }, () => turnHit || !!isStopped?.(), {
     sample: temperature > 0, temperature, topK: 40, repeatPenalty,
@@ -704,16 +706,23 @@ export async function runTurnBatch(
   maxTokens: number,
   temperature: number,
   repeatPenalty = 1.3,
+  reasoning = false,
 ): Promise<string[]> {
   const tr = core as unknown as TransformerWebModel;
   if (!(core instanceof TransformerWebModel) || !tr.batchAvailable() || reqs.length < 2) {
     const out: string[] = [];
-    for (const r of reqs) out.push(await runTurn(core, r.history, r.system, maxTokens, temperature, undefined, undefined, r.pinned ?? [], repeatPenalty));
+    for (const r of reqs) out.push(await runTurn(core, r.history, r.system, maxTokens, temperature, undefined, undefined, r.pinned ?? [], repeatPenalty, reasoning));
     return out;
   }
-  const prompts = reqs.map((r) => formatPrompt([...(r.pinned ?? []), ...r.history.slice(-HISTORY_WINDOW)] as any, tr.arch as any, r.system));
+  const prompts = reqs.map((r) => {
+    const msgs = [...(r.pinned ?? []), ...r.history.slice(-HISTORY_WINDOW)];
+    return formatPrompt((reasoning ? msgs : sansReflexion(msgs, tr.arch)) as any, tr.arch as any, r.system);
+  });
   const raw = await tr.generateBatch(prompts, maxTokens, { sample: temperature > 0, temperature, topK: 40, repeatPenalty });
-  return raw.map((t, i) => cleanOutput(cutAtTurnMarker(t).text, reqs[i].history.some((m) => m.role === 'assistant')));
+  return raw.map((t, i) => {
+    const txt = cutAtTurnMarker(t).text;
+    return cleanOutput(reasoning ? txt : masquerReflexion(txt), reqs[i].history.some((m) => m.role === 'assistant'));
+  });
 }
 
 // Composition du prompt, au même endroit pour la session programmatique ET pour le widget — il était

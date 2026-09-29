@@ -1367,6 +1367,7 @@ class BrimkernNativeDawnEngine {
       temperature: this.temperature,
       repeatPenalty: this.repeatPenalty,
       system: this.systemPrompt,
+      reasoning: true, // la CLI pilote la réflexion elle-même (suffixes /think, stripThink)
     }));
 
     this.isReady = true;
@@ -1541,6 +1542,7 @@ class BrimkernChromiumEngine {
         temperature,
         repeatPenalty,
         system: systemPrompt,
+        reasoning: true,
       });
 
       if (window.session && typeof window.session.on === 'function') {
