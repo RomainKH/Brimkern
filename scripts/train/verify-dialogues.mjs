@@ -35,6 +35,7 @@ function promptPour(b) {
 Store notes (the ONLY allowed source of store facts):
 """${notes}"""
 Operator prompt: """${s.system}"""
+Widget greeting: """${s.greeting || '(none)'}"""
 
 ${convs}
 
@@ -42,7 +43,8 @@ For EACH assistant turn, FAIL it if ANY of these holds:
 - it states a store fact not in the notes, or changes a number, unit, delay, price or condition (e.g. "a month" for "30 days", "two weeks" for "14 days", "free" when a fee exists);
 - it states a fact WITHOUT the exact figure the note gives, when the figure answers the question (a paraphrase like "a few days" for "3 to 5 business days");
 - it picks the wrong row of a table or list;
-- it answers a factual question the notes do not cover, instead of saying it does not have that information;
+- it answers a factual question the notes do not cover, instead of saying it does not have that information — including a guessed "yes" or "no" about an amenity, service or product the notes never mention;
+- it states a business name that neither the operator prompt nor the greeting gives;
 - it copies or rephrases the customer's message, ignores the conversation, is in the wrong language, or uses markdown/lists/emojis.
 Small talk, identity, refusals and goodbyes PASS when natural and brief.
 Answer with JSON only: [{"id":"c0.t0","verdict":"PASS"|"FAIL","why":"<10 words>"}, ...]`;
