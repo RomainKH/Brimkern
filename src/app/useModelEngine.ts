@@ -7,6 +7,7 @@
 // badges) are injected via `deps`. Returned values keep the SAME names the page used, so call sites
 // (render + chat loop) are unchanged. Precision/benchmark handlers stay in the page and consume this.
 
+import { declaredStopIds } from '@/lib/chatFormat';
 import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 // transformers.js is a heavy dependency only needed once a model is loaded (for its tokenizer). It's
 // imported DYNAMICALLY at load time (see `await import('@huggingface/transformers')` below) so it
@@ -588,7 +589,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
             quantSource: name.match(/(Q\d[\w]*|F16|F32|BF16)/i)?.[0]?.toUpperCase(),
             uiArch,
             tokenizer: { kind: 'hf-hub', id: tokenizerId },
-            chat: { template: '', stopTokenIds: [] },
+            chat: { template: '', stopTokenIds: declaredStopIds(gguf.metadata) }, // ids déclarés par le GGUF (écrivait [])
             weightDType: tier,
           },
           (done, total) => setLoadingProgress({ loaded: done, total, percentage: Math.round((done / total) * 100) }),

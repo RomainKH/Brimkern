@@ -108,6 +108,9 @@ export interface StreamLoadable {
 	tokenizer?: { kind: string; id?: string; json?: string; config?: string };
 	uiArch?: string;
 	modelName: string;
+	// Ids d'arrêt du paquet (chat.stopTokenIds) — cf. BrikLoadable dans brik/loader.ts : brikToGgufManifest
+	// ne porte pas le bloc `chat`, et c'est CE chemin (streaming) que le SDK emprunte.
+	stopTokenIds?: number[];
 }
 
 // Open a single-file .brik by URL for streaming. Reads the header (12 bytes → manifest length →
@@ -153,6 +156,7 @@ function loadableFrom(manifest: ReturnType<typeof parseBrikHeader>['manifest'], 
 		tokenizer: manifest.tokenizer,
 		uiArch: manifest.model?.uiArch,
 		modelName: manifest.model.name,
+		stopTokenIds: manifest.chat?.stopTokenIds,
 	};
 }
 

@@ -5,6 +5,7 @@
 // straight into the engine or download it as a single self-contained .brik file (container.ts). A
 // downloaded .brik (or a legacy .brik.zip) can be re-imported here to load without re-converting.
 
+import { declaredStopIds } from '@/lib/chatFormat';
 import { useRef, useState } from 'react';
 import { Package, Upload, Download, Play, Loader2, X, AlertTriangle, FileArchive } from 'lucide-react';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
@@ -106,7 +107,7 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 					quantSource: guessQuant(srcName),
 					uiArch: tok.type,
 					tokenizer: { kind: 'hf-hub', id: tokenizerId },
-					chat: { template: '', stopTokenIds: [] },
+					chat: { template: '', stopTokenIds: declaredStopIds(gguf.metadata) }, // ids déclarés par le GGUF (écrivait [])
 					weightDType,
 				},
 				(done, total, label) => setProg({ done, total, label }),

@@ -135,6 +135,11 @@ export interface BrikLoadable {
 	tokenizer?: BrikManifest['tokenizer'];
 	uiArch?: string;
 	modelName: string;
+	// Ids d'arrêt ÉCRITS dans le paquet (chat.stopTokenIds). brikToGgufManifest ne transporte pas le
+	// bloc `chat` : sans ce champ, un BRIK transformer n'était jamais arrêté par SES ids mais par ceux
+	// de Qwen codés en dur dans le SDK — invisible jusqu'au premier vocabulaire renuméroté
+	// (Qwen3-0.6B taillé EN/FR, 2026-09-28 : <|im_end|> = 42840, le modèle ne s'arrêtait plus).
+	stopTokenIds?: number[];
 }
 
 // One-call adapter: BRIK package → { blob, GGUF-manifest, tokenizer/arch hints } for CustomWebModel.
@@ -146,6 +151,7 @@ export function brikToLoadable(brik: BrikManifest, shards: BrikShardBytes[]): Br
 		tokenizer: brik.tokenizer,
 		uiArch: brik.model?.uiArch,
 		modelName: brik.model.name,
+		stopTokenIds: brik.chat?.stopTokenIds,
 	};
 }
 
@@ -160,5 +166,6 @@ export function brikFileToLoadable(brik: BrikManifest, data: Uint8Array): BrikLo
 		tokenizer: brik.tokenizer,
 		uiArch: brik.model?.uiArch,
 		modelName: brik.model.name,
+		stopTokenIds: brik.chat?.stopTokenIds,
 	};
 }

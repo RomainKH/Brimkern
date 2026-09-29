@@ -487,7 +487,10 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     });
 
     const archType = inferArchType(m);
-    const stopIds = m.chat?.stopTokenIds || [151645, 151643];
+    // Les ids d'arrêt du PAQUET d'abord (loadable.stopTokenIds, cf. brik/loader.ts) : `m` est le
+    // manifeste converti au format GGUF, qui n'a pas de bloc `chat` — `m.chat` était toujours vide.
+    // Repli Qwen seulement pour un paquet qui n'en déclare aucun (`[]` est « vrai » en JS : .length).
+    const stopIds = loadable.stopTokenIds?.length ? loadable.stopTokenIds : [151645, 151643];
     const core = new TransformerWebModel(engine, customModel, tok, archType, stopIds);
     return { core, engine };
   }

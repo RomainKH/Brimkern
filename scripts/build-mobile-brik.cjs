@@ -31,7 +31,10 @@ const UI_ARCH = process.env.BRIK_UI_ARCH || 'qwen';
 const slug = MODEL_NAME.toLowerCase().replace(/[^a-z0-9.]+/g, '-');
 const OUT = process.env.BRIK_OUT || path.join(__dirname, '..', 'public', 'models', `${slug}-${TIER}.brik`);
 // Cache source par nom de fichier (deux modèles ne s'écrasent plus).
-const GGUF_CACHE = path.join(__dirname, '..', '.brik-build', `src-${path.basename(new URL(GGUF_URL).pathname)}`);
+// BRIK_SRC peut aussi être un CHEMIN local (2026-09-28 : le Qwen3-0.6B au vocabulaire taillé
+// n'existe que sur le disque) — lu tel quel, pas de copie en cache.
+const SRC_LOCAL = !/^https?:/.test(GGUF_URL);
+const GGUF_CACHE = SRC_LOCAL ? GGUF_URL : path.join(__dirname, '..', '.brik-build', `src-${path.basename(new URL(GGUF_URL).pathname)}`);
 
 // Écriture par morceaux : fs.writeSync plafonne à 2^31-1 octets par appel — un 4B (source 4,3 Go,
 // .brik ~2,9 Go) dépasse la limite d'un writeFileSync monolithique.
@@ -122,10 +125,28 @@ async function main() {
   }
 
   // Embed the tokenizer (offline runtime load, no HF fetch, no manual pick).
+  // BRIK_TOKENIZER_DIR : tokenizer LOCAL. Obligatoire pour un vocabulaire taillé — celui du dépôt
+  // HF d'origine a d'autres ids, et le modèle produirait du charabia sans que rien ne lève.
+  const tokDir = process.env.BRIK_TOKENIZER_DIR;
   const tokBase = `https://huggingface.co/${TOKENIZER_ID}/resolve/main`;
-  const fetchText = async (f) => { const r = await fetch(`${tokBase}/${f}`); if (!r.ok) throw new Error(`${f} HTTP ${r.status}`); return r.text(); };
+  const fetchText = tokDir
+    ? async (f) => fs.readFileSync(path.join(tokDir, f), 'utf8')
+    : async (f) => { const r = await fetch(`${tokBase}/${f}`); if (!r.ok) throw new Error(`${f} HTTP ${r.status}`); return r.text(); };
   const [tokJson, tokConfig] = await Promise.all([fetchText('tokenizer.json'), fetchText('tokenizer_config.json')]);
   console.log(`tokenizer embarqué: tokenizer.json ${(tokJson.length / 1048576).toFixed(1)} Mo + config`);
+
+  // Ids d'arrêt ÉCRITS dans le paquet : ceux que le GGUF déclare (eos/eot) + les marqueurs de tour
+  // du tokenizer embarqué. Le paquet portait `stopTokenIds: []` ; le SDK gardait cette liste vide et
+  // ne s'arrêtait que par les ids Qwen codés en dur par architecture — invisible avec le vocabulaire
+  // d'origine. Avec le vocabulaire taillé (<|im_end|> = 42840), le modèle ne s'arrêtait plus :
+  // « …3–5 business days.Human Resource Planning (HRP) is… » (banc sdk-multi, 2026-09-28).
+  const stopIds = new Set();
+  for (const k of ['tokenizer.ggml.eos_token_id', 'tokenizer.ggml.eot_token_id']) {
+    const v = Number(manifest.metadata?.[k]); if (Number.isFinite(v) && v >= 0) stopIds.add(v);
+  }
+  for (const t of JSON.parse(tokJson).added_tokens || []) if (['<|im_end|>', '<|endoftext|>', '<|eot_id|>', '<end_of_turn>'].includes(t.content)) stopIds.add(t.id);
+  console.log(`ids d'arrêt : ${[...stopIds].join(', ') || 'AUCUN'}`);
+  if (!stopIds.size) throw new Error("aucun id d'arrêt trouvé (GGUF ni tokenizer) : le modèle ne s'arrêterait pas");
 
   let lastPct = -1;
   const out = await convertModelToBrik(
@@ -133,7 +154,7 @@ async function main() {
     {
       modelName: MODEL_NAME, quantSource: 'Q8_0', uiArch: UI_ARCH,
       tokenizer: { kind: 'embedded', id: TOKENIZER_ID, json: tokJson, config: tokConfig },
-      chat: { template: '', stopTokenIds: [] },
+      chat: { template: '', stopTokenIds: [...stopIds] },
       weightDType: TIER,
     },
     (done, total) => {
