@@ -85,3 +85,6 @@ scripts/e2e/chrome-profile*/
 
 # Résolveur du Hub compilé pour la CLI (npm run build:sdk)
 /bin/generated
+
+# bytecode Python (scripts/train)
+__pycache__/
