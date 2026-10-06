@@ -20,6 +20,53 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'October 6, 2026', fr: '6 octobre 2026' },
+    tagline: {
+      en: 'SDK 0.8.0: the widget gets a model trained for its job. Qwen3 0.6B, vocabulary trimmed to English and French, fine-tuned to copy figures from your notes and to say so when they don’t answer: 92 % on five businesses it never saw in training, against 77 % for the previous 230M default.',
+      fr: 'SDK 0.8.0 : le widget reçoit un modèle entraîné pour son travail. Qwen3 0.6B, vocabulaire taillé pour l’anglais et le français, affiné pour recopier les chiffres de vos fiches et dire quand elles ne répondent pas : 92 % sur cinq commerces jamais vus à l’entraînement, contre 77 % pour l’ancien défaut de 230M.',
+    },
+    groups: [
+      {
+        title: { en: 'SDK 0.8.0: a default model trained on the SDK’s own prompt format', fr: 'SDK 0.8.0 : un modèle par défaut entraîné sur le format exact du SDK' },
+        items: [
+          {
+            en: 'A first fine-tune read the notes WORSE than the base model (1 fact out of 8 against 5), while its validation loss kept dropping: the training answers paraphrased figures, and a 0.6B learns fluency without precision. What fixed it: dialogues that copy the figure verbatim, a second model rejecting every paraphrased fact, and a check for invented figures before any browser bench.',
+            fr: 'Un premier affinage lisait les fiches MOINS bien que le modèle de base (1 fait sur 8 contre 5), pendant que sa perte de validation baissait sagement : les réponses d’entraînement paraphrasaient les chiffres, et un 0.6B apprend l’aisance sans la précision. Ce qui l’a réparé : des dialogues qui recopient le chiffre tel quel, un second modèle qui refuse toute paraphrase d’un fait, et un contrôle des chiffres inventés avant tout banc navigateur.',
+          },
+          {
+            en: 'Measured on a new benchmark of five businesses held out of training (phone accessories, hotel, dental practice, SaaS, web hosting; three in English, two in French): 110/120. Out-of-notes questions (“do you have a pool?”) are refused instead of guessed, and the model no longer invents a shop name when the prompt gives none.',
+            fr: 'Mesuré sur un nouveau banc de cinq commerces tenus à l’écart de l’entraînement (accessoires de téléphone, hôtel, cabinet dentaire, SaaS, hébergement web ; trois en anglais, deux en français) : 110/120. Les questions hors fiches (« vous avez une piscine ? ») sont refusées au lieu d’être devinées, et le modèle n’invente plus de nom de boutique quand le prompt n’en donne pas.',
+          },
+          {
+            en: 'Trimming the vocabulary from 151,643 to 42,880 tokens costs +0.91 % tokens on unseen text and nothing measurable on the bench; with every weight in 4 bits, the model weighs 290 MB (506 MB for the untouched Qwen3 0.6B .brik). Below 4 bits it collapses: 290 MB is the floor.',
+            fr: 'Tailler le vocabulaire de 151 643 à 42 880 tokens coûte +0,91 % de tokens sur un texte jamais vu et rien de mesurable au banc ; avec tous les poids en 4 bits, le modèle pèse 290 Mo (506 Mo pour le .brik du Qwen3 0.6B d’origine). Sous 4 bits il s’effondre : 290 Mo est le plancher.',
+          },
+          {
+            en: 'It is the default: omit model and you get it. The previous 230M (149 MB) stays one key away, model: \'lfm2.5-230m\'. The /sdk-demo page now runs it too, and says so.',
+            fr: 'C’est le défaut : sans model, c’est lui. L’ancien 230M (149 Mo) reste à une clé près, model: \'lfm2.5-230m\'. La page /sdk-demo le fait tourner aussi, et le dit.',
+          },
+        ],
+      },
+      {
+        title: { en: 'SDK 0.7.0: errors instead of silent fallbacks', fr: 'SDK 0.7.0 : des erreurs au lieu de replis silencieux' },
+        items: [
+          {
+            en: 'A model the SDK cannot load is now an error that says why (unknown key, plain http outside localhost, file:// URL). It used to fall back silently to the default model, so a typo looked like “the SDK answers badly”.',
+            fr: 'Un modèle que le SDK ne peut pas charger est désormais une erreur qui dit pourquoi (clé inconnue, http en clair hors localhost, URL file://). Il retombait en silence sur le modèle par défaut : une faute de frappe ressemblait à « le SDK répond mal ».',
+          },
+          {
+            en: 'Native reasoning is off by default: a reasoning model no longer opens its answers with “<think> Okay, the user just said…”.',
+            fr: 'La réflexion native est coupée par défaut : un modèle à raisonnement n’ouvre plus ses réponses par « <think> Okay, the user just said… ».',
+          },
+          {
+            en: 'The stop tokens declared in a transformer .brik had never been read: the SDK stopped on ids hard-coded per architecture. Fixed — and the converters no longer write an empty list.',
+            fr: 'Les tokens d’arrêt déclarés dans un .brik transformer n’avaient jamais été lus : le SDK s’arrêtait sur des ids codés en dur par architecture. Corrigé — et les convertisseurs n’écrivent plus une liste vide.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'September 23, 2026', fr: '23 septembre 2026' },
     tagline: {
       en: 'Brimkern CLI & Native Dawn Engine: on-device terminal inference with zero browser overhead via Google Dawn WebGPU bindings (25× faster boot measured on Apple Metal: 0.93s vs 23.46s), Claude Code / Gemini-style workflows (@file injection, git shortcuts), and dedicated coding models (Qwen 2.5 Coder 0.5B & 1.5B).',
