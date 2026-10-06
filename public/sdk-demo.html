@@ -367,10 +367,9 @@ Conseil pointure : Les baskets taillent normalement. Pour les chaussures de runn
     // prompt système — ce qui marche, mais une démo ne doit rien laisser à une heuristique.
     // La POIGNÉE est gardée : c'est elle qui pilote le widget depuis les puces de suggestion
     // ci-dessous (cf. openAndAsk). `showSources` affiche, sous chaque réponse, la ou les fiches qui
-    // l'ont produite — sur un modèle de 230 M, une réponse vérifiable vaut mieux qu'une réponse
-    // affirmée.
+    // l'ont produite — sur un petit modèle, une réponse vérifiable vaut mieux qu'une réponse
+    // affirmée. Pas de `model` : la démo montre le défaut du SDK (Qwen3-0.6B entraîné, depuis 0.8.0).
     const widget = Brimkern.embed({
-      model: 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
       lang: LANG,
       title: CONFIGS[LANG].title,
       system: CONFIGS[LANG].system,
