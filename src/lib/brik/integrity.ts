@@ -44,6 +44,8 @@ export const MANIFEST_DIGESTS: Record<string, string> = {
 		'aca6214b45c294c1d4c51c46aa23acc22cc53cb95a6894c62d2bd0570ca12afe',
 	'https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik':
 		'315d2a1cc17b64b029eb24e9668e5c959fd151ae926c9758bddc6a8193e52f6d',
+	'https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK/resolve/main/qwen3-0.6b-shop-enfr-q4.brik':
+		'f45dc8b089e66d8a3ed53902a788aa2c86bc26f1fa286a32bee426c07a264272',
 	'https://huggingface.co/romainkh14/Qwen3-4B_BRIK/resolve/main/qwen3-4b-q4.brik':
 		'23f9c0cc66ec21056e656bdaa5cbfda2e93673718ea3ab0dfad19c6e7f583f7d',
 	'https://huggingface.co/romainkh14/RWKV-7-G1-0.1B_BRIK/resolve/main/rwkv7-g1-0.1b-q4.brik':

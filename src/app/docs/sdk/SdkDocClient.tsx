@@ -89,8 +89,8 @@ import type {
         <Param name="greeting" type="string">{t('First message shown before the visitor types.', 'Premier message affiché avant que le visiteur n’écrive.')}</Param>
         <Param name="accent" type="string">{t('Accent color (any CSS color).', "Couleur d'accent (toute couleur CSS).")}</Param>
         <Param name="model" type="string">
-          {t('Model override: a direct URL to an LFM2 or RWKV-7 .brik. Defaults to the built-in small model (149 MB). Other architectures (any single-file GGUF) live in the app, not the SDK.',
-             'Modèle à la place du défaut : une URL directe vers un .brik LFM2 ou RWKV-7. Défaut : le petit modèle intégré (149 Mo). Les autres architectures (tout GGUF mono-fichier) vivent dans l’app, pas dans le SDK.')}
+          {t('Model override: a direct .brik URL, or a known key (\'lfm2.5-230m\' for the previous 149 MB default). Defaults to the built-in model: Qwen3 0.6B trimmed to English and French and fine-tuned to answer from your notes (290 MB). A model that cannot be loaded is an error, never a silent fallback.',
+             'Modèle à la place du défaut : une URL .brik directe, ou une clé connue (\'lfm2.5-230m\' pour l’ancien défaut de 149 Mo). Défaut : le modèle intégré, Qwen3 0.6B taillé pour l’anglais et le français et entraîné à répondre depuis vos fiches (290 Mo). Un modèle non chargeable est une erreur, jamais un repli silencieux.')}
         </Param>
         <Param name="maxTokens" type="number">{t('Reply budget, in tokens.', 'Budget de réponse, en tokens.')}</Param>
         <Param name="lang" type="'en' | 'fr'">
@@ -323,8 +323,8 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
 
       <Section id="engine" title={t('One engine per page', 'Un seul moteur par page')}>
         <P>
-          {t('The engine is a singleton per model URL: N widgets and N sessions on a page share one WebGPU init and one set of weights in VRAM. Mounting a second widget costs a DOM node, not 149 MB — and destroying one leaves the weights loaded for whoever comes next. This is also why worker and workerUrl only take effect before the first preload or ask: once the backend exists it is shared by the whole page, and a later embed() saying otherwise is ignored with a console warning rather than silently believed.',
-             "Le moteur est un singleton par URL de modèle : N widgets et N sessions d'une page partagent une seule init WebGPU et un seul jeu de poids en VRAM. Monter un second widget coûte un nœud DOM, pas 149 Mo — et en détruire un laisse les poids chargés pour le suivant. C'est aussi pourquoi worker et workerUrl ne valent que TANT QUE le premier preload ou ask n'a pas eu lieu : une fois le backend créé il est partagé par toute la page, et un embed() ultérieur qui dit le contraire est ignoré avec un avertissement en console plutôt que cru en silence.")}
+          {t('The engine is a singleton per model URL: N widgets and N sessions on a page share one WebGPU init and one set of weights in VRAM. Mounting a second widget costs a DOM node, not 290 MB — and destroying one leaves the weights loaded for whoever comes next. This is also why worker and workerUrl only take effect before the first preload or ask: once the backend exists it is shared by the whole page, and a later embed() saying otherwise is ignored with a console warning rather than silently believed.',
+             "Le moteur est un singleton par URL de modèle : N widgets et N sessions d'une page partagent une seule init WebGPU et un seul jeu de poids en VRAM. Monter un second widget coûte un nœud DOM, pas 290 Mo — et en détruire un laisse les poids chargés pour le suivant. C'est aussi pourquoi worker et workerUrl ne valent que TANT QUE le premier preload ou ask n'a pas eu lieu : une fois le backend créé il est partagé par toute la page, et un embed() ultérieur qui dit le contraire est ignoré avec un avertissement en console plutôt que cru en silence.")}
         </P>
       </Section>
 
@@ -333,11 +333,11 @@ status()  // 'unavailable' (${t('no WebGPU', 'pas de WebGPU')}) | 'idle' | 'load
           {t('Pin a version if you would rather the widget did not change under your feet:',
              'Épinglez une version si vous préférez que le widget ne change pas sous vos pieds :')}
         </P>
-        <Code lang="url">{`${SITE_URL}/sdk-0.7.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
+        <Code lang="url">{`${SITE_URL}/sdk-0.8.0.js   ${t('instead of', 'au lieu de')}   ${SITE_URL}/sdk.js
 
 <!-- ${t('or from the npm CDNs', 'ou depuis les CDN npm')} -->
-https://unpkg.com/brimkern@0.7.0/dist/brimkern.iife.js
-https://cdn.jsdelivr.net/npm/brimkern@0.7.0/dist/brimkern.iife.js`}</Code>
+https://unpkg.com/brimkern@0.8.0/dist/brimkern.iife.js
+https://cdn.jsdelivr.net/npm/brimkern@0.8.0/dist/brimkern.iife.js`}</Code>
       </Section>
 
       <Section id="server" title={t('Servers, licence, links', 'Serveur, licence, liens')}>

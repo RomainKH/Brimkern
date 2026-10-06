@@ -23,7 +23,7 @@ import { tokenizerFromGguf } from '../lib/ggufTokenizer';
 import { sampleFromTopK } from '../lib/webgpu/sampling';
 import { parseGguf, type Manifest } from '../lib/webgpu/ggufParser';
 import type { ArchType } from '../lib/presets';
-import { ggufArchFamilyFor } from '../lib/modelCatalog';
+import { ggufArchFamilyFor, SDK_DEFAULT_BRIK_URL } from '../lib/modelCatalog';
 
 // Dédit de prompt selon l'architecture
 function inferArchType(manifest: { arch?: string; metadata?: Record<string, unknown>; tensors?: Record<string, any>; config?: any }): ArchType {
@@ -329,6 +329,9 @@ export type PureModel = Lfm2Model | RwkvModel | TransformerWebModel;
 
 const TRANSFORMERS_CDN = 'https://esm.sh/@huggingface/transformers@4.2.0';
 export const MODELS: Record<string, string> = {
+  // Défaut depuis la 0.8.0 : Qwen3-0.6B taillé EN/FR + LoRA entraîné au format exact du SDK
+  // (scripts/train, ROADMAP § 22) — 290 Mo, ~92 % au banc multi-domaines contre ~77 % pour le 230M.
+  'qwen3-0.6b-shop': SDK_DEFAULT_BRIK_URL,
   'lfm2.5-230m': 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
   'qwen-0.5b': 'https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik',
   'coder-0.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
@@ -572,11 +575,11 @@ export const models = new Map<string, ModelEntry>();
 // toutes les réponses) ; http toléré pour localhost/dev uniquement.
 //
 // Un modèle ni connu ni URL acceptée est une ERREUR, pas un repli : le repli silencieux sur le modèle
-// par défaut (230M) servait des réponses absurdes sans un mot — une clé mal tapée, une URL http non
+// par défaut servait des réponses absurdes sans un mot — une clé mal tapée, une URL http non
 // locale ou un file:// (non géré) donnaient « le SDK marche mal » au lieu de « ce modèle n'est pas
 // chargeable ». Constaté en banc : une session « file://…reap50.gguf » répondait avec le LFM2 230M.
 export function resolveModelUrl(model?: string): string {
-  if (!model) return MODELS['lfm2.5-230m'];
+  if (!model) return MODELS['qwen3-0.6b-shop'];
   if (model.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(model)) return model;
   if (MODELS[model]) return MODELS[model];
   const why = /^http:\/\//.test(model) ? 'plain http is only allowed for localhost (use https)'

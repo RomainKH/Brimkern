@@ -13,7 +13,7 @@
 </script>
 ```
 
-The model (149 MB) downloads **only when a visitor actually opens the widget**, then stays cached on
+The model (290 MB) downloads **only when a visitor actually opens the widget**, then stays cached on
 their device, so your page speed is untouched, and the second visit starts in seconds, offline
 included.
 
@@ -92,9 +92,11 @@ Brimkern.embed({
 });
 ```
 
-**Write short, factual notes.** The default model is a 230M: small enough to download on a visitor's
-connection, and it quotes your notes well. But it is small: two different numbers inside the same
-paragraph can get mixed up. One fact per paragraph is the rule that makes this work.
+**Write short, factual notes.** The default model is a 0.6B (Qwen3, vocabulary trimmed to English
+and French, fine-tuned to copy figures from your notes verbatim and to say so when they don't
+answer): 92 % on our benchmark of five businesses it never saw in training, against 77 % for the
+previous 230M default. But it is small: two different numbers inside the same paragraph can still
+get mixed up. One fact per paragraph is the rule that makes this work.
 
 You can see which passages produced an answer — the way you tell a bad note from a bad reading of a
 good one, and the way a visitor can check what they are told:
@@ -197,7 +199,7 @@ the conversation.
 
 | | |
 | --- | --- |
-| `model` | An LFM2 or RWKV-7 `.brik` URL, or omit for the default (149 MB). **The SDK runs LFM2 and RWKV-7 `.brik` models only**: a clear error tells you when a file is neither. The full engine (any single-file GGUF from Hugging Face) lives in the app at [brimkern.com/chat](https://brimkern.com/chat). |
+| `model` | A `.brik` URL or a known key (`'lfm2.5-230m'` for the previous 149 MB default), or omit for the default (290 MB). A model that cannot be loaded is a clear error, never a silent fallback. The full engine (any single-file GGUF from Hugging Face) lives in the app at [brimkern.com/chat](https://brimkern.com/chat). |
 | `system` | What the assistant is and does. |
 | `knowledge` | A string, `{ title, text }`, or an array of either. |
 | `knowledgeBudget` | Characters of notes injected per question (default 1200). |
@@ -214,7 +216,7 @@ the conversation.
 ## One engine per page
 
 The engine is a singleton per model URL: N widgets and N sessions share one WebGPU init and one set
-of weights in VRAM. Mounting a second widget costs a DOM node, not 149 MB.
+of weights in VRAM. Mounting a second widget costs a DOM node, not 290 MB.
 
 ## Requirements
 

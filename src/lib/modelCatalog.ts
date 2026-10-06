@@ -17,6 +17,11 @@ export const QWEN_MOBILE_BRIK_URL = 'https://huggingface.co/romainkh14/Qwen2.5-0
 // Défaut mobile depuis le 2026-07-21 : LFM2.5-230M (moteur v2 hybride) — 149 Mo au lieu de 378,
 // chat FR meilleur à ce poids (bancs du port lfm2). Le Qwen 0.5B mixte reste le second choix
 // affiché sur les tuiles mobiles ; le préchargement d'arrière-plan vise ce défaut.
+// Modèle par défaut du SDK (widget) depuis la 0.8.0 : Qwen3-0.6B, vocabulaire taillé EN/FR, LoRA
+// « fiches recopiées » (scripts/train, ROADMAP § 22), .brik q4 intégral 290 Mo. Déclaré ICI pour que
+// `npm run brik:digest` le fige dans integrity.ts ; l'app, elle, garde le 230M en défaut mobile.
+export const SDK_DEFAULT_BRIK_URL = 'https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK/resolve/main/qwen3-0.6b-shop-enfr-q4.brik';
+
 export const MOBILE_BRIK_URL = 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik';
 
 // ── Poids de TIERS, épinglés à une RÉVISION ───────────────────────────────────────────────────

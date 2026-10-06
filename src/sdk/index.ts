@@ -73,7 +73,7 @@ function appliquerOptions(cfg: { worker?: boolean; workerUrl?: string }): void {
 // réseau tierce sur le chemin critique (hors-ligne réel, CSP hôte stricte OK).
 
 export interface EmbedConfig {
-  model?: string;       // clé de MODELS ou URL .brik directe (défaut : lfm2.5-230m)
+  model?: string;       // clé de MODELS ou URL .brik directe (défaut : qwen3-0.6b-shop)
   system?: string;      // prompt système = le comportement de l'assistant
   title?: string;       // titre du panneau
   greeting?: string;    // 1er message de l'assistant
