@@ -67,6 +67,89 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    date: { en: 'September 25, 2026', fr: '25 septembre 2026' },
+    tagline: {
+      en: 'Mixture-of-experts models in the engine, and a code benchmark of five suites instead of one. The new coder-max preset (Qwen3.6-35B-A3B, pruned) scores 184/202 on it, Claude Sonnet 5 186/202 on the same problems.',
+      fr: 'Les modèles à experts (MoE) entrent dans le moteur, et le banc de code passe d’une suite à cinq. Le nouveau preset coder-max (Qwen3.6-35B-A3B élagué) y fait 184/202, Claude Sonnet 5 186/202 sur les mêmes problèmes.',
+    },
+    groups: [
+      {
+        title: { en: 'Mixture of experts', fr: 'Mélange d’experts' },
+        items: [
+          {
+            en: 'A MoE stores 19 to 35 B parameters but computes about 3 B per token: a large model’s quality at a small model’s reading cost. Routing, per-expert K-quant matrix-vector kernels and the weighted sum run on the GPU, each with a CPU reference check at startup, a fallback and a kill switch (?moe=0). That check caught a routing bug on its first run: wrong expert weights, plausible output.',
+            fr: 'Un MoE stocke 19 à 35 B de paramètres mais n’en calcule qu’environ 3 B par token : la qualité d’un gros modèle au coût de lecture d’un petit. Routage, produits matrice-vecteur K-quant par expert et somme pondérée tournent sur le GPU, chacun avec un contrôle de référence CPU au démarrage, un repli et un interrupteur (?moe=0). Ce contrôle a attrapé un bug de routage au premier tir : poids d’experts faux, sortie plausible.',
+          },
+          {
+            en: 'Qwen3.6-35B-A3B coding-REAP50 (11.4 GB) matches llama.cpp token for token (64/64 greedy over 1,575 tokens of context) and decodes at 14.6 tok/s in 12 GB on a Mac M4. Grouping the prompt’s tokens by expert makes reading a long prompt 1.7 to 2.6× faster.',
+            fr: 'Qwen3.6-35B-A3B coding-REAP50 (11,4 Go) suit llama.cpp token pour token (64/64 en glouton sur 1 575 tokens de contexte) et décode à 14,6 tok/s en 12 Go sur un Mac M4. Regrouper les tokens du prompt par expert rend la lecture d’un long prompt 1,7 à 2,6× plus rapide.',
+          },
+        ],
+      },
+      {
+        title: { en: 'Five suites, and coder-max', fr: 'Cinq suites, et coder-max' },
+        items: [
+          {
+            en: 'HumanEval, HumanEval+, MBPP+, TypeScript and bug repair: 202 problems, every answer executed against its tests, pass rate only (timings depended on the machine’s state). coder-max 184, Claude Sonnet 5 186, coder (Qwen 3 4B) 146. The 4B presets collapse on bug repair (21-26/41), which is exactly what an agent asks for.',
+            fr: 'HumanEval, HumanEval+, MBPP+, TypeScript et réparation de bug : 202 problèmes, chaque réponse exécutée contre ses tests, réussite seule (les temps dépendaient de l’état de la machine). coder-max 184, Claude Sonnet 5 186, coder (Qwen 3 4B) 146. Les presets 4B s’effondrent en réparation de bug (21-26/41), précisément ce qu’un agent demande.',
+          },
+          {
+            en: 'coder-max joins the CLI and the MCP server, always without reasoning (that is how it was measured), behind a 20 GB memory guard.',
+            fr: 'coder-max rejoint la CLI et le serveur MCP, toujours sans réflexion (c’est ainsi qu’il a été mesuré), derrière une garde mémoire de 20 Go.',
+          },
+          {
+            en: 'Also ported and checked against llama.cpp, but not kept as presets: K2-Horizon 7B (145/202) and Spark-X2.5 4B (32/41 on HumanEval, under coder’s 35). Q4_K GGUF weights now stay native on the classic transformer path: an 8B fits in 6.6 GB instead of being doubled to int8.',
+            fr: 'Également portés et vérifiés contre llama.cpp, mais pas retenus en preset : K2-Horizon 7B (145/202) et Spark-X2.5 4B (32/41 sur HumanEval, sous les 35 de coder). Les poids GGUF Q4_K restent natifs sur le chemin transformer classique : un 8B tient en 6,6 Go au lieu d’être doublé en int8.',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    date: { en: 'September 24, 2026', fr: '24 septembre 2026' },
+    tagline: {
+      en: 'Gemma 4 and Qwen 3.5 in the engine, validated against llama.cpp — and the discovery that the super-coder preset had never actually run. Plus speculative decoding, an MCP server, batched calls (SDK 0.6.0) and a code benchmark that now decides the presets.',
+      fr: 'Gemma 4 et Qwen 3.5 dans le moteur, validés contre llama.cpp — et la découverte que le preset super-coder n’avait jamais tourné. Plus le décodage spéculatif, un serveur MCP, les appels par lots (SDK 0.6.0) et un banc de code qui décide désormais des presets.',
+    },
+    groups: [
+      {
+        title: { en: 'Two new architectures, and a preset that never ran', fr: 'Deux nouvelles architectures, et un preset qui n’avait jamais tourné' },
+        items: [
+          {
+            en: 'super-coder (Qwen 3.5) was routed to the plain transformer path, which dies at layer 0 on its DeltaNet layers; the “~14 tok/s” on its card could not have been measured. Qwen 3.5 now runs for real (gated DeltaNet, partial RoPE), and Gemma 4 E2B/E4B joins it (wide attention heads, shared KV, per-layer embeddings read row by row, never in VRAM).',
+            fr: 'super-coder (Qwen 3.5) partait sur le chemin transformer classique, qui meurt à la couche 0 sur ses couches DeltaNet ; le « ~14 tok/s » de sa carte n’avait pas pu être mesuré. Qwen 3.5 tourne désormais pour de vrai (DeltaNet à porte, RoPE partiel), et Gemma 4 E2B/E4B le rejoint (têtes d’attention larges, KV partagé, embeddings par couche lus ligne à ligne, jamais en VRAM).',
+          },
+          {
+            en: 'Both match llama.cpp on the same GGUF: tokenizers 10/10, 64/64 forced tokens over 1,600 tokens of context. Getting there found a TextDecoder that swallowed a leading BOM and silently corrupted 33 tokens of a commented code file.',
+            fr: 'Les deux suivent llama.cpp sur le même GGUF : tokeniseurs 10/10, 64/64 tokens forcés sur 1 600 tokens de contexte. En chemin : un TextDecoder qui avalait un BOM en tête et faussait en silence 33 tokens d’un fichier de code commenté.',
+          },
+        ],
+      },
+      {
+        title: { en: 'More tokens per read of the weights', fr: 'Plus de tokens par lecture des poids' },
+        items: [
+          {
+            en: 'Speculative decoding with Qwen 3.5’s built-in draft layer (MTP): the model checks two positions per pass, and the output is identical to the character in greedy mode. super-coder 24.5 against 16.6 tok/s, Qwen 3.5 9B 17.1 against 10.6 (alternating arms). Kill switch ?mtp=0.',
+            fr: 'Décodage spéculatif avec la couche de brouillon intégrée de Qwen 3.5 (MTP) : le modèle vérifie deux positions par passe, et la sortie est identique au caractère près en glouton. super-coder 24,5 contre 16,6 tok/s, Qwen 3.5 9B 17,1 contre 10,6 (bras alternés). Interrupteur ?mtp=0.',
+          },
+          {
+            en: 'SDK 0.6.0: session.askBatch() serves several prompts in one decoding pass, with texts identical to one-by-one decoding. The CLI’s MCP server (brimkern mcp) uses it to group up to four calls an agent sends at once.',
+            fr: 'SDK 0.6.0 : session.askBatch() sert plusieurs prompts en une seule passe de décodage, avec des textes identiques au décodage un par un. Le serveur MCP de la CLI (brimkern mcp) s’en sert pour regrouper jusqu’à quatre appels envoyés d’un coup par un agent.',
+          },
+        ],
+      },
+      {
+        title: { en: 'A code benchmark decides the presets', fr: 'Un banc de code décide des presets' },
+        items: [
+          {
+            en: 'HumanEval-41 (one problem in four, every answer executed): coder 35/41, super-coder 33/41, a Qwen 3.5 Opus distill 32/41, a Gemma 4 Opus distill 26/41 — and Gemma 4 solves no problem coder misses. coder stays the default; without reasoning it beats both reasoning models.',
+            fr: 'HumanEval-41 (un problème sur quatre, chaque réponse exécutée) : coder 35/41, super-coder 33/41, un distillé Opus de Qwen 3.5 32/41, un distillé Opus de Gemma 4 26/41 — et Gemma 4 ne résout aucun problème que coder rate. coder reste le défaut ; sans réflexion, il bat les deux modèles qui réfléchissent.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'September 23, 2026', fr: '23 septembre 2026' },
     tagline: {
       en: 'Brimkern CLI & Native Dawn Engine: on-device terminal inference with zero browser overhead via Google Dawn WebGPU bindings (25× faster boot measured on Apple Metal: 0.93s vs 23.46s), Claude Code / Gemini-style workflows (@file injection, git shortcuts), and dedicated coding models (Qwen 2.5 Coder 0.5B & 1.5B).',
