@@ -68,6 +68,13 @@ next-env.d.ts
 docs/ROADMAP.md
 docs/DISTRIBUTION_PLAYBOOK.md
 docs/huggingface-integration.md
+# Brouillons de diffusion (2026-10-07) : les posts HF ne doivent pas se lire sur GitHub AVANT leur
+# publication, et les procédures de PR sont des notes de travail (chemins locaux, cases à cocher).
+# Restent publics : hf/cards (copies des cartes en ligne) et hf/huggingface-js.patch.
+# ⚠️ L'historique garde les versions déjà poussées (posts 01-03 depuis le 2026-09-01).
+hf/posts/
+hf/PR-*.md
+hf/PR-*.body.md
 docs/next-models.md
 docs/mcp-feasibility.md
 docs/image-gen-feasibility.md
