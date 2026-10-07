@@ -229,7 +229,8 @@ The forward pass is hand-written WGSL compute shaders; the weights stream in as 
 `.brik` container with its tokenizer embedded. No `onnxruntime`, no remote inference. The engine is
 MIT and lives at [github.com/RomainKH/Brimkern](https://github.com/RomainKH/Brimkern).
 
-Model weights carry their own licenses: the default model is under the LFM 1.0 license.
+Model weights carry their own licenses: the default model (a Qwen3-0.6B fine-tune) is under
+Apache 2.0; the optional `lfm2.5-230m` is under the LFM 1.0 license.
 
 ## License
 
