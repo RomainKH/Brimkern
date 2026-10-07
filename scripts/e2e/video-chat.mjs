@@ -17,7 +17,10 @@ const ctx = await chromium.launchPersistentContext(
 const page = ctx.pages()[0] ?? await ctx.newPage();
 page.on('console', (m) => { const t = m.text(); if (/video|vidéo|COUPÉE|perdu/i.test(t)) console.log('  ·', t.slice(0, 160)); });
 
-await page.goto('http://localhost:3618/chat?vframes=8&enrich=0&duty=1', { waitUntil: 'domcontentloaded' });
+// FLAG : drapeaux d'URL en plus (`&convgemm=0`, `&vsteps=2&vmotion=/models/…`) pour un A/B — un
+// seul clip par lancement, donc ALTERNER les lancements (avant/après/avant/après) à la main.
+const FLAG = process.env.FLAG || '';
+await page.goto(`http://localhost:3618/chat?vframes=${process.env.VFRAMES || 8}&enrich=0&duty=1${FLAG}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(3000);
 
 // 1. Ouvrir le navigateur de modèles (bouton « Parcourir / Browse »).

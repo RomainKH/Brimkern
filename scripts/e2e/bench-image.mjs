@@ -29,42 +29,71 @@ const ctx = await chromium.launchPersistentContext(
 const page = ctx.pages()[0] ?? await ctx.newPage();
 page.on('console', (m) => { const t = m.text(); if (/COUPÉE|KO|perdu/.test(t)) console.log('  ·', t.slice(0, 180)); });
 
+// ⚠️ « textarea active » ne dit PAS quel modèle est chargé : au second bras, le chat restaurait son
+// dernier modèle TEXTE (LFM2.5 230M) pendant que le banc cliquait la carte image, et c'est lui qui
+// finissait en dernier — le banc envoyait alors le prompt à un LLM, n'attendait jamais d'image et
+// rendait NaN (constaté le 2026-10-07, même avec un drapeau sans effet). On vérifie donc le MODE
+// image (pilule du composer « SD-Turbo ») et on recharge la carte tant qu'il n'y est pas.
 async function chargerImage(flag) {
+  for (let essai = 0; essai < 3; essai++) {
+    await chargerImageUneFois(flag);
+    await page.waitForTimeout(3000); // laisser une restauration concurrente finir, s'il y en a une
+    const label = await page.evaluate(() => document.querySelector('.quick-model-pill-label')?.textContent ?? '');
+    if (/SD-Turbo/.test(label)) return;
+    console.log(`   · modèle actif « ${label} » au lieu du pipeline image — nouvelle tentative`);
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/bench-image-essai${essai}.png` });
+  }
+  throw new Error('le pipeline image ne reste pas chargé');
+}
+
+async function chargerImageUneFois(flag) {
   await page.goto(`http://localhost:3618/chat?duty=1${flag}&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
-  // Le profil est persistant : il peut restaurer une conversation et recharger son modèle, boutons
-  // désactivés pendant ce temps. On réessaie plutôt que de conclure à leur absence.
-  let ok = false;
-  for (let essai = 0; essai < 40 && !ok; essai++) {
-    await page.evaluate(() => {
-      const b = [...document.querySelectorAll('button')].find((x) => /browse|parcourir/i.test(x.textContent || ''));
-      b?.click();
-    });
-    await page.waitForTimeout(1000);
-    // On cible la CARTE image (celle qui nomme le modèle) : depuis la sortie de bêta son bouton
-    // s'appelle « Charger » comme celui de tous les presets texte, le libellé ne suffit plus.
-    ok = await page.evaluate(() => {
-      const carte = [...document.querySelectorAll('.model-card')].find((c) => /Stable Diffusion Turbo/.test(c.textContent || ''));
-      const b = carte?.querySelector('button');
-      if (!b || b.disabled) return false;
-      b.click();
+  // Laisser une RESTAURATION finir avant de choisir : sinon son modèle texte se charge après le
+  // pipeline image et le remplace (la course décrite au-dessus de chargerImage).
+  await page.waitForFunction(() => { const ta = document.querySelector('textarea'); return ta && !ta.disabled; }, null, { timeout: 120_000, polling: 1000 }).catch(() => {});
+  // Par le SÉLECTEUR RAPIDE du composer : la carte du navigateur de modèles ne prenait plus le clic
+  // (fenêtre restée ouverte, aucun modèle), et « textarea active » est vrai même SANS modèle — le
+  // banc concluait au chargement fini. On attend donc la pilule « SD-Turbo » ET la saisie active.
+  for (let essai = 0; essai < 20; essai++) {
+    const ok = await page.evaluate(() => {
+      document.querySelector('.quick-model-pill')?.click();
+      const it = [...document.querySelectorAll('.quick-model-item')].find((b) => /Stable Diffusion Turbo/.test(b.textContent || ''));
+      if (!it) return false;
+      it.click();
       return true;
     });
+    if (ok) break;
+    await page.waitForTimeout(1000);
   }
-  if (!ok) throw new Error('pipeline image non chargeable');
-  await page.waitForFunction(() => { const ta = document.querySelector('textarea'); return ta && !ta.disabled; }, null, { timeout: 900_000, polling: 2000 });
+  await page.waitForFunction(() => {
+    const ta = document.querySelector('textarea');
+    return ta && !ta.disabled && /SD-Turbo/.test(document.querySelector('.quick-model-pill-label')?.textContent ?? '');
+  }, null, { timeout: 900_000, polling: 2000 });
 }
 
 async function generer(texte) {
   const avant = await page.evaluate(() => document.querySelectorAll('.message.assistant img').length);
   await page.fill('textarea', texte);
+  // Focus EXPLICITE avant Entrée, puis relecture : au second bras (rechargement + carte reclignée),
+  // Entrée partait hors de la zone de saisie, le message ne partait jamais et le bras rendait NaN —
+  // même avec un drapeau sans effet (`&noop=1`), donc le banc, pas le code mesuré.
+  await page.focus('textarea');
   await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => (document.querySelector('textarea')?.value ?? '').length > 0)) {
+    await page.focus('textarea');
+    await page.keyboard.press('Enter');
+  }
   const t0 = Date.now();
   for (let w = 0; w < 300; w++) {
     await page.waitForTimeout(250);
     const fini = await page.evaluate((n) => document.querySelectorAll('.message.assistant img').length > n, avant);
     if (fini) return Date.now() - t0;
   }
+  // Tir abandonné : garder l'écran et la dernière bulle, sinon « NaN » ne dit pas où ça a coincé.
+  if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/bench-image-nan.png` });
+  console.log('   ✗ aucune image — dernière bulle :', (await page.evaluate(() => { const m = document.querySelectorAll('.message.assistant'); return m[m.length - 1]?.textContent?.slice(0, 160); })) ?? '—');
   return NaN;
 }
 

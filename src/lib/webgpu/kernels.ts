@@ -453,6 +453,10 @@ export class WebGpuEngine {
 				this.dequantQ41Ok = false;
 				console.warn('[webgpu] déquantification GPU Q4_1 COUPÉE par ?dequantq41=0 : repli CPU');
 			}
+			if (urlFlag('convgemm') === '0') {
+				this.convGemmOk = false;
+				console.warn('[webgpu] convolution q8 en GEMM implicite COUPÉE par ?convgemm=0 : kernels tuilés par forme');
+			}
 			if (urlFlag('dequantpq2') === '0') {
 				this.dequantPq2Ok = false;
 				console.warn('[webgpu] déquantification GPU PQ2_0 COUPÉE par ?dequantpq2=0 : repli CPU');
@@ -1643,6 +1647,10 @@ export class WebGpuEngine {
 	// kernels ont des chemins de déquantification distincts, un GPU peut rater l'un sans l'autre, et
 	// on veut pouvoir couper le nouveau sans perdre le tuilé f32 déjà éprouvé. Kill-switch ?convtq=0.
 	convTiledQOk = true;
+	// Convolution q8 en GEMM IMPLICITE (conv2d_igemm_q8, structure du GEMM v2) : prend toutes les formes
+	// dont k = Cin·kh·kw est multiple de 4 (3×3, stride 2, 1×1). Gate posé par selfValidate, ou forcé
+	// par ?convgemm=0 → kernels tuilés par forme ci-dessous, inchangés.
+	convGemmOk = true;
 	private recConv2dDirect(enc: GPUAny, trash: GPUAny[], inp: GPUAny, w: GPUAny, bias: GPUAny, Cin: number, H: number, W: number, Cout: number, kh: number, kw: number, stride: number, pad: number): GPUAny {
 		const OH = Math.floor((H + 2 * pad - kh) / stride) + 1, OW = Math.floor((W + 2 * pad - kw) / stride) + 1;
 		const n = Cout * OH * OW;
@@ -1668,6 +1676,12 @@ export class WebGpuEngine {
 		const n = Cout * OH * OW;
 		const p = this.uniformOf(48);
 		this.device.queue.writeBuffer(p, 0, new Uint32Array([Cin, H, W, Cout, kh, kw, stride, pad, OH, OW]));
+		if (this.convGemmOk && (Cin * kh * kw) % 4 === 0) {
+			const outG = this.storage(n * 4);
+			this.recordPass(enc, 'conv2d_igemm_q8', [p, inp, q8.codes, q8.sc, bias, outG], [Math.ceil(Cout / 128), Math.ceil((OH * OW) / 64), 1]);
+			trash.push(p, outG);
+			return outG;
+		}
 		// La forme DOMINANTE de l'UNet (3×3, stride 1, pad 1) prend le kernel tuilé : chaque pixel
 		// d'entrée lu une fois par workgroup au lieu de 9, chaque poids déquantifié une fois au lieu
 		// de 256. Mesuré sur une génération 256px : conv2d_direct_q8 pesait 70,2 % du GPU.
@@ -5261,6 +5275,12 @@ export class WebGpuEngine {
 			}
 		}
 
+		// Les tests q8 ci-dessous visent les kernels DIRECT / tuilés : sans ce verrou, leurs formes (k % 4
+		// == 0) partiraient sur le GEMM implicite et passeraient sans le dire. Le GEMM a son test dédié,
+		// après eux, et le gate est restauré là.
+		const savedGemm = this.convGemmOk;
+		this.convGemmOk = false;
+
 		// conv2d_direct_q8 (fused int8 dequant): quantize the weights CPU-side (q8web), upload the
 		// EXACT codes/scales bytes, and compare the q8 conv against the f32 direct conv run on the
 		// DEQUANTIZED weights — both paths see identical int8+f16 values, so they must match to
@@ -5396,6 +5416,34 @@ export class WebGpuEngine {
 				}
 			}
 			this.convS2Ok = this.convS2Ok && savedS2;
+		}
+
+		// conv2d_igemm_q8 (convolution en GEMM implicite) vs le conv DIRECT f32 sur les mêmes poids
+		// déquantifiés. Formes : 3×3/1/1 et 3×3/2/1 avec Cout = 12 (tuile de 128 canaux très
+		// incomplète) ; 1×1 avec k = 40 (groupes d'échelles de 32 À CHEVAL sur deux canaux — le cas où
+		// l'échelle doit se lire sur l'index aplati) ; 32→136 canaux en 18×18 (plusieurs tuiles de 64
+		// pixels, colonne de 128 incomplète, k = 288) ; Cin = 4 (k = 36, la conv d'entrée du UNet).
+		this.convGemmOk = savedGemm;
+		if (this.convGemmOk) {
+			for (const [gCin, gH, gW, gCout, gk, gs, gp] of [[8, 20, 20, 12, 3, 1, 1], [8, 20, 20, 12, 3, 2, 1], [40, 20, 20, 12, 1, 1, 0], [32, 18, 18, 136, 3, 1, 1], [4, 12, 12, 8, 3, 1, 1]]) {
+				const gx = rand(gCin * gH * gW), gw = rand(gCout * gCin * gk * gk), gb = rand(gCout);
+				const q = quantizeQ8(gw);
+				const gOH = Math.floor((gH + 2 * gp - gk) / gs) + 1, gOW = Math.floor((gW + 2 * gp - gk) / gs) + 1;
+				const ref = await this.conv2dDirect(gx, dequantizeQ8(q), gb, gCin, gH, gW, gCout, gk, gk, gs, gp);
+				const gpu = {
+					codes: this.uploadGpuRaw(new Uint8Array(q.codes.buffer, q.codes.byteOffset, q.codes.byteLength)),
+					sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)),
+				};
+				const ss = this.recordingSession();
+				const got = await ss.finish(ss.conv2d(gx, gpu as never, gb, gCin, gH, gW, gCout, gk, gk, gs, gp), gCout * gOH * gOW);
+				this.releaseGpu([gpu.codes, gpu.sc]);
+				if (!closeRel(got, ref)) {
+					console.warn(`[selfValidate] conv2d_igemm_q8 KO (${gCin}→${gCout}, ${gk}×${gk}/${gs}) : repli sur les kernels tuilés.`);
+					this.convGemmOk = false;
+					break;
+				}
+			}
+			if (this.convGemmOk) console.log('[selfValidate] convolution q8 en GEMM implicite OK (3×3, stride 2, 1×1, Cin = 4)');
 		}
 
 		// Réductions par SUBGROUPS (rmsnorm_vec_subgroup / group_norm_subgroup) vs les mêmes calculs
