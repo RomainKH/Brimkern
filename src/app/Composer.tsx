@@ -311,8 +311,9 @@ export function Composer({
               </>
             )}
 
-            {/* Skills button */}
-            <button
+            {/* Skills = consignes système d'un modèle de TEXTE : rien à faire sur une génération
+                d'image ou de clip (même garde que le sélecteur de réflexion ci-dessous). */}
+            {!imageMode && !videoMode && (<button
               type="button"
               onClick={() => setSkillsOpen(true)}
               className={`composer-tool-btn ${activeSkills.length ? 'active' : ''}`}
@@ -323,7 +324,7 @@ export function Composer({
               {activeSkills.length > 0 && (
                 <span className="composer-tool-badge">{activeSkills.length}</span>
               )}
-            </button>
+            </button>)}
 
             {/* Reflection selector (reasoning models: Qwen3, DeepSeek) */}
             {!imageMode && !videoMode && (modelArchType === 'deepseek' || modelArchType === 'qwen3') && (modelState === 'ready' || modelState === 'generating') && (
