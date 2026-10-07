@@ -3,18 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Brimkern SDK — Interactive demo &amp; local RAG</title>
+  <title>Foulée, a demo store running the Brimkern SDK</title>
+  <meta name="description" content="A mock running-shoe store with the Brimkern SDK embedded: one script tag, a model that runs on the visitor's GPU and answers from the store's own notes. The exact snippet is on the page." />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="canonical" href="https://brimkern.com/sdk-demo" />
   <!-- Même convention i18n que le reste du site (cf. src/lib/i18n.tsx) : l'ANGLAIS est la version
        canonique à /sdk-demo, le français vit sous /fr/sdk-demo (réécriture dans next.config.ts vers
-       ce même fichier). `?lang=fr` reste accepté comme surcharge explicite : c'est ce que le banc
-       scripts/e2e/sdk-rag.mjs utilise pour mesurer le chemin RAG français sans dépendre du routage. -->
+       ce même fichier). `?lang=fr` reste accepté comme surcharge explicite : c'est ce que les bancs
+       scripts/e2e/sdk-*.mjs utilisent pour mesurer le chemin français sans dépendre du routage. -->
   <link rel="alternate" hreflang="en" href="https://brimkern.com/sdk-demo" />
   <link rel="alternate" hreflang="fr" href="https://brimkern.com/fr/sdk-demo" />
   <link rel="alternate" hreflang="x-default" href="https://brimkern.com/sdk-demo" />
   <script>
     // La langue est résolue AVANT le rendu du corps : les deux versions sont dans le HTML (donc
     // indexables toutes les deux), et le CSS masque celle qu'on ne sert pas. Une bascule faite après
-    // coup en JS ferait clignoter l'anglais sur la page française.
+    // coup en JS ferait clignoter l'anglais sur la page française. Le fichier étant statique, la
+    // canonique et la description françaises sont posées ici, avant tout rendu.
     (function () {
       var q = (location.search.match(/[?&]lang=(en|fr)\b/) || [])[1];
       var lang = q || (/(^|\/)fr(\/|$)/.test(location.pathname) ? 'fr' : 'en');
@@ -22,6 +26,12 @@
       d.lang = lang;
       d.setAttribute('data-lang', lang);
       window.__BK_LANG = lang;
+      if (lang === 'fr') {
+        document.title = 'Foulée, une boutique de démo qui embarque le SDK Brimkern';
+        document.querySelector('link[rel="canonical"]').href = 'https://brimkern.com/fr/sdk-demo';
+        document.querySelector('meta[name="description"]').content =
+          "Une boutique de chaussures de running fictive qui embarque le SDK Brimkern : une balise script, un modèle qui tourne sur le GPU du visiteur et répond depuis les fiches de la boutique. Le snippet exact est sur la page.";
+      }
     })();
   </script>
   <style>
@@ -30,263 +40,253 @@
       --card-bg: #faf8f5;
       --text: #1a1a1a;
       --text-muted: #555555;
-      --accent: #c2410c;
+      --accent: #b13a0a;
       --border: rgba(0, 0, 0, 0.12);
+      --code-bg: #181818;
+      --code-text: #eaeaea;
     }
+    * { box-sizing: border-box; }
     body {
       font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-      max-width: 760px;
-      margin: 40px auto;
-      padding: 0 20px 80px;
+      margin: 0;
       color: var(--text);
       background: var(--bg);
-      line-height: 1.6;
+      line-height: 1.55;
     }
-    h1 {
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      margin-bottom: 8px;
-    }
-    .badge {
-      display: inline-block;
-      font-size: 12px;
-      font-weight: 700;
-      background: color-mix(in srgb, var(--accent) 15%, transparent);
-      color: var(--accent);
-      padding: 4px 10px;
-      border-radius: 999px;
-      margin-bottom: 16px;
-    }
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      margin: 20px 0;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-      margin-top: 14px;
-    }
-    .feature-item {
-      padding: 12px;
-      border-radius: 8px;
-      background: rgba(127, 127, 127, 0.06);
-      font-size: 13px;
-    }
-    .feature-title {
-      font-weight: 700;
-      margin-bottom: 4px;
-      color: var(--text);
-    }
-    .prompt-chip {
-      display: inline-block;
-      background: rgba(127, 127, 127, 0.09);
-      border: 1px solid var(--border);
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 13px;
-      margin: 4px 4px 4px 0;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .prompt-chip:hover {
-      background: var(--accent);
-      color: #ffffff;
-      border-color: var(--accent);
-    }
-    code {
-      font-family: ui-monospace, SFMono-Regular, monospace;
-      font-size: 12.5px;
-      background: rgba(127, 127, 127, 0.1);
-      padding: 2px 5px;
-      border-radius: 4px;
-    }
-    pre {
-      background: #181818;
-      color: #eaeaea;
-      padding: 14px;
-      border-radius: 8px;
-      overflow-x: auto;
-      font-size: 12.5px;
-    }
-    /* Bascule de langue : deux liens, chacun vers l'URL de sa langue (naviguer, pas muter un état —
-       même règle que le site : une langue, une URL). */
-    .lang-switch {
-      display: flex;
-      justify-content: flex-end;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-    p > a { color: var(--accent); text-underline-offset: 2px; }
-    .lang-switch a {
-      color: var(--text-muted);
-      text-decoration: none;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 3px 9px;
-    }
-    .lang-switch a:hover { border-color: var(--accent); color: var(--accent); }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+    a { color: var(--accent); text-underline-offset: 2px; }
+    button { font: inherit; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* Bandeau de démo : le seul endroit où la page parle d'elle-même. */
+    .demo-strip { background: var(--text); color: #f2efe8; font-size: 13px; }
+    .demo-strip .wrap { display: flex; align-items: center; gap: 12px; padding-top: 8px; padding-bottom: 8px; }
+    .demo-strip p { margin: 0; flex: 1; }
+    .demo-strip a { color: #ffb38a; }
+    .lang-switch { display: flex; gap: 6px; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+    .lang-switch a { color: #f2efe8; text-decoration: none; border: 1px solid rgba(255,255,255,.35); border-radius: 6px; padding: 2px 8px; }
     html[data-lang="en"] .lang-switch a[hreflang="en"],
-    html[data-lang="fr"] .lang-switch a[hreflang="fr"] {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #ffffff;
+    html[data-lang="fr"] .lang-switch a[hreflang="fr"] { background: #f2efe8; color: var(--text); }
+
+    .store-head { border-bottom: 1px solid var(--border); }
+    .store-head .wrap { display: flex; align-items: baseline; gap: 24px; padding-top: 16px; padding-bottom: 14px; flex-wrap: wrap; }
+    .logo { font-weight: 800; font-size: 22px; letter-spacing: -0.03em; }
+    .store-nav { display: flex; gap: 18px; font-size: 14px; color: var(--text-muted); }
+
+    .product { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; padding: 28px 0 8px; align-items: start; }
+    .shot { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 24px; min-height: 320px; }
+    .shot svg { width: 100%; max-width: 420px; height: auto; }
+    .crumb { font-size: 13px; color: var(--text-muted); margin: 0 0 6px; }
+    h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 4px; line-height: 1.15; }
+    .price { font-size: 20px; font-weight: 700; margin: 6px 0 16px; }
+    .desc { margin: 0 0 18px; color: var(--text-muted); }
+    fieldset { border: 0; padding: 0; margin: 0 0 8px; }
+    legend { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+    .sizes { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sizes label { position: relative; }
+    .sizes input { position: absolute; opacity: 0; inset: 0; }
+    .sizes label > span { display: block; min-width: 64px; text-align: center; border: 1px solid var(--border); background: var(--card-bg); border-radius: 8px; padding: 8px 10px; font-size: 14px; cursor: pointer; }
+    .sizes label > span small { display: block; color: var(--text-muted); font-size: 11.5px; }
+    .sizes input:checked + span { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
+    .sizes input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .fit { font-size: 13.5px; margin: 8px 0 18px; }
+    .buy { display: block; width: 100%; background: var(--text); color: #fff; border: 0; border-radius: 10px; padding: 13px; font-weight: 700; cursor: not-allowed; }
+    .buy-note { font-size: 12px; color: var(--text-muted); margin: 6px 0 0; text-align: center; }
+    .policies { margin-top: 18px; border-top: 1px solid var(--border); font-size: 14px; }
+    .policies div { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .policies strong { display: block; }
+
+    .ask { margin: 26px 0 0; padding: 18px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; }
+    .ask h2 { font-size: 16px; margin: 0 0 4px; }
+    .ask p { margin: 0 0 10px; font-size: 13.5px; color: var(--text-muted); }
+    .chip { background: transparent; border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px; font-size: 13px; margin: 4px 6px 4px 0; cursor: pointer; color: var(--text); }
+    .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+    .also { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 28px 0 0; }
+    .also-card { display: flex; gap: 16px; align-items: center; background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+    .also-card svg { width: 110px; flex-shrink: 0; height: auto; }
+    .also-card h2 { font-size: 16px; margin: 0; }
+    .also-card p { margin: 2px 0 0; font-size: 13.5px; color: var(--text-muted); }
+
+    /* Sous la boutique : ce que la page embarque, et ce qu'elle envoie. */
+    .under { border-top: 1px solid var(--border); margin-top: 40px; padding: 28px 0 80px; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; gap: 28px; }
+    .under h2 { font-size: 18px; margin: 0 0 6px; }
+    .under p { font-size: 14px; color: var(--text-muted); margin: 0 0 12px; }
+    .code-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .copy { border: 1px solid var(--border); background: var(--card-bg); border-radius: 6px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; color: var(--text); }
+    pre { background: var(--code-bg); color: var(--code-text); padding: 14px; border-radius: 10px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    p code { background: rgba(127,127,127,.12); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+    td.n { text-align: right; font-variant-numeric: tabular-nums; }
+    .net-status { font-size: 13.5px; margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--card-bg); border: 1px solid var(--border); }
+
+    @media (max-width: 760px) {
+      .product, .under { grid-template-columns: 1fr; gap: 20px; }
+      h1 { font-size: 26px; }
+      .demo-strip .wrap { flex-direction: column; align-items: flex-start; gap: 6px; }
     }
-    /* Une seule des deux versions est affichée ; l'autre reste dans le document (SEO) et sort du
-       flux comme de l'arbre d'accessibilité. */
-    [data-l] { display: none; }
-    html[data-lang="en"] [data-l="en"],
-    html[data-lang="fr"] [data-l="fr"] { display: block; }
+
+    /* Une seule des deux langues est affichée ; l'autre reste dans le document (SEO) et sort du flux
+       comme de l'arbre d'accessibilité. On masque l'AUTRE au lieu de ré-afficher la bonne : un
+       élément garde ainsi son display naturel (span en ligne, div en bloc, grille en grille). */
+    html[data-lang="en"] [data-l="fr"],
+    html[data-lang="fr"] [data-l="en"] { display: none !important; }
   </style>
 </head>
 <body>
-  <nav class="lang-switch" aria-label="Language">
-    <a hreflang="en" href="/sdk-demo">EN</a>
-    <a hreflang="fr" href="/fr/sdk-demo">FR</a>
-  </nav>
-
-  <!-- ── ANGLAIS (version canonique) ─────────────────────────────────────────────────────────── -->
-  <div data-l="en">
-    <div class="badge">⚡ 100% WebGPU local · zero server cost · private by design</div>
-    <h1>Brimkern SDK — e-commerce &amp; local RAG demo</h1>
-    <p>
-      This page shows a smart assistant embedded in an online store.
-      The model, <a href="https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK">Qwen3 0.6B fine-tuned to answer from a site's notes</a>
-      (English and French, 290 MB, downloaded once then cached), runs <strong>directly on your browser's GPU</strong> and has a local knowledge base (size guide, returns, shipping).
-    </p>
-
-    <div class="card">
-      <h3 style="margin-top:0;">📚 Injected knowledge base (local RAG)</h3>
-      <p style="font-size: 13.5px; color: var(--text-muted);">
-        The assistant below was configured with the store's real business rules. Try asking it questions through the widget in the bottom-right corner:
+  <aside class="demo-strip" aria-label="Brimkern">
+    <div class="wrap">
+      <p>
+        <span data-l="en">Demo store: nothing here is for sale. The assistant in the bottom-right corner is the <a href="https://brimkern.com/local-ai">Brimkern SDK</a>, one script tag. It runs on your GPU and answers from the three store notes printed at the bottom of the page.</span>
+        <span data-l="fr">Boutique de démo : rien n'y est à vendre. L'assistant en bas à droite est le <a href="https://brimkern.com/fr/local-ai">SDK Brimkern</a>, une balise script. Il tourne sur votre GPU et répond depuis les trois fiches de la boutique, imprimées en bas de page.</span>
       </p>
-      <div class="grid">
-        <div class="feature-item">
-          <div class="feature-title">👟 Size guide</div>
-          <div>EU/US/cm conversions, half a size up for running shoes.</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">📦 Returns &amp; exchanges</div>
-          <div>100% free within 30 days, refunded within 5 working days.</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">🚚 Shipping</div>
-          <div>Free from €50 (2–4 days), 24h express available.</div>
-        </div>
+      <nav class="lang-switch" aria-label="Language">
+        <a hreflang="en" href="/sdk-demo">EN</a>
+        <a hreflang="fr" href="/fr/sdk-demo">FR</a>
+      </nav>
+    </div>
+  </aside>
+
+  <header class="store-head">
+    <div class="wrap">
+      <span class="logo">Foulée</span>
+      <span class="store-nav" aria-hidden="true">
+        <span data-l="en">Running</span><span data-l="fr">Running</span>
+        <span data-l="en">Sneakers</span><span data-l="fr">Baskets</span>
+        <span data-l="en">Help</span><span data-l="fr">Aide</span>
+      </span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="product">
+      <div class="shot">
+        <svg viewBox="0 0 400 220" role="img" aria-labelledby="shoe-title">
+          <title id="shoe-title">Tempo 2</title>
+          <path d="M34 168 Q34 194 66 196 L352 196 Q384 194 382 168 Z" fill="#1a1a1a"/>
+          <path d="M36 150 L380 150 Q384 160 382 170 L34 170 Q32 160 36 150 Z" fill="#e7e1d6"/>
+          <path d="M44 152 L50 92 Q54 64 86 66 L118 72 Q136 104 172 106 L214 98 Q296 104 348 128 Q384 142 380 152 Z" fill="#b13a0a"/>
+          <path d="M150 104 L236 100 M164 92 L246 92 M178 82 L254 86 M192 74 L262 80" stroke="#faf8f5" stroke-width="5" stroke-linecap="round"/>
+          <path d="M60 130 Q160 122 250 132 Q310 138 360 146" stroke="#faf8f5" stroke-width="3" fill="none" opacity=".7"/>
+        </svg>
       </div>
 
-      <div style="margin-top: 18px;">
-        <strong>💡 Questions to try:</strong><br />
-        <span class="prompt-chip" onclick="openAndAsk('How do running shoes fit?')">“How do running shoes fit?”</span>
-        <span class="prompt-chip" onclick="openAndAsk('I wear a 42, what is that in cm?')">“I wear a 42, what is that in cm?”</span>
-        <span class="prompt-chip" onclick="openAndAsk('How long do I have to return an item?')">“How long do I have to return an item?”</span>
-        <span class="prompt-chip" onclick="openAndAsk('Are returns free?')">“Are returns free?”</span>
+      <div>
+        <p class="crumb"><span data-l="en">Running · Road</span><span data-l="fr">Running · Route</span></p>
+        <h1>Tempo 2 <span data-l="en">road running shoe</span><span data-l="fr">chaussure de running route</span></h1>
+        <p class="price"><span data-l="en">€119</span><span data-l="fr">119 €</span></p>
+        <p class="desc">
+          <span data-l="en">A light, cushioned trainer for daily runs and tempo sessions.</span>
+          <span data-l="fr">Une chaussure légère et amortie pour les sorties quotidiennes et le fractionné.</span>
+        </p>
+
+        <!-- Les tailles et leurs centimètres sont ceux de la fiche « guide des tailles » de
+             l'assistant, au chiffre près : une page qui dirait autre chose que ses fiches mettrait
+             le modèle en contradiction avec ce que le visiteur lit. -->
+        <fieldset>
+          <legend><span data-l="en">Size (EU)</span><span data-l="fr">Pointure (EU)</span></legend>
+          <div class="sizes">
+            <label><input type="radio" name="size" value="40" /><span>40<small><span data-l="en">25.5 cm</span><span data-l="fr">25,5 cm</span></small></span></label>
+            <label><input type="radio" name="size" value="41" /><span>41<small>26 cm</small></span></label>
+            <label><input type="radio" name="size" value="42" checked /><span>42<small>27 cm</small></span></label>
+            <label><input type="radio" name="size" value="43" /><span>43<small><span data-l="en">27.5 cm</span><span data-l="fr">27,5 cm</span></small></span></label>
+            <label><input type="radio" name="size" value="44" /><span>44<small><span data-l="en">28.5 cm</span><span data-l="fr">28,5 cm</span></small></span></label>
+          </div>
+        </fieldset>
+        <p class="fit">
+          <span data-l="en"><strong>Fit:</strong> running shoes run small. Order half a size up.</span>
+          <span data-l="fr"><strong>Taille :</strong> le running taille petit. Prenez une demi-pointure au-dessus.</span>
+        </p>
+        <button class="buy" type="button" aria-disabled="true">
+          <span data-l="en">Add to bag</span><span data-l="fr">Ajouter au panier</span>
+        </button>
+        <p class="buy-note"><span data-l="en">Demo store: checkout is disabled.</span><span data-l="fr">Boutique de démo : la commande est désactivée.</span></p>
+
+        <div class="policies">
+          <div>
+            <strong><span data-l="en">Delivery</span><span data-l="fr">Livraison</span></strong>
+            <span data-l="en">Free from €50, 2 to 4 working days. 24h express: €7.90.</span>
+            <span data-l="fr">Offerte dès 50 €, 2 à 4 jours ouvrés. Express 24h : 7,90 €.</span>
+          </div>
+          <div>
+            <strong><span data-l="en">Returns</span><span data-l="fr">Retours</span></strong>
+            <span data-l="en">Free within 30 days, unworn and in the original box. Refunded within 5 working days.</span>
+            <span data-l="fr">Gratuits sous 30 jours, non portés et dans la boîte d'origine. Remboursés sous 5 jours ouvrés.</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card">
-      <h3 style="margin-top:0;">💻 The integration code used on this page</h3>
-      <pre><code>&lt;script src="/sdk.js"&gt;&lt;/script&gt;
-&lt;script&gt;
-  Brimkern.embed({
-    title: "Store Assistant",
-    lang: "en",
-    system: "You are the official store assistant. Answer questions about sizing, shipping and returns precisely, from the reference notes.",
-    knowledge: [
-      {
-        title: "Shoe size guide",
-        text: "Sneakers fit true to size. Running shoes and studded boots: order half a size up. EU 40 = 25.5cm, EU 41 = 26cm, EU 42 = 27cm, EU 43 = 27.5cm, EU 44 = 28.5cm."
-      },
-      {
-        title: "Returns policy",
-        text: "Returns are 100% free within 30 days in the original box. Refunds are issued within 5 working days."
-      },
-      {
-        title: "Shipping",
-        text: "Standard delivery is free from €50 (2 to 4 days). 24h express costs €7.90."
-      }
-    ],
-    knowledgeBudget: 1200,
-    showSources: true
-  });
-&lt;/script&gt;</code></pre>
-    </div>
-  </div>
-
-  <!-- ── FRANÇAIS ────────────────────────────────────────────────────────────────────────────── -->
-  <div data-l="fr">
-    <div class="badge">⚡ 100% WebGPU Local · 0 Coût Serveur · Données Privées</div>
-    <h1>Brimkern SDK — Démo E-Commerce &amp; RAG Local</h1>
-    <p>
-      Cette page illustre l'intégration d'un assistant intelligent pour site e-commerce.
-      Le modèle, <a href="https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK">Qwen3 0.6B entraîné à répondre depuis les fiches d'un site</a>
-      (anglais et français, 290 Mo, téléchargé une fois puis en cache), tourne <strong>directement sur le GPU de votre navigateur</strong> et dispose d'une base de connaissances locale (guide des tailles, retours, livraisons).
-    </p>
-
-    <div class="card">
-      <h3 style="margin-top:0;">📚 Base de connaissances injectée (RAG Local)</h3>
-      <p style="font-size: 13.5px; color: var(--text-muted);">
-        L'assistant ci-dessous a été configuré avec les règles métier réelles du magasin. Essayez de lui poser des questions via le widget en bas à droite :
+    <section class="ask" aria-labelledby="ask-title">
+      <h2 id="ask-title"><span data-l="en">Questions about this shoe?</span><span data-l="fr">Une question sur cette chaussure ?</span></h2>
+      <p>
+        <span data-l="en">These buttons send the question to the assistant. The first one downloads the model (290 MB, once; it stays cached).</span>
+        <span data-l="fr">Ces boutons envoient la question à l'assistant. La première télécharge le modèle (290 Mo, une fois ; il reste en cache).</span>
       </p>
-      <div class="grid">
-        <div class="feature-item">
-          <div class="feature-title">👟 Guide des Tailles</div>
-          <div>Correspondances EU/US/CM, recommandation +1/2 pointure pour le running.</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">📦 Retours &amp; Échanges</div>
-          <div>100% gratuits sous 30 jours, remboursement sous 5 jours.</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-title">🚚 Expédition</div>
-          <div>Gratuite dès 50€ (2-4 jours), Express 24h disponible.</div>
-        </div>
+      <div data-l="en">
+        <button class="chip" type="button" data-ask="How do running shoes fit?">How do running shoes fit?</button>
+        <button class="chip" type="button" data-ask="I wear a 42, what is that in cm?">I wear a 42, what is that in cm?</button>
+        <button class="chip" type="button" data-ask="How long do I have to return an item?">How long do I have to return an item?</button>
+        <button class="chip" type="button" data-ask="Are returns free?">Are returns free?</button>
       </div>
+      <div data-l="fr">
+        <button class="chip" type="button" data-ask="Comment taillent les chaussures de running ?">Comment taillent les chaussures de running ?</button>
+        <button class="chip" type="button" data-ask="Je fais du 42, quelle taille en cm ?">Je fais du 42, quelle taille en cm ?</button>
+        <button class="chip" type="button" data-ask="Combien de temps pour retourner un article ?">Combien de temps pour retourner un article ?</button>
+        <button class="chip" type="button" data-ask="Les retours sont-ils gratuits ?">Les retours sont-ils gratuits ?</button>
+      </div>
+    </section>
 
-      <div style="margin-top: 18px;">
-        <strong>💡 Exemples de questions à tester :</strong><br />
-        <span class="prompt-chip" onclick="openAndAsk('Comment taillent les chaussures de running ?')">« Comment taillent les chaussures de running ? »</span>
-        <span class="prompt-chip" onclick="openAndAsk('Je fais du 42, quelle taille en cm ?')">« Je fais du 42, quelle taille en cm ? »</span>
-        <span class="prompt-chip" onclick="openAndAsk('Combien de temps pour retourner un article ?')">« Combien de temps pour retourner un article ? »</span>
-        <span class="prompt-chip" onclick="openAndAsk('Les retours sont-ils gratuits ?')">« Les retours sont-ils gratuits ? »</span>
+    <div class="also">
+      <div class="also-card">
+        <svg viewBox="0 0 400 220" aria-hidden="true">
+          <path d="M34 168 Q34 194 66 196 L352 196 Q384 194 382 168 Z" fill="#e7e1d6" stroke="#1a1a1a" stroke-width="4"/>
+          <path d="M44 166 L50 96 Q54 70 86 72 L118 78 Q136 108 172 110 L214 102 Q296 108 348 132 Q384 146 380 166 Z" fill="#faf8f5" stroke="#1a1a1a" stroke-width="4"/>
+          <path d="M150 108 L236 104 M164 96 L246 96 M178 86 L254 90" stroke="#1a1a1a" stroke-width="5" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <h2>Daily <span data-l="en">everyday sneaker</span><span data-l="fr">basket de tous les jours</span> · <span data-l="en">€89</span><span data-l="fr">89 €</span></h2>
+          <p><span data-l="en">Fits true to size.</span><span data-l="fr">Taille normalement.</span></p>
+        </div>
       </div>
     </div>
 
-    <div class="card">
-      <h3 style="margin-top:0;">💻 Code d'intégration utilisé sur cette page</h3>
-      <pre><code>&lt;script src="/sdk.js"&gt;&lt;/script&gt;
-&lt;script&gt;
-  Brimkern.embed({
-    title: "Conseiller Boutique",
-    lang: "fr",
-    system: "Tu es le conseiller officiel. Réponds précisément aux questions sur les tailles, livraisons et retours à partir des fiches.",
-    knowledge: [
-      {
-        title: "Guide des tailles chaussures",
-        text: "Les baskets taillent normalement. Modèles running et crampons : prendre 1/2 taille au-dessus. EU 40 = 25.5cm, EU 41 = 26cm, EU 42 = 27cm, EU 43 = 27.5cm, EU 44 = 28.5cm."
-      },
-      {
-        title: "Politique de retours",
-        text: "Retours 100% gratuits sous 30 jours dans la boîte d'origine. Remboursement sous 5 jours ouvrés."
-      },
-      {
-        title: "Livraison",
-        text: "Livraison standard gratuite dès 50€ d'achat (délai 2 à 4 jours). Express 24h à 7,90€."
-      }
-    ],
-    knowledgeBudget: 1200,
-    showSources: true
-  });
-&lt;/script&gt;</code></pre>
+    <div class="under">
+      <section aria-labelledby="code-title">
+        <div class="code-head">
+          <h2 id="code-title"><span data-l="en">The code on this page</span><span data-l="fr">Le code de cette page</span></h2>
+          <button class="copy" type="button" id="copy"><span data-l="en">Copy</span><span data-l="fr">Copier</span></button>
+        </div>
+        <p>
+          <span data-l="en">Generated from the object this page actually passes to <code>Brimkern.embed()</code>, so it cannot drift from it. The three notes are everything the assistant knows; the rest of the page is not read. Paste it before <code>&lt;/body&gt;</code> and replace the notes with yours.</span>
+          <span data-l="fr">Généré depuis l'objet que cette page passe réellement à <code>Brimkern.embed()</code> : il ne peut pas s'en écarter. Les trois fiches sont tout ce que l'assistant sait ; le reste de la page n'est pas lu. Collez-le avant <code>&lt;/body&gt;</code> et remplacez les fiches par les vôtres.</span>
+        </p>
+        <pre><code id="snippet"></code></pre>
+        <p style="margin-top:10px">
+          <span data-l="en">To pin this version: <code>https://brimkern.com/sdk-0.8.0.js</code>, or <code>npm i brimkern</code>. <a href="https://brimkern.com/docs/sdk">SDK reference</a>.</span>
+          <span data-l="fr">Pour épingler cette version : <code>https://brimkern.com/sdk-0.8.0.js</code>, ou <code>npm i brimkern</code>. <a href="https://brimkern.com/fr/docs/sdk">Référence du SDK</a>.</span>
+        </p>
+      </section>
+
+      <section aria-labelledby="net-title">
+        <h2 id="net-title"><span data-l="en">Where this page's requests go</span><span data-l="fr">Où partent les requêtes de cette page</span></h2>
+        <p>
+          <span data-l="en">Counted live by the browser (Resource Timing API), by host. Once the model is loaded, ask a question: the line under the table counts the requests made while it answers.</span>
+          <span data-l="fr">Compté en direct par le navigateur (API Resource Timing), par hôte. Une fois le modèle chargé, posez une question : la ligne sous le tableau compte les requêtes faites pendant la réponse.</span>
+        </p>
+        <table>
+          <thead><tr>
+            <th scope="col"><span data-l="en">Host</span><span data-l="fr">Hôte</span></th>
+            <th scope="col" style="text-align:right"><span data-l="en">Requests</span><span data-l="fr">Requêtes</span></th>
+          </tr></thead>
+          <tbody id="net-rows"></tbody>
+        </table>
+        <p class="net-status" id="net-status" aria-live="polite"></p>
+      </section>
     </div>
-  </div>
+  </main>
 
   <script src="/sdk.js"></script>
   <script>
@@ -354,9 +354,6 @@ Conseil pointure : Les baskets taillent normalement. Pour les chaussures de runn
     };
 
     const LANG = window.__BK_LANG === 'fr' ? 'fr' : 'en';
-    document.title = LANG === 'fr'
-      ? 'Brimkern SDK — Démo interactive & RAG local'
-      : 'Brimkern SDK — Interactive demo & local RAG';
     // La bascule pointe normalement les URL canoniques (/sdk-demo et /fr/sdk-demo). Elles n'existent
     // que servies par l'app : ouvert en fichier local, ou servi sans la réécriture (donc sous
     // .../sdk-demo.html), on retombe sur `?lang=` — le seul mécanisme qui marche partout.
@@ -366,13 +363,16 @@ Conseil pointure : Les baskets taillent normalement. Pour les chaussures de runn
       }
     }
 
+    // UN seul objet d'options : c'est lui qui part dans embed() ET lui qui est imprimé dans le
+    // snippet de la page. Un snippet recopié à la main avait dérivé (fiches raccourcies, chiffres
+    // différents de ceux que le modèle recevait) ; celui-ci ne peut pas.
     // `lang` est déclaré EXPLICITEMENT : sans lui, la langue des consignes est devinée depuis le
-    // prompt système — ce qui marche, mais une démo ne doit rien laisser à une heuristique.
-    // La POIGNÉE est gardée : c'est elle qui pilote le widget depuis les puces de suggestion
-    // ci-dessous (cf. openAndAsk). `showSources` affiche, sous chaque réponse, la ou les fiches qui
-    // l'ont produite — sur un petit modèle, une réponse vérifiable vaut mieux qu'une réponse
-    // affirmée. Pas de `model` : la démo montre le défaut du SDK (Qwen3-0.6B entraîné, depuis 0.8.0).
-    const widget = Brimkern.embed({
+    // prompt système. `showSources` affiche, sous chaque réponse, la ou les fiches qui l'ont
+    // produite — sur un petit modèle, une réponse vérifiable vaut mieux qu'une réponse affirmée.
+    // Pas de `model` : la démo montre le défaut du SDK (Qwen3-0.6B entraîné, depuis 0.8.0).
+    // `theme: 'auto'` est purement visuel — les prompts que les bancs (sdk-rag, sdk-dialogue)
+    // mesurent sur cette page ne changent pas d'un octet.
+    const OPTIONS = {
       lang: LANG,
       title: CONFIGS[LANG].title,
       system: CONFIGS[LANG].system,
@@ -380,19 +380,108 @@ Conseil pointure : Les baskets taillent normalement. Pour les chaussures de runn
       knowledge: CONFIGS[LANG].knowledge,
       knowledgeBudget: 1200,
       showSources: true,
-      // 0.2.0 : le widget suit le thème du visiteur. Purement visuel — les prompts que les bancs
-      // (sdk-rag, sdk-dialogue) mesurent sur cette page ne changent pas d'un octet.
       theme: 'auto',
+    };
+    const widget = Brimkern.embed(OPTIONS);
+
+    // La poignée pilote le widget depuis la page : une ligne, et la question part vraiment.
+    for (const b of document.querySelectorAll('[data-ask]')) {
+      b.addEventListener('click', () => widget.ask(b.dataset.ask).catch((e) => console.warn('[demo]', e.message)));
+    }
+
+    // ── Le snippet imprimé ──────────────────────────────────────────────────────────────────────
+    // URL absolue : c'est le même fichier que le `/sdk.js` relatif chargé ci-dessus, servi par le site.
+    const lit = (v) => JSON.stringify(v);
+    const snippet = [
+      '<script src="https://brimkern.com/sdk.js"><\/script>',
+      '<script>',
+      '  Brimkern.embed({',
+      `    lang: ${lit(OPTIONS.lang)},`,
+      `    title: ${lit(OPTIONS.title)},`,
+      `    system: ${lit(OPTIONS.system)},`,
+      `    greeting: ${lit(OPTIONS.greeting)},`,
+      '    knowledge: [',
+      ...OPTIONS.knowledge.map((k) => `      { title: ${lit(k.title)},\n        text: ${lit(k.text)} },`),
+      '    ],',
+      `    knowledgeBudget: ${OPTIONS.knowledgeBudget},`,
+      `    showSources: ${OPTIONS.showSources},`,
+      `    theme: ${lit(OPTIONS.theme)},`,
+      '  });',
+      '<\/script>',
+    ].join('\n');
+    document.getElementById('snippet').textContent = snippet;
+    const copyBtn = document.getElementById('copy');
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(snippet);
+        copyBtn.textContent = LANG === 'fr' ? 'Copié' : 'Copied';
+      } catch {
+        copyBtn.textContent = LANG === 'fr' ? 'Copie refusée' : 'Copy blocked';
+      }
     });
 
-    // Cette fonction est l'exemple même du trou que le SDK 0.1.3 comble. Avant, embed() ne rendait
-    // rien : pour lancer une question depuis la PAGE, il fallait deviner les classes internes du
-    // widget (.bk-fab, .bk-panel), cliquer sur le bouton, attendre 80 ms au hasard, puis écrire dans
-    // le champ — et encore, ça ne faisait que le REMPLIR, le visiteur devait valider lui-même.
-    // Avec la poignée, c'est une ligne, et la question part vraiment.
-    function openAndAsk(text) {
-      widget.ask(text).catch((e) => console.warn('[demo]', e.message));
-    }
+    // ── Le compteur réseau ──────────────────────────────────────────────────────────────────────
+    // Il montre au lieu d'affirmer : chaque requête de la page (sdk.js, poids du modèle, rien
+    // d'autre) passe par Resource Timing, et le compte pendant une réponse est rendu tel quel, même
+    // s'il n'est pas nul. Valable parce que le SDK génère sur le thread principal par défaut (cf.
+    // src/sdk/backend.ts) : en mode `worker: true`, les fetch du worker échapperaient à ce compteur.
+    try { performance.setResourceTimingBufferSize(100000); } catch {}
+    const hosts = new Map();
+    let modelReady = false;
+    let answerStart = null;   // performance.now() de la question en cours, si le modèle était prêt
+    let duringAnswer = 0;
+    const rows = document.getElementById('net-rows');
+    const status = document.getElementById('net-status');
+    const T = (en, fr) => (LANG === 'fr' ? fr : en);
+    const renderHosts = () => {
+      rows.replaceChildren(...[...hosts].sort((a, b) => b[1] - a[1]).map(([h, n]) => {
+        const tr = document.createElement('tr');
+        const th = document.createElement('td'); th.textContent = h;
+        const td = document.createElement('td'); td.className = 'n'; td.textContent = n;
+        tr.append(th, td);
+        return tr;
+      }));
+    };
+    const setStatus = (s) => { status.textContent = s; };
+    setStatus(T('Model not loaded yet: it downloads with the first question.', 'Modèle pas encore chargé : il se télécharge à la première question.'));
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        let host = e.name;
+        try { host = new URL(e.name).host || e.name; } catch {}
+        hosts.set(host, (hosts.get(host) || 0) + 1);
+        if (answerStart !== null && e.startTime >= answerStart) duringAnswer++;
+      }
+      renderHosts();
+    }).observe({ type: 'resource', buffered: true });
+
+    widget.on('ready', () => {
+      modelReady = true;
+      setStatus(T('Model loaded. Ask a question.', 'Modèle chargé. Posez une question.'));
+    });
+    widget.on('progress', (phase) => {
+      if (!modelReady && phase === 'download') setStatus(T('Downloading the model (once)…', 'Téléchargement du modèle (une fois)…'));
+    });
+    widget.on('message', ({ role }) => {
+      if (role === 'user') {
+        answerStart = modelReady ? performance.now() : null;
+        duringAnswer = 0;
+        if (modelReady) setStatus(T('Answering…', 'Réponse en cours…'));
+      } else if (role === 'assistant') {
+        if (answerStart === null) {
+          setStatus(T('This answer included loading the model (downloaded once, then read from the cache). Ask another question to count the requests of an answer alone.',
+                      'Cette réponse incluait le chargement du modèle (téléchargé une fois, puis lu depuis le cache). Posez une autre question pour compter les requêtes d’une réponse seule.'));
+        } else {
+          // Resource Timing livre une entrée à la FIN de la requête : un court délai laisse arriver
+          // celles qui se termineraient juste après le dernier token.
+          const start = answerStart;
+          setTimeout(() => {
+            setStatus(T(`Requests made while answering the last question: ${duringAnswer}.`,
+                        `Requêtes faites pendant la dernière réponse : ${duringAnswer}.`));
+            if (answerStart === start) answerStart = null;
+          }, 500);
+        }
+      }
+    });
   </script>
 </body>
 </html>
