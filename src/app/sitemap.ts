@@ -15,7 +15,6 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   { path: '/cli', freq: 'monthly', prio: 0.8 },          // CLI : page produit
   { path: '/docs/cli', freq: 'monthly', prio: 0.6 },     // CLI : référence (install, commandes, options)
   { path: '/docs/diagnostics', freq: 'monthly', prio: 0.4 }, // commutateurs de repli
-  { path: '/local-ai', freq: 'monthly', prio: 0.8 }, // SDK / offre pro
   // La démo live du SDK : un fichier statique, mais désormais BILINGUE et sur deux URL (/sdk-demo et
   // /fr/sdk-demo, cf. next.config.ts). Elle était absente tant qu'elle n'existait qu'en français ;
   // elle déclare maintenant ses alternates comme les autres pages produit.

@@ -51,9 +51,10 @@ export default function SdkDocClient() {
         {t('SDK & npm package', 'SDK & paquet npm')}
       </h1>
       <P>
-        {t('The complete API of the brimkern package: a chat widget in one call, or headless sessions and one-shot generation for your own UI. Everything runs on the visitor’s GPU: no server, no API key, nothing leaves the browser. For the guided tour and live demo, see ',
-           "L'API complète du paquet brimkern : un widget de chat en un appel, ou des sessions sans interface et de la génération one-shot pour votre propre UI. Tout tourne sur le GPU du visiteur : aucun serveur, aucune clé d'API, rien ne quitte le navigateur. Pour la visite guidée et la démo live, voir ")}
-        <Link href={href('/local-ai')} style={{ color: 'var(--accent-text)' }}>{t('the SDK page', 'la page SDK')}</Link>.
+        {t('The complete API of the brimkern package: a chat widget in one call, or headless sessions and one-shot generation for your own UI. Everything runs on the visitor’s GPU: no server, no API key, nothing leaves the browser. To see it answer on a real product page, open ',
+           "L'API complète du paquet brimkern : un widget de chat en un appel, ou des sessions sans interface et de la génération one-shot pour votre propre UI. Tout tourne sur le GPU du visiteur : aucun serveur, aucune clé d'API, rien ne quitte le navigateur. Pour le voir répondre sur une vraie fiche produit, ouvrez ")}
+        {/* <a> et non <Link> : /sdk-demo est un fichier statique servi par réécriture, pas une route React. */}
+        <a href={href('/sdk-demo')} style={{ color: 'var(--accent-text)' }}>{t('the live demo', 'la démo live')}</a>.
       </P>
 
       <Section id="install" title={t('Install', 'Installation')}>
@@ -350,7 +351,7 @@ https://cdn.jsdelivr.net/npm/brimkern@0.8.0/dist/brimkern.iife.js`}</Code>
           {' · '}
           <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-text)' }}>GitHub</a>
           {' · '}
-          <Link href={href('/local-ai')} style={{ color: 'var(--accent-text)' }}>{t('SDK page & live demo', 'Page SDK & démo live')}</Link>
+          <a href={href('/sdk-demo')} style={{ color: 'var(--accent-text)' }}>{t('Live demo', 'Démo live')}</a>
         </P>
       </Section>
     </DocsShell>

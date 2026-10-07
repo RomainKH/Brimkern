@@ -7,7 +7,7 @@ the lightest possible "Use this model" target.
 
 - Live demo (static Space, no HF GPU): https://huggingface.co/spaces/romainkh14/brimkern-webgpu
 - Models: https://huggingface.co/models?other=brimkern
-- Docs: https://brimkern.com/local-ai · Code (MIT): https://github.com/RomainKH/Brimkern
+- Docs: https://brimkern.com/docs/sdk · Code (MIT): https://github.com/RomainKH/Brimkern
 - Example deeplink: https://brimkern.com/chat?model=bartowski/Qwen2.5-0.5B-Instruct-GGUF
 
 `displayOnModelPage` reuses `isLlamaCppGgufModel` (plus repos tagged `library_name: brimkern`); the

@@ -171,7 +171,7 @@ export default function LandingClient() {
             <Link href={href('/agents')}>{t('Agents & MCP', 'Agents & MCP')}</Link>
             <Link href={href('/cli')}>CLI</Link>
             <Link href={href('/docs')}>{t('Docs', 'Doc')}</Link>
-            <Link href={href('/local-ai')}>SDK</Link>
+            <Link href={href('/docs/sdk')}>SDK</Link>
             <Link href={href('/changelog')} className="lp-nav-wide">Changelog</Link>
             <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="lp-nav-icon">
               <GithubMark size={16} />
@@ -331,8 +331,8 @@ export default function LandingClient() {
                   </div>
                   <pre className="lp-workbench-code"><code>&lt;<span className="lp-wb-tag">script</span> <span className="lp-wb-attr">src</span>=<span className="lp-wb-val">&quot;{SDK_URL}&quot;</span>&gt;&lt;/<span className="lp-wb-tag">script</span>&gt;{'\n'}&lt;<span className="lp-wb-tag">script</span>&gt;{'\n'}{'  '}<span className="lp-wb-fn">Brimkern</span>.<span className="lp-wb-fn">embed</span>({'{'}{'\n'}{'    '}<span className="lp-wb-attr">model</span>: <span className="lp-wb-val">&quot;romainkh14/LFM2.5-230M_BRIK&quot;</span>,{'\n'}{'    '}<span className="lp-wb-attr">system</span>: <span className="lp-wb-val">&quot;{t('You answer product questions.', 'Tu réponds aux questions produit.')}&quot;</span>{'\n'}{'  '}{'}'});{'\n'}&lt;/<span className="lp-wb-tag">script</span>&gt;</code></pre>
                   <div className="lp-workbench-footer">
-                    <Link href={href('/local-ai')} className="lp-wb-action">
-                      {t('SDK page & live demo', 'Page SDK & démo live')} <ArrowRight size={13} />
+                    <Link href={href('/docs/sdk')} className="lp-wb-action">
+                      {t('SDK docs & live demo', 'Doc du SDK & démo live')} <ArrowRight size={13} />
                     </Link>
                   </div>
                 </div>
@@ -552,8 +552,8 @@ export default function LandingClient() {
               {t('The compute is your visitor’s GPU: no inference bill, no rate limit, no data leaving their browser. The model only downloads when someone actually opens the widget, so your page speed is untouched.',
                  'Le calcul, c’est le GPU de votre visiteur : aucune facture d’inférence, aucune limite de débit, aucune donnée qui quitte son navigateur. Le modèle ne se télécharge que si quelqu’un ouvre le widget : votre vitesse de page reste intacte.')}
             </p>
-            <Link href={href('/local-ai')} className="lp-cta-ghost">
-              {t('SDK page & live demo', 'Page SDK & démo live')} <ArrowRight size={14} />
+            <Link href={href('/docs/sdk')} className="lp-cta-ghost">
+              {t('SDK docs & live demo', 'Doc du SDK & démo live')} <ArrowRight size={14} />
             </Link>
           </div>
           <pre tabIndex={0} className="lp-code">{`<script src="${SDK_URL}"></script>
@@ -595,7 +595,7 @@ export default function LandingClient() {
         <nav className="lp-footer-links" aria-label={t('Footer', 'Pied de page')}>
           <Link href={href('/chat')}>{t('Chat', 'Chat')}</Link>
           <Link href={href('/docs')}>{t('Documentation', 'Documentation')}</Link>
-          <Link href={href('/local-ai')}>SDK</Link>
+          <Link href={href('/docs/sdk')}>SDK</Link>
           <Link href={href('/cli')}>CLI</Link>
           {/* La comparaison mesurée : c'est la question que se pose tout visiteur qui connaît
               déjà WebLLM, et la porte d'entrée SEO sur « run an LLM in the browser ». */}

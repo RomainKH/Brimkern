@@ -15,7 +15,7 @@
   ],
   "license": "MIT",
   "author": "Romain Khanoyan (https://romainkhanoyan.fr)",
-  "homepage": "https://brimkern.com/local-ai",
+  "homepage": "https://brimkern.com/docs/sdk",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RomainKH/Brimkern.git",

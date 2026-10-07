@@ -8,7 +8,7 @@ diff --git a/packages/tasks/src/local-apps.ts b/packages/tasks/src/local-apps.ts
 +	},
 +	brimkern: {
 +		prettyLabel: "Brimkern",
-+		docsUrl: "https://brimkern.com/local-ai",
++		docsUrl: "https://brimkern.com/docs/sdk",
 +		mainTask: "text-generation",
 +		displayOnModelPage: (model) => isLlamaCppGgufModel(model) || model.library_name === "brimkern",
 +		deeplink: (model, filepath) => {

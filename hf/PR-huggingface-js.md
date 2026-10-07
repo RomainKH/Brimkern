@@ -13,7 +13,7 @@ jours. Un patch, lui, s'applique ou échoue.
 |---|---|
 | ≥ 1 modèle taggé `library_name: brimkern` en ligne | ✅ **8 dépôts** sur `api/models?filter=brimkern` (dont `Qwen3-0.6B-Shop-ENFR_BRIK`, défaut du SDK 0.8.0) |
 | Site déployé, SDK publié | ✅ `brimkern.com/sdk.js` = `public/sdk.js` octet pour octet (512 263 o), `brimkern@0.8.0` = `latest` sur npm |
-| Pages citées par la PR | ✅ `/local-ai`, `/docs/sdk`, `/chat?model=…` répondent 200 ; le deeplink lit `model` et `file` (`src/lib/deeplink.ts`) |
+| Pages citées par la PR | ✅ `/docs/sdk` (`/local-ai` y redirige depuis le 2026-10-07), `/chat?model=…` répondent 200 ; le deeplink lit `model` et `file` (`src/lib/deeplink.ts`) |
 | Space démo (cité par les PR) | ⏳ **toujours pas publié** (`spaces/romainkh14/brimkern-webgpu` → 401) — rebâti sur le SDK 0.8.0, `test:hfspace` **10/10** le 2026-10-07 |
 | Le patch s'applique sur l'amont du jour | ✅ **régénéré** contre `huggingface.js@e60c7eeab2` (2026-10-06) : l'ancien passait avec un décalage (« No such line 795 »), un `git apply` strict l'aurait refusé |
 | Le patch passe leur CI locale | ✅ dans `packages/tasks` : `tsc` 0 erreur, `vitest` 64/64, `oxfmt --check` propre, `eslint` propre |

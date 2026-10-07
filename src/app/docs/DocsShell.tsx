@@ -247,7 +247,7 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
             <Link href={href('/agents')} className="docs-header-link">Agents</Link>
             <Link href={href('/cli')} className="docs-header-link">CLI</Link>
             <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
-            <Link href={href('/local-ai')} className="docs-header-link">SDK</Link>
+            <Link href={href('/docs/sdk')} className="docs-header-link">SDK</Link>
             <button
               onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
               aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}

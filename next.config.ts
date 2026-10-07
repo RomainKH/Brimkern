@@ -25,6 +25,11 @@ const nextConfig: NextConfig = {
     return [
       { source: '/sdk-demo.html', destination: '/sdk-demo', permanent: true },
       { source: '/fr/sdk-demo.html', destination: '/fr/sdk-demo', permanent: true },
+      // /local-ai (page « produit » du SDK) retirée le 2026-10-07 : trois pages pour un SDK (pitch,
+      // doc, démo) se répétaient. Il reste la doc et la démo ; l'ancienne URL — homepage npm des
+      // versions publiées, changelog, PR Hugging Face — mène à la doc.
+      { source: '/local-ai', destination: '/docs/sdk', permanent: true },
+      { source: '/fr/local-ai', destination: '/fr/docs/sdk', permanent: true },
     ];
   },
   async headers() {

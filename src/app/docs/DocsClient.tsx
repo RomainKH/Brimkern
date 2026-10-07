@@ -90,7 +90,7 @@ export default function DocsClient() {
           desc={t('The app itself: load a model and talk to it, entirely on your GPU.', "L'application : chargez un modèle et discutez, entièrement sur votre GPU.")}
         />
         <NavCard
-          href={href('/local-ai')}
+          href={href('/docs/sdk')}
           icon={<Globe size={17} />}
           title={t('Embeddable SDK', 'SDK embarquable')}
           desc={t('Put a local assistant on your own site with one script tag. Live demo included.', "Posez un assistant local sur votre site avec une balise script. Démo live incluse.")}

@@ -138,6 +138,11 @@ node scripts/e2e/rope-family.mjs '&ropenorm=0'  # l'ancien chemin, pour l'A/B
 
 ### `bench-classify.mjs` — classify()/generate() de la classe pure (résident vs JS)
 
+⚠️ **Sans page depuis le 2026-10-07** : `/local-ai` (et sa démo classer/extraire) a été retirée, l'URL
+redirige vers `/docs/sdk`. Le banc échoue donc tel quel ; à rebrancher sur une page de test minimale
+(le `git show` du commit de retrait rend `LocalAiDemo.tsx`) le jour où le chemin résident de
+`classify()` se re-mesure. Le ×20,6 publié reste celui du 2026-08-25, mesuré sur l'ancienne page.
+
 Le premier banc de perf des API « classe pure » (`Lfm2Model.classify`/`generateResident`), mesuré
 sur la démo `/local-ai` : bras ALTERNÉS par rechargement de page, `?lfm2resident=0` en témoin, et la
 SORTIE vérifiée à chaque tir (« Positive » au sentiment, l'email exact à l'extraction) — une
