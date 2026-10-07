@@ -24,7 +24,7 @@ import { listConversations, type Conversation } from '@/lib/chatStore';
 import StoragePanel from './StoragePanel';
 import OptionsPanel from './OptionsPanel';
 import SkillsPanel from './SkillsPanel';
-import { listCustomSkills, BUILTIN_SKILLS, type Skill } from '@/lib/skillStore';
+import { listCustomSkills, builtinSkills, type Skill } from '@/lib/skillStore';
 import { useT, useLocale, useHref } from '@/lib/i18n';
 import { useGpuCapability } from '@/lib/useGpuCapability';
 import { metric, metricOnce } from '@/lib/metrics';
@@ -157,7 +157,7 @@ function App() {
   const [customSkills, setCustomSkills] = useState<Skill[]>([]);
   const [activeSkillIds, setActiveSkillIds] = useState<string[]>(['default']); // multiple skills can be combined
   const [skillsOpen, setSkillsOpen] = useState<boolean>(false);
-  const allSkills = [...BUILTIN_SKILLS, ...customSkills];
+  const allSkills = [...builtinSkills(locale), ...customSkills];
   const activeSkills = activeSkillIds.map((id) => allSkills.find((s) => s.id === id)).filter(Boolean) as Skill[];
   // Selected skills' instructions are concatenated into the system prompt (compose several personas).
   // Outils locaux (calcul exact + date du jour injectés dans le prompt) : 100 % hors réseau → ON
@@ -169,10 +169,12 @@ function App() {
   // alors que c'est la réponse qui compte). Le réglage le rend lisible pour qui veut le voir.
   const [showReasoning, setShowReasoning] = useState<boolean>(false);
   const systemPrompt = (activeSkills.map((s) => s.content).join('\n\n') || 'You are a helpful AI assistant.') +
-    // Mobile : concision imposée (injection modèle → FR, cf. convention i18n). ~500 caractères ≈
+    // Mobile : concision imposée, dans la langue de la page (2026-10-07 : elle n'existait qu'en
+    // français, une consigne qui risquait de tirer les réponses vers le français sur l'UI anglaise —
+    // risque non mesuré). ~500 caractères ≈
     // 160 tokens ≈ 25 s à ~6 t/s de décodage — la lecture reste agréable et le téléphone ne chauffe
     // pas une minute par réponse. Stable sur la session → le préfixe KV reste réutilisable.
-    (isMobile ? '\nRéponds de façon concise : 500 caractères maximum, va à l\'essentiel. Ne détaille que si on te le demande explicitement.' : '') +
+    (isMobile ? t('\nAnswer concisely: 500 characters at most, get to the point. Only go into detail when explicitly asked.', '\nRéponds de façon concise : 500 caractères maximum, va à l\'essentiel. Ne détaille que si on te le demande explicitement.') : '') +
     // Outil « date » : les petits modèles n'ont aucune notion du jour courant. Stable sur la
     // journée → le préfixe KV du system prompt reste réutilisable entre les tours.
     (localToolsOn ? `\n(Date du jour : ${currentDateLine(locale === 'fr' ? 'fr' : 'en')}.)` : '');
@@ -3604,9 +3606,9 @@ function App() {
                   </div>
                 </div>
               )}
-              {/* La marque, sous la barre, à la place de l'anneau générique : même indicateur
-                  d'attente que la bulle du premier token et les boutons occupés. */}
-              <BrandMark size={44} busy style={{ color: 'var(--text-primary)', marginTop: 4 }} />
+              {/* La marque sous la barre : son anneau tourne pendant les étapes sans mesure
+                  (compilation, validation) et se remplit avec le téléchargement. */}
+              <BrandMark size={60} busy progress={loadingProgress?.percentage} style={{ color: 'var(--text-primary)', marginTop: 4 }} />
             </div>
           )}
 

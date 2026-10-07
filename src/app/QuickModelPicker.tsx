@@ -140,7 +140,7 @@ export function QuickModelPicker({
   // Determine label of current active model
   let label = activeModelName || t('LFM2.5 230M (Auto)', 'LFM2.5 230M (Auto)');
   if (imageMode) label = 'SD-Turbo (Image)';
-  else if (videoMode) label = 'AnimateDiff (Vidéo)';
+  else if (videoMode) label = t('AnimateDiff (Video)', 'AnimateDiff (Vidéo)');
   else if (visionMode) label = 'Qwen2-VL (Vision)';
   else if (activeModelName) {
     const match = QUICK_MODELS.find((m) => m.url === activeModelUrl || activeModelName.toLowerCase().includes(m.id));

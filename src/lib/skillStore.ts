@@ -12,12 +12,19 @@ export interface Skill {
 }
 
 // Starter skills (always available, can't be deleted). `default` mirrors the old hard-coded prompt.
-export const BUILTIN_SKILLS: Skill[] = [
-	{ id: 'default', name: 'Assistant', content: 'You are a helpful AI assistant.', builtin: true, updatedAt: 0 },
-	{ id: 'concis', name: 'Concis', content: 'Réponds de façon concise et directe, sans préambule ni remplissage.', builtin: true, updatedAt: 0 },
-	{ id: 'code', name: 'Code', content: 'Tu es un assistant de programmation expert. Donne du code clair, idiomatique et commenté, avec une explication brève et précise.', builtin: true, updatedAt: 0 },
-	{ id: 'traducteur', name: 'Traducteur', content: 'Tu es un traducteur professionnel. Traduis fidèlement le message de l’utilisateur ; ne réponds qu’avec la traduction, sans commentaire.', builtin: true, updatedAt: 0 },
+// Bilingues (2026-10-07) : ils n'existaient qu'en français, affichés tels quels dans l'UI anglaise.
+// Les ids restent ceux d'origine (« concis », « traducteur ») : ils sont persistés dans le
+// localStorage des visiteurs (brimkern-skills), les renommer désactiverait leurs skills actifs.
+const BUILTINS: { id: string; name: { en: string; fr: string }; content: { en: string; fr: string } }[] = [
+	{ id: 'default', name: { en: 'Assistant', fr: 'Assistant' }, content: { en: 'You are a helpful AI assistant.', fr: 'Tu es un assistant IA serviable.' } },
+	{ id: 'concis', name: { en: 'Concise', fr: 'Concis' }, content: { en: 'Answer concisely and directly, with no preamble or filler.', fr: 'Réponds de façon concise et directe, sans préambule ni remplissage.' } },
+	{ id: 'code', name: { en: 'Code', fr: 'Code' }, content: { en: 'You are an expert programming assistant. Give clear, idiomatic, commented code, with a short and precise explanation.', fr: 'Tu es un assistant de programmation expert. Donne du code clair, idiomatique et commenté, avec une explication brève et précise.' } },
+	{ id: 'traducteur', name: { en: 'Translator', fr: 'Traducteur' }, content: { en: 'You are a professional translator. Translate the user’s message faithfully; reply with the translation only, no commentary.', fr: 'Tu es un traducteur professionnel. Traduis fidèlement le message de l’utilisateur ; ne réponds qu’avec la traduction, sans commentaire.' } },
 ];
+
+export function builtinSkills(locale: 'en' | 'fr'): Skill[] {
+	return BUILTINS.map((b) => ({ id: b.id, name: b.name[locale], content: b.content[locale], builtin: true, updatedAt: 0 }));
+}
 
 const DB_NAME = 'brimkern-skills';
 const STORE = 'skills';

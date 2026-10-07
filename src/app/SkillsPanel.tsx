@@ -7,8 +7,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Plus, Trash2, Pencil, Sparkles, Download } from 'lucide-react';
 import BrandMark from './BrandMark';
-import { listCustomSkills, saveSkill, deleteSkill, BUILTIN_SKILLS, type Skill } from '@/lib/skillStore';
-import { useT } from '@/lib/i18n';
+import { listCustomSkills, saveSkill, deleteSkill, builtinSkills, type Skill } from '@/lib/skillStore';
+import { useT, useLocale } from '@/lib/i18n';
 
 // A github.com "/blob/" URL points at an HTML page; rewrite to the raw file host. Raw URLs pass through.
 function toRawUrl(u: string): string {
@@ -22,6 +22,7 @@ export default function SkillsPanel({ onClose, onChanged, activeIds, onToggle }:
   onToggle: (id: string) => void;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const [custom, setCustom] = useState<Skill[]>([]);
   const [name, setName] = useState('');
   const [content, setContent] = useState('');
@@ -161,7 +162,7 @@ export default function SkillsPanel({ onClose, onChanged, activeIds, onToggle }:
         {/* Built-ins */}
         <div style={{ marginTop: 16 }}>
           <div className="section-title" style={{ fontSize: 11, marginBottom: 2 }}>{t('Built-in', 'Intégrés')}</div>
-          {BUILTIN_SKILLS.map((s) => skillRow(s, <span style={{ fontSize: 10.5, color: 'var(--text-muted)', alignSelf: 'center' }}>{t('default', 'par défaut')}</span>))}
+          {builtinSkills(locale).map((s) => skillRow(s, <span style={{ fontSize: 10.5, color: 'var(--text-muted)', alignSelf: 'center' }}>{t('default', 'par défaut')}</span>))}
         </div>
       </div>
     </div>
