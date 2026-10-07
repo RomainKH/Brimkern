@@ -14,4 +14,4 @@ SDK docs: https://brimkern.com/docs/sdk
 
 Checked locally in `packages/tasks`: `tsc`, `vitest`, `oxfmt --check`, `eslint`.
 
-Modelled on #885 (VFI-Mamba, library). Follows the local-app PR #<NUMÉRO DE LA PR 1>.
+Modelled on #885 (VFI-Mamba, library). Follows the local-app PR #2629.
