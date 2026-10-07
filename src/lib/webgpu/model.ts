@@ -323,6 +323,8 @@ export class CustomWebModel {
 		// ~8,5 Go) sans rien gagner en qualité (le Q4_K est déjà la source). Cf. GraphModel.mat pour la
 		// mesure (Gemma 4 : 64/64 contre llama.cpp, décodage plus rapide qu'en int8). ?kq=0 → int8.
 		if (t.type === 'Q4_K' && this.engine.kqOk && t.shape[0] % 256 === 0) return this.engine.uploadKq('Q4_K', bytes);
+		// Ternaire PQ2_0 (Bonsai PrismML) : même principe, ~2,1 bits par poids en VRAM au lieu de 8,5.
+		if (t.type === 'PQ2_0' && this.engine.pq2NativeOk && t.shape[0] % 128 === 0) return this.engine.uploadKq('PQ2_0', bytes);
 		if (t.type !== 'Q8W') {
 			const f32gpu = this.engine.dequantizeToGpu(t.type, bytes, t.nElems);
 			const q = this.engine.f32ToQ8Gpu(f32gpu, t.nElems);

@@ -1635,6 +1635,64 @@ export const SHADERS = {
 			if (tid == 0u && col < d.n) { c[col] = part[0]; }
 		}`,
 
+	// GEMV sur des poids PQ2_0 NATIFS (ternaire PrismML : 34 o / 128 poids = d f16 + 32 o de codes
+	// 2 bits, lignes contiguës). Garde le modèle à ~2,1 bits par poids en VRAM au lieu de 8,5 en int8 :
+	// le décodage relit tous les poids à chaque token, c'est le poste qui compte. Unité d'une lane :
+	// 16 poids (un mot de codes) → k = 2 560 donne 160 unités pour 64 lanes, là où un bloc entier par
+	// lane n'en occupait que 20. Σ a·d·(q − 1) = d·(Σ a·q − Σ a). Les blocs font 34 o : un mot de
+	// codes commence à 0 ou 2 modulo 4, d'où word2 qui recolle deux demi-mots.
+	matmul_t_pq2_vec: `
+		struct Dims { m: u32, k: u32, n: u32, stride: u32 };
+		@group(0) @binding(0) var<uniform> d: Dims;
+		@group(0) @binding(1) var<storage, read> a: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> q: array<u32>;
+		@group(0) @binding(3) var<storage, read_write> c: array<f32>;
+		var<workgroup> part: array<f32, 64>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let m = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(m) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(m) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn word2(b: u32) -> u32 {
+			let i = b >> 2u;
+			if ((b & 3u) == 0u) { return q[i]; }
+			return (q[i] >> 16u) | (q[i + 1u] << 16u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let col = wid.y * d.stride + wid.x;
+			let tid = lid.x;
+			let nU = d.k / 16u;
+			var acc = 0.0;
+			if (col < d.n) {
+				let rowBase = col * (d.k / 128u) * 34u;
+				for (var u = tid; u < nU; u = u + 64u) {
+					let base = rowBase + (u >> 3u) * 34u;
+					let dw = q[base >> 2u];
+					let dh = select(dw & 0xFFFFu, dw >> 16u, (base & 2u) != 0u);
+					let w = word2(base + 2u + (u & 7u) * 4u);
+					let aBase = u * 4u;
+					var s = 0.0; var sa = 0.0;
+					for (var v = 0u; v < 4u; v = v + 1u) {
+						let x = w >> (v * 8u);
+						let qv = vec4<f32>(f32(x & 3u), f32((x >> 2u) & 3u), f32((x >> 4u) & 3u), f32((x >> 6u) & 3u));
+						let av = a[aBase + v];
+						s = s + dot(av, qv);
+						sa = sa + av.x + av.y + av.z + av.w;
+					}
+					acc = acc + f16d(dh) * (s - sa);
+				}
+			}
+			part[tid] = acc;
+			workgroupBarrier();
+			for (var stride = 32u; stride > 0u; stride = stride >> 1u) {
+				if (tid < stride) { part[tid] = part[tid] + part[tid + stride]; }
+				workgroupBarrier();
+			}
+			if (tid == 0u && col < d.n) { c[col] = part[0]; }
+		}`,
+
 	// GEMV sur des poids Q6_K NATIFS (210 o / 256 poids : ql[128], qh[64], scales int8[16], d f16).
 	// 210 n'étant pas multiple de 4, tout se lit par octet dans le tableau u32. Unité de travail d'une
 	// lane : (bloc, moitié, quart de 16 positions l) → 64 poids aux sous-blocs l, l+32, l+64, l+96, dont

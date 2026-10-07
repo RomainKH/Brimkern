@@ -202,6 +202,9 @@ export class WebGpuEngine {
 	// gate posé par selfValidate, ou forcé par ?kq=0 → les modèles qui en profitent (gemma4Model)
 	// requantifient en int8 comme avant (juste, mais ~1,7× plus d'octets relus par token).
 	kqOk = true;
+	// Poids ternaires PQ2_0 NATIFS (même handle { kq, buf }, GEMV matmul_t_pq2_vec au décodage) : gate
+	// posé par selfValidate, ou forcé par ?pq2native=0 → requantification int8 (~4× la VRAM du 2 bits).
+	pq2NativeOk = true;
 	// GEMV MULTI-LIGNES (m = 2 à 8, int8 et Q4_K natif) : les poids lus une fois pour m lignes, au lieu
 	// des kernels de prefill (un forward de 2 tokens coûtait 5× celui d'un token sur Qwen 3.5 4B).
 	// Brique du décodage spéculatif et des appels par lots. Gate selfValidate, ou ?gemvm=0 → repli.
@@ -393,6 +396,10 @@ export class WebGpuEngine {
 			if (urlFlag('kq') === '0') {
 				this.kqOk = false;
 				console.warn('[webgpu] poids K-quant natifs COUPÉS par ?kq=0 : requantification int8');
+			}
+			if (urlFlag('pq2native') === '0') {
+				this.pq2NativeOk = false;
+				console.warn('[webgpu] poids PQ2_0 natifs COUPÉS par ?pq2native=0 : requantification int8');
 			}
 			if (urlFlag('gemma4') === '0') {
 				this.gemma4Ok = false;
@@ -2091,7 +2098,7 @@ export class WebGpuEngine {
 	}
 	// Poids K-quant natifs : blocs GGUF Q4_K / Q6_K envoyés TELS QUELS (lignes contiguës, k % 256 == 0).
 	// Handle { kq, buf } reconnu par recMM. ~4,5 et ~6,6 bits par poids au lieu de 8,5 en int8.
-	uploadKq(type: 'Q4_K' | 'Q6_K', bytes: Uint8Array): { kq: 'Q4_K' | 'Q6_K'; buf: GPUAny } {
+	uploadKq<T extends 'Q4_K' | 'Q6_K' | 'PQ2_0'>(type: T, bytes: Uint8Array): { kq: T; buf: GPUAny } {
 		const size = Math.ceil(bytes.byteLength / 4) * 4;
 		const buf = this.device.createBuffer({ size, usage: WebGpuEngine.STORAGE_USAGE });
 		if (size === bytes.byteLength) this.device.queue.writeBuffer(buf, 0, bytes);
@@ -2102,12 +2109,12 @@ export class WebGpuEngine {
 	// en int8 dans des tampons de travail (le pool les recycle d'une couche à l'autre) et part dans
 	// le GEMM int8 tuilé — le prefill est borné par le calcul, pas par la lecture des poids, et un
 	// GEMM K-quant tuilé propre reste à écrire (ROADMAP).
-	private recMatmulKq(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: { kq: 'Q4_K' | 'Q6_K'; buf: GPUAny }, m: number, k: number, n: number): GPUAny {
+	private recMatmulKq(enc: GPUAny, trash: GPUAny[], a: GPUAny, w: { kq: 'Q4_K' | 'Q6_K' | 'PQ2_0'; buf: GPUAny }, m: number, k: number, n: number): GPUAny {
 		if (m === 1) {
 			const g = this.gemvGrid(n);
 			const out = this.storage(n * 4);
 			const dims = this.uniform([1, k, n, g.stride]);
-			this.recordPass(enc, w.kq === 'Q4_K' ? 'matmul_t_q4k_vec' : 'matmul_t_q6k_vec', [dims, a, w.buf, out], g.grid);
+			this.recordPass(enc, w.kq === 'Q4_K' ? 'matmul_t_q4k_vec' : w.kq === 'Q6_K' ? 'matmul_t_q6k_vec' : 'matmul_t_pq2_vec', [dims, a, w.buf, out], g.grid);
 			trash.push(dims, out);
 			return out;
 		}
@@ -2127,7 +2134,7 @@ export class WebGpuEngine {
 			trash.push(dims, out);
 			return out;
 		}
-		const nElems = k * n, nBlocks = nElems / 256, nGroups = nElems / 32;
+		const nElems = k * n, nBlocks = nElems / WebGpuEngine.BLOCK_ELEMS[w.kq], nGroups = nElems / 32;
 		const { f32, codes, sc } = this.kqScratchFor(nElems, trash);
 		const pd = this.uniform([nBlocks]);
 		this.recordPass(enc, WebGpuEngine.DEQUANT_SHADER[w.kq], [pd, w.buf, f32], this.grid1D(nBlocks));
@@ -5023,6 +5030,45 @@ export class WebGpuEngine {
 			} catch (e) { bad = String(e); }
 			if (bad) { this.kqOk = false; console.error(`[selfValidate] poids K-quant natifs KO (${bad}) : requantification int8.`); }
 			else console.log('[selfValidate] poids K-quant natifs OK (GEMV Q4_K/Q6_K, prefill via int8)');
+		}
+
+		// Poids PQ2_0 natifs (non bloquant) : blocs aléatoires (codes 0-3 compris, d f16 sain) contre
+		// déquant CPU + produit. Formes de Ternary-Bonsai 4B (k = 2 560, 9 728) et 1.7B (2 048), plus
+		// k = 384 : 3 blocs par ligne → lignes de 102 o, donc des lignes qui commencent à 2 modulo 4
+		// (le cas word2 recollé que les formes réelles paires ne testent qu'à l'intérieur d'une ligne).
+		// m = 3 : prefill (déquant GPU + int8 + GEMM tuilé), vérifié à 2 % comme pour les K-quants.
+		if (this.pq2NativeOk) {
+			const G = globalThis as any;
+			const relK = (x: Float32Array, y: Float32Array, tol: number) => { let mx = 0; for (const v of y) mx = Math.max(mx, Math.abs(v)); return x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) <= tol * (mx + 1)); };
+			let bad: string | null = null;
+			try {
+				for (const [m, k, n] of [[1, 2560, 37], [1, 9728, 5], [1, 2048, 13], [1, 384, 7], [3, 2560, 9]]) {
+					const nb = (n * k) / 128;
+					const blocks = new Uint8Array(nb * 34);
+					for (let i = 0; i < blocks.length; i++) blocks[i] = (Math.random() * 256) | 0;
+					const dv = new DataView(blocks.buffer);
+					for (let j = 0; j < nb; j++) dv.setUint16(j * 34, f32ToF16(0.01 + Math.random() * 0.02), true);
+					const wf = dequantPQ2_0Cpu(blocks, nb);
+					const a = rand(m * k);
+					const ref = new Float32Array(m * n);
+					for (let r = 0; r < m; r++) for (let c = 0; c < n; c++) { let acc = 0; for (let i = 0; i < k; i++) acc += a[r * k + i] * wf[c * k + i]; ref[r * n + c] = acc; }
+					const w = this.uploadKq('PQ2_0', blocks);
+					const ab = this.storage(a.byteLength); this.device.queue.writeBuffer(ab, 0, a);
+					const trash: GPUAny[] = [];
+					const enc = this.device.createCommandEncoder();
+					const out = this.recMM(enc, trash, ab, w, m, k, n, false);
+					const read = this.device.createBuffer({ size: m * n * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+					enc.copyBufferToBuffer(out, 0, read, 0, m * n * 4);
+					this.device.queue.submit([enc.finish()]);
+					await read.mapAsync(G.GPUMapMode.READ);
+					const got = new Float32Array(read.getMappedRange().slice(0));
+					read.unmap(); read.destroy(); w.buf.destroy();
+					this.release([...trash, ab]);
+					if (!relK(got, ref, m === 1 ? 2e-3 : 2e-2)) { bad = `m=${m} k=${k} n=${n}`; break; }
+				}
+			} catch (e) { bad = String(e); }
+			if (bad) { this.pq2NativeOk = false; console.error(`[selfValidate] poids PQ2_0 natifs KO (${bad}) : requantification int8.`); }
+			else console.log('[selfValidate] poids PQ2_0 natifs OK (GEMV ternaire, prefill via int8)');
 		}
 
 		// GEMV multi-lignes (non bloquant) : int8 et Q4_K natif, m = 2, 3, 5, 8, k = 2 560 et 10 240

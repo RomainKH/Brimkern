@@ -3,12 +3,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Sparkles, Zap, Brain, Code2, Image as ImageIcon, Eye, Database, Check } from 'lucide-react';
 import { useT } from '@/lib/i18n';
+import { fmtModelSize } from '@/lib/modelCatalog';
 
 export interface QuickModelOption {
   id: string;
   name: string;
   shortName: string;
-  size: string;
+  sizeBytes: number; // formaté à l'affichage (fmtModelSize) : « 2.53 Go » sortait tel quel dans l'UI anglaise
   badge: { en: string; fr: string };
   desc: { en: string; fr: string };
   type: 'brik' | 'gguf' | 'image' | 'vision';
@@ -22,7 +23,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     id: 'lfm2',
     name: 'LFM2.5 230M',
     shortName: 'LFM2.5 230M',
-    size: '149 Mo',
+    sizeBytes: 149e6,
     badge: { en: 'Instant', fr: 'Instantané' },
     desc: { en: 'Light & ultra-fast · Ideal for daily queries', fr: 'Léger & ultra-rapide · Idéal pour le quotidien' },
     type: 'brik',
@@ -33,7 +34,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     id: 'qwen05',
     name: 'Qwen 2.5 0.5B',
     shortName: 'Qwen 0.5B',
-    size: '378 Mo',
+    sizeBytes: 378e6,
     badge: { en: 'Fluent', fr: 'Polyvalent' },
     desc: { en: 'Strong in French, coding and logic', fr: 'Très à l\'aise en français, code et logique' },
     type: 'brik',
@@ -44,7 +45,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     id: 'qwen3',
     name: 'Qwen 3 4B (int4)',
     shortName: 'Qwen 3 4B',
-    size: '2.53 Go',
+    sizeBytes: 2.53e9,
     badge: { en: 'High Intellect', fr: 'Haute capacité' },
     desc: { en: 'Next-gen intelligence, reasoning & coding', fr: 'Intelligence supérieure, raisonnement & code' },
     type: 'brik',
@@ -53,10 +54,24 @@ export const QUICK_MODELS: QuickModelOption[] = [
     desktopOnly: true,
   },
   {
+    // Poids ternaires (PQ2_0, ROADMAP § 26) : le fichier pèse 1,07 Go pour un 4B. Épinglé à une
+    // révision comme tout poids de tiers (cf. modelCatalog).
+    id: 'bonsai4b',
+    name: 'Ternary Bonsai 4B',
+    shortName: 'Bonsai 4B',
+    sizeBytes: 1074969344,
+    badge: { en: 'Ternary', fr: 'Ternaire' },
+    desc: { en: '1.58-bit weights: a 4B model in a 1 GB download', fr: 'Poids 1,58 bit : un modèle 4B en 1 Go à télécharger' },
+    type: 'gguf',
+    url: 'https://huggingface.co/prism-ml/Ternary-Bonsai-4B-gguf/resolve/a3eb42bafe873f9686bc97486c43b72ef7d75ec8/Ternary-Bonsai-4B-PQ2_0.gguf',
+    icon: Sparkles,
+    desktopOnly: true,
+  },
+  {
     id: 'deepseek',
     name: 'DeepSeek-R1 Distill 1.5B',
     shortName: 'DeepSeek-R1 1.5B',
-    size: '1.12 Go',
+    sizeBytes: 1.12e9,
     badge: { en: 'Reasoning', fr: 'Raisonnement' },
     desc: { en: 'Step-by-step thinking (<think>) for math & logic', fr: 'Pensée pas à pas (<think>) pour maths & logique' },
     type: 'gguf',
@@ -67,7 +82,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     id: 'coder3b',
     name: 'Qwen 2.5 Coder 3B (Opus)',
     shortName: 'Coder 3B Opus',
-    size: '1.93 Go',
+    sizeBytes: 1.93e9,
     badge: { en: 'Code & Dev', fr: 'Code & Dev' },
     desc: { en: 'Claude Opus 4.6 distilled · High coding power', fr: 'Distillé Claude Opus 4.6 · Haute précision de code' },
     type: 'gguf',
@@ -79,7 +94,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     id: 'sdturbo',
     name: 'Stable Diffusion Turbo',
     shortName: 'SD-Turbo (Image)',
-    size: '1.2 Go',
+    sizeBytes: 1.2e9,
     badge: { en: 'Image', fr: 'Image' },
     desc: { en: 'Generate images directly on your GPU', fr: 'Générez des images en local sur votre GPU' },
     type: 'image',
@@ -89,7 +104,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     id: 'qwen2vl',
     name: 'Qwen2-VL 2B (Vision)',
     shortName: 'Qwen2-VL (Vision)',
-    size: '2.6 Go',
+    sizeBytes: 2.6e9,
     badge: { en: 'Vision', fr: 'Vision' },
     desc: { en: 'Understand and analyze attached images', fr: 'Compréhension et analyse d\'images jointes' },
     type: 'vision',
@@ -199,7 +214,7 @@ export function QuickModelPicker({
                     <div className="quick-model-item-title-row">
                       <span className="quick-model-item-title">{m.name}</span>
                       <span className="quick-model-item-badge">{t(m.badge.en, m.badge.fr)}</span>
-                      <span className="quick-model-item-size">{m.size}</span>
+                      <span className="quick-model-item-size">{fmtModelSize(m.sizeBytes, t('en', 'fr') === 'fr')}</span>
                     </div>
                     <div className="quick-model-item-desc">{t(m.desc.en, m.desc.fr)}</div>
                   </div>
