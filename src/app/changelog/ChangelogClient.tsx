@@ -20,6 +20,41 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'October 7, 2026', fr: '7 octobre 2026' },
+    tagline: {
+      en: 'SDK 0.8.1 fixes what npm said about the default model, the SDK fits in two pages, and the site waits with one sign: the chip.',
+      fr: 'Le SDK 0.8.1 corrige ce que npm disait du modèle par défaut, le SDK tient en deux pages, et le site attend avec un seul signe : la puce.',
+    },
+    groups: [
+      {
+        title: { en: 'SDK 0.8.1: metadata only', fr: 'SDK 0.8.1 : métadonnées seulement' },
+        items: [
+          {
+            en: 'The npm page still said the default model was under the LFM 1.0 licence. Since 0.8.0 it is a Qwen3 0.6B fine-tune, under Apache 2.0; LFM 1.0 now only concerns the optional lfm2.5-230m. The package homepage points to /docs/sdk. The bundle is byte-for-byte the 0.8.0 one.',
+            fr: 'La page npm disait encore que le modèle par défaut était sous licence LFM 1.0. Depuis 0.8.0 c’est un affinage de Qwen3 0.6B, sous Apache 2.0 ; LFM 1.0 ne concerne plus que lfm2.5-230m, optionnel. La homepage du paquet pointe sur /docs/sdk. Le bundle est celui de 0.8.0 à l’octet près.',
+          },
+        ],
+      },
+      {
+        title: { en: 'Site', fr: 'Site' },
+        items: [
+          {
+            en: 'The SDK now lives on two pages: the docs (/docs/sdk) and the live demo (/sdk-demo), now a product page whose assistant answers from the notes it shows. /local-ai redirects to the docs.',
+            fr: 'Le SDK vit désormais sur deux pages : la doc (/docs/sdk) et la démo live (/sdk-demo), devenue une fiche produit dont l’assistant répond depuis les fiches qu’elle affiche. /local-ai redirige vers la doc.',
+          },
+          {
+            en: 'One waiting sign everywhere: the Brimkern chip sways and its cursor-eye blinks, under the model loading bar, while the first token comes, in busy buttons. It is also the assistant’s avatar. Still under prefers-reduced-motion.',
+            fr: 'Un seul signe d’attente partout : la puce Brimkern se balance et son œil-curseur clignote, sous la barre de chargement du modèle, en attendant le premier token, dans les boutons occupés. Elle devient aussi l’avatar de l’assistant. Immobile sous prefers-reduced-motion.',
+          },
+          {
+            en: 'The Skills button no longer shows with an image or video model, and the .brik converter gets a real button on /docs/models.',
+            fr: 'Le bouton Skills ne s’affiche plus avec un modèle d’image ou de vidéo, et le convertisseur .brik a un vrai bouton sur /docs/models.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'October 6, 2026', fr: '6 octobre 2026' },
     tagline: {
       en: 'SDK 0.8.0: the widget gets a model trained for its job. Qwen3 0.6B, vocabulary trimmed to English and French, fine-tuned to copy figures from your notes and to say so when they don’t answer: 92 % on five businesses it never saw in training, against 77 % for the previous 230M default.',
