@@ -23,9 +23,11 @@ tags:
 visitor's GPU (WebGPU) — no inference server, no API key, no per-token cost. Converted from the F16
 weights.
 
-This is the **default model of [Brimkern](https://brimkern.com)** and of its embeddable widget: at
-149 MB it is the smallest file in the catalogue that still reads a document and refuses to answer
-outside it.
+It was the default of [Brimkern](https://brimkern.com)'s embeddable widget until SDK 0.8.0 and is
+still the app's default on mobile: at 149 MB it is the smallest file in the catalogue that still reads
+a document and refuses to answer outside it. Since 0.8.0 the widget defaults to
+[Qwen3-0.6B Shop EN/FR](https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK) (290 MB,
+Apache-2.0), which scores higher on the same benches; this model stays one option away.
 
 | | |
 |---|---|
@@ -47,12 +49,17 @@ to a server: the prompt and the generation stay on the machine.
 ```html
 <script src="https://brimkern.com/sdk.js"></script>
 <script>
-  Brimkern.embed({ title: 'Assistant', knowledge: [{ title: 'Shipping', body: 'Free above €50.' }] });
+  Brimkern.embed({
+    title: 'Assistant',
+    model: 'lfm2.5-230m',
+    knowledge: [{ title: 'Shipping', body: 'Free above €50.' }],
+  });
 </script>
 ```
 
-`npm i brimkern@0.3.0` for the bundled version. This model is the SDK's default — you do not need to
-pass a `model` URL. The weights download only if a visitor actually opens the widget.
+`npm i brimkern` for the bundled version. `model: 'lfm2.5-230m'` selects this file (the SDK default
+is the 290 MB Qwen3-0.6B Shop since 0.8.0). The weights download only if a visitor actually opens
+the widget.
 
 ## Measured
 
@@ -82,6 +89,5 @@ Specification: [`BRIK_FORMAT.md`](https://github.com/RomainKH/Brimkern/blob/main
 ## License
 
 Weights under the **LFM Open License v1.0** (LiquidAI) — see `LICENSE` in this repository. The
-Brimkern engine itself is MIT. If you need Apache-2.0 weights instead, the closest measured
-alternative is [RWKV-7 G1a 0.4B](https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK): twice the
-download, 10/12 on the same document benches.
+Brimkern engine itself is MIT. If you need Apache-2.0 weights instead, the SDK's current default,
+[Qwen3-0.6B Shop EN/FR](https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK), is Apache-2.0.

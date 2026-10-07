@@ -69,6 +69,26 @@ open "https://huggingface.co/models?other=brimkern"
 Fait le 2026-08-30 : les **7 dépôts** remontent, et le `license:mit` du Qwen2.5 est devenu
 `license:apache-2.0` (le tag est bien dérivé de la carte).
 
+## Mise à jour du 2026-10-07 — le défaut a changé (SDK 0.8.0), trois cartes à re-téléverser
+
+Constat (`curl` des `README.md` en ligne) : la carte `LFM2.5-230M_BRIK` en ligne est identique à ce
+dossier et se présente comme « the default model of Brimkern and of its embeddable widget » avec
+`npm i brimkern@0.3.0` ; celle du G1a parle du « 149 MB LFM2.5 default ». Les deux sont fausses depuis
+que le widget sert `Qwen3-0.6B-Shop-ENFR_BRIK` (0.8.0). Le 230M reste le défaut de l'APP sur mobile.
+
+| dépôt | changement |
+|---|---|
+| `LFM2.5-230M_BRIK` | « défaut du widget jusqu'à 0.8.0, encore défaut mobile de l'app » ; snippet avec `model: 'lfm2.5-230m'` ; `npm i brimkern` sans version ; section licence : l'option Apache est désormais le défaut |
+| `RWKV-7-G1a-0.4B_BRIK` | « comparé au 230M, défaut à l'époque » ; mention du nouveau défaut Apache |
+| `Qwen3-0.6B-Shop-ENFR_BRIK` | **nouvelle dans ce dossier** (la carte en ligne existait déjà, écrite le 2026-10-06 sans copie locale) — deux chiffres corrigés contre la ROADMAP § 22 : le Qwen3-0.6B d'origine en `.brik` mixed 506 Mo fait **88/120 (73 %)**, pas « ~76 % » (76 % = base TAILLÉE, 382 Mo) ; le 29/56 → 47/56 et 17/24 → 20/24 sont ceux du PREMIER LoRA (v1), le 23/24 des refus celui de la v2 — la phrase le dit. Ajouts : contrôle bout en bout 55/60 depuis le Hub, résultats négatifs (pilote 5/8 → 1/8, 3 bits 2/60), `pipeline_tag`, tag `on-device` |
+
+```bash
+for r in LFM2.5-230M_BRIK RWKV-7-G1a-0.4B_BRIK Qwen3-0.6B-Shop-ENFR_BRIK; do
+  hf upload "romainkh14/$r" "hf/cards/$r.md" README.md --commit-message "Carte : défaut du SDK 0.8.0"
+done
+curl -s "https://huggingface.co/api/models?filter=brimkern" | python3 -c "import json,sys;print(len(json.load(sys.stdin)))"   # 8
+```
+
 ⚠️ Rappel du § 1 de `docs/huggingface-integration.md` : **déployer le site AVANT** de faire pointer
 des visiteurs sur ces cartes — un `.brik` à embeddings q4 exige le runtime déployé, et les deeplinks
 des cartes mènent tous à `brimkern.com`.

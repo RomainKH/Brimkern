@@ -2,8 +2,8 @@
 
 A negative result, with the probe that makes it stick.
 
-Brimkern's default model is LiquidAI's LFM2.5-230M, shipped as a 149 MB int4 `.brik` that runs
-in the browser on WebGPU. 149 MB felt improvable: our flat 3-bit build is 129 MB, and
+Brimkern's smallest widget model is LiquidAI's LFM2.5-230M (the SDK default until 0.8.0), shipped
+as a 149 MB int4 `.brik` that runs in the browser on WebGPU. 149 MB felt improvable: our flat 3-bit build is 129 MB, and
 `unsloth/LFM2.5-230M-GGUF` publishes Q3_K variants calibrated with an importance matrix — surely
 better than our round-to-nearest?
 
@@ -33,6 +33,9 @@ contribute *weights*, it contributes an **allocation map**.
 The CPU dequantizer that made the comparison possible (Q3_K/Q4_K/Q5_K/Q6_K/Q8_0/Q4_0/Q5_0,
 with the inverted-high-bit Q3_K layout tested) is in the repo, reusable on any quantized GGUF:
 https://github.com/RomainKH/Brimkern
+
+Same wall a month later on a different model: our fine-tuned Qwen3-0.6B holds at 4 bits (290 MB,
+110/120 on our multi-business bench) and collapses at 3 bits (238 MB, 2/60).
 
 Try the 6/6 file, streamed to your GPU, nothing sent to a server:
 https://brimkern.com/chat?model=romainkh14/LFM2.5-230M_BRIK

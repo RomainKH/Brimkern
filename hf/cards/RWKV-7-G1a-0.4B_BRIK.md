@@ -20,8 +20,10 @@ tags:
 **RWKV-7 G1a 0.4B** (BlinkDL, Apache-2.0) converted to the **BRIK** format so it runs **inside the
 browser** on the visitor's GPU (WebGPU) — no inference server. Converted from a F16 GGUF.
 
-The **Apache-2.0 option** of the [Brimkern](https://brimkern.com) catalogue: the permissive
-alternative to the 149 MB LFM2.5 default, with the trade-off measured rather than assumed.
+An **Apache-2.0 option** of the [Brimkern](https://brimkern.com) catalogue, measured against the
+149 MB LFM2.5 that was the widget default until SDK 0.8.0. (Since 0.8.0 the default is
+[Qwen3-0.6B Shop EN/FR](https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK), 290 MB, itself
+Apache-2.0.)
 
 | | |
 |---|---|
@@ -73,8 +75,8 @@ Chrome, Apple Silicon laptop, production build — replayable benches in
 
 The two failures are the **same** case in both languages: reading one row of a table (26.0/26.5 cm
 instead of 27.0). Refusals, greetings and two-number disambiguation all hold. Against the
-[LFM2.5-230M](https://huggingface.co/romainkh14/LFM2.5-230M_BRIK) default (12/12, 149 MB, LFM 1.0
-license), the Apache option therefore costs **2× the download and loses table reading** — which is
+[LFM2.5-230M](https://huggingface.co/romainkh14/LFM2.5-230M_BRIK), the default at the time (12/12,
+149 MB, LFM 1.0 license), the Apache option therefore costs **2× the download and loses table reading** — which is
 the whole point of publishing both.
 
 ## Format
