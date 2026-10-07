@@ -6,7 +6,7 @@ colorTo: gray
 sdk: static
 pinned: false
 license: mit
-short_description: A 149 MB LLM that runs in your tab, on your GPU. Zero servers.
+short_description: A 149 MB LLM in your tab, on your GPU. Zero servers.
 models:
   - romainkh14/LFM2.5-230M_BRIK
 tags:

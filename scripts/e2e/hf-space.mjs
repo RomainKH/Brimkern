@@ -44,14 +44,17 @@ page.on('request', (r) => {
   // Le Hub sert ses fichiers depuis son propre CDN (cdn.hf.co / cdn-lfs) : c'est l'hébergement des
   // poids, pas une dépendance tierce. Ce qu'on traque, c'est un jsdelivr/unpkg qui reviendrait dans
   // le bundle — la CSP d'un Space statique le bloquerait, et c'est ce que le tokenizer bundlé a fermé.
-  const permis = [`http://127.0.0.1:${port}`, 'https://huggingface.co', 'https://cdn-lfs', 'https://cas-bridge', 'data:', 'blob:'];
+  const permis = [`http://127.0.0.1:${port}`, process.env.SPACE_URL || 'http://127.0.0.1', 'https://huggingface.co', 'https://cdn-lfs', 'https://cas-bridge', 'data:', 'blob:'];
   if (!permis.some((p) => u.startsWith(p)) && !/^https:\/\/[a-z0-9.-]+\.hf\.co\//.test(u)) horsSpace.push(u);
 });
 
+// SPACE_URL=https://<org>-<space>.static.hf.space : le même banc contre le Space PUBLIÉ (CSP réelle du
+// Hub), plutôt que contre la copie locale de .hf-space.
+const BASE = process.env.SPACE_URL || `http://127.0.0.1:${port}`;
 const out = [];
 const t = (nom, ok, detail = '') => out.push({ nom, ok: !!ok, detail: String(detail) });
 
-await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => typeof window.Brimkern === 'object' || typeof window.Brimkern === 'function', null, { timeout: 20000 });
 
 // ── La page, avant tout téléchargement ────────────────────────────────────────────────────────────
