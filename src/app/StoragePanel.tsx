@@ -6,7 +6,8 @@
 // each. Opened from the sidebar.
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Trash2, HardDrive, Database, Package, MessageSquare, Loader2, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
+import { X, Trash2, HardDrive, Database, Package, MessageSquare, ChevronDown, ShieldCheck, Shield } from 'lucide-react';
+import BrandMark from './BrandMark';
 import { listBrik, deleteBrik, type BrikCacheMeta } from '@/lib/brikCache';
 import { clearAllConversations } from '@/lib/chatStore';
 import { allCaches, cacheEntries, clearCache, deleteCacheEntriesFor, groupCacheEntries, historyUsage, storageEstimate, isStoragePersisted, requestPersistentStorage, type NamedUsage, type Usage, type CacheEntry } from '@/lib/storage';
@@ -138,7 +139,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
 
   const clearBtn = (id: string, onClick: () => void, disabled: boolean) => (
     <button className="btn btn-danger" style={{ fontSize: 11, padding: '5px 9px' }} onClick={onClick} disabled={disabled || busy !== null} title={t('Clear', 'Vider')}>
-      {busy === id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+      {busy === id ? <BrandMark size={13} busy /> : <Trash2 size={13} />}
     </button>
   );
 
@@ -315,7 +316,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
               setUsage(getUsageMap());
             })}
           >
-            {busy === 'evict' ? <Loader2 size={12} className="spin" /> : t('Clean now', 'Nettoyer maintenant')}
+            {busy === 'evict' ? <BrandMark size={12} busy /> : t('Clean now', 'Nettoyer maintenant')}
           </button>
           {evictReport && (
             <div style={{ flexBasis: '100%', fontSize: 10.5, color: 'var(--text-muted)' }}>
@@ -328,7 +329,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
 
         {loading ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-            <Loader2 size={15} className="spin" /> {t('Measuring space…', 'Calcul de l’espace…')}
+            <BrandMark size={15} busy /> {t('Measuring space…', 'Calcul de l’espace…')}
           </div>
         ) : (
           <div style={{ marginTop: 6 }}>
@@ -356,7 +357,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
                 {expanded === c.name && (
                   <div style={{ paddingLeft: 30, paddingBottom: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {!entries[c.name] ? (
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} className="spin" /> {t('Reading…', 'Lecture…')}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}><BrandMark size={12} busy /> {t('Reading…', 'Lecture…')}</div>
                     ) : entries[c.name].length === 0 ? (
                       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t('Empty.', 'Vide.')}</div>
                     ) : groupCacheEntries(entries[c.name]).map((g) => (
@@ -385,7 +386,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
                           disabled={busy === `m:${g.key}`}
                           onClick={() => run(`m:${g.key}`, async () => { await deleteCacheEntriesFor(c.name, g.key); })}
                         >
-                          {busy === `m:${g.key}` ? <Loader2 size={11} className="spin" /> : <Trash2 size={11} />}
+                          {busy === `m:${g.key}` ? <BrandMark size={11} busy /> : <Trash2 size={11} />}
                         </button>
                       </div>
                     ))}
@@ -431,7 +432,7 @@ export default function StoragePanel({ onClose, onHistoryCleared, onCacheChanged
             disabled={busy !== null}
             title={t('Clear all caches, BRIKs and the history', 'Vider tous les caches, BRIK et l’historique')}
           >
-            {busy === 'all' ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />} {t('Delete everything', 'Tout supprimer')}
+            {busy === 'all' ? <BrandMark size={15} busy /> : <Trash2 size={15} />} {t('Delete everything', 'Tout supprimer')}
           </button>
         )}
 

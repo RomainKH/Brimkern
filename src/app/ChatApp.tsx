@@ -10,7 +10,7 @@ import { useState, useEffect, useLayoutEffect, useRef, type ClipboardEvent as Re
 import { createPortal } from 'react-dom';
 import {
   Zap, Trash2, CheckCircle, AlertCircle,
-  Loader2, Menu, X, Sparkles,
+  Menu, X, Sparkles,
   Info, ShieldCheck, Database, ArrowRight,
   Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon
 } from 'lucide-react';
@@ -3348,7 +3348,7 @@ function App() {
                     style={{ fontSize: '12px', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                     title={t('Measures decode throughput (f32 / f16 / int4). ⚠️ Compute-heavy: the tab may freeze for a few moments.', "Mesure le débit de décodage (f32 / f16 / int4). ⚠️ Calcul intensif : l'onglet peut se figer quelques instants.")}
                   >
-                    {benchRunning ? <Loader2 size={14} className="spin" /> : <Zap size={14} />} {benchRunning ? 'Benchmark…' : t('Benchmark throughput', 'Benchmark débit')}
+                    {benchRunning ? <BrandMark size={14} busy /> : <Zap size={14} />} {benchRunning ? 'Benchmark…' : t('Benchmark throughput', 'Benchmark débit')}
                   </button>
 
                   {/* Spécifications physiques du modèle */}
@@ -3578,7 +3578,6 @@ function App() {
 
           {(modelState === 'initializing' || modelState === 'loading') && (
             <div className="model-loading-overlay">
-              <div className="spinner"></div>
               <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)' }}>{loadingStep}</h3>
               {loadingLog.length > 1 && (
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.7, color: 'var(--text-secondary)', textAlign: 'left', width: '100%', maxWidth: 420 }}>
@@ -3605,6 +3604,9 @@ function App() {
                   </div>
                 </div>
               )}
+              {/* La marque, sous la barre, à la place de l'anneau générique : même indicateur
+                  d'attente que la bulle du premier token et les boutons occupés. */}
+              <BrandMark size={44} busy style={{ color: 'var(--text-primary)', marginTop: 4 }} />
             </div>
           )}
 

@@ -10,7 +10,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
+import BrandMark from './BrandMark';
 import { useT, useHref } from '@/lib/i18n';
 
 interface Props {
@@ -64,7 +65,7 @@ export default function HfModelInput({ onLoad, disabled, examples, compact }: Pr
           aria-label={t('Hugging Face model to load', 'Modèle Hugging Face à charger')}
         />
         <button className="btn btn-primary" style={{ fontSize: 12.5, flexShrink: 0 }} onClick={() => submit()} disabled={disabled || busy || !value.trim()}>
-          {busy ? <Loader2 size={14} className="spin" /> : t('Load', 'Charger')}
+          {busy ? <BrandMark size={14} busy /> : t('Load', 'Charger')}
         </button>
       </div>
       {error ? (

@@ -7,7 +7,8 @@
 
 import { declaredStopIds } from '@/lib/chatFormat';
 import { useRef, useState } from 'react';
-import { Package, Upload, Download, Play, Loader2, X, AlertTriangle, FileArchive } from 'lucide-react';
+import { Package, Upload, Download, Play, X, AlertTriangle, FileArchive } from 'lucide-react';
+import BrandMark from './BrandMark';
 import { WebGpuEngine } from '@/lib/webgpu/kernels';
 import { parseGguf } from '@/lib/webgpu/ggufParser';
 import { convertModelToBrik, type BrikBuildOutput, type WeightDType } from '@/lib/brik/convert';
@@ -271,7 +272,7 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 
 			<button className="btn btn-primary btn-block" onClick={runConvert}
 				disabled={blocked || (mode === 'file' ? !file : !url)}>
-				{busy ? <Loader2 size={14} className="spin" /> : <Package size={14} />}
+				{busy ? <BrandMark size={14} busy /> : <Package size={14} />}
 				{phase === 'downloading' ? `${t('Downloading', 'Téléchargement')} ${dlPct}%` : phase === 'converting' ? t('Converting…', 'Conversion…') : t('Convert to BRIK', 'Convertir en BRIK')}
 			</button>
 

@@ -1763,15 +1763,6 @@ a.welcome-card:hover, button.welcome-card:hover {
   -webkit-backdrop-filter: blur(10px);
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
 .progress-bar-container {
   width: 100%;
   height: 6px;
@@ -1788,15 +1779,6 @@ a.welcome-card:hover, button.welcome-card:hover {
   border-radius: 99px;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
 
 /* Blocs de code des BULLES de chat.
    Cette règle visait `pre` NU, avec un `!important` — donc elle s'appliquait à tous les <pre> du
@@ -1890,32 +1872,26 @@ html.sb-closed .sidebar.open {
   padding: 4px 8px;
 }
 
-.typing-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  animation: typing 1s infinite ease-in-out;
+/* L'indicateur d'attente de TOUT le site : la marque elle-même (BrandMark busy). La puce se
+   balance, l'œil-curseur clignote au rythme d'un curseur de terminal (~530 ms allumé/éteint).
+   Remplace l'anneau générique, les trois points et le Loader2 de lucide — quatre styles pour
+   une seule chose. */
+.brand-busy {
+  transform-origin: 50% 50%;
+  animation: brand-sway 1.6s ease-in-out infinite;
 }
 
-.typing-dot:nth-child(2) {
-  animation-delay: 0.2s;
+.brand-busy .brand-cursor {
+  animation: brand-blink 1.06s steps(1, end) infinite;
 }
 
-.typing-dot:nth-child(3) {
-  animation-delay: 0.4s;
+@keyframes brand-sway {
+  0%, 100% { transform: rotate(-7deg); }
+  50% { transform: rotate(7deg) translateY(-1px); }
 }
 
-@keyframes typing {
-
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-
-  50% {
-    transform: translateY(-4px);
-  }
+@keyframes brand-blink {
+  50% { opacity: 0; }
 }
 
 /* Metadata table styling */
@@ -2093,7 +2069,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot.anim,
-  .typing-dot { animation: none; }
+  .brand-busy, .brand-busy .brand-cursor { animation: none; }
   .sidebar { transition: none; }
 }
 
@@ -3275,22 +3251,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   align-items: baseline;
 }
 
-/* Trois points qui montent l'un après l'autre. Discret : l'attente est déjà longue, une animation
-   voyante la rendrait plus longue encore. */
-.gen-dots i {
-  font-style: normal;
-  display: inline-block;
-  animation: gen-dot 1.4s ease-in-out infinite;
-}
-
-.gen-dots i:nth-child(2) { animation-delay: .18s; }
-.gen-dots i:nth-child(3) { animation-delay: .36s; }
-
-@keyframes gen-dot {
-  0%, 60%, 100% { transform: translateY(0); opacity: .35; }
-  30%           { transform: translateY(-3px); opacity: 1; }
-}
-
 .gen-progress-step {
   font-size: 11.5px;
   line-height: 1.4;
@@ -3299,10 +3259,8 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .gen-progress-fill::after,
-  .gen-dots i,
   .gen-progress-clock { animation: none; }
   .gen-progress-fill { transition: none; }
-  .gen-dots i { opacity: 1; }
 }
 
 /* ══ COQUILLE DE LA DOC : structure, navigation & thème encre ═════════════════════════ */

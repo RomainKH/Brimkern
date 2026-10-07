@@ -6,12 +6,16 @@
 // - L'œil-curseur est le seul accent : `--accent` du site, donc éclairci en thème sombre.
 // - Sous 28 px, deux broches par côté au lieu de trois : à 16 px, douze broches font du bruit.
 //
+// - `busy` : la même marque sert d'indicateur d'attente partout (chargement du modèle, premier
+//   token, boutons occupés) — la puce se balance, l'œil-curseur clignote comme un curseur de
+//   terminal. Immobile sous prefers-reduced-motion (règles `.brand-busy` de globals.css).
+//
 // Une seule source pour toutes les pages ; icon.svg et la bannière du README en sont des copies
 // statiques (les fichiers servis tels quels ne peuvent pas importer un composant).
 
-type Props = { size?: number; className?: string; style?: React.CSSProperties; title?: string };
+type Props = { size?: number; className?: string; style?: React.CSSProperties; title?: string; busy?: boolean };
 
-export default function BrandMark({ size = 32, className, style, title }: Props) {
+export default function BrandMark({ size = 32, className, style, title, busy }: Props) {
   const small = size < 28;
   const pins = small
     ? 'M42 24 V14 M58 24 V14 M42 76 V86 M58 76 V86 M24 42 H14 M24 58 H14 M76 42 H86 M76 58 H86'
@@ -26,7 +30,7 @@ export default function BrandMark({ size = 32, className, style, title }: Props)
       strokeWidth={small ? 7 : 5.5}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={className}
+      className={busy ? `brand-busy${className ? ` ${className}` : ''}` : className}
       style={style}
       role={title ? 'img' : undefined}
       aria-label={title}
@@ -36,7 +40,7 @@ export default function BrandMark({ size = 32, className, style, title }: Props)
         <rect x="24" y="24" width="52" height="52" rx="10" />
         <path d={pins} />
         <circle cx="40" cy="45" r={small ? 4 : 3} fill="currentColor" stroke="none" />
-        <rect x="56" y="38.5" width={small ? 8 : 6.5} height="12" rx="1" fill="var(--accent, #c72c1e)" stroke="none" />
+        <rect className="brand-cursor" x="56" y="38.5" width={small ? 8 : 6.5} height="12" rx="1" fill="var(--accent, #c72c1e)" stroke="none" />
         <path d="M40 59 C45 65 55 65 60 59" />
       </g>
     </svg>

@@ -5,8 +5,9 @@
 // state come from the page. The trailing ref is the scroll anchor the page scrolls into view.
 
 import { memo, useEffect, useState, type RefObject } from 'react';
-import { User, Bot, Copy, Cpu, Zap, ChevronDown, ArrowRight } from 'lucide-react';
+import { User, Copy, Cpu, Zap, ChevronDown, ArrowRight } from 'lucide-react';
 import { renderMessageContent } from './ChatMarkdown';
+import BrandMark from './BrandMark';
 import { useT } from '@/lib/i18n';
 import type { Message } from './types';
 
@@ -142,7 +143,10 @@ function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: nu
       <div className="gen-progress-head">
         {/* La clé sur la seconde REMONTE l'élément à chaque tic : c'est ce qui rejoue l'animation.
             Sans elle, le keyframe ne se déclencherait qu'une fois. */}
-        <span className="gen-progress-clock" key={sec}>{mmss(ecoule)}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <BrandMark size={18} busy style={{ color: 'var(--text-secondary)', flexShrink: 0, alignSelf: 'center' }} />
+          <span className="gen-progress-clock" key={sec}>{mmss(ecoule)}</span>
+        </span>
         {reste !== null && (
           <span className="gen-progress-eta">
             {reste < 5 ? t('almost done', 'presque fini') : `${t('about', 'environ')} ${mmss(reste)} ${t('left', 'restantes')}`}
@@ -153,7 +157,7 @@ function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: nu
         <div className="gen-progress-fill" style={{ width: `${pct}%` }} />
       </div>
       <span className="gen-progress-phase">
-        {titre}<span className="gen-dots" aria-hidden><i>.</i><i>.</i><i>.</i></span>
+        {titre}
       </span>
       {/* L'étape brute reste lisible en dessous, en petit : elle est la preuve que le titre au-dessus
           n'est pas une animation qui tourne dans le vide. */}
@@ -174,7 +178,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
   return (
     <div className={`message ${msg.role}`}>
       <div className="avatar">
-        {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
+        {msg.role === 'user' ? <User size={16} /> : <BrandMark size={20} style={{ color: 'var(--text-primary)' }} />}
       </div>
       <div className="message-col">
         <div className="message-bubble">
@@ -313,9 +317,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
               // Waiting on the first token → typing dots INSIDE this bubble (only the LAST message,
               // the one being generated — see the parent's showTyping condition).
               <div className="typing-indicator">
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
+                <BrandMark size={22} busy title={t('Thinking…', 'Réflexion…')} style={{ color: 'var(--text-secondary)' }} />
               </div>
             )}
           </div>

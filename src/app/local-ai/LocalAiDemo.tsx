@@ -8,7 +8,8 @@
 // repli mesuré : RWKV G1a 0.4B (304 Mo, Apache) ou retour RWKV G1 0.1B (classification seule).
 
 import { useState, useRef, useEffect } from 'react';
-import { Cpu, Loader2, Play, Sparkles } from 'lucide-react';
+import { Cpu, Play, Sparkles } from 'lucide-react';
+import BrandMark from '../BrandMark';
 import { useT } from '@/lib/i18n';
 
 // Hébergé sur HF (uploadé le 2026-07-21 avec la LICENSE LFM 1.0, byte-exact avec
@@ -191,7 +192,7 @@ export default function LocalAiDemo() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0' }}>
         <button className="btn btn-primary" onClick={run} disabled={phase === 'loading' || phase === 'gen' || !input.trim()}
           style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, padding: '9px 16px' }}>
-          {phase === 'loading' || phase === 'gen' ? <Loader2 size={15} className="spin" /> : <Play size={15} />}
+          {phase === 'loading' || phase === 'gen' ? <BrandMark size={15} busy /> : <Play size={15} />}
           {phase === 'loading' ? `${t('Loading model', 'Chargement du modèle')} ${progress}%`
             : phase === 'gen' ? t('Generating…', 'Génération…')
             : modelRef.current ? t('Generate', 'Générer') : t('Activate & generate', 'Activer & générer')}

@@ -5,7 +5,8 @@
 // active selection lives in the parent (activeIds + onToggle); CRUD/import call onChanged to refresh.
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Plus, Trash2, Pencil, Sparkles, Loader2, Download } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, Sparkles, Download } from 'lucide-react';
+import BrandMark from './BrandMark';
 import { listCustomSkills, saveSkill, deleteSkill, BUILTIN_SKILLS, type Skill } from '@/lib/skillStore';
 import { useT } from '@/lib/i18n';
 
@@ -120,7 +121,7 @@ export default function SkillsPanel({ onClose, onChanged, activeIds, onToggle }:
               onKeyDown={(e) => { if (e.key === 'Enter') importFromUrl(); }}
             />
             <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px', flexShrink: 0 }} onClick={importFromUrl} disabled={importing || !url.trim()}>
-              {importing ? <Loader2 size={13} className="spin" /> : <Plus size={13} />} {t('Import', 'Importer')}
+              {importing ? <BrandMark size={13} busy /> : <Plus size={13} />} {t('Import', 'Importer')}
             </button>
           </div>
           {importErr && <div style={{ fontSize: 11, color: 'var(--error)', marginTop: 6 }}>{t('Import failed:', 'Import échoué :')} {importErr}</div>}
@@ -138,7 +139,7 @@ export default function SkillsPanel({ onClose, onChanged, activeIds, onToggle }:
           <textarea className="input-control" placeholder={t('System instruction (e.g. You are a demanding proofreader…)', 'Consigne système (ex. : Tu es un relecteur exigeant…)')} value={content} onChange={(e) => setContent(e.target.value)} rows={3} style={{ resize: 'vertical', fontFamily: 'var(--font-sans)' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button className="btn btn-primary" style={{ fontSize: 12, padding: '7px 12px' }} onClick={save} disabled={busy || !name.trim() || !content.trim()}>
-              {busy ? <Loader2 size={13} className="spin" /> : <Plus size={13} />} {editId ? t('Save', 'Enregistrer') : t('Add', 'Ajouter')}
+              {busy ? <BrandMark size={13} busy /> : <Plus size={13} />} {editId ? t('Save', 'Enregistrer') : t('Add', 'Ajouter')}
             </button>
             {editId && <button className="btn btn-secondary" style={{ fontSize: 12, padding: '7px 12px' }} onClick={startNew} disabled={busy}>{t('Cancel', 'Annuler')}</button>}
           </div>
