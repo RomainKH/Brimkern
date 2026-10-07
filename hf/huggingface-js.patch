@@ -1,11 +1,11 @@
 diff --git a/packages/tasks/src/local-apps.ts b/packages/tasks/src/local-apps.ts
-index 4920365..5ae5325 100644
 --- a/packages/tasks/src/local-apps.ts
 +++ b/packages/tasks/src/local-apps.ts
-@@ -796,6 +796,20 @@ export const LOCAL_APPS = {
+@@ -788,6 +788,20 @@
+ 		mainTask: "text-generation",
  		displayOnModelPage: isToolCallingLocalAgentModel,
  		snippet: snippetOpenClaw,
- 	},
++	},
 +	brimkern: {
 +		prettyLabel: "Brimkern",
 +		docsUrl: "https://brimkern.com/local-ai",
@@ -19,18 +19,18 @@ index 4920365..5ae5325 100644
 +			}
 +			return url;
 +		},
-+	},
+ 	},
  } satisfies Record<string, LocalApp>;
  
- export type LocalAppKey = keyof typeof LOCAL_APPS;
 diff --git a/packages/tasks/src/model-libraries-snippets.ts b/packages/tasks/src/model-libraries-snippets.ts
-index ecf7c62..691632d 100644
 --- a/packages/tasks/src/model-libraries-snippets.ts
 +++ b/packages/tasks/src/model-libraries-snippets.ts
-@@ -113,6 +113,18 @@ export const bertopic = (model: ModelData): string[] => [
- model = BERTopic.load("${model.id}")`,
- ];
+@@ -135,6 +135,18 @@
+ 	`from bertopic import BERTopic
  
+ model = BERTopic.load("${model.id}")`,
++];
++
 +export const brimkern = (model: ModelData): string[] => [
 +	`<!-- Runs entirely in the visitor's browser, on their GPU (WebGPU). No server, no API key. -->
 +<script src="https://brimkern.com/sdk.js"></script>
@@ -41,16 +41,13 @@ index ecf7c62..691632d 100644
 +  });
 +  const answer = await session.ask("Hello!", { onToken: (token) => console.log(token) });
 +</script>`,
-+];
-+
- export const bm25s = (model: ModelData): string[] => [
- 	`from bm25s.hf import BM25HF
+ ];
  
+ export const bm25s = (model: ModelData): string[] => [
 diff --git a/packages/tasks/src/model-libraries.ts b/packages/tasks/src/model-libraries.ts
-index 8cc5e79..d10987c 100644
 --- a/packages/tasks/src/model-libraries.ts
 +++ b/packages/tasks/src/model-libraries.ts
-@@ -202,6 +202,15 @@ export const MODEL_LIBRARIES_UI_ELEMENTS = {
+@@ -227,6 +227,15 @@
  		filter: false,
  		countDownloads: `path:"boltzgen1_diverse.ckpt"`,
  	},
