@@ -225,7 +225,7 @@ export default function CliLanding() {
       <header className={`${s.wrap} ${s.top}`}>
         <Link href={href('/')} className={s.home}><BrandMark size={26} style={{ marginRight: 10, ['--accent' as string]: 'var(--red)' }} />Brimkern</Link>
         <nav className={s.topLinks} aria-label={t('CLI page', 'Page CLI')}>
-          <Link href={href('/docs/cli')} className={s.topLink}>{t('Reference', 'Référence')}</Link>
+          <Link href={href('/docs/cli')} className={s.topLink}>{t('Docs', 'Doc')}</Link>
           <a href={`${REPO_URL}/blob/main/bin/brimkern.mjs`} className={s.topLink} target="_blank" rel="noopener noreferrer">{t('Source', 'Source')}</a>
           <button type="button" className={s.topLink} onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')} aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}>
             {locale === 'fr' ? 'EN' : 'FR'}

@@ -80,7 +80,7 @@ export default function LocalAiClient() {
             <span className="docs-brand-badge">sdk</span>
           </Link>
           <div className="docs-header-actions">
-            <Link href={href('/docs/sdk')} className="docs-header-link">{t('API Reference', 'Référence API')}</Link>
+            <Link href={href('/docs/sdk')} className="docs-header-link">{t('Docs', 'Doc')}</Link>
             <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
             <Link href={href('/cli')} className="docs-header-link">CLI</Link>
             <button
