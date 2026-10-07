@@ -54,6 +54,9 @@ export const VIDEO_BRIK = {
 	clip: `${VIDEO_BRIK_BASE}/video-clip-q8.brik`,
 	taesd: TAESD_DECODER,
 };
+// Module motion Lightning distillé à 2 PAS (même UNet, même CLIP) : ÷2 le débruitage d'un clip.
+// Opt-in `?vsteps=2` tant que le fichier n'est pas téléversé et la qualité jugée (ROADMAP § 27).
+export const VIDEO_MOTION_2STEP = `${VIDEO_BRIK_BASE}/video-motion-2step-q8.brik`;
 export const IMAGE_BRIK = {
   sdturbo: { unet: `${IMAGE_BRIK_BASE}/sd-turbo-unet-q8.brik`, clip: `${IMAGE_BRIK_BASE}/sd-turbo-clip-q8.brik` },
   // SDXS-512 mobile : UNet light (int4, 205 Mo) + CLIP allégé (int4, 235 Mo) = ~445 Mo tout compris.

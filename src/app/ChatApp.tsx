@@ -17,7 +17,7 @@ import {
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
-import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION_2STEP, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
 import { detectCalcs, formatCalc, currentDateLine } from '@/lib/localTools';
 import { listConversations, type Conversation } from '@/lib/chatStore';
@@ -1836,7 +1836,14 @@ function App() {
       const enrichOn = q.get('enrich') === '1';
       // Le libellé ET les octets : le pipeline pèse ~1,5 Go, une ligne de texte sans barre ni
       // temps restant laisse l'utilisateur devant un écran qui semble figé (retour Romain).
-      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
+      // ?vsteps=2 : module motion distillé à 2 pas (÷2 le débruitage), opt-in tant que la qualité n'est
+      // pas jugée. ?vmotion=/chemin : le même fichier servi en local avant téléversement (même origine
+      // seulement — pas de poids arbitraires depuis l'URL).
+      const vmotion = q.get('vmotion');
+      const twoStep = q.get('vsteps') === '2'
+        ? { motion: vmotion?.startsWith('/') ? vmotion : VIDEO_MOTION_2STEP, steps: 2 }
+        : {};
+      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, ...twoStep, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
       // Une génération dure des MINUTES : c'est le mode le plus exposé à une reprise de VRAM par
       // l'OS. Même filet que la vision — erreur récupérable plutôt qu'une attente infinie.
       gen.engine.onLost = (info) => {
@@ -2149,7 +2156,9 @@ function App() {
         onProgress(t('Enriching the prompt (local LLM)…', 'Enrichissement du prompt (LLM local)…'));
         finalPrompt = await videoGen.enrich(prompt, onProgress);
       }
-      const res = await videoGen.generate(finalPrompt, { frames, size: 256, onProgress });
+      // ?vseed=N : graine fixe, pour comparer deux réglages (4 pas / 2 pas) sur le MÊME clip.
+      const vseed = parseInt(q.get('vseed') || '', 10);
+      const res = await videoGen.generate(finalPrompt, { frames, size: 256, onProgress, ...(Number.isFinite(vseed) ? { seed: vseed } : {}) });
       onProgress(t('Encoding the video (WebM)…', 'Compilation de la vidéo (WebM)…'));
       const { framesToWebm } = await import('@/lib/webgpu/video/videoGen');
       const url = await framesToWebm(res.frames); // 12 fps, séquence bouclée (~10 s) — null si non supporté

@@ -78,6 +78,13 @@ const MODELS = {
 		out: (tier) => `video-motion-${tier}.brik`,
 		name: 'AnimateDiff-Lightning 4-step (module motion)',
 	},
+	// Même module distillé à 2 pas (ROADMAP § 27) : mêmes formes, seuls les poids changent — le
+	// pipeline le charge avec 2 pas de débruitage au lieu de 4 (`steps` de loadVideoGenerator).
+	'video-motion-2step': {
+		url: 'https://huggingface.co/ByteDance/AnimateDiff-Lightning/resolve/main/animatediff_lightning_2step_diffusers.safetensors',
+		out: (tier) => `video-motion-2step-${tier}.brik`,
+		name: 'AnimateDiff-Lightning 2-step (module motion)',
+	},
 	// ── RealVisXL Turbo / SDXL (1024px natif, double CLIP, photoréalisme studio) ────────────────
 	'realvisxl-unet': {
 		url: 'https://huggingface.co/SG161222/RealVisXL_V4.0_Lightning/resolve/main/unet/diffusion_pytorch_model.safetensors',

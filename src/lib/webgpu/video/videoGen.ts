@@ -128,7 +128,9 @@ async function loadMotionModules(engine: WebGpuEngine, url: string, onProgress?:
 }
 
 export async function loadVideoGenerator(
-  urls: { unet: string; clip: string; motion: string; taesd: string; lfm?: string },
+  // `steps` : nombre de pas de débruitage du checkpoint Lightning chargé en `motion` (4 par défaut,
+  // 2 pour le module distillé à 2 pas) — il est FIXÉ par le checkpoint, pas un réglage libre.
+  urls: { unet: string; clip: string; motion: string; taesd: string; lfm?: string; steps?: number },
   onProgress?: OnProgress,
   pace?: UnetPace,
   tr: Tr = EN_ONLY,
@@ -165,7 +167,7 @@ export async function loadVideoGenerator(
     while (ids.length < 77) ids.push(49407); // CLIP-L pad = <|endoftext|>
     const ctx = await clip.encode(ids);
 
-    const sched = makeEulerScheduler(4, 1000, 0.00085, 0.012, 'linear'); // AnimateDiff-Lightning
+    const sched = makeEulerScheduler(urls.steps ?? 4, 1000, 0.00085, 0.012, 'linear'); // AnimateDiff-Lightning
     let latents: Float32Array[] = [];
     for (let f = 0; f < F; f++) {
       const l = randnSeeded(4 * latS * latS, seed + f * 9973);
