@@ -5,6 +5,7 @@
 // sorties de l'ancienne page /docs unique (découpage en pages, retour Romain du 2026-08-18).
 
 import Link from 'next/link';
+import { ArrowRight, Package } from 'lucide-react';
 import { useT, useHref } from '@/lib/i18n';
 import DocsShell, { Code, P, PageTitle, Section } from '../DocsShell';
 import { SITE_URL } from '@/lib/site';
@@ -28,6 +29,16 @@ export default function ModelsDocClient() {
         {t('What the engine loads and how: single-file GGUF straight from Hugging Face, supported architectures, quantization kernels, shareable test links, and the .brik streaming format with its in-browser converter.',
            "Ce que le moteur charge et comment : les GGUF mono-fichier directement depuis Hugging Face, architectures supportées, kernels de quantification, liens de test partageables, et format streamé .brik avec son convertisseur intégré.")}
       </PageTitle>
+      {/* Le convertisseur est la seule ACTION de la page : un bouton dès l'en-tête, pas un lien
+          perdu en dernière phrase de la dernière section (retour Romain du 2026-10-07). */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '4px 0 28px' }}>
+        <Link href={href('/convert')} className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+          <Package size={14} /> {t('Convert a GGUF to .brik', 'Convertir un GGUF en .brik')}
+        </Link>
+        <a href="#brik" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+          {t('What is a .brik?', "Qu'est-ce qu'un .brik ?")}
+        </a>
+      </div>
 
       <Section id="any-model" title={t('Run any Hugging Face model', "N'importe quel modèle Hugging Face")}>
         <P>
@@ -221,10 +232,17 @@ ${SITE_URL}/chat?brik=https://example.com/model.brik`}</Code>
           {t('A .brik is a GGUF re-packaged for the browser: weights already quantized to int4/int8, laid out so each layer is one contiguous HTTP range, with the tokenizer embedded. The practical effect: the model loads by ranges (resumable, partially, genuinely offline afterwards) instead of as one multi-gigabyte download.',
              "Un .brik est un GGUF ré-empaqueté pour le navigateur : poids déjà quantifiés en int4/int8, disposés pour qu'une couche soit une seule plage HTTP contiguë, tokenizer embarqué. Effet concret : le modèle se charge par plages (reprise possible, partiellement, vraiment hors-ligne ensuite) au lieu d'un téléchargement de plusieurs gigaoctets.")}
         </P>
-        <P>
-          {t('You can convert a GGUF yourself, in the browser. The file never leaves your machine: ', "Vous pouvez convertir un GGUF vous-même, dans le navigateur. Le fichier ne quitte jamais votre machine : ")}
-          <Link href={href('/convert')} style={{ color: 'var(--accent-text)' }}>{t('open the converter', 'ouvrir le convertisseur')}</Link>.
-        </P>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', padding: '16px 18px', marginTop: 8 }}>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>{t('Convert a GGUF yourself, in the browser', 'Convertissez un GGUF vous-même, dans le navigateur')}</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+              {t('Pick a GGUF file, get a .brik back. The file never leaves your machine.', 'Choisissez un fichier GGUF, récupérez un .brik. Le fichier ne quitte jamais votre machine.')}
+            </div>
+          </div>
+          <Link href={href('/convert')} className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px', flexShrink: 0 }}>
+            {t('Open the converter', 'Ouvrir le convertisseur')} <ArrowRight size={14} />
+          </Link>
+        </div>
       </Section>
     </DocsShell>
   );
