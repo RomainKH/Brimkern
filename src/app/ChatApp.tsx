@@ -3608,7 +3608,7 @@ function App() {
               )}
               {/* La marque sous la barre : son anneau tourne pendant les étapes sans mesure
                   (compilation, validation) et se remplit avec le téléchargement. */}
-              <BrandMark size={60} busy progress={loadingProgress?.percentage} style={{ color: 'var(--text-primary)', marginTop: 4 }} />
+              <BrandMark size={60} busy style={{ color: 'var(--text-primary)', marginTop: 4 }} />
             </div>
           )}
 
