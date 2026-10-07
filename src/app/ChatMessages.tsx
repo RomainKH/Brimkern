@@ -144,7 +144,7 @@ function GenerationProgress({ step, frac, startedAt }: { step: string; frac?: nu
         {/* La clé sur la seconde REMONTE l'élément à chaque tic : c'est ce qui rejoue l'animation.
             Sans elle, le keyframe ne se déclencherait qu'une fois. */}
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <BrandMark size={18} busy style={{ color: 'var(--text-secondary)', flexShrink: 0, alignSelf: 'center' }} />
+          <BrandMark size={22} busy style={{ color: 'var(--text-secondary)', flexShrink: 0, alignSelf: 'center' }} />
           <span className="gen-progress-clock" key={sec}>{mmss(ecoule)}</span>
         </span>
         {reste !== null && (
@@ -317,7 +317,7 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
               // Waiting on the first token → typing dots INSIDE this bubble (only the LAST message,
               // the one being generated — see the parent's showTyping condition).
               <div className="typing-indicator">
-                <BrandMark size={22} busy title={t('Thinking…', 'Réflexion…')} style={{ color: 'var(--text-secondary)' }} />
+                <BrandMark size={28} busy title={t('Thinking…', 'Réflexion…')} style={{ color: 'var(--text-secondary)' }} />
               </div>
             )}
           </div>

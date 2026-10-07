@@ -1872,27 +1872,32 @@ html.sb-closed .sidebar.open {
   padding: 4px 8px;
 }
 
-/* L'indicateur d'attente de TOUT le site : la marque elle-même (BrandMark busy). La puce se
-   balance, l'œil-curseur clignote au rythme d'un curseur de terminal (~530 ms allumé/éteint).
-   Remplace l'anneau générique, les trois points et le Loader2 de lucide — quatre styles pour
-   une seule chose. */
-.brand-busy {
-  transform-origin: 50% 50%;
-  animation: brand-sway 1.6s ease-in-out infinite;
+/* L'indicateur d'attente de TOUT le site : la marque elle-même (BrandMark busy). Un arc d'accent
+   TOURNE autour de la puce tant que l'avancement est inconnu (compilation, validation, premier
+   token), et se REMPLIT quand il l'est (téléchargement) ; l'œil-curseur clignote au rythme d'un
+   curseur de terminal (~530 ms). La puce seule qui se balançait ne disait pas « ça avance ». */
+.brand-busy .brand-arc {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: brand-spin 1.1s linear infinite;
+}
+
+.brand-busy .brand-arc-known {
+  transition: stroke-dasharray 0.3s ease;
 }
 
 .brand-busy .brand-cursor {
   animation: brand-blink 1.06s steps(1, end) infinite;
 }
 
-@keyframes brand-sway {
-  0%, 100% { transform: rotate(-7deg); }
-  50% { transform: rotate(7deg) translateY(-1px); }
+@keyframes brand-spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes brand-blink {
   50% { opacity: 0; }
 }
+
 
 /* Metadata table styling */
 .metadata-table {
@@ -2069,7 +2074,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 }
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot.anim,
-  .brand-busy, .brand-busy .brand-cursor { animation: none; }
+  .brand-busy .brand-arc, .brand-busy .brand-cursor { animation: none; }
   .sidebar { transition: none; }
 }
 
