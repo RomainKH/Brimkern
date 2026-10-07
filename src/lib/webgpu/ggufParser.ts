@@ -174,6 +174,9 @@ const GGML_TYPE_NAMES = [
   "I8", "I16", "I32", "I64", "F64", "IQ1_M", "BF16", "Q4_0_4_4", "Q4_0_4_8", "Q4_0_8_8",
   "TQ1_0", "TQ2_0"
 ];
+// Types hors de l'énumération contiguë : ids « privés » de forks llama.cpp. PrismML (Bonsai
+// ternaires) range ses formats à 142/143 pour coexister avec le Q2_0 amont (42, groupe de 64).
+const GGML_TYPE_NAMES_HIGH: Record<number, string> = { 142: "PQ2_0", 143: "PTQ1_0" };
 
 // Returns size in bytes of a block, and elements in a block
 const getGgmlBlockInfo = (typeStr: string) => {
@@ -191,11 +194,12 @@ const getGgmlBlockInfo = (typeStr: string) => {
     case "Q5_K": return { block: 256, size: 176 };
     case "Q6_K": return { block: 256, size: 210 };
     case "Q8_K": return { block: 256, size: 288 };
+    case "PQ2_0": return { block: 128, size: 34 }; // d f16 + 128 codes 2 bits (PrismML, ternaire)
     // Pas de repli silencieux : un type inconnu renvoyait { block: 1, size: 4 }, donc des tailles de
     // tenseurs FAUSSES (un IQ4_XS annoncé 4 o/élément au lieu de 0,53) — le fichier se chargeait puis
     // échouait beaucoup plus loin, sur une lecture hors bornes sans rapport apparent. Le moteur ne
     // sait déquantifier aucun IQ : le dire ici, à la seule place où l'information est encore lisible.
-    default: throw new Error(`Type GGML non supporté : ${typeStr}. Types lus : F32, F16, Q4_0/1, Q5_0/1, Q8_0, Q2_K…Q8_K.`);
+    default: throw new Error(`Type GGML non supporté : ${typeStr}. Types lus : F32, F16, Q4_0/1, Q5_0/1, Q8_0, Q2_K…Q8_K, PQ2_0.`);
   }
 };
 
@@ -298,16 +302,25 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   const tensors: Record<string, TensorInfo> = {};
   for (let i = 0; i < rawTensors.length; i++) {
     const t = rawTensors[i];
-    const typeName = GGML_TYPE_NAMES[t.typeIdx] || "UNKNOWN";
+    const typeName = GGML_TYPE_NAMES[t.typeIdx] || GGML_TYPE_NAMES_HIGH[t.typeIdx] || "UNKNOWN";
 
     // Total elements in tensor
     const nElems = t.shape.reduce((a, b) => a * b, 1);
 
     // Compute byte length using relative offset of next tensor if available, 
     // or block size math as fallback
+    // ⚠️ L'écart entre deux offsets INCLUT le bourrage d'alignement (32 o) : sur Ternary-Bonsai-4B,
+    // token_embd (151 669 lignes × 680 o, total non multiple de 32) sortait 8 o trop long, et
+    // `bytes / vocab` n'était plus entier (« token_embd: lignes non uniformes »). Pour un type dont
+    // on connaît le bloc, la taille EXACTE ; l'écart reste le repli des types qu'on ne sait pas lire.
     let bytes = 0;
     if (i < rawTensors.length - 1) {
       bytes = rawTensors[i + 1].relativeOffset - t.relativeOffset;
+      try {
+        const { block, size } = getGgmlBlockInfo(typeName);
+        const exact = (nElems / block) * size;
+        if (Number.isInteger(exact) && exact <= bytes) bytes = exact;
+      } catch { /* type non lu : l'écart, comme avant */ }
     } else {
       // Last tensor goes to the end of file (or we calculate it using blocks)
       const { block, size } = getGgmlBlockInfo(typeName);

@@ -661,7 +661,7 @@ export class CustomWebModel {
 		// GGUF déquantifiable sur GPU : tuiles int8 construites SUR LE GPU avec UN f32 de travail. Le
 		// chemin ci-dessous matérialise un blob int8 COMPLET côté JS (≈ 1 Go pour une tête 248k × 4 096)
 		// puis le recopie tuile par tuile : l'essentiel du pic de chargement d'un GGUF.
-		if (['Q6_K', 'Q4_K', 'Q5_K', 'Q8_0', 'Q4_0', 'Q5_0'].includes(info.type) && info.bytes % vocab === 0) {
+		if (['Q6_K', 'Q4_K', 'Q5_K', 'Q8_0', 'Q4_0', 'Q5_0', 'PQ2_0'].includes(info.type) && info.bytes % vocab === 0) {
 			const rowBytes = info.bytes / vocab;
 			const TILE_F32 = Math.max(1, Math.floor(Math.min(this.engine.maxStorageBufferBindingSize * 0.9, 256 << 20) / (d * 4)));
 			const G = globalThis as any;

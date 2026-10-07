@@ -4570,6 +4570,31 @@ export const SHADERS = {
 			}
 		}`,
 
+	// PQ2_0 dequant (ternaire PrismML/Bonsai) : blocs de 34 octets (fp16 d + 32 octets de codes
+	// 2 bits), 128 poids. Poids j = bits 2·(j % 4) de l'octet j / 4 ; y = d·(q − 1).
+	dequant_pq2_0: `
+		struct DQ { nBlocks: u32 };
+		@group(0) @binding(0) var<uniform> p: DQ;
+		@group(0) @binding(1) var<storage, read> q: array<u32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		fn gb(i: u32) -> u32 { return (q[i >> 2u] >> ((i & 3u) * 8u)) & 0xFFu; }
+		fn f16(h: u32) -> f32 {
+			let s=(h>>15u)&1u; let e=(h>>10u)&0x1Fu; let m=h&0x3FFu; var v:f32;
+			if(e==0u){v=f32(m)*5.9604645e-8;}else if(e==31u){v=65504.0;}else{v=(1.0+f32(m)/1024.0)*pow(2.0,f32(e)-15.0);}
+			return select(v,-v,s==1u);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let blk=(wid.y*nwg.x+wid.x)*64u+lid.x; if(blk>=p.nBlocks){return;}
+			let base=blk*34u;
+			let d=f16(gb(base)|(gb(base+1u)<<8u));
+			let ob=blk*128u;
+			for(var b=0u;b<32u;b=b+1u){
+				let qb=gb(base+2u+b);
+				for(var k=0u;k<4u;k=k+1u){ o[ob+b*4u+k]=d*f32(i32((qb>>(k*2u))&3u)-1); }
+			}
+		}`,
+
 	// Q5_K dequant: 176-byte super-blocks (fp16 d + fp16 dmin + 12 scales + 32 qh + 128 qs), 256
 	// weights. Mirrors dequantize_row_q5_K: same get_scale_min_k4 as Q4_K, plus a 5th bit per
 	// weight taken from qh (u1/u2 masks shifting ×4 over the four 64-wide sub-blocks).

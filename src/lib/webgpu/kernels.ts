@@ -268,6 +268,9 @@ export class WebGpuEngine {
 	// Déquantification GPU Q4_1 (20 octets/bloc) : gate NON BLOQUANT posé par
 	// selfValidate, ou forcé par ?dequantq41=0 → repli CPU (dequantQ4_1Cpu).
 	dequantQ41Ok = true;
+	// Déquantification GPU PQ2_0 (ternaire PrismML/Bonsai, 34 octets pour 128 poids) : gate NON
+	// BLOQUANT posé par selfValidate, ou forcé par ?dequantpq2=0 → repli CPU (dequantPQ2_0Cpu).
+	dequantPq2Ok = true;
 	// ?timing=1 → chronométrage interne du forward (diagnostic ; cf. decodeTopKQ8).
 	static timingOn = (() => { try { return urlFlag('timing') === '1'; } catch { return false; } })();
 	// ?gpuprofile=1 → budget GPU PAR PASSE via timestamp-query (cf. ./gpuProfile.ts pour le pourquoi :
@@ -442,6 +445,10 @@ export class WebGpuEngine {
 			if (urlFlag('dequantq41') === '0') {
 				this.dequantQ41Ok = false;
 				console.warn('[webgpu] déquantification GPU Q4_1 COUPÉE par ?dequantq41=0 : repli CPU');
+			}
+			if (urlFlag('dequantpq2') === '0') {
+				this.dequantPq2Ok = false;
+				console.warn('[webgpu] déquantification GPU PQ2_0 COUPÉE par ?dequantpq2=0 : repli CPU');
 			}
 		} catch { /* hors navigateur (tests Node) */ }
 		// device.lost est une promesse : elle résout quand le GPU disparaît (jamais sur un simple
@@ -1026,11 +1033,11 @@ export class WebGpuEngine {
 
 	// Number of weights per quant block, by GGML type. F32/F16 are "1 per block".
 	private static BLOCK_ELEMS: Record<string, number> = {
-		Q4_K: 256, Q5_K: 256, Q6_K: 256, Q8_0: 32, Q5_0: 32, Q4_0: 32, Q3_K: 256, Q4_1: 32, F32: 1, F16: 1
+		Q4_K: 256, Q5_K: 256, Q6_K: 256, Q8_0: 32, Q5_0: 32, Q4_0: 32, Q3_K: 256, Q4_1: 32, PQ2_0: 128, F32: 1, F16: 1
 	};
 	private static DEQUANT_SHADER: Record<string, string> = {
 		Q4_K: 'dequant_q4k', Q8_0: 'dequant_q8_0', Q5_0: 'dequant_q5_0', Q6_K: 'dequant_q6k',
-		Q4_0: 'dequant_q4_0', Q5_K: 'dequant_q5k', Q3_K: 'dequant_q3k', Q4_1: 'dequant_q4_1'
+		Q4_0: 'dequant_q4_0', Q5_K: 'dequant_q5k', Q3_K: 'dequant_q3k', Q4_1: 'dequant_q4_1', PQ2_0: 'dequant_pq2_0'
 	};
 
 	// Generic GPU dequant: upload the raw GGUF tensor bytes as u32, run the per-type kernel
@@ -1074,6 +1081,7 @@ export class WebGpuEngine {
 		if (type === 'Q3W') return dequantizeQ3(unpackQ3(data, nElems));
 		if (type === 'Q3_K' && !this.dequantQ3kOk) return dequantQ3KCpu(data, Math.floor(nElems / 256));
 		if (type === 'Q4_1' && !this.dequantQ41Ok) return dequantQ4_1Cpu(data, Math.floor(nElems / 32));
+		if (type === 'PQ2_0' && !this.dequantPq2Ok) return dequantPQ2_0Cpu(data, Math.floor(nElems / 128));
 		const shader = WebGpuEngine.DEQUANT_SHADER[type];
 		const blockElems = WebGpuEngine.BLOCK_ELEMS[type];
 		if (!shader || !blockElems) throw new Error(`dequant: unsupported GGML type ${type}`);
@@ -1127,6 +1135,7 @@ export class WebGpuEngine {
 		if (type === 'Q3W') return this.buf(dequantizeQ3(unpackQ3(data, nElems)), ST);
 		if (type === 'Q3_K' && !this.dequantQ3kOk) return this.buf(dequantQ3KCpu(data, Math.floor(nElems / 256)), ST);
 		if (type === 'Q4_1' && !this.dequantQ41Ok) return this.buf(dequantQ4_1Cpu(data, Math.floor(nElems / 32)), ST);
+		if (type === 'PQ2_0' && !this.dequantPq2Ok) return this.buf(dequantPQ2_0Cpu(data, Math.floor(nElems / 128)), ST);
 		const shader = WebGpuEngine.DEQUANT_SHADER[type];
 		const blockElems = WebGpuEngine.BLOCK_ELEMS[type];
 		if (!shader || !blockElems) throw new Error(`dequant: unsupported GGML type ${type}`);
@@ -1138,6 +1147,10 @@ export class WebGpuEngine {
 	// tampons détruits qu'à ses « ticks », et la tête de Qwen 3.5 9B (15 tuiles de 256 Mo) faisait
 	// ainsi monter l'empreinte de 5,8 à 12 Go en fin de chargement.
 	dequantizeIntoGpu(type: string, data: Uint8Array, nElems: number, into: GPUAny): void {
+		if (type === 'PQ2_0' && !this.dequantPq2Ok) {
+			this.device.queue.writeBuffer(into, 0, dequantPQ2_0Cpu(data, Math.floor(nElems / 128)));
+			return;
+		}
 		const shader = WebGpuEngine.DEQUANT_SHADER[type];
 		const blockElems = WebGpuEngine.BLOCK_ELEMS[type];
 		if (!shader || !blockElems) throw new Error(`dequantizeIntoGpu : type ${type} non géré`);
@@ -4158,6 +4171,19 @@ export class WebGpuEngine {
 					console.warn('[selfValidate] dequant.Q4_1 en échec, repli sur CPU');
 				}
 			}
+
+			// PQ2_0 (34-byte blocks, 128 weights): controlled f16 d at offset 0. Les codes aléatoires
+			// couvrent aussi le 4e point (q = 3 → +2d), réservé par PrismML mais lu par leur référence.
+			if (this.dequantPq2Ok) {
+				const pq2 = randBytes(nb * 34);
+				const dvp = new DataView(pq2.buffer);
+				for (let blk = 0; blk < nb; blk++) dvp.setUint16(blk * 34, f32ToF16(0.005 + Math.random() * 0.05), true);
+				const gotPq2 = await this.dequantizeByType('PQ2_0', pq2, nb * 128);
+				if (!closeRel(gotPq2, dequantPQ2_0Cpu(pq2, nb), 1e-4)) {
+					this.dequantPq2Ok = false;
+					console.warn('[selfValidate] dequant.PQ2_0 en échec, repli sur CPU');
+				}
+			}
 		}
 
 		// KV cache correctness: a 2-token prefill followed by a 1-token decode (with the
@@ -5691,6 +5717,21 @@ function dequantQ4_1Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 			out[ob + j] = (qsj & 0x0f) * d + m;
 			out[ob + j + 16] = (qsj >> 4) * d + m;
 		}
+	}
+	return out;
+}
+
+// PQ2_0 CPU reference (miroir de dequantize_row_pq2_0, fork PrismML-Eng/llama.cpp) : bloc de 34
+// octets = d f16 + 32 octets de codes 2 bits, poids j aux bits 2·(j % 4) de l'octet j / 4,
+// w = (q − 1)·d (00 = −1, 01 = 0, 10 = +1, 11 = +2 réservé).
+function dequantPQ2_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
+	const out = new Float32Array(nBlocks * 128);
+	const dv = new DataView(bytes.buffer, bytes.byteOffset);
+	for (let blk = 0; blk < nBlocks; blk++) {
+		const base = blk * 34;
+		const d = f16ToF32(dv.getUint16(base, true));
+		const ob = blk * 128;
+		for (let j = 0; j < 128; j++) out[ob + j] = (((bytes[base + 2 + (j >> 2)] >> ((j & 3) * 2)) & 3) - 1) * d;
 	}
 	return out;
 }
