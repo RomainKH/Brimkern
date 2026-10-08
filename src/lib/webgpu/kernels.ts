@@ -205,6 +205,9 @@ export class WebGpuEngine {
 	// Poids ternaires PQ2_0 NATIFS (même handle { kq, buf }, GEMV matmul_t_pq2_vec au décodage) : gate
 	// posé par selfValidate, ou forcé par ?pq2native=0 → requantification int8 (~4× la VRAM du 2 bits).
 	pq2NativeOk = true;
+	// Interpolation d'images RIFE (video/rife.ts) : gate posé par selfValidate (chaque brique contre sa
+	// référence CPU), ou forcé par ?rife=0 → clips sans interpolation (16 frames, comme avant).
+	rifeOk = true;
 	// GEMV MULTI-LIGNES (m = 2 à 8, int8 et Q4_K natif) : les poids lus une fois pour m lignes, au lieu
 	// des kernels de prefill (un forward de 2 tokens coûtait 5× celui d'un token sur Qwen 3.5 4B).
 	// Brique du décodage spéculatif et des appels par lots. Gate selfValidate, ou ?gemvm=0 → repli.
@@ -396,6 +399,10 @@ export class WebGpuEngine {
 			if (urlFlag('kq') === '0') {
 				this.kqOk = false;
 				console.warn('[webgpu] poids K-quant natifs COUPÉS par ?kq=0 : requantification int8');
+			}
+			if (urlFlag('rife') === '0') {
+				this.rifeOk = false;
+				console.warn('[webgpu] interpolation RIFE COUPÉE par ?rife=0 : clips sans images intermédiaires');
 			}
 			if (urlFlag('pq2native') === '0') {
 				this.pq2NativeOk = false;
@@ -1776,6 +1783,58 @@ export class WebGpuEngine {
 		trash.push(p, out);
 		return out;
 	}
+	// ── Briques RIFE (shaders rife_* / conv_transpose2d / pixel_shuffle2 / resize_bilinear / warp_bilinear).
+	private recRifeAct(enc: GPUAny, trash: GPUAny[], x: GPUAny, n: number, mul: number, leaky: boolean): GPUAny {
+		const p = this.uniform([n, leaky ? 1 : 0], { offset: 8, value: [mul, 0.2] });
+		const out = this.storage(n * 4);
+		this.recordPass(enc, 'rife_act', [p, x, out], this.grid1D(n));
+		trash.push(p, out);
+		return out;
+	}
+	private recRifeResconv(enc: GPUAny, trash: GPUAny[], cv: GPUAny, x: GPUAny, beta: GPUAny, C: number, HW: number): GPUAny {
+		const p = this.uniform([C, HW]);
+		const out = this.storage(C * HW * 4);
+		this.recordPass(enc, 'rife_resconv', [p, cv, x, beta, out], this.grid1D(C * HW));
+		trash.push(p, out);
+		return out;
+	}
+	private recConvTranspose2d(enc: GPUAny, trash: GPUAny[], x: GPUAny, w: GPUAny, bias: GPUAny, Cin: number, H: number, W: number, Cout: number, k: number, st: number, pad: number): GPUAny {
+		const OH = (H - 1) * st - 2 * pad + k, OW = (W - 1) * st - 2 * pad + k;
+		const p = this.uniformOf(48);
+		this.device.queue.writeBuffer(p, 0, new Uint32Array([Cin, H, W, Cout, k, st, pad, OH, OW]));
+		const out = this.storage(Cout * OH * OW * 4);
+		this.recordPass(enc, 'conv_transpose2d', [p, x, w, bias, out], this.grid1D(Cout * OH * OW));
+		trash.push(p, out);
+		return out;
+	}
+	private recPixelShuffle2(enc: GPUAny, trash: GPUAny[], x: GPUAny, C: number, H: number, W: number): GPUAny {
+		const p = this.uniform([C, H, W]);
+		const out = this.storage(C * 4 * H * W * 4);
+		this.recordPass(enc, 'pixel_shuffle2', [p, x, out], this.grid1D(C * 4 * H * W));
+		trash.push(p, out);
+		return out;
+	}
+	private recResizeBilinear(enc: GPUAny, trash: GPUAny[], x: GPUAny, C: number, H: number, W: number, OH: number, OW: number): GPUAny {
+		const p = this.uniform([C, H, W, OH, OW], { offset: 20, value: [H / OH, W / OW] });
+		const out = this.storage(C * OH * OW * 4);
+		this.recordPass(enc, 'resize_bilinear', [p, x, out], this.grid1D(C * OH * OW));
+		trash.push(p, out);
+		return out;
+	}
+	private recWarp(enc: GPUAny, trash: GPUAny[], x: GPUAny, flow: GPUAny, C: number, H: number, W: number, fc: number): GPUAny {
+		const p = this.uniform([C, H, W, fc]);
+		const out = this.storage(C * H * W * 4);
+		this.recordPass(enc, 'warp_bilinear', [p, x, flow, out], this.grid1D(C * H * W));
+		trash.push(p, out);
+		return out;
+	}
+	private recRifeBlend(enc: GPUAny, trash: GPUAny[], w0: GPUAny, w1: GPUAny, m: GPUAny, C: number, HW: number): GPUAny {
+		const p = this.uniform([C, HW]);
+		const out = this.storage(C * HW * 4);
+		this.recordPass(enc, 'rife_blend', [p, w0, w1, m, out], this.grid1D(C * HW));
+		trash.push(p, out);
+		return out;
+	}
 	private recUpsample(enc: GPUAny, trash: GPUAny[], x: GPUAny, C: number, H: number, W: number, scale: number): GPUAny {
 		const p = this.uniform([C, H, W, scale]);
 		const n = C * (H * scale) * (W * scale);
@@ -1886,6 +1945,14 @@ export class WebGpuEngine {
 			// CAUSAL attention (mask j ≤ pastLen+t) — CLIP's text encoder recorded in-session.
 			attention: (q: GPUAny, k: GPUAny, v: GPUAny, nT: number, nH: number, nKv: number, hd: number, kvLen: number, pastLen: number) => this.recAttention(enc, trash, up(q), up(k), up(v), nT, nH, nKv, hd, kvLen, pastLen),
 			upsample: (x: GPUAny, C: number, H: number, W: number, s: number) => this.recUpsample(enc, trash, up(x), C, H, W, s),
+			// RIFE (video/rife.ts).
+			rifeAct: (x: GPUAny, n: number, mul: number, leaky: boolean) => this.recRifeAct(enc, trash, up(x), n, mul, leaky),
+			rifeResconv: (cv: GPUAny, x: GPUAny, beta: GPUAny, C: number, HW: number) => this.recRifeResconv(enc, trash, up(cv), up(x), up(beta), C, HW),
+			convTranspose2d: (x: GPUAny, w: GPUAny, b: GPUAny, Cin: number, H: number, W: number, Cout: number, k: number, st: number, pad: number) => this.recConvTranspose2d(enc, trash, up(x), up(w), up(b), Cin, H, W, Cout, k, st, pad),
+			pixelShuffle2: (x: GPUAny, C: number, H: number, W: number) => this.recPixelShuffle2(enc, trash, up(x), C, H, W),
+			resizeBilinear: (x: GPUAny, C: number, H: number, W: number, OH: number, OW: number) => this.recResizeBilinear(enc, trash, up(x), C, H, W, OH, OW),
+			warp: (x: GPUAny, flow: GPUAny, C: number, H: number, W: number, fc: number) => this.recWarp(enc, trash, up(x), up(flow), C, H, W, fc),
+			rifeBlend: (w0: GPUAny, w1: GPUAny, m: GPUAny, C: number, HW: number) => this.recRifeBlend(enc, trash, up(w0), up(w1), up(m), C, HW),
 			upscale2x: (x: GPUAny, C: number, H: number, W: number, sharpness = 0.5) => this.recUpscale2x(enc, trash, up(x), C, H, W, sharpness),
 			layernorm: (x: GPUAny, g: GPUAny, b: GPUAny, rows: number, dim: number, eps: number) => this.recLayernorm(enc, trash, up(x), up(g), up(b), rows, dim, eps),
 			concat: (a: GPUAny, b: GPUAny, Ca: number, Cb: number, HW: number) => this.recConcat(enc, trash, up(a), up(b), Ca, Cb, HW),
@@ -5446,6 +5513,33 @@ export class WebGpuEngine {
 			if (this.convGemmOk) console.log('[selfValidate] convolution q8 en GEMM implicite OK (3×3, stride 2, 1×1, Cin = 4)');
 		}
 
+		// Briques RIFE contre leurs références CPU (formes impaires et non carrées : bords des tuiles,
+		// sur-échantillonnage ×4 ET sous-échantillonnage ÷2, flot qui sort de l'image → padding border).
+		if (this.rifeOk) {
+			let bad: string | null = null;
+			try {
+				const C = 3, H = 6, W = 5, HW = H * W;
+				const x = rand(C * HW), x2 = rand(C * HW), beta = rand(C), wT = rand(4 * 6 * 4 * 4), bT = rand(6);
+				const flow = new Float32Array(4 * HW).map(() => (Math.random() - 0.5) * 8);
+				const m = rand(HW);
+				const sigm = (v: number) => 1 / (1 + Math.exp(-v));
+				const run = async (rec: (ss: any) => any, n: number) => { const ss = this.recordingSession(); return ss.finish(rec(ss), n); };
+				const checks: [string, Promise<Float32Array>, Float32Array][] = [
+					['act', run((ss) => ss.rifeAct(x, C * HW, 1.7, true), C * HW), x.map((v) => { const u = v * 1.7; return u < 0 ? u * 0.2 : u; })],
+					['resconv', run((ss) => ss.rifeResconv(x, x2, beta, C, HW), C * HW), x.map((v, i) => { const u = v * beta[Math.floor(i / HW)] + x2[i]; return u < 0 ? u * 0.2 : u; })],
+					['convT', run((ss) => ss.convTranspose2d(x.subarray(0, 4 * 2 * 3), wT, bT, 4, 2, 3, 6, 4, 2, 1), 6 * 4 * 6), convTranspose2dCpu(x.subarray(0, 4 * 2 * 3), wT, bT, 4, 2, 3, 6, 4, 2, 1)],
+					['pixelShuffle', run((ss) => ss.pixelShuffle2(x.subarray(0, 8 * 3), 2, 3, 1), 8 * 3), pixelShuffle2Cpu(x.subarray(0, 8 * 3), 2, 3, 1)],
+					['resize×4', run((ss) => ss.resizeBilinear(x, C, H, W, H * 4, W * 4), C * HW * 16), resizeBilinearCpu(x, C, H, W, H * 4, W * 4)],
+					['resize÷2', run((ss) => ss.resizeBilinear(x, C, H, W, H / 2, Math.floor(W / 2)), C * (H / 2) * Math.floor(W / 2)), resizeBilinearCpu(x, C, H, W, H / 2, Math.floor(W / 2))],
+					['warp', run((ss) => ss.warp(x, flow, C, H, W, 2), C * HW), warpCpu(x, flow, C, H, W, 2)],
+					['blend', run((ss) => ss.rifeBlend(x, x2, m, C, HW), C * HW), x.map((v, i) => { const sg = sigm(m[i % HW]); return v * sg + x2[i] * (1 - sg); })],
+				];
+				for (const [name, got, ref] of checks) if (!closeRel(await got, ref)) { bad = name; break; }
+			} catch (e) { bad = String(e); }
+			if (bad) { this.rifeOk = false; console.warn(`[selfValidate] RIFE KO (${bad}) : clips sans interpolation.`); }
+			else console.log('[selfValidate] briques RIFE OK (convT, pixel shuffle, resize bilinéaire ×4/÷2, warp border, resconv, blend)');
+		}
+
 		// Réductions par SUBGROUPS (rmsnorm_vec_subgroup / group_norm_subgroup) vs les mêmes calculs
 		// en mémoire partagée. Ces kernels dépendent de `subgroup_size`, qui n'existe qu'à l'exécution
 		// et vaut 4 à 128 selon le GPU (8/16 sur iGPU Intel, 4/16 sur Mali, 32 ailleurs) : aucune
@@ -5828,6 +5922,56 @@ function dequantPQ2_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 		for (let j = 0; j < 128; j++) out[ob + j] = (((bytes[base + 2 + (j >> 2)] >> ((j & 3) * 2)) & 3) - 1) * d;
 	}
 	return out;
+}
+
+// ── Références CPU des briques RIFE (miroirs PyTorch : ConvTranspose2d, PixelShuffle, F.interpolate
+// bilinéaire align_corners=False, grid_sample bilinéaire align_corners=True + border).
+function convTranspose2dCpu(x: Float32Array, w: Float32Array, b: Float32Array, Cin: number, H: number, W: number, Cout: number, k: number, st: number, pad: number): Float32Array {
+	const OH = (H - 1) * st - 2 * pad + k, OW = (W - 1) * st - 2 * pad + k;
+	const o = new Float32Array(Cout * OH * OW);
+	for (let co = 0; co < Cout; co++) o.fill(b[co], co * OH * OW, (co + 1) * OH * OW);
+	for (let ci = 0; ci < Cin; ci++) for (let iy = 0; iy < H; iy++) for (let ix = 0; ix < W; ix++) {
+		const v = x[(ci * H + iy) * W + ix];
+		for (let co = 0; co < Cout; co++) for (let ky = 0; ky < k; ky++) for (let kx = 0; kx < k; kx++) {
+			const oy = iy * st - pad + ky, ox = ix * st - pad + kx;
+			if (oy < 0 || ox < 0 || oy >= OH || ox >= OW) continue;
+			o[(co * OH + oy) * OW + ox] += v * w[((ci * Cout + co) * k + ky) * k + kx];
+		}
+	}
+	return o;
+}
+function pixelShuffle2Cpu(x: Float32Array, C: number, H: number, W: number): Float32Array {
+	const o = new Float32Array(C * 4 * H * W), OH = 2 * H, OW = 2 * W;
+	for (let c = 0; c < C; c++) for (let y = 0; y < OH; y++) for (let xx = 0; xx < OW; xx++)
+		o[(c * OH + y) * OW + xx] = x[((c * 4 + (y % 2) * 2 + (xx % 2)) * H + (y >> 1)) * W + (xx >> 1)];
+	return o;
+}
+function resizeBilinearCpu(x: Float32Array, C: number, H: number, W: number, OH: number, OW: number): Float32Array {
+	const o = new Float32Array(C * OH * OW), ry = H / OH, rx = W / OW;
+	for (let c = 0; c < C; c++) for (let y = 0; y < OH; y++) for (let xx = 0; xx < OW; xx++) {
+		const sy = Math.max((y + 0.5) * ry - 0.5, 0), sx = Math.max((xx + 0.5) * rx - 0.5, 0);
+		const y0 = Math.min(Math.floor(sy), H - 1), x0 = Math.min(Math.floor(sx), W - 1);
+		const y1 = Math.min(y0 + 1, H - 1), x1 = Math.min(x0 + 1, W - 1), ly = sy - y0, lx = sx - x0, bb = c * H * W;
+		const top = x[bb + y0 * W + x0] * (1 - lx) + x[bb + y0 * W + x1] * lx;
+		const bot = x[bb + y1 * W + x0] * (1 - lx) + x[bb + y1 * W + x1] * lx;
+		o[(c * OH + y) * OW + xx] = top * (1 - ly) + bot * ly;
+	}
+	return o;
+}
+function warpCpu(x: Float32Array, flow: Float32Array, C: number, H: number, W: number, fc: number): Float32Array {
+	const HW = H * W, o = new Float32Array(C * HW);
+	for (let p = 0; p < HW; p++) {
+		const sx = Math.min(Math.max((p % W) + flow[fc * HW + p], 0), W - 1);
+		const sy = Math.min(Math.max(Math.floor(p / W) + flow[(fc + 1) * HW + p], 0), H - 1);
+		const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0 + 1, W - 1), y1 = Math.min(y0 + 1, H - 1), lx = sx - x0, ly = sy - y0;
+		for (let c = 0; c < C; c++) {
+			const bb = c * HW;
+			const top = x[bb + y0 * W + x0] * (1 - lx) + x[bb + y0 * W + x1] * lx;
+			const bot = x[bb + y1 * W + x0] * (1 - lx) + x[bb + y1 * W + x1] * lx;
+			o[bb + p] = top * (1 - ly) + bot * ly;
+		}
+	}
+	return o;
 }
 
 function matmulCpu(a: Float32Array, b: Float32Array, m: number, k: number, n: number): Float32Array {

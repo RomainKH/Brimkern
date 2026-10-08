@@ -17,6 +17,7 @@ import { CONTEXT_SOFT_CAP, type PastedAttachment, type QueuedMessage } from './c
 import { QuickModelPicker, type QuickModelOption } from './QuickModelPicker';
 
 import { planImage, type ImageRatio, type ImageQuality } from '@/lib/webgpu/diffusion/imageGen';
+import { VIDEO_INTERP_DEFAULT } from '@/lib/modelCatalog';
 
 type ModelState = 'idle' | 'initializing' | 'loading' | 'ready' | 'generating' | 'error';
 
@@ -391,8 +392,9 @@ export function Composer({
                 >
                   {/* Pas de 8 frames : le module motion est entraîné sur 16, et à 8 l'image se désagrège
                       (aspect peinture, blocs) — constaté le 2026-10-08, en 1 comme en 2 pas. */}
-                  <option value={16}>16f (~1.3s)</option>
-                  <option value={24}>24f (~2.0s)</option>
+                  {/* Durée LUE du clip : frames × images intercalées (RIFE) à 16 im/s — 16f ≈ 4 s, 24f ≈ 6 s. */}
+                  <option value={16}>16f (~{Math.round((16 * VIDEO_INTERP_DEFAULT) / 16)}s)</option>
+                  <option value={24}>24f (~{Math.round((24 * VIDEO_INTERP_DEFAULT) / 16)}s)</option>
                 </select>
               </div>
             )}

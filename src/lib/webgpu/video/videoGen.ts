@@ -14,6 +14,7 @@ import { parseSafetensors } from '../../safetensors';
 import { fetchFullCached, streamImageBrik } from '../source';
 import { decodeTensor } from '../../brik/codec';
 import { MotionModule } from './motionModule';
+import { RifeInterpolator } from './rife';
 import { urlFlag } from '../urlFlags';
 import { EN_ONLY, type OnProgress, type Tr } from '../progress';
 
@@ -23,7 +24,8 @@ const CLIP_L: ClipConfig = { dim: 768, layers: 12, heads: 12, vocab: 49408, maxP
 const SD15_UNET: Partial<UnetCfg> = { baseC: 320, mult: [1, 2, 4, 4], layersPerBlock: 2, attn: [true, true, true, false], headDim: 64, fixedHeads: 8, ffMult: 4, ctxDim: 768, seqT: 77, groups: 32, tembIn: 320, tembDim: 1280 };
 const VAE_SCALE = 1; // TAESD prend le latent brut (comme le chemin image)
 
-export interface VideoFrames { frames: ImageData[]; seed: number; ms: number }
+// `fps` : cadence de lecture — plus haute quand RIFE a intercalé des images (mouvement plus fluide).
+export interface VideoFrames { frames: ImageData[]; seed: number; ms: number; fps: number }
 
 // Compile les frames en WebM (canvas.captureStream + MediaRecorder, Chrome/Edge — repli null si
 // non supporté, l'appelant garde la grille de frames).
@@ -87,7 +89,7 @@ export async function framesToWebm(frames: ImageData[], fps = 12, targetSec = 10
 }
 // `engine` est exposé pour le filet « GPU perdu » côté app (onLost), comme en mode vision : une
 // génération vidéo dure des minutes, c'est le cas le plus exposé à une reprise de VRAM par l'OS.
-export interface VideoGenerator { generate(prompt: string, opts?: { seed?: number; frames?: number; size?: number; onProgress?: OnProgress }): Promise<VideoFrames>; enrich(prompt: string, onProgress?: OnProgress): Promise<string>; engine: WebGpuEngine; dispose(): void }
+export interface VideoGenerator { generate(prompt: string, opts?: { seed?: number; frames?: number; size?: number; interp?: number; onProgress?: OnProgress }): Promise<VideoFrames>; enrich(prompt: string, onProgress?: OnProgress): Promise<string>; engine: WebGpuEngine; dispose(): void }
 
 // Les 21 modules motion depuis le BRIK (q8 packé → codes/scales GPU, petits tenseurs f32 CPU).
 async function loadMotionModules(engine: WebGpuEngine, url: string, onProgress?: OnProgress, tr: Tr = EN_ONLY): Promise<Map<string, MotionModule>> {
@@ -122,7 +124,8 @@ async function loadMotionModules(engine: WebGpuEngine, url: string, onProgress?:
 export async function loadVideoGenerator(
   // `steps` : nombre de pas de débruitage du checkpoint Lightning chargé en `motion` (4 par défaut,
   // 2 pour le module distillé à 2 pas) — il est FIXÉ par le checkpoint, pas un réglage libre.
-  urls: { unet: string; clip: string; motion: string; taesd: string; lfm?: string; steps?: number },
+  // `rife` : poids RIFE (safetensors f16) — absents ou gate rifeOk tombé → clips sans interpolation.
+  urls: { unet: string; clip: string; motion: string; taesd: string; lfm?: string; steps?: number; rife?: string },
   onProgress?: OnProgress,
   pace?: UnetPace,
   tr: Tr = EN_ONLY,
@@ -146,11 +149,24 @@ export async function loadVideoGenerator(
   const taesdBytes = await fetchFullCached(urls.taesd);
   const taesdBuf = (taesdBytes.buffer as ArrayBuffer).slice(taesdBytes.byteOffset, taesdBytes.byteOffset + taesdBytes.byteLength);
   const taesd = new TaesdDecoder(engine, parseSafetensors(taesdBuf, { keepF16: true }));
+  // RIFE (11 Mo) : jamais bloquant — un échec de téléchargement ou de validation rend des clips sans
+  // images intermédiaires, comme avant ce chantier.
+  let rife: RifeInterpolator | null = null;
+  if (urls.rife && engine.rifeOk) {
+    try {
+      onProgress?.(tr('Frame interpolation (RIFE)…', 'Interpolation d’images (RIFE)…'));
+      const rb = await fetchFullCached(urls.rife);
+      rife = new RifeInterpolator(engine, parseSafetensors((rb.buffer as ArrayBuffer).slice(rb.byteOffset, rb.byteOffset + rb.byteLength), { keepF16: true }));
+    } catch (e) { console.warn('[video] RIFE indisponible, clips sans interpolation :', e); }
+  }
   const { AutoTokenizer } = await import('@huggingface/transformers');
   const tok = await AutoTokenizer.from_pretrained('openai/clip-vit-large-patch14');
 
-  const generate = async (prompt: string, opts: { seed?: number; frames?: number; size?: number; onProgress?: (s: string) => void } = {}): Promise<VideoFrames> => {
+  const generate = async (prompt: string, opts: { seed?: number; frames?: number; size?: number; interp?: number; onProgress?: (s: string) => void } = {}): Promise<VideoFrames> => {
     const F = opts.frames ?? 16, size = opts.size ?? 256, latS = size / 8, seed = opts.seed ?? ((Math.random() * 1e9) | 0);
+    // Facteur d'interpolation : ×interp images au total (interp − 1 intercalées par paire, la dernière
+    // paire bouclant sur la première — le clip est lu en boucle). 1 = sans RIFE.
+    const interp = rife && (opts.interp ?? 1) > 1 && size % 64 === 0 ? Math.round(opts.interp!) : 1;
     const prog = opts.onProgress ?? onProgress;
     const t0 = performance.now();
     prog?.(tr('Encoding the prompt (CLIP-L)…', 'Encodage du prompt (CLIP-L)…'));
@@ -189,7 +205,7 @@ export async function loadVideoGenerator(
     for (let i = 0; i < L; i++) blocksTotal += unetCfg.layersPerBlock + 1 + (i > 0 ? 1 : 0);
     // Unités d'avancement : un bloc d'UNet par pas, puis une frame à décoder. C'est la même
     // granularité que celle qu'on affiche, donc la fraction ne saute pas.
-    const unitsTotal = sched.timesteps.length * blocksTotal + F;
+    const unitsTotal = sched.timesteps.length * blocksTotal + F + F * (interp - 1);
     for (let i = 0; i < sched.timesteps.length; i++) {
       prog?.(`${tr('Denoising', 'Débruitage')} ${i + 1}/${sched.timesteps.length} (${F} frames)…`, undefined, (i * blocksTotal) / unitsTotal);
       const scaled = latents.map((l) => sched.scaleModelInput(l, i));
@@ -197,14 +213,34 @@ export async function loadVideoGenerator(
       const eps = await unetForwardVideo(engine, unetW, scaled, sched.timesteps[i], ctx, { ...unetCfg, H: latS, W: latS }, motionHook, stepPace);
       latents = latents.map((l, f) => sched.step(eps[f], l, i));
     }
-    const frames: ImageData[] = [];
+    const decoded: { data: Float32Array; C: number; H: number; W: number }[] = [];
     for (let f = 0; f < F; f++) {
       prog?.(`${tr('Decoding frame', 'Décodage frame')} ${f + 1}/${F}…`, undefined, (sched.timesteps.length * blocksTotal + f) / unitsTotal);
-      const img = await taesd.decode(latents[f].map((v) => v * VAE_SCALE) as Float32Array, latS, latS, pace?.duty);
-      const rgba = chwToRGBA(img);
-      frames.push(new ImageData(new Uint8ClampedArray(rgba), img.W, img.H));
+      decoded.push(await taesd.decode(latents[f].map((v) => v * VAE_SCALE) as Float32Array, latS, latS, pace?.duty));
     }
-    return { frames, seed, ms: Math.round(performance.now() - t0) };
+    const toImage = (img: { data: Float32Array; C: number; H: number; W: number }) => new ImageData(new Uint8ClampedArray(chwToRGBA(img)), img.W, img.H);
+    const frames: ImageData[] = [];
+    if (interp > 1 && rife) {
+      const { H, W } = decoded[0];
+      const imgs = decoded.map((d) => engine.uploadGpu(d.data));
+      const feats = imgs.map((b) => rife!.encode(b, H, W));
+      const base = sched.timesteps.length * blocksTotal + F;
+      for (let f = 0; f < F; f++) {
+        frames.push(toImage(decoded[f]));
+        const nx = (f + 1) % F;
+        for (let k = 1; k < interp; k++) {
+          const done = f * (interp - 1) + k - 1;
+          prog?.(`${tr('Interpolating frames', 'Interpolation des images')} ${done + 1}/${F * (interp - 1)}…`, undefined, (base + done) / unitsTotal);
+          const mid = await rife.interpolate(imgs[f], imgs[nx], feats[f], feats[nx], H, W, k / interp);
+          frames.push(toImage({ data: mid, C: 3, H, W }));
+        }
+      }
+      engine.releaseGpu([...imgs, ...feats]);
+    } else {
+      for (const d of decoded) frames.push(toImage(d));
+    }
+    // 12 im/s sans interpolation (comme avant) ; 16 im/s avec : ×4 images → clip ~4 s au lieu de 1,3 s.
+    return { frames, seed, ms: Math.round(performance.now() - t0), fps: interp > 1 ? 16 : 12 };
   };
 
   // Enrichissement paresseux : LFM2 n'est chargé (sur le MÊME engine) qu'au 1er appel d'enrich.
@@ -218,5 +254,5 @@ export async function loadVideoGenerator(
     return enricher.enrich(prompt);
   };
 
-  return { generate, enrich, engine, dispose: () => { for (const m of motions.values()) m.unload(); } };
+  return { generate, enrich, engine, dispose: () => { for (const m of motions.values()) m.unload(); rife?.dispose(); } };
 }

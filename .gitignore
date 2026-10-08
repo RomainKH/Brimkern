@@ -53,6 +53,7 @@ next-env.d.ts
 # CDN/HF and referenced by URL. Never committed to git.
 /public/models/*.brik
 /public/models/video-oracle/
+/public/models/rife-oracle/
 
 # Sortie du Space HF (assemblée par npm run build:hf-space)
 /.hf-space

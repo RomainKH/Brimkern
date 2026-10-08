@@ -61,7 +61,12 @@ export const VIDEO_BRIK = {
 	motion: VIDEO_MOTION[VIDEO_STEPS_DEFAULT],
 	clip: `${VIDEO_BRIK_BASE}/video-clip-q8.brik`,
 	taesd: TAESD_DECODER,
+	// RIFE 4.26 (hzwer/Practical-RIFE, MIT), converti en safetensors f16 (11 Mo) : images intercalées
+	// entre les frames générées (video/rife.ts). Facultatif — absent, les clips restent à 16 frames.
+	rife: `${VIDEO_BRIK_BASE}/rife-4.26-f16.safetensors`,
 };
+// Images au total par image générée (RIFE) : 4 → 16 frames deviennent 64, clip ~4 s au lieu de 1,3 s.
+export const VIDEO_INTERP_DEFAULT = 4;
 export const IMAGE_BRIK = {
   sdturbo: { unet: `${IMAGE_BRIK_BASE}/sd-turbo-unet-q8.brik`, clip: `${IMAGE_BRIK_BASE}/sd-turbo-clip-q8.brik` },
   // SDXS-512 mobile : UNet light (int4, 205 Mo) + CLIP allégé (int4, 235 Mo) = ~445 Mo tout compris.
@@ -94,9 +99,10 @@ export const IMAGE_PIPELINE_BYTES: Record<'sdturbo' | 'sdxs', number> = {
 // Pipeline VIDÉO (UNet + module motion + CLIP + TAESD) et pipeline VISION (LLM Q8_0 + mmproj f16),
 // mêmes relevés HEAD du 2026-08-28. La carte vidéo annonçait « ~1,5 Go » en dur ; la carte vision
 // n'annonçait RIEN alors qu'elle coûte le double.
-//   vidéo  : 913 781 600 (unet) + 483 206 080 (motion) + 130 949 760 (clip) + 4 895 612 (taesd)
+//   vidéo  : 913 781 600 (unet) + 483 206 080 (motion, 1 pas — même taille pour 2 et 4 pas)
+//            + 130 949 760 (clip) + 4 895 612 (taesd) + 11 344 800 (RIFE, ajouté le 2026-10-08)
 //   vision : 1 646 571 776 (Qwen2-VL 2B Q8_0) + 1 331 656 192 (mmproj f16)
-export const VIDEO_PIPELINE_BYTES = 1_532_833_052;
+export const VIDEO_PIPELINE_BYTES = 1_544_177_852;
 export const VISION_PIPELINE_BYTES = 2_978_227_968;
 
 // Normalize a model name/filename for loose matching (the active model name loses its .gguf and gets

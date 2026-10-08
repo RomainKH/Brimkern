@@ -802,6 +802,153 @@ export const SHADERS = {
 			}
 		}`,
 
+	// ── INTERPOLATION D'IMAGES RIFE 4.26 (video/rife.ts, ROADMAP § 27) ──────────────────────────────
+	// Les briques que l'IFNet ajoute aux convolutions du moteur. Toutes en f32, un thread par sortie :
+	// le réseau fait ~6 M de paramètres et tourne à 256 px, ce n'est pas lui qui pèse.
+	// rife_act : y = x·mul, puis LeakyReLU(0,2) si `leaky` — sert aussi à « flow × scale ».
+	rife_act: `
+		struct P { n: u32, leaky: u32, mul: f32, slope: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.n) { return; }
+			let v = x[i] * p.mul;
+			o[i] = select(v, v * p.slope, p.leaky == 1u && v < 0.0);
+		}`,
+
+	// ResConv : LeakyReLU(0,2)( conv[c]·β[c] + x[c] ).
+	rife_resconv: `
+		struct P { C: u32, HW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> cv: array<f32>;
+		@group(0) @binding(2) var<storage, read> x: array<f32>;
+		@group(0) @binding(3) var<storage, read> beta: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.C * p.HW) { return; }
+			let v = cv[i] * beta[i / p.HW] + x[i];
+			o[i] = select(v, v * 0.2, v < 0.0);
+		}`,
+
+	// ConvTranspose2d (poids PyTorch [Cin][Cout][k][k]) : sortie oy = iy·s − pad + ky, donc pour une
+	// sortie donnée seules les prises où (oy + pad − ky) est un multiple de s contribuent.
+	conv_transpose2d: `
+		struct P { Cin: u32, H: u32, W: u32, Cout: u32, k: u32, s: u32, pad: u32, OH: u32, OW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> w: array<f32>;
+		@group(0) @binding(3) var<storage, read> bias: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.Cout * p.OH * p.OW) { return; }
+			let ox = i32(i % p.OW); let oy = i32((i / p.OW) % p.OH); let co = i / (p.OW * p.OH);
+			let s = i32(p.s); let pd = i32(p.pad); let k = i32(p.k);
+			var acc = bias[co];
+			for (var ky = 0; ky < k; ky = ky + 1) {
+				let ty = oy + pd - ky;
+				if (ty < 0 || ty % s != 0) { continue; }
+				let iy = ty / s;
+				if (iy >= i32(p.H)) { continue; }
+				for (var kx = 0; kx < k; kx = kx + 1) {
+					let tx = ox + pd - kx;
+					if (tx < 0 || tx % s != 0) { continue; }
+					let ix = tx / s;
+					if (ix >= i32(p.W)) { continue; }
+					for (var ci = 0u; ci < p.Cin; ci = ci + 1u) {
+						acc = acc + inp[(ci * p.H + u32(iy)) * p.W + u32(ix)] * w[((ci * p.Cout + co) * p.k + u32(ky)) * p.k + u32(kx)];
+					}
+				}
+			}
+			o[i] = acc;
+		}`,
+
+	// PixelShuffle(2) : [4C, H, W] → [C, 2H, 2W], sortie (c, y, x) = entrée (4c + 2·(y%2) + x%2, y/2, x/2).
+	pixel_shuffle2: `
+		struct P { C: u32, H: u32, W: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			let OW = p.W * 2u; let OH = p.H * 2u;
+			if (i >= p.C * OH * OW) { return; }
+			let ox = i % OW; let oy = (i / OW) % OH; let c = i / (OW * OH);
+			let ic = c * 4u + (oy % 2u) * 2u + (ox % 2u);
+			o[i] = x[(ic * p.H + oy / 2u) * p.W + ox / 2u];
+		}`,
+
+	// F.interpolate bilinéaire, align_corners=False : source = max((d + 0,5)·r − 0,5, 0), r = entrée/sortie.
+	resize_bilinear: `
+		struct P { C: u32, H: u32, W: u32, OH: u32, OW: u32, ry: f32, rx: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.C * p.OH * p.OW) { return; }
+			let ox = i % p.OW; let oy = (i / p.OW) % p.OH; let c = i / (p.OW * p.OH);
+			let sy = max((f32(oy) + 0.5) * p.ry - 0.5, 0.0);
+			let sx = max((f32(ox) + 0.5) * p.rx - 0.5, 0.0);
+			let y0 = min(u32(sy), p.H - 1u); let x0 = min(u32(sx), p.W - 1u);
+			let y1 = min(y0 + 1u, p.H - 1u); let x1 = min(x0 + 1u, p.W - 1u);
+			let ly = sy - f32(y0); let lx = sx - f32(x0);
+			let b = c * p.H * p.W;
+			let top = x[b + y0 * p.W + x0] * (1.0 - lx) + x[b + y0 * p.W + x1] * lx;
+			let bot = x[b + y1 * p.W + x0] * (1.0 - lx) + x[b + y1 * p.W + x1] * lx;
+			o[i] = top * (1.0 - ly) + bot * ly;
+		}`,
+
+	// Warp arrière (grid_sample bilinéaire, align_corners=True, padding « border ») : le pixel (x, y)
+	// lit l'entrée en (x + fx, y + fy), coordonnées bornées à l'image. Flot = canaux fc, fc+1 de `flow`.
+	warp_bilinear: `
+		struct P { C: u32, H: u32, W: u32, fc: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> flow: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			let HW = p.H * p.W;
+			if (i >= p.C * HW) { return; }
+			let px = i % HW; let c = i / HW;
+			let xx = f32(px % p.W); let yy = f32(px / p.W);
+			let sx = clamp(xx + flow[p.fc * HW + px], 0.0, f32(p.W - 1u));
+			let sy = clamp(yy + flow[(p.fc + 1u) * HW + px], 0.0, f32(p.H - 1u));
+			let x0 = u32(floor(sx)); let y0 = u32(floor(sy));
+			let x1 = min(x0 + 1u, p.W - 1u); let y1 = min(y0 + 1u, p.H - 1u);
+			let lx = sx - f32(x0); let ly = sy - f32(y0);
+			let b = c * HW;
+			let top = x[b + y0 * p.W + x0] * (1.0 - lx) + x[b + y0 * p.W + x1] * lx;
+			let bot = x[b + y1 * p.W + x0] * (1.0 - lx) + x[b + y1 * p.W + x1] * lx;
+			o[i] = top * (1.0 - ly) + bot * ly;
+		}`,
+
+	// Fusion finale : σ(m)·w0 + (1 − σ(m))·w1, masque [1, H, W] partagé par les C canaux.
+	rife_blend: `
+		struct P { C: u32, HW: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> w0: array<f32>;
+		@group(0) @binding(2) var<storage, read> w1: array<f32>;
+		@group(0) @binding(3) var<storage, read> m: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.C * p.HW) { return; }
+			let sg = 1.0 / (1.0 + exp(-m[i % p.HW]));
+			o[i] = w0[i] * sg + w1[i] * (1.0 - sg);
+		}`,
+
 	// CONVOLUTION EN GEMM IMPLICITE q8 (2026-10-07) — le GEMM v2 ci-dessous (bloc 4×8 vec4, tuile
 	// 64 × 128), appliqué à une convolution sans matérialiser l'im2col : lignes = pixels de sortie
 	// (m = OH·OW), colonnes = canaux de sortie (n = Cout), k = Cin·kh·kw. Les poids q8web [Cout][Cin·kh·kw]

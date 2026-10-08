@@ -17,7 +17,7 @@ import {
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
-import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION, VIDEO_STEPS_DEFAULT, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION, VIDEO_STEPS_DEFAULT, VIDEO_INTERP_DEFAULT, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
 import { detectCalcs, formatCalc, currentDateLine } from '@/lib/localTools';
 import { listConversations, type Conversation } from '@/lib/chatStore';
@@ -581,6 +581,36 @@ function App() {
       e.destroy();
       console.log(ok ? '[selfValidate] OK' : `[selfValidate] KO à l'étape ${stage}`, gates);
       return { ok, stage, gates };
+    };
+    // __rifeOracle(base) : le réseau RIFE ENTIER contre la référence PyTorch (fichiers produits par le
+    // script d'oracle du § 27, servis hors git sous /models/rife-oracle/). Rend les écarts max/moyen
+    // par sortie et le temps d'une interpolation 256 px — le juge du portage, au-delà des briques.
+    (window as any).__rifeOracle = async (base = '/models/rife-oracle/') => {
+      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+      const { RifeInterpolator } = await import('@/lib/webgpu/video/rife');
+      const { parseSafetensors } = await import('@/lib/safetensors');
+      const e = new WebGpuEngine();
+      if (!(await e.init())) return { error: 'WebGPU indisponible' };
+      await e.selfValidate();
+      if (!e.rifeOk) { e.destroy(); return { error: 'gate rifeOk tombé' }; }
+      const f32 = async (n: string) => new Float32Array(await (await fetch(base + n)).arrayBuffer());
+      const wbuf = await (await fetch(base + 'rife-4.26-f16.safetensors')).arrayBuffer();
+      const rife = new RifeInterpolator(e, parseSafetensors(wbuf, { keepF16: true }));
+      const [i0, i1, enc0, o05, o025] = await Promise.all(['in0.f32', 'in1.f32', 'enc0.f32', 'out_t05.f32', 'out_t025.f32'].map(f32));
+      const H = 256, W = 256;
+      const b0 = e.uploadGpu(i0), b1 = e.uploadGpu(i1);
+      const f0 = rife.encode(b0, H, W), f1 = rife.encode(b1, H, W);
+      const err = (a: Float32Array, b: Float32Array) => { let mx = 0, sum = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); mx = Math.max(mx, d); sum += d; } return { max: +mx.toFixed(5), mean: +(sum / a.length).toFixed(6) }; };
+      const encErr = err(await e.readGpu(f0, 4 * H * W), enc0);
+      await rife.interpolate(b0, b1, f0, f1, H, W, 0.5); // chauffe (compilation des pipelines)
+      const t0 = performance.now();
+      const g05 = await rife.interpolate(b0, b1, f0, f1, H, W, 0.5);
+      const ms = performance.now() - t0;
+      const g025 = await rife.interpolate(b0, b1, f0, f1, H, W, 0.25);
+      const res = { encode: encErr, t05: err(g05, o05), t025: err(g025, o025), msParInterpolation: +ms.toFixed(1) };
+      rife.dispose(); e.destroy();
+      console.log('[rife] oracle', res);
+      return res;
     };
     // __decodeBench(profil) : PLAFOND de décodage de nos kernels sur les formes d'un vrai modèle,
     // sans télécharger ses poids. Le décodage lit TOUS les poids par token (matmul-vecteur, m=1) :
@@ -1843,7 +1873,10 @@ function App() {
       const steps: 1 | 2 | 4 = vs === 1 || vs === 2 || vs === 4 ? vs : VIDEO_STEPS_DEFAULT;
       const vmotion = q.get('vmotion');
       const motion = vmotion?.startsWith('/') ? vmotion : VIDEO_MOTION[steps];
-      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, motion, steps, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
+      // ?vrife=/chemin : poids RIFE servis en local (même origine) avant téléversement.
+      const vrife = q.get('vrife');
+      const rife = vrife?.startsWith('/') ? vrife : VIDEO_BRIK.rife;
+      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, motion, steps, rife, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
       // Une génération dure des MINUTES : c'est le mode le plus exposé à une reprise de VRAM par
       // l'OS. Même filet que la vision — erreur récupérable plutôt qu'une attente infinie.
       gen.engine.onLost = (info) => {
@@ -2160,7 +2193,10 @@ function App() {
       }
       // ?vseed=N : graine fixe, pour comparer deux réglages (4 pas / 2 pas) sur le MÊME clip.
       const vseed = parseInt(q.get('vseed') || '', 10);
-      const res = await videoGen.generate(finalPrompt, { frames, size: 256, onProgress, ...(Number.isFinite(vseed) ? { seed: vseed } : {}) });
+      // ?vinterp=1|2|4 : images au total par image générée (RIFE) ; 1 = clip brut de 16 frames.
+      const vi = Number(q.get('vinterp'));
+      const interp = vi === 1 || vi === 2 || vi === 4 ? vi : VIDEO_INTERP_DEFAULT;
+      const res = await videoGen.generate(finalPrompt, { frames, size: 256, interp, onProgress, ...(Number.isFinite(vseed) ? { seed: vseed } : {}) });
       onProgress(t('Encoding the video (WebM)…', 'Compilation de la vidéo (WebM)…'));
       const { framesToWebm } = await import('@/lib/webgpu/video/videoGen');
       // UNE passe de la séquence (16 frames à 12 fps = 1,3 s) : MediaRecorder enregistre en TEMPS RÉEL,
@@ -2169,9 +2205,9 @@ function App() {
       // enregistre — est fabriquée APRÈS, en arrière-plan, et remplace l'URL quand elle est prête.
       // ?vfastwebm=0 : l'ancien chemin (une seule vidéo bouclée de ~10 s) — bras témoin du banc.
       const slowWebm = q.get('vfastwebm') === '0';
-      const url = await framesToWebm(res.frames, 12, slowWebm ? 10 : 0); // null si non supporté
+      const url = await framesToWebm(res.frames, res.fps, slowWebm ? 10 : 0); // null si non supporté
       if (url && !slowWebm) {
-        void framesToWebm(res.frames).then((longUrl) => {
+        void framesToWebm(res.frames, res.fps).then((longUrl) => {
           if (!longUrl) return;
           setMessages(prev => prev.map(m => m.id === aId && m.video?.url === url ? { ...m, video: { ...m.video, url: longUrl } } : m));
           URL.revokeObjectURL(url);
