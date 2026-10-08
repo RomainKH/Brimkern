@@ -17,7 +17,7 @@ import {
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
-import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION_2STEP, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION, VIDEO_STEPS_DEFAULT, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
 import { detectCalcs, formatCalc, currentDateLine } from '@/lib/localTools';
 import { listConversations, type Conversation } from '@/lib/chatStore';
@@ -1836,14 +1836,14 @@ function App() {
       const enrichOn = q.get('enrich') === '1';
       // Le libellé ET les octets : le pipeline pèse ~1,5 Go, une ligne de texte sans barre ni
       // temps restant laisse l'utilisateur devant un écran qui semble figé (retour Romain).
-      // ?vsteps=2 : module motion distillé à 2 pas (÷2 le débruitage), opt-in tant que la qualité n'est
-      // pas jugée. ?vmotion=/chemin : le même fichier servi en local avant téléversement (même origine
-      // seulement — pas de poids arbitraires depuis l'URL).
+      // Module motion = nombre de pas (checkpoint Lightning distillé) : VIDEO_STEPS_DEFAULT, ou
+      // ?vsteps=1|2|4 pour comparer. ?vmotion=/chemin : un fichier servi en local avant téléversement
+      // (même origine seulement — pas de poids arbitraires depuis l'URL).
+      const vs = Number(q.get('vsteps'));
+      const steps: 1 | 2 | 4 = vs === 1 || vs === 2 || vs === 4 ? vs : VIDEO_STEPS_DEFAULT;
       const vmotion = q.get('vmotion');
-      const twoStep = q.get('vsteps') === '2'
-        ? { motion: vmotion?.startsWith('/') ? vmotion : VIDEO_MOTION_2STEP, steps: 2 }
-        : {};
-      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, ...twoStep, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
+      const motion = vmotion?.startsWith('/') ? vmotion : VIDEO_MOTION[steps];
+      const gen = await loadVideoGenerator({ ...VIDEO_BRIK, motion, steps, ...(enrichOn ? { lfm: MOBILE_BRIK_URL } : {}) }, onLoadProgress, pace, t);
       // Une génération dure des MINUTES : c'est le mode le plus exposé à une reprise de VRAM par
       // l'OS. Même filet que la vision — erreur récupérable plutôt qu'une attente infinie.
       gen.engine.onLost = (info) => {
@@ -1852,8 +1852,8 @@ function App() {
         setVideoGen(null);
         setModelState('error');
         setErrorMsg(t(
-          'The GPU disconnected during video generation (it needs ~1.5 GB of VRAM for several minutes). Reload the model to try again.',
-          'Le GPU s’est déconnecté pendant la génération vidéo (elle demande ~1,5 Go de VRAM pendant plusieurs minutes). Recharge le modèle pour réessayer.',
+          'The GPU disconnected during video generation (it needs ~1.5 GB of VRAM for the whole clip). Reload the model to try again.',
+          'Le GPU s’est déconnecté pendant la génération vidéo (elle demande ~1,5 Go de VRAM pendant tout le clip). Recharge le modèle pour réessayer.',
         ));
       };
       setLoadingProgress(null);
@@ -1864,10 +1864,10 @@ function App() {
         content: t(
           'Video mode: **AnimateDiff** (beta). Describe a scene and I’ll generate a short looping clip in 256px.\n\n' +
             'Set its **length** above the input box: more frames means longer motion, and proportionally longer compute. ' +
-            '⏱️ Expect **minutes, not seconds** per clip: elapsed time and time remaining are shown as it goes.',
+            '⏱️ About **10 seconds** of GPU work for a 16-frame clip on an M4 Mac, longer on smaller GPUs: elapsed time and time remaining are shown as it goes.',
           'Mode vidéo : **AnimateDiff** (bêta). Décris une scène, je génère un court clip en boucle en 256px.\n\n' +
             'Sa **longueur** se règle au-dessus de la zone de saisie : plus de frames donne un mouvement plus long, et un calcul proportionnellement plus long. ' +
-            '⏱️ Compte **des minutes, pas des secondes** par clip : le temps écoulé et le temps restant s’affichent au fur et à mesure.',
+            '⏱️ Environ **10 secondes** de calcul GPU pour un clip de 16 frames sur un Mac M4, davantage sur un GPU plus modeste : le temps écoulé et le temps restant s’affichent au fur et à mesure.',
         ),
       }]);
       setModelState('ready');
@@ -2150,6 +2150,8 @@ function App() {
       const q = new URLSearchParams(window.location.search);
       // 16 frames par défaut (≈ 1,3 s de mouvement unique, bouclé au montage) ; ?vframes=8..32 en
       // dev — 32 est le MAXIMUM du modèle (pos_embed temporel [1,32,C]). ?enrich=1 rallume le LFM.
+      // ?vframes=8 reste possible pour un banc, mais 8 frames sortent abîmées (module motion entraîné
+      // sur 16) : le composer ne le propose plus.
       const frames = Math.min(32, Math.max(8, parseInt(q.get('vframes') || '', 10) || videoFrames));
       let finalPrompt = prompt;
       if (q.get('enrich') === '1') {

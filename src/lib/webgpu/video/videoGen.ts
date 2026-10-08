@@ -1,5 +1,5 @@
 // Pipeline VIDÉO navigateur (étape 4, docs/video-gen-feasibility.md) : CLIP-L → UNet SD1.5 16 frames
-// × 4 pas Lightning avec les 21 modules motion injectés (unetForwardVideo) → TAESD par frame.
+// × 1, 2 ou 4 pas Lightning (selon le module motion chargé) avec les 21 modules motion injectés (unetForwardVideo) → TAESD par frame.
 // Réutilise TOUT le chemin image (loadUnetWeights/unetWeightsToGpu via BRIK GPU-handles, ClipTextEncoder,
 // TAESD, scheduler Euler — β 'linear' AnimateDiff) + MotionModule validé (cosine 0,9998 vs oracle).
 // Desktop uniquement (gating côté UI) ; duty-cycle hérité du pipeline image via UnetPace.

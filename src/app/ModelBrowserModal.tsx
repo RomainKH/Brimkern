@@ -774,10 +774,10 @@ export function ModelBrowserModal({
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
                         <AlertCircle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
                         <span>{videoPipelineCached
-                          ? t('Already downloaded — several minutes of GPU work for a few seconds of video.',
-                              'Déjà téléchargé — plusieurs minutes de calcul GPU pour quelques secondes de vidéo.')
-                          : t(`${fmtModelSize(VIDEO_PIPELINE_BYTES, false)} to download, then several minutes of GPU work for a few seconds of video.`,
-                              `${fmtModelSize(VIDEO_PIPELINE_BYTES, true)} à télécharger, puis plusieurs minutes de calcul GPU pour quelques secondes de vidéo.`)}</span>
+                          ? t('Already downloaded — about 10 s of GPU work per clip on an M4 Mac, longer on smaller GPUs.',
+                              'Déjà téléchargé — environ 10 s de calcul GPU par clip sur un Mac M4, davantage sur un GPU plus modeste.')
+                          : t(`${fmtModelSize(VIDEO_PIPELINE_BYTES, false)} to download, then about 10 s of GPU work per clip on an M4 Mac, longer on smaller GPUs.`,
+                              `${fmtModelSize(VIDEO_PIPELINE_BYTES, true)} à télécharger, puis environ 10 s de calcul GPU par clip sur un Mac M4, davantage sur un GPU plus modeste.`)}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
                         {isVideoActive ? (

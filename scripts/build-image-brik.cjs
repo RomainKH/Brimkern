@@ -85,6 +85,12 @@ const MODELS = {
 		out: (tier) => `video-motion-2step-${tier}.brik`,
 		name: 'AnimateDiff-Lightning 2-step (module motion)',
 	},
+	// Distillé à 1 PAS (« research only » selon ByteDance) : le plus rapide, à juger à l'œil.
+	'video-motion-1step': {
+		url: 'https://huggingface.co/ByteDance/AnimateDiff-Lightning/resolve/main/animatediff_lightning_1step_diffusers.safetensors',
+		out: (tier) => `video-motion-1step-${tier}.brik`,
+		name: 'AnimateDiff-Lightning 1-step (module motion)',
+	},
 	// ── RealVisXL Turbo / SDXL (1024px natif, double CLIP, photoréalisme studio) ────────────────
 	'realvisxl-unet': {
 		url: 'https://huggingface.co/SG161222/RealVisXL_V4.0_Lightning/resolve/main/unet/diffusion_pytorch_model.safetensors',

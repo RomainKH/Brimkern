@@ -389,7 +389,8 @@ export function Composer({
                   disabled={modelState === 'generating' || benchRunning}
                   className="composer-inline-select"
                 >
-                  <option value={8}>8f (~0.7s)</option>
+                  {/* Pas de 8 frames : le module motion est entraîné sur 16, et à 8 l'image se désagrège
+                      (aspect peinture, blocs) — constaté le 2026-10-08, en 1 comme en 2 pas. */}
                   <option value={16}>16f (~1.3s)</option>
                   <option value={24}>24f (~2.0s)</option>
                 </select>

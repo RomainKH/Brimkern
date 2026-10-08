@@ -48,15 +48,20 @@ export const IMAGE_BRIK_BASE = 'https://huggingface.co/romainkh14/brimkern-image
 // BRIK VIDÉO (AnimateDiff-Lightning sur base SD 1.5, docs/video-gen-feasibility.md) — uploadés le
 // 2026-07-21 (byte-exact vérifiés). UNet 914 Mo + motion 483 Mo + CLIP-L 131 Mo, q8 streamé.
 const VIDEO_BRIK_BASE = 'https://huggingface.co/romainkh14/brimkern-video-BRIK/resolve/main';
+// Module motion Lightning PAR NOMBRE DE PAS : un checkpoint distillé fixe son nombre de pas (même
+// UNet, même CLIP, seuls les 483 Mo du module changent). ?vsteps=1|2|4 choisit (ROADMAP § 27).
+export const VIDEO_MOTION: Record<1 | 2 | 4, string> = {
+	4: `${VIDEO_BRIK_BASE}/video-motion-q8.brik`,
+	2: `${VIDEO_BRIK_BASE}/video-motion-2step-q8.brik`,
+	1: `${VIDEO_BRIK_BASE}/video-motion-1step-q8.brik`,
+};
+export const VIDEO_STEPS_DEFAULT: 1 | 2 | 4 = 1; // 16 frames : 10 s contre 16 (2 pas) et 28 (4 pas), même scène à l'œil (§ 27)
 export const VIDEO_BRIK = {
 	unet: `${VIDEO_BRIK_BASE}/video-unet-q8.brik`,
-	motion: `${VIDEO_BRIK_BASE}/video-motion-q8.brik`,
+	motion: VIDEO_MOTION[VIDEO_STEPS_DEFAULT],
 	clip: `${VIDEO_BRIK_BASE}/video-clip-q8.brik`,
 	taesd: TAESD_DECODER,
 };
-// Module motion Lightning distillé à 2 PAS (même UNet, même CLIP) : ÷2 le débruitage d'un clip.
-// Opt-in `?vsteps=2` tant que le fichier n'est pas téléversé et la qualité jugée (ROADMAP § 27).
-export const VIDEO_MOTION_2STEP = `${VIDEO_BRIK_BASE}/video-motion-2step-q8.brik`;
 export const IMAGE_BRIK = {
   sdturbo: { unet: `${IMAGE_BRIK_BASE}/sd-turbo-unet-q8.brik`, clip: `${IMAGE_BRIK_BASE}/sd-turbo-clip-q8.brik` },
   // SDXS-512 mobile : UNet light (int4, 205 Mo) + CLIP allégé (int4, 235 Mo) = ~445 Mo tout compris.
