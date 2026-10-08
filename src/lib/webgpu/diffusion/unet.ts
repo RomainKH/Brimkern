@@ -386,6 +386,11 @@ export async function paceSleep(e: WebGpuEngine, lastIdleEnd: number, pace?: Une
   const duty = pace?.duty;
   let sleep = pace?.pauseMs ?? 0;
   if (duty !== undefined && duty > 0 && duty < 1) sleep = Math.max(sleep, Math.min(1000, busy * (1 - duty) / duty));
+  // Onglet CACHÉ : pas de pause. Elle sert à garder l'interface fluide pendant le calcul, et Chrome
+  // bride setTimeout à ≥ 1 s en arrière-plan (puis à 1/min après 5 min) — chaque bloc du UNet
+  // attendait alors une seconde ou plus : une génération lancée puis quittée semblait figée
+  // (retour Romain, 2026-10-08). La vidange GPU ci-dessus reste, elle n'est pas bridée.
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') sleep = 0;
   if (sleep > 0) await new Promise((r) => setTimeout(r, sleep));
   return performance.now();
 }

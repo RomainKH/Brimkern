@@ -11,11 +11,10 @@ import { makeEulerScheduler, randnSeeded } from '../diffusion/scheduler';
 import { unetForwardVideo, type UnetCfg, type UnetPace } from '../diffusion/unet';
 import { TaesdDecoder, chwToRGBA } from '../taesd';
 import { parseSafetensors } from '../../safetensors';
-import { fetchFullCached } from '../source';
-import { parseBrik } from '../../brik/container';
-import { computeShardBases } from '../../brik/loader';
+import { fetchFullCached, streamImageBrik } from '../source';
 import { decodeTensor } from '../../brik/codec';
 import { MotionModule } from './motionModule';
+import { urlFlag } from '../urlFlags';
 import { EN_ONLY, type OnProgress, type Tr } from '../progress';
 
 // CLIP ViT-L (SD 1.5) : 768/12 têtes, quick_gelu, dernier hidden state.
@@ -38,6 +37,17 @@ export interface VideoFrames { frames: ImageData[]; seed: number; ms: number }
 // donc pour un clip plus long on BOUCLE la séquence (AnimateDiff est entraîné pour boucler → raccord
 // quasi-invisible). Du mouvement neuf plus long demanderait de l'interpolation de frames (hors scope).
 export async function framesToWebm(frames: ImageData[], fps = 12, targetSec = 10): Promise<string | null> {
+  // Chemin RAPIDE d'abord : WebCodecs, sans temps réel ni requestAnimationFrame (cf. webm.ts) — il
+  // tourne aussi onglet caché. ?webcodecs=0 → l'enregistrement MediaRecorder ci-dessous (bras témoin).
+  const frameMsFast = 1000 / fps;
+  const loopsFast = targetSec <= 0 ? 1 : Math.max(2, Math.round((targetSec * 1000) / (frames.length * frameMsFast)));
+  if (urlFlag('webcodecs') !== '0') {
+    try {
+      const { encodeWebmFast } = await import('./webm');
+      const blob = await encodeWebmFast(frames, fps, loopsFast);
+      if (blob) return URL.createObjectURL(blob);
+    } catch (e) { console.warn('[video] encodage WebCodecs impossible, repli MediaRecorder :', e); }
+  }
   try {
     if (typeof MediaRecorder === 'undefined' || !frames.length) return null;
     const c = document.createElement('canvas');
@@ -81,42 +91,23 @@ export interface VideoGenerator { generate(prompt: string, opts?: { seed?: numbe
 
 // Les 21 modules motion depuis le BRIK (q8 packé → codes/scales GPU, petits tenseurs f32 CPU).
 async function loadMotionModules(engine: WebGpuEngine, url: string, onProgress?: OnProgress, tr: Tr = EN_ONLY): Promise<Map<string, MotionModule>> {
-  // Lecture en FLUX (et non un arrayBuffer d'un bloc) : c'est ce qui permet d'annoncer les octets,
-  // donc la barre et le temps restant, sur les ~460 Mo du module motion.
-  const label = tr('Downloading the motion module…', 'Téléchargement du module motion…');
-  onProgress?.(label);
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`HTTP ${r.status} (motion)`);
-  const total = parseInt(r.headers.get('content-length') || '0', 10);
-  const reader = r.body?.getReader();
-  let buf: Uint8Array;
-  if (!reader) {
-    buf = new Uint8Array(await r.arrayBuffer());
-  } else {
-    const chunks: Uint8Array[] = [];
-    let loaded = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value); loaded += value.byteLength;
-      onProgress?.(label, total ? { loaded, total } : undefined);
-    }
-    buf = new Uint8Array(loaded);
-    let at = 0;
-    for (const c of chunks) { buf.set(c, at); at += c.byteLength; }
-  }
-  const parsed = parseBrik(buf);
-  const bases = computeShardBases(parsed.manifest.shards);
+  // Par le CACHE DE PLAGES, shard par shard (streamImageBrik, le chemin de l'UNet et du CLIP). Un
+  // `fetch` nu servait ces 483 Mo : Hugging Face redirige vers une URL CDN SIGNÉE qui change à chaque
+  // fois, donc le cache HTTP ne servait jamais, et le module était RETÉLÉCHARGÉ à chaque chargement du
+  // pipeline vidéo — alors que l'indicateur « téléchargé » de la carte (videoModelCacheState) le
+  // cherche justement dans ce cache de plages, qu'il ne remplissait pas (constaté le 2026-10-08).
+  const label = tr('Streaming the motion module', 'Streaming du module motion');
+  onProgress?.(`${label}…`);
   const byModule = new Map<string, { name: string; dtype: string; f32?: Float32Array; q8?: { codes: Uint8Array; scales: Uint8Array }; shape: number[] }[]>();
-  for (const [name, t] of Object.entries(parsed.manifest.tensors)) {
+  await streamImageBrik(url, (name, t, bytes) => {
     const m = name.match(/^((?:down_blocks|up_blocks)\.\d+\.motion_modules\.\d+|mid_block\.motion_modules\.\d+)\.(.+)$/);
-    if (!m) continue;
-    const bytes = parsed.data.subarray(bases[t.shard] + t.offset, bases[t.shard] + t.offset + t.byteLength);
+    if (!m) return;
     let g = byModule.get(m[1]);
     if (!g) byModule.set(m[1], (g = []));
-    if (t.dtype === 'q8') g.push({ name: m[2], dtype: 'q8', shape: t.shape, q8: { codes: bytes.subarray(0, t.nElems), scales: bytes.subarray(t.nElems) } });
-    else g.push({ name: m[2], dtype: t.dtype, shape: t.shape, f32: decodeTensor(bytes, t.nElems, t.dtype) });
-  }
+    // Copies : les octets du shard sont relâchés après ce rappel.
+    if (t.dtype === 'q8') g.push({ name: m[2], dtype: 'q8', shape: t.shape, q8: { codes: bytes.slice(0, t.nElems), scales: bytes.slice(t.nElems, t.byteLength) } });
+    else g.push({ name: m[2], dtype: t.dtype, shape: t.shape, f32: decodeTensor(bytes.slice(0, t.byteLength), t.nElems, t.dtype) });
+  }, async (done, total, prog) => { onProgress?.(`${label} ${done}/${total}…`, prog); });
   const out = new Map<string, MotionModule>();
   for (const [site, tensors] of byModule) {
     const mod = new MotionModule(engine);
