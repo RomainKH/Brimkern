@@ -66,3 +66,28 @@ des intégrateurs du SDK. Turbo-VAED : MIT. T5 v1.1 : Apache 2.0.
    (RoPE 3D, AdaLN, cross-attention), scheduler flow-matching, décodeur ; chaque brique contre
    l'oracle de l'étape 1.
 4. Intégration au chat, A/B de temps, captures pour Romain.
+
+## Étape 1 — MESURÉE (2026-10-08, CPU, diffusers 0.35.1, mêmes poids que ceux qu'on servirait)
+
+Pipeline : `LTXPipeline`, calendrier distillé officiel posé tel quel (sigmas 1,0 → 0,725, 7 pas, une
+seule passe, pas d'upscaler), guidance 1, 512 × 320 × 49 images, graine 42, deux prompts (plage au
+coucher du soleil, chat dans un jardin). Quantification SIMULÉE à l'identique de nos formats
+(q4web/q3web asymétriques, q8web symétrique, groupes de 32, échelles f16) — `quant.py`.
+
+- **Pleine précision** : vagues qui déferlent, chat qui marche, 49 images cohérentes — le saut de
+  qualité attendu face à AnimateDiff. CPU fp32 : DiT 32-66 s, décodeur d'origine 30-45 s.
+- **Turbo-VAED-LTX : INUTILISABLE** — bruit pur sur les latents 0.9.8 (PSNR 10 dB face au décodeur
+  d'origine) : distillé pour le VAE 0.9.0, sans conditionnement temporel. Écarté.
+- **T5** (cosinus des plongements par jeton vs pleine précision) : int8 0,9989 ; int4 0,960 ; int3
+  0,951. Un jeton tombe à ~0,2 en int4 quelles que soient les couches gardées en int8 (wo, attention,
+  couches extrêmes) — plongement de référence quasi nul, cosinus non significatif ; la vidéo tranche.
+- **DiT int4 + T5 int4 + décodeur int8** : vidéos aussi propres que la pleine précision (composition
+  légèrement différente → PSNR 12-14 dB, normal en diffusion). **~4,9 Go.**
+- **DiT int4 + T5 int3 + décodeur int4** : toujours propres sur les deux prompts. **~4,1 Go**
+  (DiT 1,20 + T5 2,58 dont 0,26 d'embeddings f16 + décodeur 0,35). Embeddings T5 en int8 et vocabulaire
+  taillé : ~3,9 Go.
+
+Conséquence : le budget de poids n'est PAS le verrou (~4 Go, 2,6× AnimateDiff, pour un tout autre
+rendu). Le verrou est le TEMPS : sur ce CPU, ~60 s pour 2 s de vidéo à 24 im/s. En WebGPU, le DiT
+(matmuls) devrait faire mieux que le CPU ; le décodeur (convolutions 3D en pleine résolution) est
+l'inconnue — à mesurer dès son portage, c'est lui qui dira si le produit tient.
