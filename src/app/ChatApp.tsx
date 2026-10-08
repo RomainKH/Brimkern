@@ -2161,7 +2161,20 @@ function App() {
       const res = await videoGen.generate(finalPrompt, { frames, size: 256, onProgress, ...(Number.isFinite(vseed) ? { seed: vseed } : {}) });
       onProgress(t('Encoding the video (WebM)…', 'Compilation de la vidéo (WebM)…'));
       const { framesToWebm } = await import('@/lib/webgpu/video/videoGen');
-      const url = await framesToWebm(res.frames); // 12 fps, séquence bouclée (~10 s) — null si non supporté
+      // UNE passe de la séquence (16 frames à 12 fps = 1,3 s) : MediaRecorder enregistre en TEMPS RÉEL,
+      // et la version bouclée de ~10 s faisait attendre ~10 s de plus après la fin du calcul GPU, pour
+      // un clip que la bulle lit déjà en boucle (`<video loop>`). La version longue — celle qu'on
+      // enregistre — est fabriquée APRÈS, en arrière-plan, et remplace l'URL quand elle est prête.
+      // ?vfastwebm=0 : l'ancien chemin (une seule vidéo bouclée de ~10 s) — bras témoin du banc.
+      const slowWebm = q.get('vfastwebm') === '0';
+      const url = await framesToWebm(res.frames, 12, slowWebm ? 10 : 0); // null si non supporté
+      if (url && !slowWebm) {
+        void framesToWebm(res.frames).then((longUrl) => {
+          if (!longUrl) return;
+          setMessages(prev => prev.map(m => m.id === aId && m.video?.url === url ? { ...m, video: { ...m.video, url: longUrl } } : m));
+          URL.revokeObjectURL(url);
+        });
+      }
       const first = res.frames[0];
       setMessages(prev => prev.map(m => m.id === aId ? {
         ...m,

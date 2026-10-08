@@ -53,7 +53,8 @@ export async function framesToWebm(frames: ImageData[], fps = 12, targetSec = 10
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     const done = new Promise<void>((resolve) => { rec.onstop = () => resolve(); });
     const frameMs = 1000 / fps;
-    const loops = Math.max(2, Math.round((targetSec * 1000) / (frames.length * frameMs))); // boucle pour atteindre ~targetSec
+    // targetSec = 0 → UNE passe (affichage immédiat, la bulle boucle elle-même) ; sinon ≥ 2 boucles.
+    const loops = targetSec <= 0 ? 1 : Math.max(2, Math.round((targetSec * 1000) / (frames.length * frameMs)));
     const total = frames.length * loops;                 // séquence bouclée
     const durMs = total * frameMs;                        // durée CIBLE, bornée
     rec.start();

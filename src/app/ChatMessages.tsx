@@ -208,6 +208,9 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
                 régénérer un clip coûte des minutes. */}
             {msg.video?.url ? (
               <video
+                // Clé = URL : la version longue (~10 s) remplace la passe courte après coup ; un élément
+                // neuf rejoue fixWebmDuration, marqué une seule fois par élément.
+                key={msg.video.url}
                 ref={fixWebmDuration}
                 src={msg.video.url}
                 poster={msg.video.poster}
