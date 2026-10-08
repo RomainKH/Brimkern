@@ -89,18 +89,21 @@ export class MotionModule {
 	async forward(x: Float32Array, F: number, H: number, W: number): Promise<Float32Array> {
 		if (!(this.engine as { videoOk?: boolean }).videoOk) throw new Error('chemin vidéo coupé (?video=0 ou selfValidate)');
 		const C = this.C, S = H * W;
-		// GroupNorm(32) sur (F, C, S)
+		// GroupNorm(32) — statistiques sur (canaux du groupe, F frames, S) ENSEMBLE, comme diffusers
+		// (AnimateDiffTransformer3D : hidden → [B, C, F, H, W] avant self.norm). Les calculer frame par
+		// frame laissait chaque image libre de sa luminosité : clips scintillants (corrigé le 2026-10-08,
+		// écart-type de la luminosité par image 20 contre 4 pour la référence).
 		const gN = this.w.get('norm.weight')!, bN = this.w.get('norm.bias')!;
 		const gn = new Float32Array(x.length), groups = 32, cpg = C / groups;
-		for (let f = 0; f < F; f++) for (let g = 0; g < groups; g++) {
-			let m = 0; const n = cpg * S;
-			for (let c = g * cpg; c < (g + 1) * cpg; c++) for (let s = 0; s < S; s++) m += x[(f * C + c) * S + s];
+		for (let g = 0; g < groups; g++) {
+			let m = 0; const n = cpg * S * F;
+			for (let f = 0; f < F; f++) for (let c = g * cpg; c < (g + 1) * cpg; c++) for (let s = 0; s < S; s++) m += x[(f * C + c) * S + s];
 			m /= n;
 			let vv = 0;
-			for (let c = g * cpg; c < (g + 1) * cpg; c++) for (let s = 0; s < S; s++) { const d = x[(f * C + c) * S + s] - m; vv += d * d; }
+			for (let f = 0; f < F; f++) for (let c = g * cpg; c < (g + 1) * cpg; c++) for (let s = 0; s < S; s++) { const d = x[(f * C + c) * S + s] - m; vv += d * d; }
 			vv /= n;
 			const inv = 1 / Math.sqrt(vv + 1e-6);
-			for (let c = g * cpg; c < (g + 1) * cpg; c++) for (let s = 0; s < S; s++) { const i = (f * C + c) * S + s; gn[i] = (x[i] - m) * inv * gN[c] + bN[c]; }
+			for (let f = 0; f < F; f++) for (let c = g * cpg; c < (g + 1) * cpg; c++) for (let s = 0; s < S; s++) { const i = (f * C + c) * S + s; gn[i] = (x[i] - m) * inv * gN[c] + bN[c]; }
 		}
 		// (F,C,S) → (S·F, C)
 		const seq = new Float32Array(S * F * C);
@@ -132,8 +135,8 @@ export class MotionModule {
 	}
 
 	// Forward 100 % RÉSIDENT : entrée/sortie = F buffers GPU par frame (C,S), TOUT enchaîné dans une
-	// seule recordingSession (zéro readback, zéro glu JS). Même graphe que forward() : groupnorm par
-	// frame → gather (F,C,S)→(S·F,C) → proj_in → [LN + PE + attn_temporal]×2 → LN + GEGLU → proj_out →
+	// seule recordingSession (zéro readback, zéro glu JS). Même graphe que forward() : groupnorm sur
+	// les F frames ensemble → (S·F,C) → proj_in → [LN + PE + attn_temporal]×2 → LN + GEGLU → proj_out →
 	// scatter+résidu → split en F frames. Réservé au chemin résident (gaté par videoResidentOk côté
 	// unetForwardVideo) ; forward() reste le repli byte-identique.
 	async forwardResident(frames: GPUAny[], F: number, H: number, W: number): Promise<GPUAny[]> {
@@ -155,14 +158,14 @@ export class MotionModule {
 			const y = s.attnTemporal(q, k, v, S, F, this.HEADS, this.HD);
 			return mmR(prefix + '.to_out.0', y, rows).buf;
 		};
-		// GroupNorm par frame + concat des originaux (résidu) et des normés (entrée gather).
+		// GroupNorm sur les F frames ENSEMBLE (cf. forward) : (F, C, S) → transposé (C, S·F), où chaque
+		// canal voit ses S·F valeurs → group_norm standard aux statistiques de diffusers ; puis
+		// transposé (S·F, C), ligne s·F + f — exactement la sortie de l'ancien gather.
 		const gN = this.w.get('norm.weight')!, bN = this.w.get('norm.bias')!;
-		const xCat = s.alloc(F * CS * 4), gnCat = s.alloc(F * CS * 4);
-		for (let f = 0; f < F; f++) {
-			s.copy(xCat, f * CS * 4, frames[f], 0, CS * 4);
-			s.copy(gnCat, f * CS * 4, s.groupNorm(frames[f], gN, bN, C, S, 32, 1e-6), 0, CS * 4);
-		}
-		const seq = s.videoGather(gnCat, F, C, S);        // (S·F, C)
+		const xCat = s.alloc(F * CS * 4);
+		for (let f = 0; f < F; f++) s.copy(xCat, f * CS * 4, frames[f], 0, CS * 4);
+		const csf = s.transpose(xCat, F, CS);               // (C·S, F) = (C, S·F)
+		const seq = s.transpose(s.groupNorm(csf, gN, bN, C, S * F, 32, 1e-6), C, S * F); // (S·F, C)
 		let h = mmR('proj_in', seq, rows).buf;
 		const pe = this.w.get('transformer_blocks.0.pos_embed.pe')!;
 		for (const a of ['attn1', 'attn2'] as const) {
