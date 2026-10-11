@@ -123,3 +123,23 @@ l'inconnue — à mesurer dès son portage, c'est lui qui dira si le produit tie
 - ⚠️ Un premier banc à 48 jetons donnait 358 ms par forward : à cette taille le temps est dans les
   ~400 dispatches, pas dans les matmuls — ne jamais extrapoler un petit banc.
 - Suite : profil par kernel du transformeur ; T5 (porté, oracle prêt, BRIK q4 en construction).
+
+## Étape 4a — profil du transformeur et attention « flash » (2026-10-11)
+
+Profil GPU d'un pas à 1 120 jetons (`__ltxDitBench` sous `?gpuprofile=1`, deux passes chaudes) :
+`attention_full_wg` **57 %** (169 tirs, 11,7 s — ~69 ms l'appel, ~150 GFLOP/s), `matmul_t_q4_shared2`
+40 % (8,1 s, ~1 TFLOP/s : le plafond connu du GEMM q4), le reste < 3 %. Cause : un workgroup par
+(jeton, tête) relit K et V entiers pour chaque jeton — 20 Go de trafic par attention.
+
+`attention_flash64` : un workgroup par bloc de 64 requêtes et par tête, K/V par tuiles de 32 clés en
+mémoire partagée (16 Ko, la limite WebGPU par défaut), softmax en ligne. headDim 64 seulement
+(SD-Turbo, LTX), gate `attnFlashOk` contre `attention_full_wg` (bords, croisée, GQA, softcap),
+kill-switch `?attnflash=0`.
+- v1 (tableaux f32 indexés dynamiquement) : attention 11,7 → 5,2 s (×2,2) ; pas 6,5 → ~4,9 s ;
+  génération 55 → 46,7 s (décodeur 10,7 s ce tir-là : construction de BRIK en parallèle sur le CPU).
+- **Image 512 px (SD-Turbo), bras alternés : 4,05 → 3,54 s (×1,14)** — l'attention y pesait 38 %.
+- v2 : tuiles et registres en vec4, déroulage statique généré depuis le template (un tableau local
+  indexé dynamiquement part en mémoire locale sur Metal) — en cours de mesure.
+
+Après l'attention, le GEMM q4 porte ~60 % du pas ; au-delà, les leviers sont la résolution par
+défaut (384×256×33 : 480 jetons, ~2,2× moins de GEMM et ~3,3× moins de décodeur) et le f16.

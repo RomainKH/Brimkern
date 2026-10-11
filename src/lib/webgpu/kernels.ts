@@ -169,6 +169,9 @@ export class WebGpuEngine {
 	// sur le kernel thread-par-tête historique. Posé par validateDiffusion (gate non bloquant, motif
 	// convTiledOk), ou forcé par ?attnfullwg=0. Jamais bloquant.
 	attnFullWgOk = true;
+	// Attention tuilée « flash » (headDim = 64, ≥ 64 jetons) : gate NON BLOQUANT posé par selfValidate
+	// (contre attention_full_wg), ou forcé par ?attnflash=0 → attention_full_wg.
+	attnFlashOk = true;
 	// Santé du kernel M-RoPE (qwen2vl) : false → la vision refuse de charger (le chat texte n'est
 	// jamais affecté — le kernel n'est dispatché que pour l'arch qwen2vl). Posé par selfValidate.
 	mropeOk = true;
@@ -391,6 +394,10 @@ export class WebGpuEngine {
 			if (urlFlag('qwen35ssm') === '0') {
 				this.qwen35SsmOk = false;
 				console.warn('[webgpu] kernel Qwen 3.5 SSM COUPÉ par ?qwen35ssm=0');
+			}
+			if (urlFlag('attnflash') === '0') {
+				this.attnFlashOk = false;
+				console.warn('[webgpu] attention tuilée flash COUPÉE par ?attnflash=0 : attention_full_wg (K/V relus par jeton)');
 			}
 			if (urlFlag('attnwide') === '0') {
 				this.attnWideOk = false;
@@ -1783,7 +1790,11 @@ export class WebGpuEngine {
 		// forme rentre : headDim ≤ 192 (3 scalaires/lane) et nTokens·nHeads ≤ 65535 (une dimension de
 		// grille, un workgroup par (token, tête) — 512px SD-Turbo culmine à 20480). Repli sinon.
 		const n = nTokens * nHeads;
-		if (this.attnFullWgOk && headDim <= 192 && n <= 65535) {
+		// Flash : un workgroup par bloc de 64 requêtes et par tête — dès 64 jetons (en dessous, le bloc
+		// serait presque vide et attention_full_wg suffit), headDim 64 (SD-Turbo, LTX), grille y ≤ 65535.
+		if (this.attnFlashOk && headDim === 64 && nTokens >= 64 && nHeads <= 65535) {
+			this.recordPass(enc, 'attention_flash64', [p, q, k, v, out], [Math.ceil(nTokens / 64), nHeads, 1]);
+		} else if (this.attnFullWgOk && headDim <= 192 && n <= 65535) {
 			this.recordPass(enc, 'attention_full_wg', [p, q, k, v, out], [n, 1, 1]);
 		} else {
 			this.recordPass(enc, 'attention_full', [p, q, k, v, out], [Math.ceil(n / WG), 1, 1]);
@@ -2080,6 +2091,24 @@ export class WebGpuEngine {
 		};
 	}
 
+	// Attention pleine avec readback, en forçant (ou non) le chemin flash — pour selfValidate uniquement.
+	private async attentionFullDirect(q: Float32Array, k: Float32Array, v: Float32Array, nT: number, nH: number, nKv: number, hd: number, kvLen: number, softcap: number, flash: boolean): Promise<Float32Array> {
+		const saved = this.attnFlashOk; this.attnFlashOk = flash;
+		try {
+			const enc = this.device.createCommandEncoder(); const trash: GPUAny[] = [];
+			const qb = this.uploadGpu(q), kb = this.uploadGpu(k), vb = this.uploadGpu(v);
+			const p = this.uniform([nT, nH, nKv, hd, kvLen, 0], { offset: 24, value: [1 / Math.sqrt(hd), softcap] });
+			const out = this.storage(nT * nH * hd * 4);
+			const n = nT * nH;
+			if (this.attnFlashOk && hd === 64 && nT >= 64) this.recordPass(enc, 'attention_flash64', [p, qb, kb, vb, out], [Math.ceil(nT / 64), nH, 1]);
+			else this.recordPass(enc, 'attention_full_wg', [p, qb, kb, vb, out], [n, 1, 1]);
+			trash.push(p, out);
+			this.device.queue.submit([enc.finish()]);
+			const res = await this.readBack(out, nT * nH * hd * 4);
+			this.release(trash); this.releaseGpu([qb, kb, vb]);
+			return res;
+		} finally { this.attnFlashOk = saved; }
+	}
 	// Read a GPU f32 buffer back to the CPU (public readback for GPU-resident pipelines).
 	readGpu(buf: GPUAny, nElems: number): Promise<Float32Array> { return this.readBack(buf, nElems * 4); }
 	// Shrink the scratch pool down to ~keepBytes (largest buffers dropped first). The pool grows to
@@ -5782,6 +5811,22 @@ export class WebGpuEngine {
 				for (let e2 = 0; e2 < hd2; e2++) { let acc = 0; for (let j = 0; j < kvL; j++) acc += (s[j] / sum) * av[j * dd + h * hd2 + e2]; aref[t * dd + h * hd2 + e2] = acc; }
 			}
 			if (!closeRel(await this.attentionFull(aq, ak, av, nT, nH, nH, hd2, kvL), aref)) return 'attention_full';
+		}
+
+		// attention_flash64 vs attention_full_wg : bords déchiquetés (130 jetons = 2 blocs + 2 rangées,
+		// 130 clés = 4 tuiles + 2), attention croisée (70 → 37 clés), GQA (4 têtes pour 2 K/V), softcap.
+		if (this.attnFlashOk && this.attnFullWgOk) {
+			let bad: string | null = null;
+			try {
+				for (const [nT, kvLen, nH, nKv, softcap] of [[130, 130, 3, 3, 0], [70, 37, 4, 2, 0], [64, 200, 2, 2, 30]]) {
+					const hd = 64, q = rand(nT * nH * hd), k = rand(kvLen * nKv * hd), v = rand(kvLen * nKv * hd);
+					const got = await this.attentionFullDirect(q, k, v, nT, nH, nKv, hd, kvLen, softcap, true);
+					const ref = await this.attentionFullDirect(q, k, v, nT, nH, nKv, hd, kvLen, softcap, false);
+					if (!closeRel(got, ref)) { bad = `nT=${nT} kv=${kvLen} nH=${nH}/${nKv} softcap=${softcap}`; break; }
+				}
+			} catch (e) { bad = String(e); }
+			if (bad) { this.attnFlashOk = false; console.warn(`[selfValidate] attention flash KO (${bad}) : repli attention_full_wg.`); }
+			else console.log('[selfValidate] attention tuilée flash OK (headDim 64, bords, croisée, GQA, softcap)');
 		}
 
 		// attention_full_wg vs attention_full : mêmes sorties exigées sur des formes RÉELLES de l'UNet —

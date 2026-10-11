@@ -4345,6 +4345,72 @@ export const SHADERS = {
 			for (var d = 0u; d < hd; d = d + 1u) { o[qBase + d] = o[qBase + d] * inv; }
 		}`,
 
+	// ATTENTION TUILÉE « flash » pour headDim = 64 (2026-10-11) : un workgroup = 64 REQUÊTES d'une tête,
+	// K et V balayés par tuiles de 32 clés mises en mémoire partagée en vec4 (2 × 32 × 64 × 4 o = 16 Ko, la
+	// limite WebGPU par défaut, exactement), softmax en ligne par thread (q et l'accumulateur en registres).
+	// Pourquoi : attention_full_wg relit K et V en entier pour CHAQUE jeton — à 1 120 jetons × 32 têtes
+	// (transformeur LTX), 20 Go de trafic par attention, 69 ms, ~150 GFLOP/s, 57 % du pas de débruitage.
+	// Ici chaque élément de K/V est lu une fois par bloc de 64 requêtes : 64× moins de trafic. Même math
+	// que attention_full (échelle, softcap, GQA : kvh = h / (nHeads / nKvHeads)), pas de masque causal.
+	// Les rangées au-delà de nTokens participent aux chargements et aux barrières (flux uniforme) mais ne
+	// calculent ni n'écrivent rien.
+	attention_flash64: `
+		struct AP { nTokens: u32, nHeads: u32, nKvHeads: u32, headDim: u32, kvLen: u32, pastLen: u32, scale: f32, softcap: f32 };
+		@group(0) @binding(0) var<uniform> p: AP;
+		@group(0) @binding(1) var<storage, read> q: array<vec4<f32>>;
+		@group(0) @binding(2) var<storage, read> k: array<vec4<f32>>;
+		@group(0) @binding(3) var<storage, read> v: array<vec4<f32>>;
+		@group(0) @binding(4) var<storage, read_write> o: array<vec4<f32>>;
+		var<workgroup> Ks: array<vec4<f32>, 512>; // 32 clés × 16 vec4
+		var<workgroup> Vs: array<vec4<f32>, 512>;
+		fn score(dot: f32) -> f32 {
+			let s = dot * p.scale;
+			return select(s, p.softcap * tanh(s / p.softcap), p.softcap > 0.0);
+		}
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let h = wid.y;
+			let t = wid.x * 64u + lid.x;
+			let live = t < p.nTokens;
+			let kvh = h / (p.nHeads / p.nKvHeads);
+			let qBase = (min(t, p.nTokens - 1u) * p.nHeads + h) * 16u;
+			// q et l'accumulateur en 16 vec4 CHACUN, indexés STATIQUEMENT (déroulage généré) : un tableau local
+			// indexé dynamiquement part en mémoire locale sur Metal — la v1 plafonnait à ~330 GFLOP/s.
+${Array.from({ length: 16 }, (_, i) => `			let q${i} = q[qBase + ${i}u]; var a${i} = vec4<f32>(0.0);`).join('\n')}
+			var m = -3.0e38; var l = 0.0;
+			let nTiles = (p.kvLen + 31u) / 32u;
+			for (var tile = 0u; tile < nTiles; tile = tile + 1u) {
+				let j0 = tile * 32u;
+				for (var r = 0u; r < 8u; r = r + 1u) {
+					let i = lid.x + r * 64u;
+					let jj = i >> 4u; let c = i & 15u;
+					let src = (min(j0 + jj, p.kvLen - 1u) * p.nKvHeads + kvh) * 16u + c;
+					Ks[i] = k[src]; Vs[i] = v[src];
+				}
+				workgroupBarrier();
+				if (live) {
+					let nj = min(32u, p.kvLen - j0);
+					for (var jj = 0u; jj < nj; jj = jj + 1u) {
+						let kb = jj * 16u;
+						let d = ${Array.from({ length: 16 }, (_, i) => `dot(q${i}, Ks[kb + ${i}u])`).join(' + ')};
+						let sc = score(d);
+						let mNew = max(m, sc);
+						let corr = exp(m - mNew);
+						let pw = exp(sc - mNew);
+						l = l * corr + pw;
+${Array.from({ length: 16 }, (_, i) => `						a${i} = fma(vec4<f32>(pw), Vs[kb + ${i}u], a${i} * corr);`).join('\n')}
+						m = mNew;
+					}
+				}
+				workgroupBarrier();
+			}
+			if (live) {
+				let inv = 1.0 / l;
+				let oBase = (t * p.nHeads + h) * 16u;
+${Array.from({ length: 16 }, (_, i) => `				o[oBase + ${i}u] = a${i} * inv;`).join('\n')}
+			}
+		}`,
+
 	// attention_full en « workgroup par (token, tête) » : même math que attention_full, même recette
 	// que attention_decode — q stagé en mémoire partagée, kvLen balayé par tuiles de 64 positions
 	// (un score par lane), softmax EN LIGNE (une seule passe sur K au lieu de deux), réductions
