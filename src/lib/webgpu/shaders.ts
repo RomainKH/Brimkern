@@ -1058,6 +1058,90 @@ export const SHADERS = {
 			st4(gr + 3u, gc, m, r30); st4(gr + 3u, gc + 4u, m, r31);
 		}`,
 
+	// ── ENCODEUR T5 (video/ltxT5.ts) : attention avec BIAIS ADDITIF [H, L, L] (biais de position relative
+	// de T5 + masque), SANS facteur 1/√d (convention T5). Un thread par (ligne i, tête h) ; L ≤ 256.
+	// q, k, v : [L, H·DK] ; sortie [L, H·DK].
+	attention_bias: `
+		struct P { L: u32, H: u32, DK: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> q: array<f32>;
+		@group(0) @binding(2) var<storage, read> k: array<f32>;
+		@group(0) @binding(3) var<storage, read> v: array<f32>;
+		@group(0) @binding(4) var<storage, read> bias: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (idx >= p.L * p.H) { return; }
+			let i = idx / p.H; let h = idx % p.H;
+			let D = p.H * p.DK;
+			var sc: array<f32, 256>;
+			var mx = -3.0e38;
+			for (var j = 0u; j < p.L; j = j + 1u) {
+				var acc = 0.0;
+				for (var d = 0u; d < p.DK; d = d + 1u) { acc = acc + q[i * D + h * p.DK + d] * k[j * D + h * p.DK + d]; }
+				let sv = acc + bias[(h * p.L + i) * p.L + j];
+				sc[j] = sv; mx = max(mx, sv);
+			}
+			var den = 0.0;
+			for (var j = 0u; j < p.L; j = j + 1u) { let e = exp(sc[j] - mx); sc[j] = e; den = den + e; }
+			let inv = 1.0 / den;
+			for (var d = 0u; d < p.DK; d = d + 1u) {
+				var acc = 0.0;
+				for (var j = 0u; j < p.L; j = j + 1u) { acc = acc + sc[j] * v[j * D + h * p.DK + d]; }
+				o[i * D + h * p.DK + d] = acc * inv;
+			}
+		}`,
+
+	// ── TRANSFORMEUR LTX (video/ltxTransformer.ts). Données [rows, dim] ligne par jeton.
+	// rope_ltx : rotation interleavée par PAIRES (x[2p], x[2p+1]) avec des tables cos/sin [rows, dim/2]
+	// calculées sur CPU (fréquences par axe t/h/w du RoPE 3D de LTX) : o0 = x0·c − x1·s, o1 = x1·c + x0·s.
+	rope_ltx: `
+		struct P { rows: u32, half: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> cs: array<f32>;
+		@group(0) @binding(3) var<storage, read> sn: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.rows * p.half) { return; }
+			let x0 = x[2u * i]; let x1 = x[2u * i + 1u]; let c = cs[i]; let s = sn[i];
+			o[2u * i] = x0 * c - x1 * s;
+			o[2u * i + 1u] = x1 * c + x0 * s;
+		}`,
+
+	// AdaLN : o = x · (1 + ada[scaleOff + col]) + ada[shiftOff + col] (vecteurs par bloc et par pas).
+	ltx_modulate: `
+		struct P { rows: u32, dim: u32, shiftOff: u32, scaleOff: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> ada: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.rows * p.dim) { return; }
+			let c = i % p.dim;
+			o[i] = x[i] * (1.0 + ada[p.scaleOff + c]) + ada[p.shiftOff + c];
+		}`,
+
+	// Résidu avec porte : o = x + ada[gateOff + col] · y.
+	ltx_gated_add: `
+		struct P { rows: u32, dim: u32, gateOff: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> y: array<f32>;
+		@group(0) @binding(3) var<storage, read> ada: array<f32>;
+		@group(0) @binding(4) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let i = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (i >= p.rows * p.dim) { return; }
+			o[i] = x[i] + ada[p.gateOff + (i % p.dim)] * y[i];
+		}`,
+
 	// RMSNorm sur les CANAUX de chaque voxel (données [C, S], sans affine, eps 1e-8) + AdaLN
 	// (x·(1 + scale[c]) + shift[c], vecteurs précalculés dans le BRIK pour le pas de temps du
 	// pipeline) + SiLU — les trois opérations qui précèdent chaque convolution du décodeur LTX.

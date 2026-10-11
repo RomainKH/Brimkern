@@ -91,3 +91,35 @@ Conséquence : le budget de poids n'est PAS le verrou (~4 Go, 2,6× AnimateDiff,
 rendu). Le verrou est le TEMPS : sur ce CPU, ~60 s pour 2 s de vidéo à 24 im/s. En WebGPU, le DiT
 (matmuls) devrait faire mieux que le CPU ; le décodeur (convolutions 3D en pleine résolution) est
 l'inconnue — à mesurer dès son portage, c'est lui qui dira si le produit tient.
+
+## Étape 3a — décodeur PORTÉ (2026-10-11)
+
+- 4 kernels + `video/ltxDecoder.ts` ; AdaLN précalculé pour t = 0,05 (embedder non porté).
+- Exact contre PyTorch sur les poids tels que servis : vidéo 1,4·10⁻³ max / 8·10⁻⁵ moyen (±2,2).
+- **49 images 512×320 : 8,4 s** (deux tirs), ~1,2 TFLOP/s — le CPU fp32 mettait 17 à 30 s. Le verrou
+  « décodeur » est levé ; reste le DiT (~32 TFLOP en 7 pas) et le T5.
+- ⚠️ Piège trouvé en route : le codec BRIK aplatissait les échelles f16 sous-normales (poids < 0,0078
+  par groupe) → groupes entiers à zéro. Corrigé dans `f16.ts`, régression dans `q8web.test.ts`.
+  Tout modèle à petits poids quantifié AVANT ce correctif est à reconstruire.
+- ⚠️ Deux pièges d'oracle : (1) comparer au f16 mélange erreur de portage et de quantification — la
+  référence doit être calculée sur les poids DÉQUANTIFIÉS PAR LE CODEC DU DÉPÔT (dump Node → torch) ;
+  (2) `next start` ne sert pas un dossier de `public/` créé après son démarrage (404) : redémarrer.
+
+## Étape 3b — transformeur PORTÉ, première vidéo dans l'onglet (2026-10-11)
+
+- `video/ltxTransformer.ts` : embedder de temps sur CPU (exact), tables RoPE 3D sur CPU (arrondis f32
+  émulés : 1,5·10⁻⁵ moyen contre les tables torch), 3 kernels (`rope_ltx`, `ltx_modulate`,
+  `ltx_gated_add`) + rmsnorm/attention/gelu existants ; boucle flow-matching Euler sur le calendrier
+  distillé (7 sigmas). BRIK `ltx-transformer-light` : 1 251 Mo (q4 1 174 · q8 14 · f16 62), 29 shards.
+- Validation contre la référence quantifiée par le codec (dump Node → torch) : proj_in exact, bloc 0
+  0,0017 % moyen, sortie 0,6 % moyen / 3,4 % max. Contre le f16 : 10 % — c'est l'amplification du
+  bruit q4 sur 28 blocs (PyTorch seul, q4 vs f16 : 10,4 %), pas un bug.
+- **Première génération complète dans Chrome** (texte T5 précalculé, graine 42, 512×320×49) : plage
+  au coucher du soleil, vague, nuages — `docs/screenshots/ltx-first-generation-2026-10-11.png`.
+  Temps : transformeur **46,1 s** (6,4-6,9 s par pas à 1 120 jetons, ≈ 0,65 TFLOP/s — moitié de nos
+  GEMM), décodeur 8,9 s, **total 55 s**. Chargement 2 s (cache).
+- Tokenizer T5 côté navigateur : `Xenova/t5-v1_1-base` (transformers.js 4.2) = T5Tokenizer Python
+  sur les deux prompts, identifiants identiques.
+- ⚠️ Un premier banc à 48 jetons donnait 358 ms par forward : à cette taille le temps est dans les
+  ~400 dispatches, pas dans les matmuls — ne jamais extrapoler un petit banc.
+- Suite : profil par kernel du transformeur ; T5 (porté, oracle prêt, BRIK q4 en construction).

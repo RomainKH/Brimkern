@@ -673,6 +673,150 @@ function App() {
       console.log('[ltx] bench', res);
       return res;
     };
+    // __ltxDitOracle() : le transformeur LTX ENTIER contre PyTorch (un forward, latent 2×4×6, texte de
+    // l'oracle, t = 1000) — écarts après proj_in, blocs 0/13/27, norm_out et sur la sortie.
+    (window as any).__ltxDitOracle = async (base = '/models/ltx-oracle-dit/', brik = '/models/ltx-transformer-light.brik', useRefRope = false) => {
+      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+      const { LtxTransformer } = await import('@/lib/webgpu/video/ltxTransformer');
+      const { brikImageToMap } = await import('@/lib/webgpu/diffusion/sdturbo');
+      const e = new WebGpuEngine();
+      if (!(await e.init())) return { error: 'WebGPU indisponible' };
+      await e.selfValidate();
+      const t0 = performance.now();
+      const { map } = await brikImageToMap(e, brik, (m) => console.log('[ltx]', m), 'LTX transformer', undefined, LtxTransformer.isCpuTensor);
+      console.log(`[ltx] transformeur chargé en ${((performance.now() - t0) / 1000).toFixed(1)} s, ${map.size} tenseurs`);
+      const tr = new LtxTransformer(e, map);
+      const f32 = async (n: string) => new Float32Array(await (await fetch(base + n + '.f32')).arrayBuffer());
+      const meta = await (await fetch(base + 'meta.json')).json();
+      const [lat, text, ref, tembRef, cosRef] = await Promise.all([f32('in-latent'), f32('in-text'), f32('out'), f32('temb'), f32('rope-cos')]);
+      const sh = { T: meta.F, H: meta.H, W: meta.W }, S = sh.T * sh.H * sh.W, L = meta.mask_len;
+      const err = (a: Float32Array, b: Float32Array) => { let mx = 0, sum = 0, ref = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); mx = Math.max(mx, d); sum += d; ref = Math.max(ref, Math.abs(b[i])); } return { max: +mx.toFixed(4), mean: +(sum / a.length).toFixed(5), refMax: +ref.toFixed(2) }; };
+      const res: Record<string, any> = {};
+      // Les deux morceaux CPU d'abord : embedder de temps et tables RoPE (cos complet [S, 2048] dans l'oracle).
+      res.temb = err(tr.timeEmbed(meta.timestep).temb, tembRef);
+      const tabs = tr.ropeTables(sh); const cosFull = new Float32Array(S * 2048);
+      for (let i = 0; i < S * 1024; i++) { cosFull[2 * i] = tabs.cs[i]; cosFull[2 * i + 1] = tabs.cs[i]; }
+      res.ropeCos = err(cosFull, cosRef);
+      const ctx = tr.encodeText(text.subarray(0, L * 4096), L);
+      // useRefRope : tables cos/sin de l'oracle (f32 torch) à la place des nôtres — isole l'arrondi des
+      // tables du reste (kernels, ordre d'accumulation).
+      if (useRefRope) { const sinRef = await f32('rope-sin'); for (let i = 0; i < S * 1024; i++) { tabs.cs[i] = cosRef[2 * i]; tabs.sn[i] = sinRef[2 * i]; } }
+      const rope = { cs: e.uploadGpu(tabs.cs), sn: e.uploadGpu(tabs.sn) };
+      const taps: Record<string, Float32Array> = {};
+      const t1 = performance.now();
+      const out = await tr.forward(lat, S, ctx, rope, meta.timestep, (n, d) => { taps[n] = d; });
+      res.ms = +(performance.now() - t1).toFixed(0);
+      for (const n of ['proj_in', 'transformer_blocks.0', 'transformer_blocks.13', 'transformer_blocks.27', 'norm_out']) {
+        try { res[n] = err(taps[n], await f32('tap-' + n.replace(/\./g, '_'))); } catch { res[n] = 'pas de prise'; }
+      }
+      res.out = err(out, ref);
+      e.releaseGpu([ctx.buf, rope.cs, rope.sn]); tr.dispose(); e.destroy();
+      console.log('[ltx] oracle DiT', res);
+      return res;
+    };
+    // __ltxDitBench(T, H, W) : un forward du transformeur à la forme cible (1120 jetons pour 512×320×49),
+    // latent et texte aléatoires — le temps d'un pas de débruitage.
+    (window as any).__ltxDitBench = async (T = 7, H = 10, W = 16, brik = '/models/ltx-transformer-light.brik') => {
+      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+      const { LtxTransformer } = await import('@/lib/webgpu/video/ltxTransformer');
+      const { brikImageToMap } = await import('@/lib/webgpu/diffusion/sdturbo');
+      const e = new WebGpuEngine();
+      if (!(await e.init())) return { error: 'WebGPU indisponible' };
+      await e.selfValidate();
+      const { map } = await brikImageToMap(e, brik, undefined, 'LTX transformer', undefined, LtxTransformer.isCpuTensor);
+      const tr = new LtxTransformer(e, map), sh = { T, H, W }, S = T * H * W;
+      const lat = new Float32Array(S * 128).map(() => Math.random() * 2 - 1), text = new Float32Array(32 * 4096).map(() => Math.random() - 0.5);
+      const ctx = tr.encodeText(text, 32), tabs = tr.ropeTables(sh), rope = { cs: e.uploadGpu(tabs.cs), sn: e.uploadGpu(tabs.sn) };
+      const times: number[] = [];
+      for (let r = 0; r < 3; r++) {
+        if (r === 1) e.profiler?.reset(); // la 1re passe paye la compilation des pipelines
+        const t0 = performance.now(); await tr.forward(lat, S, ctx, rope, 1000); times.push(+((performance.now() - t0) / 1000).toFixed(2));
+      }
+      // Sous ?gpuprofile=1 : budget GPU par kernel sur les 2 passes chaudes (cf. gpuProfile.ts : les passes
+      // courtes et nombreuses y sont SURESTIMÉES — il désigne quoi regarder, le juge reste le temps mural).
+      let profil: any = null;
+      if (e.profiler) { const r = await e.profiler.report(); profil = { totalMs: +r.totalMs.toFixed(0), passes: r.passes.slice(0, 12).map((p) => ({ name: p.name, calls: p.calls, ms: +p.totalMs.toFixed(0), part: +(p.share * 100).toFixed(1) })) }; }
+      e.releaseGpu([ctx.buf, rope.cs, rope.sn]); tr.dispose(); e.destroy();
+      const res = { jetons: S, secondesParPas: times, profil };
+      console.log('[ltx] bench DiT', res);
+      return res;
+    };
+    // __ltxGenerate() : la GÉNÉRATION ENTIÈRE dans l'onglet avec le texte de l'oracle (T5 pas encore porté) :
+    // bruit → 7 pas du transformeur (calendrier distillé) → dénormalisation → bruit de décodage → décodeur.
+    // Rend les temps et une planche de 8 images (data URL) à regarder.
+    (window as any).__ltxGenerate = async (opts: { T?: number; H?: number; W?: number; seed?: number; base?: string } = {}) => {
+      const { T = 7, H = 10, W = 16, seed = 42, base = '/models/ltx-oracle-dit/' } = opts;
+      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+      const { LtxTransformer, tokensToLatent } = await import('@/lib/webgpu/video/ltxTransformer');
+      const { LtxDecoder } = await import('@/lib/webgpu/video/ltxDecoder');
+      const { brikImageToMap } = await import('@/lib/webgpu/diffusion/sdturbo');
+      const { randnSeeded } = await import('@/lib/webgpu/diffusion/scheduler');
+      const e = new WebGpuEngine();
+      if (!(await e.init())) return { error: 'WebGPU indisponible' };
+      await e.selfValidate();
+      const t0 = performance.now();
+      const { map: mt } = await brikImageToMap(e, '/models/ltx-transformer-light.brik', undefined, 'LTX transformer', undefined, LtxTransformer.isCpuTensor);
+      const { map: md } = await brikImageToMap(e, '/models/ltx-vae-decoder-q8-v2.brik', undefined, 'LTX decoder');
+      const tLoad = (performance.now() - t0) / 1000;
+      const tr = new LtxTransformer(e, mt), dec = new LtxDecoder(e, md);
+      const vaeMeta = await (await fetch(base + 'vae-meta.json')).json();
+      const text = new Float32Array(await (await fetch(base + 'in-text.f32')).arrayBuffer());
+      const L = (await (await fetch(base + 'meta.json')).json()).mask_len;
+      const ctx = tr.encodeText(text.subarray(0, L * 4096), L);
+      const sh = { T, H, W }, S = T * H * W;
+      const SIG = [1.0, 0.9937, 0.9875, 0.9812, 0.975, 0.9094, 0.725];
+      const t1 = performance.now();
+      const stepTimes: number[] = []; let last = t1;
+      const tokens = await tr.sample(randnSeeded(S * 128, seed), sh, ctx, SIG, () => { const n = performance.now(); stepTimes.push(+((n - last) / 1000).toFixed(2)); last = n; });
+      const tDit = (performance.now() - t1) / 1000;
+      let lat = tokensToLatent(tokens, sh, vaeMeta.latents_mean, vaeMeta.latents_std);
+      const noise = randnSeeded(lat.length, seed + 7);
+      lat = lat.map((v, i) => 0.975 * v + 0.025 * noise[i]);
+      const t2 = performance.now();
+      const vid = await dec.decode(lat, T, H, W);
+      const tDec = (performance.now() - t2) / 1000;
+      const c = document.createElement('canvas'); c.width = vid.W * 4; c.height = vid.H * 2; const g = c.getContext('2d')!;
+      const F = vid.T, HW = vid.H * vid.W;
+      for (let k = 0; k < 8; k++) {
+        const f = Math.round(k * (F - 1) / 7), img = g.createImageData(vid.W, vid.H);
+        for (let p = 0; p < HW; p++) { for (let ch = 0; ch < 3; ch++) img.data[p * 4 + ch] = Math.max(0, Math.min(255, (vid.data[(ch * F + f) * HW + p] + 1) * 127.5)); img.data[p * 4 + 3] = 255; }
+        g.putImageData(img, (k % 4) * vid.W, Math.floor(k / 4) * vid.H);
+      }
+      const sheet = c.toDataURL('image/png');
+      e.releaseGpu([ctx.buf]); tr.dispose(); dec.dispose(); e.destroy();
+      const res = { chargement: +tLoad.toFixed(1), transformeur: +tDit.toFixed(1), pas: stepTimes, decodeur: +tDec.toFixed(1), total: +((performance.now() - t1) / 1000).toFixed(1), images: F, taille: `${vid.W}×${vid.H}`, sheet };
+      console.log('[ltx] génération', { ...res, sheet: sheet.length + ' o' });
+      return res;
+    };
+    // __ltxT5Oracle() : l'encodeur T5 ENTIER contre le forward manuel PyTorch (ids du prompt 0 de l'oracle),
+    // écarts sur le plongement d'entrée, les blocs 0/11/23 et la sortie ; cosinus par jeton sur la sortie.
+    (window as any).__ltxT5Oracle = async (base = '/models/ltx-oracle-t5/', brik = '/models/ltx-t5-light.brik', which = 0) => {
+      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+      const { LtxT5Encoder } = await import('@/lib/webgpu/video/ltxT5');
+      const { brikImageToMap } = await import('@/lib/webgpu/diffusion/sdturbo');
+      const e = new WebGpuEngine();
+      if (!(await e.init())) return { error: 'WebGPU indisponible' };
+      await e.selfValidate();
+      const t0 = performance.now();
+      const { map } = await brikImageToMap(e, brik, (m) => console.log('[ltx]', m), 'T5', undefined, LtxT5Encoder.isCpuTensor);
+      const tLoad = (performance.now() - t0) / 1000;
+      const enc = new LtxT5Encoder(e, map);
+      const f32 = async (n: string) => new Float32Array(await (await fetch(base + n + '.f32')).arrayBuffer());
+      const ids = Array.from(new Int32Array(await (await fetch(base + `ids${which}.i32`)).arrayBuffer()));
+      const err = (a: Float32Array, b: Float32Array) => { let mx = 0, sum = 0, ref = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); mx = Math.max(mx, d); sum += d; ref = Math.max(ref, Math.abs(b[i])); } return { max: +mx.toFixed(4), mean: +(sum / a.length).toFixed(5), refMax: +ref.toFixed(2) }; };
+      const taps: Record<string, Float32Array> = {};
+      const t1 = performance.now();
+      const out = await enc.encode(ids, (n, d) => { taps[n] = d; });
+      const ms = performance.now() - t1;
+      const res: Record<string, any> = { chargement: +tLoad.toFixed(1), ms: +ms.toFixed(0), valid: out.valid };
+      for (const n of ['embed', 'block0', 'block11', 'block23']) { try { res[n] = err(taps[n], await f32(`tap${which}-${n}`)); } catch { res[n] = 'pas de prise'; } }
+      const ref = await f32(`out${which}`); res.out = err(out.embeds, ref);
+      let cmin = 1, csum = 0; for (let i = 0; i < out.valid; i++) { let ab = 0, aa = 0, bb = 0; for (let d = 0; d < 4096; d++) { const x = out.embeds[i * 4096 + d], y = ref[i * 4096 + d]; ab += x * y; aa += x * x; bb += y * y; } const c = ab / Math.sqrt(aa * bb); cmin = Math.min(cmin, c); csum += c; }
+      res.cosinus = { moyen: +(csum / out.valid).toFixed(5), min: +cmin.toFixed(5) };
+      enc.dispose(); e.destroy();
+      console.log('[ltx] oracle T5', res);
+      return res;
+    };
     // __decodeBench(profil) : PLAFOND de décodage de nos kernels sur les formes d'un vrai modèle,
     // sans télécharger ses poids. Le décodage lit TOUS les poids par token (matmul-vecteur, m=1) :
     // on mesure donc les 7 matmuls d'UNE couche + la tête logits, puis on extrapole × nLayers. C'est

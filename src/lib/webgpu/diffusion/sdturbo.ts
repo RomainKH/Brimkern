@@ -308,13 +308,15 @@ async function urlToCHW(url: string, maxDim = 512): Promise<{ data: Float32Array
 // EST la version GPU — aucune passe *ToGpu, aucune quantification au chargement (tout l'intérêt
 // du pré-quantifié : téléchargement ÷2 et démarrage plus rapide). Une plage HTTP par shard,
 // cache + reprise hérités de fetchRange ; waitGpu par shard draine le staging transitoire.
-export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: OnProgress, label = 'weights', tr: Tr = EN_ONLY): Promise<{ map: Map<string, SafeTensor>; unetCfg?: Record<string, unknown> }> {
+// `cpu` : tenseurs à GARDER côté CPU (f16 brut ou q8 déquantifié) au lieu d'être envoyés au GPU — les
+// poids que le JS consomme lui-même (embedder de temps du transformeur LTX, tables AdaLN).
+export async function brikImageToMap(e: WebGpuEngine, url: string, onProgress?: OnProgress, label = 'weights', tr: Tr = EN_ONLY, cpu?: (name: string) => boolean): Promise<{ map: Map<string, SafeTensor>; unetCfg?: Record<string, unknown> }> {
   const u8 = (a: Int8Array | Uint16Array | Uint8Array) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
   const cpuNames = new Set(['text_model.embeddings.token_embedding.weight', 'text_model.embeddings.position_embedding.weight']);
   const map = new Map<string, SafeTensor>();
   const manifest = await streamImageBrik(url, (name, t, bytes) => {
     let data: unknown;
-    if (cpuNames.has(name)) {
+    if (cpuNames.has(name) || cpu?.(name)) {
       data = t.dtype === 'q8' ? dequantizeQ8(unpackQ8(bytes, t.nElems))
         : t.dtype === 'f16' ? { f16: bytes.slice(), n: t.nElems } // copie — les bytes du shard sont relâchés
         : new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + t.byteLength));

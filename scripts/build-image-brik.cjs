@@ -99,6 +99,25 @@ const MODELS = {
 		out: (tier) => `ltx-vae-decoder-${tier}.brik`,
 		name: 'LTX-Video 0.9.8 VAE decoder (AdaLN precomputed, t=0.05)',
 	},
+	// Transformeur LTX (DiT 1,92 G) : source = safetensors f16 de l'oracle (.brik-build/ltx-transformer-src.safetensors).
+	// Tier conseillé : light (q4) — docs/ltx-video-feasibility.md, étape 1 : q4 visuellement équivalent au bf16.
+	'ltx-transformer': {
+		url: 'file://.brik-build/ltx-transformer-src.safetensors (oracle local, pas de téléchargement)',
+		out: (tier) => `ltx-transformer-${tier}.brik`,
+		name: 'LTX-Video 0.9.8 distilled transformer (2B)',
+		// Petites projections d'entrée/sortie et du texte en q8 ; embedder de temps et tables AdaLN en f16
+		// (consommés par le CPU) ; le reste suit le tier.
+		dtype: (name) => /^(proj_in|proj_out|caption_projection)\./.test(name) ? 'q8' : /^time_embed\.|scale_shift_table/.test(name) ? 'f16' : null,
+	},
+	// Encodeur de texte T5 v1.1 XXL (4,7 G) du pipeline LTX : source = .brik-build/ltx-t5-src.safetensors
+	// (f16, préfixes transformers). Tier conseillé : light (q4) — int3 à l'étude (docs/ltx-video-feasibility.md).
+	'ltx-t5': {
+		url: 'file://.brik-build/ltx-t5-src.safetensors (oracle local, pas de téléchargement)',
+		out: (tier) => `ltx-t5-${tier}.brik`,
+		name: 'T5 v1.1 XXL encoder (LTX-Video text encoder)',
+		// Table de plongements en q8 (relue par le CPU), biais de position en f16, le reste suit le tier.
+		dtype: (name) => name === 'shared.weight' ? 'q8' : /relative_attention_bias/.test(name) ? 'f16' : null,
+	},
 	// ── RealVisXL Turbo / SDXL (1024px natif, double CLIP, photoréalisme studio) ────────────────
 	'realvisxl-unet': {
 		url: 'https://huggingface.co/SG161222/RealVisXL_V4.0_Lightning/resolve/main/unet/diffusion_pytorch_model.safetensors',
@@ -183,6 +202,7 @@ function chooseDType(name, shape, nElems) {
 	if (name === 'text_model.embeddings.token_embedding.weight') return nElems % 32 === 0 ? 'q8' : 'f16';
 	if (name.startsWith('text_model.embeddings.')) return 'f16';
 	if (nElems % 32 !== 0) return 'f16';
+	if (MODEL.dtype) { const d = MODEL.dtype(name, shape, nElems); if (d) return d; }
 	const isConv = shape.length === 4 || shape.length === 5; // conv2d UNet / conv3d LTX
 	if (tier === 'q8') return 'q8';
 	if (tier === 'mixed') return isConv ? 'q8' : 'q4';
@@ -196,6 +216,10 @@ function shardKey(name) {
 	m = name.match(/^(up_blocks\.\d+\.(?:resnets|attentions|upsamplers|motion_modules)\.\d+)\./);
 	if (m) return m[1];
 	m = name.match(/^(mid_block\.(?:resnets|attentions|motion_modules)\.\d+)\./);
+	if (m) return m[1];
+	m = name.match(/^(encoder\.block\.\d+)\./);
+	if (m) return m[1];
+	m = name.match(/^(transformer_blocks\.\d+)\./);
 	if (m) return m[1];
 	m = name.match(/^(text_model\.encoder\.layers\.\d+)\./);
 	if (m) return m[1];

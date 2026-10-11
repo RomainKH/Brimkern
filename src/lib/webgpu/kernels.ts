@@ -1791,6 +1791,37 @@ export class WebGpuEngine {
 		trash.push(p, out);
 		return out;
 	}
+	// ── Encodeur T5 : attention avec biais additif (shader attention_bias).
+	private recAttentionBias(enc: GPUAny, trash: GPUAny[], q: GPUAny, k: GPUAny, v: GPUAny, bias: GPUAny, L: number, H: number, DK: number): GPUAny {
+		if (L > 256) throw new Error(`attention_bias : L = ${L} > 256`);
+		const p = this.uniform([L, H, DK]);
+		const out = this.storage(L * H * DK * 4);
+		this.recordPass(enc, 'attention_bias', [p, q, k, v, bias, out], this.grid1D(L * H));
+		trash.push(p, out);
+		return out;
+	}
+	// ── Briques du transformeur LTX (shaders rope_ltx / ltx_modulate / ltx_gated_add).
+	private recRopeLtx(enc: GPUAny, trash: GPUAny[], x: GPUAny, cs: GPUAny, sn: GPUAny, rows: number, dim: number): GPUAny {
+		const half = dim / 2, p = this.uniform([rows, half]);
+		const out = this.storage(rows * dim * 4);
+		this.recordPass(enc, 'rope_ltx', [p, x, cs, sn, out], this.grid1D(rows * half));
+		trash.push(p, out);
+		return out;
+	}
+	private recLtxModulate(enc: GPUAny, trash: GPUAny[], x: GPUAny, ada: GPUAny, rows: number, dim: number, shiftOff: number, scaleOff: number): GPUAny {
+		const p = this.uniform([rows, dim, shiftOff, scaleOff]);
+		const out = this.storage(rows * dim * 4);
+		this.recordPass(enc, 'ltx_modulate', [p, x, ada, out], this.grid1D(rows * dim));
+		trash.push(p, out);
+		return out;
+	}
+	private recLtxGatedAdd(enc: GPUAny, trash: GPUAny[], x: GPUAny, y: GPUAny, ada: GPUAny, rows: number, dim: number, gateOff: number): GPUAny {
+		const p = this.uniform([rows, dim, gateOff]);
+		const out = this.storage(rows * dim * 4);
+		this.recordPass(enc, 'ltx_gated_add', [p, x, y, ada, out], this.grid1D(rows * dim));
+		trash.push(p, out);
+		return out;
+	}
 	// ── Briques du décodeur LTX (shaders conv3d_igemm_q8 / ltx_norm_act / ltx_d2s / ltx_unpatchify).
 	private recConv3dQ8(enc: GPUAny, trash: GPUAny[], inp: GPUAny, q8: GPUAny, bias: GPUAny, Cin: number, T: number, H: number, W: number, Cout: number): GPUAny {
 		const m = T * H * W;
@@ -1985,6 +2016,13 @@ export class WebGpuEngine {
 			// CAUSAL attention (mask j ≤ pastLen+t) — CLIP's text encoder recorded in-session.
 			attention: (q: GPUAny, k: GPUAny, v: GPUAny, nT: number, nH: number, nKv: number, hd: number, kvLen: number, pastLen: number) => this.recAttention(enc, trash, up(q), up(k), up(v), nT, nH, nKv, hd, kvLen, pastLen),
 			upsample: (x: GPUAny, C: number, H: number, W: number, s: number) => this.recUpsample(enc, trash, up(x), C, H, W, s),
+			// Encodeur T5 (video/ltxT5.ts).
+			attentionBias: (q: GPUAny, k: GPUAny, v: GPUAny, bias: GPUAny, L: number, H: number, DK: number) => this.recAttentionBias(enc, trash, up(q), up(k), up(v), up(bias), L, H, DK),
+			// Transformeur LTX (video/ltxTransformer.ts) : données [rows, dim].
+			ropeLtx: (x: GPUAny, cs: GPUAny, sn: GPUAny, rows: number, dim: number) => this.recRopeLtx(enc, trash, up(x), up(cs), up(sn), rows, dim),
+			ltxModulate: (x: GPUAny, ada: GPUAny, rows: number, dim: number, shiftOff: number, scaleOff: number) => this.recLtxModulate(enc, trash, up(x), up(ada), rows, dim, shiftOff, scaleOff),
+			ltxGatedAdd: (x: GPUAny, y: GPUAny, ada: GPUAny, rows: number, dim: number, gateOff: number) => this.recLtxGatedAdd(enc, trash, up(x), up(y), up(ada), rows, dim, gateOff),
+			rmsnorm: (x: GPUAny, w: GPUAny, rows: number, dim: number, eps: number) => this.recRmsnorm(enc, trash, up(x), up(w), rows, dim, eps),
 			// Décodeur LTX (video/ltxDecoder.ts) : poids q8 {codes, sc}, biais f32, données [C, T, H, W].
 			conv3d: (x: GPUAny, q8: GPUAny, b: GPUAny, Cin: number, T: number, H: number, W: number, Cout: number) => this.recConv3dQ8(enc, trash, up(x), q8, up(b), Cin, T, H, W, Cout),
 			ltxNormAct: (x: GPUAny, ada: GPUAny, C: number, S: number, shiftOff: number, scaleOff: number, eps = 1e-8) => this.recLtxNormAct(enc, trash, up(x), up(ada), C, S, shiftOff, scaleOff, eps),
@@ -5556,6 +5594,45 @@ export class WebGpuEngine {
 				}
 			}
 			if (this.convGemmOk) console.log('[selfValidate] convolution q8 en GEMM implicite OK (3×3, stride 2, 1×1, Cin = 4)');
+		}
+
+		// Attention T5 avec biais (sans 1/√d) contre le CPU : L = 7 (non multiple), H = 3, DK = 4.
+		if (this.ltxOk) {
+			let bad: string | null = null;
+			try {
+				const L = 7, H = 3, DK = 4, Dm = H * DK;
+				const q = rand(L * Dm), k = rand(L * Dm), v = rand(L * Dm), bias = rand(H * L * L);
+				const ref = new Float32Array(L * Dm);
+				for (let h = 0; h < H; h++) for (let i = 0; i < L; i++) {
+					const sc = new Float32Array(L); let mx = -Infinity;
+					for (let j = 0; j < L; j++) { let a = 0; for (let d = 0; d < DK; d++) a += q[i * Dm + h * DK + d] * k[j * Dm + h * DK + d]; sc[j] = a + bias[(h * L + i) * L + j]; mx = Math.max(mx, sc[j]); }
+					let den = 0; for (let j = 0; j < L; j++) { sc[j] = Math.exp(sc[j] - mx); den += sc[j]; }
+					for (let d = 0; d < DK; d++) { let a = 0; for (let j = 0; j < L; j++) a += sc[j] * v[j * Dm + h * DK + d]; ref[i * Dm + h * DK + d] = a / den; }
+				}
+				const ss = this.recordingSession();
+				const got = await ss.finish(ss.attentionBias(q, k, v, bias, L, H, DK), L * Dm);
+				if (!closeRel(got, ref)) bad = 'attention_bias';
+			} catch (e) { bad = String(e); }
+			if (bad) { this.ltxOk = false; console.warn(`[selfValidate] attention T5 KO (${bad}) : briques LTX coupées.`); }
+		}
+
+		// Briques du transformeur LTX (rope par tables, modulation, résidu avec porte) contre le CPU.
+		if (this.ltxOk) {
+			let bad: string | null = null;
+			try {
+				const rows = 5, dim = 12, half = dim / 2;
+				const x = rand(rows * dim), y = rand(rows * dim), ada = rand(6 * dim), cs = rand(rows * half), sn = rand(rows * half);
+				const run = async (rec: (ss: any) => any, n: number) => { const ss = this.recordingSession(); return ss.finish(rec(ss), n); };
+				const rRef = new Float32Array(rows * dim);
+				for (let i = 0; i < rows * half; i++) { rRef[2 * i] = x[2 * i] * cs[i] - x[2 * i + 1] * sn[i]; rRef[2 * i + 1] = x[2 * i + 1] * cs[i] + x[2 * i] * sn[i]; }
+				const checks: [string, Promise<Float32Array>, Float32Array][] = [
+					['rope_ltx', run((ss) => ss.ropeLtx(x, cs, sn, rows, dim), rows * dim), rRef],
+					['modulate', run((ss) => ss.ltxModulate(x, ada, rows, dim, dim, 2 * dim), rows * dim), x.map((v, i) => v * (1 + ada[2 * dim + (i % dim)]) + ada[dim + (i % dim)])],
+					['gated_add', run((ss) => ss.ltxGatedAdd(x, y, ada, rows, dim, 5 * dim), rows * dim), x.map((v, i) => v + ada[5 * dim + (i % dim)] * y[i])],
+				];
+				for (const [name, got, ref] of checks) if (!closeRel(await got, ref)) { bad = name; break; }
+			} catch (e) { bad = String(e); }
+			if (bad) { this.ltxOk = false; console.warn(`[selfValidate] transformeur LTX KO (${bad}) : briques coupées.`); }
 		}
 
 		// Briques du décodeur LTX contre leurs références CPU. conv3d : Cout = 12 (tuile de colonnes très
