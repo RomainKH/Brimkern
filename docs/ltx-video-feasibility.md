@@ -156,3 +156,16 @@ défaut (384×256×33 : 480 jetons, ~2,2× moins de GEMM et ~3,3× moins de déc
 - Tokenizer `Xenova/t5-v1_1-base`.
 - Reste : téléversement HF (+ LICENSE LTXV), carte produit, choix du défaut (384×256 à 22 s contre
   512×320 à ~45 s), puis GEMM f16 / int3 du T5 pour le poids.
+
+## Étape 5 — produit (2026-10-11)
+
+- Carte « Lightricks · LTX-Video 2B » dans le navigateur de modèles (aperçu), au-dessus d'AnimateDiff ;
+  durées en secondes au composer (2 s = 49 images, 4 s = 97) ; défaut 384×256.
+- Parcours vérifié en vrai Chrome : clic carte → pipeline chargé en 13 s (cache) → clip 384×256×49 en
+  **22,2 s** (`docs/screenshots/ltx-chat-cat-2026-10-11.png`, plage : `ltx-chat-sheet2`).
+- Hub : `romainkh14/brimkern-ltx-BRIK` (LICENSE LTXV jointe, README avec mentions de modification et
+  restrictions d'usage) — téléversement des 4,85 Go en cours ; `LTX_BRIK` bascule sur ses URL une fois
+  les empreintes vérifiées.
+- Mémoire GPU : T5 (3 Go) + transformeur (1,25) + décodeur (0,56) résidents ≈ 5 Go + activations.
+  `loadLtxGenerator(…, t5Resident = false)` décharge le T5 après l'encodage : à brancher sur la
+  capacité GPU pour les machines à 8-16 Go (non mesuré).
