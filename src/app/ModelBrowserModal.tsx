@@ -10,7 +10,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 import { Database, X, Upload, Search, Info, Play, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Feather, HardDriveDownload, DownloadCloud, Cpu, Gauge, AlertCircle, Film } from 'lucide-react';
 import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
-import { COMING_SOON, MODALITY_PILL, IMAGE_PIPELINE_BYTES, VIDEO_PIPELINE_BYTES, VISION_PIPELINE_BYTES, fmtModelSize, normModelName } from '@/lib/modelCatalog';
+import { COMING_SOON, MODALITY_PILL, IMAGE_PIPELINE_BYTES, VIDEO_PIPELINE_BYTES, LTX_PIPELINE_BYTES, VISION_PIPELINE_BYTES, fmtModelSize, normModelName } from '@/lib/modelCatalog';
 import { type WeightDType } from '@/lib/brik/convert';
 import { useNetworkStatus, estimateDownloadSeconds, formatDuration, type NetTier } from '@/lib/useNetworkStatus';
 import { useGpuCapability, gpuVerdict, type GpuVerdict } from '@/lib/useGpuCapability';
@@ -77,7 +77,8 @@ interface Props {
   onLoadVisionModel?: () => void;
   // Charge le pipeline VIDÉO (AnimateDiff, desktop) dans le chat — la carte vidéo devient un vrai
   // mode produit (§ 3 P2). Le labo /video-test a été retiré le 2026-08-19 : il faisait doublon.
-  onLoadVideoModel?: () => void;
+  onLoadVideoModel?: (engine?: 'animatediff' | 'ltx') => void;
+  ltxPipelineCached?: boolean;
 }
 
 const fmtBytes = (bytes: number, dm = 2) => {
@@ -97,7 +98,7 @@ const parseParamsB = (name: string): number => {
 
 export function ModelBrowserModal({
   setBrowseOpen, modelState, autoConvert, setAutoConvert, convertTier, setConvertTier,
-  modelQuery, setModelQuery, isMobile, showAllModels, setShowAllModels, loadedModelName, isCached, imagePipelineCached, videoPipelineCached,
+  modelQuery, setModelQuery, isMobile, showAllModels, setShowAllModels, loadedModelName, isCached, imagePipelineCached, videoPipelineCached, ltxPipelineCached,
   userModels, setUserModels, benchRunning, handleUnloadModel, handleLoadModelFromUrl, handleStreamBrik, loadLocalBrikFromCache, onLoadFromInput,
   handleLoadLocalModel, handleDragOver, handleDragLeave, handleDrop, handleFileChange,
   selectedFile, setSelectedFile,
@@ -739,6 +740,53 @@ export function ModelBrowserModal({
                       </div>
                     );
                   })}
+                  {/* LTX-Video 2B : le DiT vidéo (docs/ltx-video-feasibility.md) — la carte vidéo de référence ;
+                      AnimateDiff reste en dessous pour les machines plus petites. */}
+                  {showVideoLab && (() => {
+                    const isLtxActive = !!loadedModelName && loadedModelName.includes('LTX-Video');
+                    return (
+                    <div
+                      className="model-card"
+                      style={{ background: isLtxActive ? 'rgba(34, 197, 94, 0.06)' : 'rgba(255,255,255,0.015)', border: isLtxActive ? '1px solid rgba(34, 197, 94, 0.45)' : '1px solid var(--border-color)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                        <span style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Lightricks · </span>LTX-Video 2B
+                        </span>
+                        <span style={{ fontSize: '9.5px', padding: '2px 7px', borderRadius: '999px', fontWeight: 700, whiteSpace: 'nowrap', background: 'rgba(236,72,153,0.12)', color: '#ec4899', border: '1px solid rgba(236,72,153,0.3)' }}>
+                          🎬 {t('2–4 s · 384×256 · 25 fps', '2–4 s · 384×256 · 25 im/s')}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: MODALITY_PILL.text2img.bg, color: MODALITY_PILL.text2img.fg, border: `1px solid ${MODALITY_PILL.text2img.fg}33`, fontWeight: 700 }}>{t('Video', 'Vidéo')}</span>
+                        {ltxPipelineCached && (
+                          <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 600 }}>{t('Downloaded', 'Téléchargé')}</span>
+                        )}
+                        <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>{t('preview', 'aperçu')}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
+                        <AlertCircle size={11} style={{ flexShrink: 0, marginTop: 1 }} />
+                        <span>{ltxPipelineCached
+                          ? t('Already downloaded — about 22 s of GPU work per 2-second clip on an M4 Mac, longer on smaller GPUs. Needs ~6 GB of GPU memory.',
+                              'Déjà téléchargé — environ 22 s de calcul GPU par clip de 2 s sur un Mac M4, davantage sur un GPU plus modeste. Demande ~6 Go de mémoire GPU.')
+                          : t(`${fmtModelSize(LTX_PIPELINE_BYTES, false)} to download, then about 22 s of GPU work per 2-second clip on an M4 Mac, longer on smaller GPUs. Needs ~6 GB of GPU memory.`,
+                              `${fmtModelSize(LTX_PIPELINE_BYTES, true)} à télécharger, puis environ 22 s de calcul GPU par clip de 2 s sur un Mac M4, davantage sur un GPU plus modeste. Demande ~6 Go de mémoire GPU.`)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
+                        {isLtxActive ? (
+                          <span style={{ fontSize: '11px', color: 'var(--success)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--success)' }} />{t('Active', 'Actif')}
+                          </span>
+                        ) : onLoadVideoModel && (
+                          <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
+                            disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
+                            onClick={() => onLoadVideoModel('ltx')}>
+                            <Film size={12} /> {t('Generate in the chat', 'Générer dans le chat')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ); })()}
                   {showVideoLab && (() => {
                     const isVideoActive = !!loadedModelName && loadedModelName.includes('AnimateDiff');
                     return (
@@ -790,7 +838,7 @@ export function ModelBrowserModal({
                             className="btn btn-primary"
                             style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
                             disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
-                            onClick={() => onLoadVideoModel()}
+                            onClick={() => onLoadVideoModel('animatediff')}
                           >
                             <Film size={12} /> {t('Generate in the chat', 'Générer dans le chat')}
                           </button>

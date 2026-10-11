@@ -73,6 +73,8 @@ export const LTX_BRIK = {
 	transformer: '/models/ltx-transformer-light.brik',
 	decoder: '/models/ltx-vae-decoder-q8-v2.brik',
 };
+// 3 034 331 120 (T5) + 1 250 891 776 (transformeur) + 561 524 176 (décodeur) — tailles des BRIK construits le 2026-10-11.
+export const LTX_PIPELINE_BYTES = 3_034_331_120 + 1_250_891_776 + 561_524_176;
 // Images au total par image générée (RIFE) : 4 → 16 frames deviennent 64, clip ~4 s au lieu de 1,3 s.
 export const VIDEO_INTERP_DEFAULT = 4;
 export const IMAGE_BRIK = {

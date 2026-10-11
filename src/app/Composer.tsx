@@ -53,6 +53,7 @@ interface Props {
   videoMode?: boolean;
   videoFrames?: number;
   setVideoFrames?: Dispatch<SetStateAction<number>>;
+  videoEngine?: 'animatediff' | 'ltx';
   webSearchOn: boolean;
   visionMode?: boolean;
   pendingImage?: { dataUrl: string; preview: string; w: number; h: number; previewW: number; previewH: number } | null;
@@ -75,7 +76,7 @@ export function Composer({
   userInput, setUserInput, handleSendMessage, handleStopGeneration, contextOver, contextTokens,
   imageMode, imageSize, setImageSize, imageRatio, setImageRatio, imageQuality, setImageQuality,
   nativeHighRes, imageCeiling,
-  webSearchOn, videoMode, videoFrames, setVideoFrames,
+  webSearchOn, videoMode, videoFrames, setVideoFrames, videoEngine,
   visionMode, pendingImage, setPendingImage,
   messageQueue = [], onRemoveQueued, onEditQueued, onClearQueue,
   variant = 'docked',
@@ -248,7 +249,7 @@ export function Composer({
             placeholder={
               modelState === 'ready'
                 ? (videoMode
-                  ? t('Describe a scene to animate (a few minutes per clip)…', 'Décrivez une scène à animer (quelques minutes par clip)…')
+                  ? t('Describe a scene to animate…', 'Décrivez une scène à animer…')
                   : imageMode
                     ? t('Describe an image to generate…', 'Décrivez une image à générer…')
                     : t('Type your message, ask a question, paste code…', 'Saisissez votre message, posez une question, collez du code…'))
@@ -392,9 +393,15 @@ export function Composer({
                 >
                   {/* Pas de 8 frames : le module motion est entraîné sur 16, et à 8 l'image se désagrège
                       (aspect peinture, blocs) — constaté le 2026-10-08, en 1 comme en 2 pas. */}
-                  {/* Durée LUE du clip : frames × images intercalées (RIFE) à 16 im/s — 16f ≈ 4 s, 24f ≈ 6 s. */}
-                  <option value={16}>16f (~{Math.round((16 * VIDEO_INTERP_DEFAULT) / 16)}s)</option>
-                  <option value={24}>24f (~{Math.round((24 * VIDEO_INTERP_DEFAULT) / 16)}s)</option>
+                  {/* Durée LUE du clip : frames × images intercalées (RIFE) à 16 im/s — 16f ≈ 4 s, 24f ≈ 6 s.
+                      LTX : les mêmes valeurs désignent 49 et 97 images à 25 im/s (ltxGen.ts). */}
+                  {videoEngine === 'ltx' ? (<>
+                    <option value={16}>{t('2 s (49 frames)', '2 s (49 images)')}</option>
+                    <option value={24}>{t('4 s (97 frames)', '4 s (97 images)')}</option>
+                  </>) : (<>
+                    <option value={16}>16f (~{Math.round((16 * VIDEO_INTERP_DEFAULT) / 16)}s)</option>
+                    <option value={24}>24f (~{Math.round((24 * VIDEO_INTERP_DEFAULT) / 16)}s)</option>
+                  </>)}
                 </select>
               </div>
             )}

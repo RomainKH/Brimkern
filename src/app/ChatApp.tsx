@@ -191,6 +191,8 @@ function App() {
   // Mode VIDÉO (AnimateDiff-Lightning sur pile SD 1.5, desktop) : prompt → clip WebM. Chargé par
   // loadVideoModel (§ 3 P2 — l'onglet produit du labo /video-test). Exclusif des autres modes.
   const [videoGen, setVideoGen] = useState<VideoGenerator | null>(null);
+  // Moteur du mode vidéo : AnimateDiff (SD 1.5, 256 px, ~10 s) ou LTX-Video 2B (384×256 à 25 im/s, ~22 s).
+  const [videoEngine, setVideoEngine] = useState<'animatediff' | 'ltx'>('animatediff');
   // Frames uniques du clip, réglées depuis le composer (?vframes= reste prioritaire, pour les bancs).
   // 16 = ~1,3 s de mouvement unique, bouclé à ~10 s au montage.
   const [videoFrames, setVideoFrames] = useState<number>(16);
@@ -411,6 +413,7 @@ function App() {
   // sans badge : un badge sur une information partielle serait exactement le mensonge qu'on vient de
   // retirer aux cartes image.
   const [videoPipelineCached, setVideoPipelineCached] = useState<boolean>(false);
+  const [ltxPipelineCached, setLtxPipelineCached] = useState<boolean>(false);
   const refreshImagePipelineCache = async () => {
     const src = await import('@/lib/webgpu/source');
     const next = { sdturbo: false, sdxs: false };
@@ -422,6 +425,8 @@ function App() {
     setImgPipelineCached(next);
     const vidPresent = isCached(VIDEO_BRIK.unet) && isCached(VIDEO_BRIK.motion) && isCached(VIDEO_BRIK.clip);
     setVideoPipelineCached(vidPresent ? (await src.videoModelCacheState(VIDEO_BRIK)).heavy : false);
+    const ltxPresent = isCached(LTX_BRIK.t5) && isCached(LTX_BRIK.transformer) && isCached(LTX_BRIK.decoder);
+    setLtxPipelineCached(ltxPresent ? (await Promise.all([LTX_BRIK.t5, LTX_BRIK.transformer, LTX_BRIK.decoder].map((u) => src.imageBrikCacheComplete(u)))).every(Boolean) : false);
   };
   // Keep the library in sync with the cache: after a Storage-panel clear, drop URL models whose bytes
   // are gone (local entries stay — they were never cached). Re-reads the cache to refresh badges too.
@@ -494,7 +499,7 @@ function App() {
     activeModel, loadedModelName, loadedModelUrl, selectedTokenizerId, setSelectedTokenizerId,
     modelArchType, setModelArchType,
     imageModel: visionSession ? { name: 'Qwen2-VL 2B (vision)', url: VISION_MODEL_URL }
-      : videoGen ? { name: 'AnimateDiff (video)', url: VIDEO_MODEL_URL }
+      : videoGen ? { name: videoEngine === 'ltx' ? 'LTX-Video 2B (video)' : 'AnimateDiff (video)', url: VIDEO_MODEL_URL }
       : imageGen ? { name: imageGen.name, url: IMAGE_MODEL_URL } : null,
   });
 
@@ -2051,22 +2056,24 @@ function App() {
   // L'onglet PRODUIT du labo /video-test (§ 3 P2) : CLIP-L → UNet SD 1.5 + 21 modules motion →
   // TAESD par frame, tout en BRIK q8 (~1,5 Go). Desktop uniquement (thermique) ; duty-cycle par
   // défaut hérité du réglage GPU (gpuDuty), ?duty= reste l'override dev comme en image.
-  const loadVideoModel = async () => {
+  const loadVideoModel = async (engine: 'animatediff' | 'ltx' = 'animatediff') => {
     setBrowseOpen(false);
     if (activeModel) handleUnloadModel();
     leaveImageMode();
     leaveVideoMode();
     leaveVisionMode();
     setModelState('loading');
-    setLoadingStep(t('Loading the video pipeline (AnimateDiff)…', 'Chargement du pipeline vidéo (AnimateDiff)…'));
+    const useLtx = engine === 'ltx' || new URLSearchParams(window.location.search).get('vengine') === 'ltx';
+    setLoadingStep(useLtx ? t('Loading the video pipeline (LTX-Video)…', 'Chargement du pipeline vidéo (LTX-Video)…') : t('Loading the video pipeline (AnimateDiff)…', 'Chargement du pipeline vidéo (AnimateDiff)…'));
     try {
       const { loadVideoGenerator } = await import('@/lib/webgpu/video/videoGen');
       // ?vengine=ltx : le pipeline LTX-Video (T5 + DiT + décodeur, 512×320, 49 images, ~40 s) à la place
       // d'AnimateDiff — chemin de développement tant que ses BRIK ne sont pas sur le Hub (LTX_BRIK).
-      if (new URLSearchParams(window.location.search).get('vengine') === 'ltx') {
+      if (useLtx) {
         const { loadLtxGenerator } = await import('@/lib/webgpu/video/ltxGen');
         const gen = await loadLtxGenerator(LTX_BRIK, onLoadProgress, t);
         gen.engine.onLost = (info) => { if (info?.reason === 'destroyed') return; console.warn('[video] device GPU perdu (LTX)'); setVideoGen(null); setModelState('idle'); };
+        setVideoEngine('ltx');
         setVideoGen(gen);
         setCurrentConvId(null);
         setMessages([{ id: 'welcome', role: 'assistant', content: t(
@@ -2109,6 +2116,7 @@ function App() {
         ));
       };
       setLoadingProgress(null);
+      setVideoEngine('animatediff');
       setVideoGen(gen);
       setCurrentConvId(null);
       setMessages([{
@@ -3188,7 +3196,7 @@ function App() {
   };
 
   // What the header/sidebar show as "loaded": the image generator's name in image mode, else the LLM.
-  const displayModelName = visionSession ? 'Qwen2-VL 2B (vision)' : videoGen ? 'AnimateDiff (video)' : imageGen ? imageGen.name : loadedModelName;
+  const displayModelName = visionSession ? 'Qwen2-VL 2B (vision)' : videoGen ? (videoEngine === 'ltx' ? 'LTX-Video 2B (video)' : 'AnimateDiff (video)') : imageGen ? imageGen.name : loadedModelName;
   // Unload whichever model is active (LLM, image generator, video pipeline or vision session).
   const unloadActiveModel = () => {
     if (visionSession) { leaveVisionMode(); setMessages([]); setModelState('idle'); }
@@ -3249,6 +3257,7 @@ function App() {
     videoMode: !!videoGen,
     videoFrames,
     setVideoFrames,
+    videoEngine,
     imageSize,
     setImageSize,
     imageRatio,
@@ -3501,6 +3510,7 @@ function App() {
               isCached={isCached}
               imagePipelineCached={imgPipelineCached}
               videoPipelineCached={videoPipelineCached}
+              ltxPipelineCached={ltxPipelineCached}
               userModels={userModels}
               setUserModels={setUserModels}
               benchRunning={benchRunning}
