@@ -79,5 +79,17 @@ function randn(n: number): Float32Array {
 	check('q8 row sub-blob reconstruction matches full dequant', ok);
 }
 
+// Régression du 2026-10-11 : un groupe de poids tout petits (max < 0,0078, échelle f16 SOUS-NORMALE)
+// était déquantifié à zéro. Les poids du décodeur LTX sont presque tous dans ce cas.
+{
+	const tiny = new Float32Array(64);
+	for (let i = 0; i < 64; i++) tiny[i] = (i % 2 ? -1 : 1) * (0.001 + 0.0001 * (i % 32));
+	const back = dequantizeQ8(quantizeQ8(tiny));
+	let maxRel = 0;
+	for (let i = 0; i < 64; i++) maxRel = Math.max(maxRel, Math.abs(back[i] - tiny[i]) / Math.abs(tiny[i]));
+	check('q8 groupe à petits poids (échelle f16 sous-normale) : erreur relative < 2 %', maxRel < 0.02, `max rel ${maxRel.toFixed(4)}`);
+	check('q8 groupe à petits poids : aucun poids ramené à zéro', back.every((v) => v !== 0));
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);
