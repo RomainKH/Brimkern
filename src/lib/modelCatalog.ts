@@ -65,6 +65,14 @@ export const VIDEO_BRIK = {
 	// entre les frames générées (video/rife.ts). Facultatif — absent, les clips restent à 16 frames.
 	rife: `${VIDEO_BRIK_BASE}/rife-4.26-f16.safetensors`,
 };
+// LTX-Video 0.9.8 distillé (docs/ltx-video-feasibility.md) : T5 q4 + transformeur q4 + décodeur q8.
+// ⚠️ Servis EN LOCAL (public/models, hors git) tant qu'ils ne sont pas téléversés sur le Hub : le
+// moteur vidéo LTX ne s'active que par ?vengine=ltx.
+export const LTX_BRIK = {
+	t5: '/models/ltx-t5-light.brik',
+	transformer: '/models/ltx-transformer-light.brik',
+	decoder: '/models/ltx-vae-decoder-q8-v2.brik',
+};
 // Images au total par image générée (RIFE) : 4 → 16 frames deviennent 64, clip ~4 s au lieu de 1,3 s.
 export const VIDEO_INTERP_DEFAULT = 4;
 export const IMAGE_BRIK = {

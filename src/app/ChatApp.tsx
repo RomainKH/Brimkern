@@ -17,7 +17,7 @@ import {
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
 import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
-import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION, VIDEO_STEPS_DEFAULT, VIDEO_INTERP_DEFAULT, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
+import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION, VIDEO_STEPS_DEFAULT, VIDEO_INTERP_DEFAULT, LTX_BRIK, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
 import { detectCalcs, formatCalc, currentDateLine } from '@/lib/localTools';
 import { listConversations, type Conversation } from '@/lib/chatStore';
@@ -2061,6 +2061,20 @@ function App() {
     setLoadingStep(t('Loading the video pipeline (AnimateDiff)…', 'Chargement du pipeline vidéo (AnimateDiff)…'));
     try {
       const { loadVideoGenerator } = await import('@/lib/webgpu/video/videoGen');
+      // ?vengine=ltx : le pipeline LTX-Video (T5 + DiT + décodeur, 512×320, 49 images, ~40 s) à la place
+      // d'AnimateDiff — chemin de développement tant que ses BRIK ne sont pas sur le Hub (LTX_BRIK).
+      if (new URLSearchParams(window.location.search).get('vengine') === 'ltx') {
+        const { loadLtxGenerator } = await import('@/lib/webgpu/video/ltxGen');
+        const gen = await loadLtxGenerator(LTX_BRIK, onLoadProgress, t);
+        gen.engine.onLost = (info) => { if (info?.reason === 'destroyed') return; console.warn('[video] device GPU perdu (LTX)'); setVideoGen(null); setModelState('idle'); };
+        setVideoGen(gen);
+        setCurrentConvId(null);
+        setMessages([{ id: 'welcome', role: 'assistant', content: t(
+          'Video mode: **LTX-Video 2B** (preview). Describe a scene: 2 seconds in 512×320 at 25 fps, about 40 s of GPU work on an M4 Mac.',
+          'Mode vidéo : **LTX-Video 2B** (aperçu). Décris une scène : 2 secondes en 512×320 à 25 im/s, environ 40 s de calcul GPU sur un Mac M4.') }]);
+        setModelState('ready');
+        return;
+      }
       const q = new URLSearchParams(window.location.search);
       const dutyRaw = q.get('duty');
       const pace = { duty: dutyRaw !== null ? Math.min(1, Math.max(0.1, parseFloat(dutyRaw) || 0.6)) : gpuDuty };

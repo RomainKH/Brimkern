@@ -303,7 +303,9 @@ function shardKey(name) {
 	const outDir = path.join(__dirname, '..', 'public', 'models');
 	fs.mkdirSync(outDir, { recursive: true });
 	const outPath = path.join(outDir, MODEL.out(tier));
-	fs.writeFileSync(outPath, out);
+	// Écriture PAR MORCEAUX : fs.writeFileSync plafonne à 2 Gio par appel (ERR_OUT_OF_RANGE) — le T5 XXL
+	// en q4 fait ~3 Go, et le fichier restait à 0 octet (2026-10-11).
+	{ const fd = fs.openSync(outPath, 'w'); const CH = 1 << 30; for (let o = 0; o < out.length; o += CH) fs.writeSync(fd, out, o, Math.min(CH, out.length - o), o); fs.closeSync(fd); }
 	console.log(`\n${outPath}`);
 	console.log(`  source ${(stats.srcBytes / 1e6).toFixed(0)} Mo → BRIK ${(out.length / 1e6).toFixed(0)} Mo` +
 		` (q8 ${(stats.q8 / 1e6).toFixed(0)} · q4 ${(stats.q4 / 1e6).toFixed(0)} · f16 ${(stats.f16 / 1e6).toFixed(0)})` +

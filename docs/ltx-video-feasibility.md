@@ -143,3 +143,16 @@ kill-switch `?attnflash=0`.
 
 Après l'attention, le GEMM q4 porte ~60 % du pas ; au-delà, les leviers sont la résolution par
 défaut (384×256×33 : 480 jetons, ~2,2× moins de GEMM et ~3,3× moins de décodeur) et le f16.
+
+## Étape 4b — T5 validé, pipeline COMPLET dans le chat (2026-10-11)
+
+- Attention flash v2 (vec4, déroulage statique) : attention 5,2 → 3,3 s par deux passes ; pas 4,2 s ;
+  **génération 512×320×49 : 39,7 s** (DiT 30, décodeur 9,6). Préréglage léger **384×256×33 : 15,4 s**
+  (DiT 11,5 à 1,6 s le pas, décodeur 3,8) — rendu toujours propre.
+- T5 XXL q4 (BRIK 3 034 Mo, 25 shards ; `fs.writeFileSync` plafonne à 2 Gio → écriture par morceaux)
+  dans Chrome : 1,09 s pour 128 jetons ; cosinus vs forward manuel f32 0,992 moyen / 0,985 min.
+- **Chat, `?vengine=ltx`, prompt réel** (« a cat walking through a sunny garden… ») : pipeline chargé
+  en 15 s (cache), **clip 384×256×49 en 22 s** tout compris — `docs/screenshots/ltx-chat-cat-2026-10-11.png`.
+- Tokenizer `Xenova/t5-v1_1-base`.
+- Reste : téléversement HF (+ LICENSE LTXV), carte produit, choix du défaut (384×256 à 22 s contre
+  512×320 à ~45 s), puis GEMM f16 / int3 du T5 pour le poids.
