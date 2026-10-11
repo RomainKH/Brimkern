@@ -54,6 +54,8 @@ next-env.d.ts
 /public/models/*.brik
 /public/models/video-oracle/
 /public/models/rife-oracle/
+/public/models/ltx-oracle/
+/public/models/ltx-oracle-q8/
 
 # Sortie du Space HF (assemblée par npm run build:hf-space)
 /.hf-space

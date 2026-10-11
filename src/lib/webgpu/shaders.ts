@@ -949,6 +949,183 @@ export const SHADERS = {
 			o[i] = w0[i] * sg + w1[i] * (1.0 - sg);
 		}`,
 
+	// ── DÉCODEUR VIDÉO LTX (video/ltxDecoder.ts, docs/ltx-video-feasibility.md) ─────────────────────
+	// conv3d_igemm_q8 : la convolution 3×3×3 (stride 1) en GEMM implicite — JUMELLE de conv2d_igemm_q8
+	// ci-dessous (même tuile 64 lignes × 128 colonnes, même bloc 4×8 vec4), lignes = voxels (T·H·W),
+	// k = Cin·27. Padding TEMPOREL RÉPLIQUÉ (LTXVideoCausalConv3d non causal : première/dernière image
+	// répétées), spatial à zéro. Poids PyTorch [Cout][Cin][kt][kh][kw] aplatis par ligne, q8web.
+	conv3d_igemm_q8: `
+		struct P { Cin: u32, T: u32, H: u32, W: u32, Cout: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> inp: array<f32>;
+		@group(0) @binding(2) var<storage, read> codes: array<u32>;
+		@group(0) @binding(3) var<storage, read> sc: array<u32>;
+		@group(0) @binding(4) var<storage, read> bias: array<f32>;
+		@group(0) @binding(5) var<storage, read_write> o: array<f32>;
+		var<workgroup> Asv: array<vec4<f32>, 256>;
+		var<workgroup> Wsv: array<vec4<f32>, 512>;
+		fn f16d(h: u32) -> f32 {
+			let s = (h >> 15u) & 1u; let e = (h >> 10u) & 0x1Fu; let mm = h & 0x3FFu; var v: f32;
+			if (e == 0u) { v = f32(mm) * 5.9604645e-8; } else if (e == 31u) { v = 65504.0; }
+			else { v = (1.0 + f32(mm) / 1024.0) * pow(2.0, f32(e) - 15.0); }
+			return select(v, -v, s == 1u);
+		}
+		fn q8x4(word: u32, s: f32) -> vec4<f32> {
+			return vec4<f32>(f32(i32(word << 24u) >> 24u), f32(i32(word << 16u) >> 24u), f32(i32(word << 8u) >> 24u), f32(i32(word) >> 24u)) * s;
+		}
+		fn wvec(col: u32, kp: u32, k: u32) -> vec4<f32> {
+			if (col >= p.Cout) { return vec4<f32>(0.0); }
+			let idx = col * k + kp;
+			let si = idx >> 5u;
+			let sw = sc[si >> 1u];
+			return q8x4(codes[idx >> 2u], f16d(select(sw & 0xFFFFu, sw >> 16u, (si & 1u) == 1u)));
+		}
+		fn px(r: u32, m: u32, ci: u32, kt: u32, kh: u32, kw: u32) -> f32 {
+			if (r >= m) { return 0.0; }
+			let HW = p.H * p.W;
+			let t = r / HW; let rem = r - t * HW; let y = rem / p.W; let x = rem - y * p.W;
+			let it = clamp(i32(t) + i32(kt) - 1, 0, i32(p.T) - 1);
+			let iy = i32(y) + i32(kh) - 1; let ix = i32(x) + i32(kw) - 1;
+			if (iy < 0 || ix < 0 || iy >= i32(p.H) || ix >= i32(p.W)) { return 0.0; }
+			return inp[((ci * p.T + u32(it)) * p.H + u32(iy)) * p.W + u32(ix)];
+		}
+		fn st(r: u32, col: u32, m: u32, v: f32) {
+			if (r < m && col < p.Cout) { o[col * m + r] = v + bias[col]; }
+		}
+		fn st4(r: u32, c0: u32, m: u32, v: vec4<f32>) {
+			st(r, c0, m, v.x); st(r, c0 + 1u, m, v.y); st(r, c0 + 2u, m, v.z); st(r, c0 + 3u, m, v.w);
+		}
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
+			let m = p.T * p.H * p.W;
+			let k = p.Cin * 27u;
+			let row0 = wid.y * 64u;
+			let col0 = wid.x * 128u;
+			let wCG = (tid >> 2u) & 31u; let wKq = tid & 3u;
+			let tA = tid - 128u;
+			let tr = (tid >> 4u) * 4u; let tc = (tid & 15u) * 8u;
+			var r00 = vec4<f32>(0.0); var r01 = vec4<f32>(0.0);
+			var r10 = vec4<f32>(0.0); var r11 = vec4<f32>(0.0);
+			var r20 = vec4<f32>(0.0); var r21 = vec4<f32>(0.0);
+			var r30 = vec4<f32>(0.0); var r31 = vec4<f32>(0.0);
+			let nTiles = (k + 15u) / 16u;
+			for (var t = 0u; t < nTiles; t = t + 1u) {
+				let kk = t * 16u;
+				if (tid < 128u) {
+					let kp = kk + wKq * 4u;
+					let cBase = col0 + wCG * 4u;
+					var v0 = vec4<f32>(0.0); var v1 = vec4<f32>(0.0); var v2 = vec4<f32>(0.0); var v3 = vec4<f32>(0.0);
+					if (kp < k) {
+						v0 = wvec(cBase, kp, k); v1 = wvec(cBase + 1u, kp, k);
+						v2 = wvec(cBase + 2u, kp, k); v3 = wvec(cBase + 3u, kp, k);
+					}
+					let wb = (wKq * 4u) * 32u + wCG;
+					Wsv[wb] = vec4<f32>(v0.x, v1.x, v2.x, v3.x);
+					Wsv[wb + 32u] = vec4<f32>(v0.y, v1.y, v2.y, v3.y);
+					Wsv[wb + 64u] = vec4<f32>(v0.z, v1.z, v2.z, v3.z);
+					Wsv[wb + 96u] = vec4<f32>(v0.w, v1.w, v2.w, v3.w);
+				} else {
+					for (var q = 0u; q < 2u; q = q + 1u) {
+						let slot = tA * 2u + q;
+						let aK = slot >> 4u; let aRG = slot & 15u;
+						let kp = kk + aK;
+						let ar = row0 + aRG * 4u;
+						var av = vec4<f32>(0.0);
+						if (kp < k) {
+							let ci = kp / 27u; let rr = kp - ci * 27u;
+							let kt = rr / 9u; let kh = (rr / 3u) % 3u; let kw = rr % 3u;
+							av = vec4<f32>(px(ar, m, ci, kt, kh, kw), px(ar + 1u, m, ci, kt, kh, kw), px(ar + 2u, m, ci, kt, kh, kw), px(ar + 3u, m, ci, kt, kh, kw));
+						}
+						Asv[aK * 16u + aRG] = av;
+					}
+				}
+				workgroupBarrier();
+				for (var i = 0u; i < 16u; i = i + 1u) {
+					let avc = Asv[i * 16u + (tr >> 2u)];
+					let wb2 = i * 32u + (tc >> 2u);
+					let wv0 = Wsv[wb2]; let wv1 = Wsv[wb2 + 1u];
+					r00 = fma(vec4<f32>(avc.x), wv0, r00); r01 = fma(vec4<f32>(avc.x), wv1, r01);
+					r10 = fma(vec4<f32>(avc.y), wv0, r10); r11 = fma(vec4<f32>(avc.y), wv1, r11);
+					r20 = fma(vec4<f32>(avc.z), wv0, r20); r21 = fma(vec4<f32>(avc.z), wv1, r21);
+					r30 = fma(vec4<f32>(avc.w), wv0, r30); r31 = fma(vec4<f32>(avc.w), wv1, r31);
+				}
+				workgroupBarrier();
+			}
+			let gr = row0 + tr; let gc = col0 + tc;
+			st4(gr, gc, m, r00); st4(gr, gc + 4u, m, r01);
+			st4(gr + 1u, gc, m, r10); st4(gr + 1u, gc + 4u, m, r11);
+			st4(gr + 2u, gc, m, r20); st4(gr + 2u, gc + 4u, m, r21);
+			st4(gr + 3u, gc, m, r30); st4(gr + 3u, gc + 4u, m, r31);
+		}`,
+
+	// RMSNorm sur les CANAUX de chaque voxel (données [C, S], sans affine, eps 1e-8) + AdaLN
+	// (x·(1 + scale[c]) + shift[c], vecteurs précalculés dans le BRIK pour le pas de temps du
+	// pipeline) + SiLU — les trois opérations qui précèdent chaque convolution du décodeur LTX.
+	ltx_norm_act: `
+		struct P { C: u32, S: u32, shiftOff: u32, scaleOff: u32, eps: f32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> ada: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let s = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			if (s >= p.S) { return; }
+			var ss = 0.0;
+			for (var c = 0u; c < p.C; c = c + 1u) { let v = x[c * p.S + s]; ss = ss + v * v; }
+			let inv = inverseSqrt(ss / f32(p.C) + p.eps);
+			for (var c = 0u; c < p.C; c = c + 1u) {
+				let v = x[c * p.S + s] * inv * (1.0 + ada[p.scaleOff + c]) + ada[p.shiftOff + c];
+				o[c * p.S + s] = v / (1.0 + exp(-v));
+			}
+		}`,
+
+	// Upsampler LTX : depth-to-space ×2 en temps, hauteur et largeur (sortie C canaux depuis 8C), la
+	// PREMIÈRE image rejetée (T → 2T − 1), plus le résidu : la même opération sur l'ENTRÉE de la conv
+	// (Cres canaux → Cres/8), répétée sur les canaux pour atteindre C (torch .repeat = tuilage).
+	ltx_d2s: `
+		struct P { C: u32, T: u32, H: u32, W: u32, Cres: u32, hasRes: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> cv: array<f32>;
+		@group(0) @binding(2) var<storage, read> res: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			let OT = 2u * p.T - 1u; let OH = 2u * p.H; let OW = 2u * p.W;
+			if (idx >= p.C * OT * OH * OW) { return; }
+			let ox = idx % OW; let oy = (idx / OW) % OH; let ot = (idx / (OW * OH)) % OT; let c = idx / (OW * OH * OT);
+			let f = ot + 1u; let t = f / 2u; let stt = f % 2u;
+			let h = oy / 2u; let sh = oy % 2u; let w = ox / 2u; let sw = ox % 2u;
+			let HW = p.H * p.W;
+			let cin = ((c * 2u + stt) * 2u + sh) * 2u + sw;
+			var v = cv[(cin * p.T + t) * HW + h * p.W + w];
+			if (p.hasRes == 1u) {
+				let cr = c % (p.Cres / 8u);
+				let rin = ((cr * 2u + stt) * 2u + sh) * 2u + sw;
+				v = v + res[(rin * p.T + t) * HW + h * p.W + w];
+			}
+			o[idx] = v;
+		}`,
+
+	// Dépatchification finale (patch 4×4 spatial, 1 en temps) : [16C, T, H, W] → [C, T, 4H, 4W],
+	// out[c][t][4h + pb][4w + pa] = in[(c·4 + pa)·4 + pb] (permute du décodeur : pa suit la LARGEUR).
+	ltx_unpatchify: `
+		struct P { C: u32, T: u32, H: u32, W: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read_write> o: array<f32>;
+		@compute @workgroup_size(64)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 64u + lid.x;
+			let OH = 4u * p.H; let OW = 4u * p.W;
+			if (idx >= p.C * p.T * OH * OW) { return; }
+			let ox = idx % OW; let oy = (idx / OW) % OH; let t = (idx / (OW * OH)) % p.T; let c = idx / (OW * OH * p.T);
+			let h = oy / 4u; let pb = oy % 4u; let w = ox / 4u; let pa = ox % 4u;
+			let cin = (c * 4u + pa) * 4u + pb;
+			o[idx] = x[(cin * p.T + t) * p.H * p.W + h * p.W + w];
+		}`,
+
 	// CONVOLUTION EN GEMM IMPLICITE q8 (2026-10-07) — le GEMM v2 ci-dessous (bloc 4×8 vec4, tuile
 	// 64 × 128), appliqué à une convolution sans matérialiser l'im2col : lignes = pixels de sortie
 	// (m = OH·OW), colonnes = canaux de sortie (n = Cout), k = Cin·kh·kw. Les poids q8web [Cout][Cin·kh·kw]

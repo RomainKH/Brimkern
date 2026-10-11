@@ -91,6 +91,14 @@ const MODELS = {
 		out: (tier) => `video-motion-1step-${tier}.brik`,
 		name: 'AnimateDiff-Lightning 1-step (module motion)',
 	},
+	// ── Décodeur vidéo LTX (docs/ltx-video-feasibility.md) : source = safetensors f16 produit par l'oracle
+	// du dossier de session (convs du décodeur de ltxv-2b-0.9.8-distilled + vecteurs AdaLN précalculés
+	// pour decode_timestep = 0,05). À déposer en .brik-build/ltx-vae-decoder-src.safetensors.
+	'ltx-vae-decoder': {
+		url: 'file://.brik-build/ltx-vae-decoder-src.safetensors (oracle local, pas de téléchargement)',
+		out: (tier) => `ltx-vae-decoder-${tier}.brik`,
+		name: 'LTX-Video 0.9.8 VAE decoder (AdaLN precomputed, t=0.05)',
+	},
 	// ── RealVisXL Turbo / SDXL (1024px natif, double CLIP, photoréalisme studio) ────────────────
 	'realvisxl-unet': {
 		url: 'https://huggingface.co/SG161222/RealVisXL_V4.0_Lightning/resolve/main/unet/diffusion_pytorch_model.safetensors',
@@ -168,12 +176,14 @@ function chooseDType(name, shape, nElems) {
 	if (name === 'conv_in.weight' || name === 'conv_out.weight') return 'f16';
 	// Embedding de position temporel du module motion (minuscule, précision-sensible) : f16.
 	if (name.endsWith('pos_embed.pe')) return 'f16';
+	// Vecteurs AdaLN précalculés du décodeur LTX ([4, C] / [2, C]) : minuscules, précision-sensibles.
+	if (name.endsWith('.ada')) return 'f16';
 	// Embeddings CLIP : consommés CPU (gather) — le token embedding (101 Mo f16) passe en q8 et le
 	// chargeur le déquantifie en JS (~50M élém., rapide) ; le position embedding minuscule reste f16.
 	if (name === 'text_model.embeddings.token_embedding.weight') return nElems % 32 === 0 ? 'q8' : 'f16';
 	if (name.startsWith('text_model.embeddings.')) return 'f16';
 	if (nElems % 32 !== 0) return 'f16';
-	const isConv = shape.length === 4;
+	const isConv = shape.length === 4 || shape.length === 5; // conv2d UNet / conv3d LTX
 	if (tier === 'q8') return 'q8';
 	if (tier === 'mixed') return isConv ? 'q8' : 'q4';
 	return 'q4'; // light

@@ -208,6 +208,10 @@ export class WebGpuEngine {
 	// Interpolation d'images RIFE (video/rife.ts) : gate posé par selfValidate (chaque brique contre sa
 	// référence CPU), ou forcé par ?rife=0 → clips sans interpolation (16 frames, comme avant).
 	rifeOk = true;
+	// Décodeur vidéo LTX (video/ltxDecoder.ts) : conv3d en GEMM implicite, norme fusionnée, depth-to-
+	// space, dépatchification — gate posé par selfValidate (chaque brique contre sa référence CPU), ou
+	// forcé par ?ltx=0 → le décodeur refuse de charger (pas de repli : aucun autre chemin ne le calcule).
+	ltxOk = true;
 	// GEMV MULTI-LIGNES (m = 2 à 8, int8 et Q4_K natif) : les poids lus une fois pour m lignes, au lieu
 	// des kernels de prefill (un forward de 2 tokens coûtait 5× celui d'un token sur Qwen 3.5 4B).
 	// Brique du décodage spéculatif et des appels par lots. Gate selfValidate, ou ?gemvm=0 → repli.
@@ -399,6 +403,10 @@ export class WebGpuEngine {
 			if (urlFlag('kq') === '0') {
 				this.kqOk = false;
 				console.warn('[webgpu] poids K-quant natifs COUPÉS par ?kq=0 : requantification int8');
+			}
+			if (urlFlag('ltx') === '0') {
+				this.ltxOk = false;
+				console.warn('[webgpu] briques du décodeur LTX COUPÉES par ?ltx=0');
 			}
 			if (urlFlag('rife') === '0') {
 				this.rifeOk = false;
@@ -1783,6 +1791,38 @@ export class WebGpuEngine {
 		trash.push(p, out);
 		return out;
 	}
+	// ── Briques du décodeur LTX (shaders conv3d_igemm_q8 / ltx_norm_act / ltx_d2s / ltx_unpatchify).
+	private recConv3dQ8(enc: GPUAny, trash: GPUAny[], inp: GPUAny, q8: GPUAny, bias: GPUAny, Cin: number, T: number, H: number, W: number, Cout: number): GPUAny {
+		const m = T * H * W;
+		const p = this.uniform([Cin, T, H, W, Cout]);
+		const out = this.storage(Cout * m * 4);
+		this.recordPass(enc, 'conv3d_igemm_q8', [p, inp, q8.codes, q8.sc, bias, out], [Math.ceil(Cout / 128), Math.ceil(m / 64), 1]);
+		trash.push(p, out);
+		return out;
+	}
+	private recLtxNormAct(enc: GPUAny, trash: GPUAny[], x: GPUAny, ada: GPUAny, C: number, S: number, shiftOff: number, scaleOff: number, eps: number): GPUAny {
+		const p = this.uniform([C, S, shiftOff, scaleOff], { offset: 16, value: eps });
+		const out = this.storage(C * S * 4);
+		this.recordPass(enc, 'ltx_norm_act', [p, x, ada, out], this.grid1D(S));
+		trash.push(p, out);
+		return out;
+	}
+	private recLtxD2s(enc: GPUAny, trash: GPUAny[], cv: GPUAny, res: GPUAny | null, C: number, T: number, H: number, W: number, Cres: number): GPUAny {
+		const n = C * (2 * T - 1) * 4 * H * W;
+		const p = this.uniform([C, T, H, W, Cres, res ? 1 : 0]);
+		const out = this.storage(n * 4);
+		this.recordPass(enc, 'ltx_d2s', [p, cv, res ?? cv, out], this.grid1D(n));
+		trash.push(p, out);
+		return out;
+	}
+	private recLtxUnpatchify(enc: GPUAny, trash: GPUAny[], x: GPUAny, C: number, T: number, H: number, W: number): GPUAny {
+		const n = C * T * 16 * H * W;
+		const p = this.uniform([C, T, H, W]);
+		const out = this.storage(n * 4);
+		this.recordPass(enc, 'ltx_unpatchify', [p, x, out], this.grid1D(n));
+		trash.push(p, out);
+		return out;
+	}
 	// ── Briques RIFE (shaders rife_* / conv_transpose2d / pixel_shuffle2 / resize_bilinear / warp_bilinear).
 	private recRifeAct(enc: GPUAny, trash: GPUAny[], x: GPUAny, n: number, mul: number, leaky: boolean): GPUAny {
 		const p = this.uniform([n, leaky ? 1 : 0], { offset: 8, value: [mul, 0.2] });
@@ -1945,6 +1985,11 @@ export class WebGpuEngine {
 			// CAUSAL attention (mask j ≤ pastLen+t) — CLIP's text encoder recorded in-session.
 			attention: (q: GPUAny, k: GPUAny, v: GPUAny, nT: number, nH: number, nKv: number, hd: number, kvLen: number, pastLen: number) => this.recAttention(enc, trash, up(q), up(k), up(v), nT, nH, nKv, hd, kvLen, pastLen),
 			upsample: (x: GPUAny, C: number, H: number, W: number, s: number) => this.recUpsample(enc, trash, up(x), C, H, W, s),
+			// Décodeur LTX (video/ltxDecoder.ts) : poids q8 {codes, sc}, biais f32, données [C, T, H, W].
+			conv3d: (x: GPUAny, q8: GPUAny, b: GPUAny, Cin: number, T: number, H: number, W: number, Cout: number) => this.recConv3dQ8(enc, trash, up(x), q8, up(b), Cin, T, H, W, Cout),
+			ltxNormAct: (x: GPUAny, ada: GPUAny, C: number, S: number, shiftOff: number, scaleOff: number, eps = 1e-8) => this.recLtxNormAct(enc, trash, up(x), up(ada), C, S, shiftOff, scaleOff, eps),
+			ltxD2s: (cv: GPUAny, res: GPUAny | null, C: number, T: number, H: number, W: number, Cres: number) => this.recLtxD2s(enc, trash, up(cv), res ? up(res) : null, C, T, H, W, Cres),
+			ltxUnpatchify: (x: GPUAny, C: number, T: number, H: number, W: number) => this.recLtxUnpatchify(enc, trash, up(x), C, T, H, W),
 			// RIFE (video/rife.ts).
 			rifeAct: (x: GPUAny, n: number, mul: number, leaky: boolean) => this.recRifeAct(enc, trash, up(x), n, mul, leaky),
 			rifeResconv: (cv: GPUAny, x: GPUAny, beta: GPUAny, C: number, HW: number) => this.recRifeResconv(enc, trash, up(cv), up(x), up(beta), C, HW),
@@ -5513,6 +5558,36 @@ export class WebGpuEngine {
 			if (this.convGemmOk) console.log('[selfValidate] convolution q8 en GEMM implicite OK (3×3, stride 2, 1×1, Cin = 4)');
 		}
 
+		// Briques du décodeur LTX contre leurs références CPU. conv3d : Cout = 12 (tuile de colonnes très
+		// incomplète) puis 136 (deux tuiles) et m non multiple de 64 ; q8 sur la ligne aplatie Cin·27.
+		if (this.ltxOk) {
+			let bad: string | null = null;
+			try {
+				const run = async (rec: (ss: any) => any, n: number) => { const ss = this.recordingSession(); return ss.finish(rec(ss), n); };
+				for (const [Cin, T, H, W, Cout] of [[32, 3, 5, 6, 12], [64, 2, 4, 4, 136]]) {
+					const x = rand(Cin * T * H * W), w = rand(Cout * Cin * 27), b = rand(Cout);
+					const q = quantizeQ8(w);
+					const gpu = { codes: this.uploadGpuRaw(new Uint8Array(q.codes.buffer, q.codes.byteOffset, q.codes.byteLength)), sc: this.uploadGpuRaw(new Uint8Array(q.scales.buffer, q.scales.byteOffset, q.scales.byteLength)) };
+					const got = await run((ss) => ss.conv3d(x, gpu, b, Cin, T, H, W, Cout), Cout * T * H * W);
+					this.releaseGpu([gpu.codes, gpu.sc]);
+					if (!closeRel(got, conv3dCpu(x, dequantizeQ8(q), b, Cin, T, H, W, Cout))) { bad = `conv3d ${Cin}→${Cout}`; break; }
+				}
+				if (!bad) {
+					const C = 8, T = 3, H = 4, W = 5, S = T * H * W;
+					const x = rand(C * S), ada = rand(4 * C), cv = rand(8 * C * S), res = rand(16 * S);
+					const checks: [string, Promise<Float32Array>, Float32Array][] = [
+						['norm_act', run((ss) => ss.ltxNormAct(x, ada, C, S, 2 * C, 3 * C, 1e-8), C * S), ltxNormActCpu(x, ada, C, S, 2 * C, 3 * C, 1e-8)],
+						['d2s+res', run((ss) => ss.ltxD2s(cv, res, C, T, H, W, 16), C * (2 * T - 1) * 4 * H * W), ltxD2sCpu(cv, res, C, T, H, W, 16)],
+						['d2s', run((ss) => ss.ltxD2s(cv, null, C, T, H, W, 0), C * (2 * T - 1) * 4 * H * W), ltxD2sCpu(cv, null, C, T, H, W, 0)],
+						['unpatchify', run((ss) => ss.ltxUnpatchify(cv.subarray(0, 48 * S), 3, T, H, W), 3 * T * 16 * H * W), ltxUnpatchifyCpu(cv.subarray(0, 48 * S), 3, T, H, W)],
+					];
+					for (const [name, got, ref] of checks) if (!closeRel(await got, ref)) { bad = name; break; }
+				}
+			} catch (e) { bad = String(e); }
+			if (bad) { this.ltxOk = false; console.warn(`[selfValidate] décodeur LTX KO (${bad}) : briques coupées.`); }
+			else console.log('[selfValidate] briques du décodeur LTX OK (conv3d GEMM implicite q8, norme+AdaLN+SiLU, depth-to-space ×2 avec résidu, dépatchification)');
+		}
+
 		// Briques RIFE contre leurs références CPU (formes impaires et non carrées : bords des tuiles,
 		// sur-échantillonnage ×4 ET sous-échantillonnage ÷2, flot qui sort de l'image → padding border).
 		if (this.rifeOk) {
@@ -5922,6 +5997,50 @@ function dequantPQ2_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 		for (let j = 0; j < 128; j++) out[ob + j] = (((bytes[base + 2 + (j >> 2)] >> ((j & 3) * 2)) & 3) - 1) * d;
 	}
 	return out;
+}
+
+// ── Références CPU des briques du décodeur LTX (miroirs de diffusers autoencoder_kl_ltx.py).
+function conv3dCpu(x: Float32Array, w: Float32Array, b: Float32Array, Cin: number, T: number, H: number, W: number, Cout: number): Float32Array {
+	const HW = H * W, m = T * HW, o = new Float32Array(Cout * m);
+	for (let co = 0; co < Cout; co++) for (let t = 0; t < T; t++) for (let y = 0; y < H; y++) for (let xx = 0; xx < W; xx++) {
+		let acc = b[co];
+		for (let ci = 0; ci < Cin; ci++) for (let kt = 0; kt < 3; kt++) {
+			const it = Math.min(Math.max(t + kt - 1, 0), T - 1); // temporel répliqué
+			for (let kh = 0; kh < 3; kh++) { const iy = y + kh - 1; if (iy < 0 || iy >= H) continue;
+				for (let kw = 0; kw < 3; kw++) { const ix = xx + kw - 1; if (ix < 0 || ix >= W) continue;
+					acc += x[((ci * T + it) * H + iy) * W + ix] * w[(((co * Cin + ci) * 3 + kt) * 3 + kh) * 3 + kw];
+				} }
+		}
+		o[co * m + t * HW + y * W + xx] = acc;
+	}
+	return o;
+}
+function ltxNormActCpu(x: Float32Array, ada: Float32Array, C: number, S: number, shiftOff: number, scaleOff: number, eps: number): Float32Array {
+	const o = new Float32Array(C * S);
+	for (let s = 0; s < S; s++) {
+		let ss = 0; for (let c = 0; c < C; c++) { const v = x[c * S + s]; ss += v * v; }
+		const inv = 1 / Math.sqrt(ss / C + eps);
+		for (let c = 0; c < C; c++) { const v = x[c * S + s] * inv * (1 + ada[scaleOff + c]) + ada[shiftOff + c]; o[c * S + s] = v / (1 + Math.exp(-v)); }
+	}
+	return o;
+}
+function ltxD2sCpu(cv: Float32Array, res: Float32Array | null, C: number, T: number, H: number, W: number, Cres: number): Float32Array {
+	const OT = 2 * T - 1, OH = 2 * H, OW = 2 * W, HW = H * W, o = new Float32Array(C * OT * OH * OW);
+	for (let c = 0; c < C; c++) for (let ot = 0; ot < OT; ot++) for (let oy = 0; oy < OH; oy++) for (let ox = 0; ox < OW; ox++) {
+		const f = ot + 1, t = f >> 1, st = f & 1, h = oy >> 1, sh = oy & 1, w = ox >> 1, sw = ox & 1;
+		let v = cv[((((c * 2 + st) * 2 + sh) * 2 + sw) * T + t) * HW + h * W + w];
+		if (res) { const cr = c % (Cres / 8); v += res[((((cr * 2 + st) * 2 + sh) * 2 + sw) * T + t) * HW + h * W + w]; }
+		o[((c * OT + ot) * OH + oy) * OW + ox] = v;
+	}
+	return o;
+}
+function ltxUnpatchifyCpu(x: Float32Array, C: number, T: number, H: number, W: number): Float32Array {
+	const OH = 4 * H, OW = 4 * W, HW = H * W, o = new Float32Array(C * T * OH * OW);
+	for (let c = 0; c < C; c++) for (let t = 0; t < T; t++) for (let oy = 0; oy < OH; oy++) for (let ox = 0; ox < OW; ox++) {
+		const cin = (c * 4 + (ox & 3)) * 4 + (oy & 3);
+		o[((c * T + t) * OH + oy) * OW + ox] = x[(cin * T + t) * HW + (oy >> 2) * W + (ox >> 2)];
+	}
+	return o;
 }
 
 // ── Références CPU des briques RIFE (miroirs PyTorch : ConvTranspose2d, PixelShuffle, F.interpolate

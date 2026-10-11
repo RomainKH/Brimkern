@@ -612,6 +612,67 @@ function App() {
       console.log('[rife] oracle', res);
       return res;
     };
+    // __ltxDecoderOracle() : le décodeur vidéo LTX ENTIER contre PyTorch (petite forme 3×4×4 → 17×128×128,
+    // fichiers de l'oracle hors git sous /models/ltx-oracle/, BRIK q8 sous /models/). Écarts par prise
+    // intermédiaire, puis sur la vidéo. __ltxDecoderBench(T, H, W) : temps d'un décodage à la forme
+    // cible (7×10×16 = 49 images 512×320) sur un latent aléatoire — le juge de faisabilité (§ feasibility).
+    const ltxLoad = async (brik = '/models/ltx-vae-decoder-q8.brik') => {
+      const { WebGpuEngine } = await import('@/lib/webgpu/kernels');
+      const { LtxDecoder } = await import('@/lib/webgpu/video/ltxDecoder');
+      const { brikImageToMap } = await import('@/lib/webgpu/diffusion/sdturbo');
+      const e = new WebGpuEngine();
+      if (!(await e.init())) throw new Error('WebGPU indisponible');
+      await e.selfValidate();
+      const t0 = performance.now();
+      const { map } = await brikImageToMap(e, brik, (m) => console.log('[ltx]', m), 'LTX decoder');
+      console.log(`[ltx] décodeur chargé en ${((performance.now() - t0) / 1000).toFixed(1)} s, ${map.size} tenseurs`);
+      return { e, dec: new LtxDecoder(e, map) };
+    };
+    (window as any).__ltxDecoderOracle = async (base = '/models/ltx-oracle/', brik?: string) => {
+      const { e, dec } = await ltxLoad(brik);
+      const f32 = async (n: string) => new Float32Array(await (await fetch(base + n + '.f32')).arrayBuffer());
+      const [inp, ref] = await Promise.all([f32('dec-in'), f32('dec-out')]);
+      const err = (a: Float32Array, b: Float32Array) => { let mx = 0, sum = 0, ref = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); mx = Math.max(mx, d); sum += d; ref = Math.max(ref, Math.abs(b[i])); } return { max: +mx.toFixed(4), mean: +(sum / a.length).toFixed(5), refMax: +ref.toFixed(2) }; };
+      const taps: Record<string, any> = {};
+      const t0 = performance.now();
+      const out = await dec.decode(inp, 3, 4, 4, undefined, (name, data) => { taps[name] = data; });
+      const ms = performance.now() - t0;
+      const res: Record<string, any> = { video: { ...err(out.data, ref), shape: [3, out.T, out.H, out.W] }, ms: +ms.toFixed(0) };
+      // Localisation d'un écart : erreur MAX par position temporelle, ligne, colonne et par canal (données [C, T, H, W]).
+      const where = (a: Float32Array, b: Float32Array, C: number, T: number, H: number, W: number) => {
+        const byT = new Float32Array(T), byY = new Float32Array(H), byX = new Float32Array(W), byC = new Float32Array(C);
+        for (let c = 0; c < C; c++) for (let t = 0; t < T; t++) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          const i = ((c * T + t) * H + y) * W + x, d = Math.abs(a[i] - b[i]);
+          if (d > byT[t]) byT[t] = d; if (d > byY[y]) byY[y] = d; if (d > byX[x]) byX[x] = d; if (d > byC[c]) byC[c] = d;
+        }
+        const r = (v: Float32Array) => Array.from(v, (x) => +x.toFixed(3));
+        const topC = Array.from(byC, (v, c) => [c, +v.toFixed(3)]).sort((p, q) => (q[1] as number) - (p[1] as number)).slice(0, 5);
+        return { parT: r(byT), parY: r(byY), parX: r(byX), topCanaux: topC };
+      };
+      const dims: Record<string, number[]> = { conv_in: [1024, 3, 4, 4], mid_block: [1024, 3, 4, 4], 'up_blocks.0.upsamplers.0': [512, 5, 8, 8], 'up_blocks.0': [512, 5, 8, 8] };
+      for (const n of ['conv_in', 'mid_block', 'up_blocks.0.upsamplers.0', 'up_blocks.0']) {
+        try { const r = await f32('dec-tap-' + n.replace(/\./g, '_')); res[n] = { ...err(taps[n], r), ...where(taps[n], r, ...(dims[n] as [number, number, number, number])) }; } catch { res[n] = 'pas de prise'; }
+      }
+      res.videoWhere = where(out.data, ref, 3, out.T, out.H, out.W);
+      dec.dispose(); e.destroy();
+      console.log('[ltx] oracle', res);
+      return res;
+    };
+    (window as any).__ltxDecoderBench = async (T = 7, H = 10, W = 16, runs = 2, brik?: string) => {
+      const { e, dec } = await ltxLoad(brik);
+      const lat = new Float32Array(128 * T * H * W).map(() => (Math.random() * 2 - 1));
+      const times: number[] = [];
+      for (let r = 0; r < runs; r++) {
+        const t0 = performance.now();
+        const out = await dec.decode(lat, T, H, W);
+        times.push(+((performance.now() - t0) / 1000).toFixed(1));
+        if (r === 0) console.log(`[ltx] sortie ${out.T} images ${out.W}×${out.H}`);
+      }
+      dec.dispose(); e.destroy();
+      const res = { latent: [128, T, H, W], secondes: times };
+      console.log('[ltx] bench', res);
+      return res;
+    };
     // __decodeBench(profil) : PLAFOND de décodage de nos kernels sur les formes d'un vrai modèle,
     // sans télécharger ses poids. Le décodage lit TOUS les poids par token (matmul-vecteur, m=1) :
     // on mesure donc les 7 matmuls d'UNE couche + la tête logits, puis on extrapole × nLayers. C'est
