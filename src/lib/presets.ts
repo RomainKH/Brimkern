@@ -51,6 +51,24 @@ export const PRESET_MODELS: PresetModel[] = [
 		mobile: false,
 	},
 	{
+		// Poids ternaires PQ2_0 (ROADMAP § 26) lus nativement par le GEMV 2 bits : un 4B (base Qwen3-4B)
+		// en 1,07 Go et ~1,4 Go de VRAM. Révision épinglée comme tout poids de tiers.
+		name: 'Ternary Bonsai 4B (PQ2_0)',
+		vendor: 'PrismML',
+		url: 'https://huggingface.co/prism-ml/Ternary-Bonsai-4B-gguf/resolve/a3eb42bafe873f9686bc97486c43b72ef7d75ec8/Ternary-Bonsai-4B-PQ2_0.gguf',
+		size: '1,07 Go',
+		sizeBytes: 1_074_969_344,
+		desc: {
+			en: 'A 4B model (Qwen3-4B base) with 1.58-bit ternary weights: the whole download is 1 GB and it runs on native 2-bit kernels, no conversion.',
+			fr: 'Un 4B (base Qwen3-4B) aux poids ternaires 1,58 bit : 1 Go à télécharger en tout, lu directement par nos kernels 2 bits, sans conversion.'
+		},
+		tokenizer: 'Qwen/Qwen3-0.6B',
+		type: 'qwen3',
+		useCase: { en: '4B in 1 GB', fr: '4B en 1 Go' },
+		tags: [{ en: 'ternary', fr: 'ternaire' }, { en: 'generalist', fr: 'généraliste' }, { en: '<think>', fr: '<think>' }],
+		mobile: false,
+	},
+	{
 		name: 'Ministral 3 3B Instruct (Q4_K_M)',
 		vendor: 'Mistral AI',
 		url: 'https://huggingface.co/bartowski/mistralai_Ministral-3-3B-Instruct-2512-GGUF/resolve/main/mistralai_Ministral-3-3B-Instruct-2512-Q4_K_M.gguf',
