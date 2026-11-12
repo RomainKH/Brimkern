@@ -20,6 +20,41 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'November 12, 2026', fr: '12 novembre 2026' },
+    tagline: {
+      en: 'SDK 0.8.2: third-party models pinned to a commit, per-shard checksums in .brik files, and a corrupted file is refused instead of loaded.',
+      fr: 'SDK 0.8.2 : modèles tiers épinglés à un commit, empreintes par shard dans les .brik, et un fichier corrompu est refusé au lieu d’être chargé.',
+    },
+    groups: [
+      {
+        title: { en: 'Weights you can trust', fr: 'Des poids dont on est sûr' },
+        items: [
+          {
+            en: 'Third-party GGUF presets (site, SDK and CLI) now load from a fixed Hugging Face commit instead of the moving main branch: a repository can no longer change a file under the app. Models already in your cache are reused as they are, with no new download.',
+            fr: 'Les presets GGUF tiers (site, SDK et CLI) se chargent depuis un commit Hugging Face fixe et non plus depuis la branche main, qui bouge : un dépôt ne peut plus changer un fichier sous les pieds de l’app. Les modèles déjà en cache resservent tels quels, sans nouveau téléchargement.',
+          },
+          {
+            en: 'A .brik file can now carry a SHA-256 checksum per shard. Every shard read in full is checked; a file with a single altered byte in a layer is refused with a clear message instead of running with wrong weights. Files built before this version have no checksums and load as before.',
+            fr: 'Un .brik peut désormais porter une empreinte SHA-256 par shard. Chaque shard lu en entier est vérifié ; un fichier dont un seul octet d’une couche a changé est refusé avec un message clair au lieu de tourner avec des poids faux. Les fichiers construits avant cette version n’ont pas d’empreintes et se chargent comme avant.',
+          },
+          {
+            en: 'A truncated download range (cut by a proxy, for instance) is no longer stored in the cache, where it corrupted the model on every reload until the storage was cleared.',
+            fr: 'Une plage de téléchargement tronquée (coupée par un proxy, par exemple) n’entre plus dans le cache, où elle corrompait le modèle à chaque rechargement jusqu’au vidage du stockage.',
+          },
+        ],
+      },
+      {
+        title: { en: 'SDK 0.8.2', fr: 'SDK 0.8.2' },
+        items: [
+          {
+            en: 'Includes all of the above, plus the engine kernels added since 0.8.1: 563 KB minified instead of 512 KB.',
+            fr: 'Reprend tout ce qui précède, plus les kernels ajoutés au moteur depuis 0.8.1 : 563 Ko minifié au lieu de 512 Ko.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'October 7, 2026', fr: '7 octobre 2026' },
     tagline: {
       en: 'SDK 0.8.1 fixes what npm said about the default model, the SDK fits in two pages, and the site waits with one sign: the chip.',

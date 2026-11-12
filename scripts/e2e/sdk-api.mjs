@@ -8,7 +8,7 @@
 // modèle — et une régression dessus est silencieuse (un widget qui ne se démonte plus ne « plante »
 // pas, il fuit).
 //
-// Prérequis : le site servi sur le port 3618 (`npx next dev -p 3618` suffit) et `npm run build:sdk`.
+// Prérequis : le site servi sur le port 3618 (ou PORT=…) et `npm run build:sdk`.
 // Le cache HTTP est coupé via CDP : sans ça, le profil persistant resserre un /sdk.js périmé et la
 // mesure porte sur du code qui n'est plus celui du dépôt.
 // Usage : node scripts/e2e/sdk-api.mjs
@@ -25,7 +25,7 @@ page.on('pageerror', (e) => console.log('  · page:', String(e).slice(0, 200)));
 
 // La démo sert de porteuse : elle charge /sdk.js et monte DÉJÀ un widget — ce qui permet en prime de
 // vérifier qu'un second embed() cohabite avec le premier sans lui voler sa couleur.
-await page.goto(`http://localhost:3618/sdk-demo?lang=en&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
+await page.goto(`http://localhost:${process.env.PORT || 3618}/sdk-demo?lang=en&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.Brimkern && !!document.querySelector('.bk-fab'));
 
 const res = await page.evaluate(async () => {
