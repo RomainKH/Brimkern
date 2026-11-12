@@ -15,7 +15,7 @@
  */
 
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync, realpathSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync, renameSync, utimesSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, fstatSync, realpathSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync, renameSync, utimesSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir, totalmem } from 'node:os';
@@ -3608,14 +3608,37 @@ async function main() {
     }
   }
 
-  // Lecture de stdin si redirigé (pipe unix) sauf si commande explicite 'chat'
+  // Lecture de stdin si redirigé, sauf commande explicite 'chat'. Trois cas, par fstat(0) :
+  // - tube de shell (`cmd | brimkern …`, FIFO) ou fichier (`< f`) : lu jusqu'à la fin du flux, quel
+  //   que soit le temps que met le producteur (`npm test | brimkern "explique"` peut attendre) ;
+  // - SOCKET : stdin d'un processus lancé par un programme Node (libuv crée une socketpair) — c'est
+  //   le cas d'un agent (Claude Code…) qui suit le skill brimkern-worker (`brimkern --json "…"`). Ce
+  //   flux peut rester ouvert SANS jamais rien envoyer : `!isTTY` suffisait à figer la CLI pour
+  //   toujours, sans un mot. Avec un prompt en argument, 500 ms de grâce pour le premier octet ;
+  //   sans prompt, stdin EST le prompt : on l'attend ;
+  // - périphérique caractère (/dev/null…) : rien à lire.
   let stdinContent = '';
-  if (!isChat && !process.stdin.isTTY) {
+  const stdinStat = (() => { try { return fstatSync(0); } catch { return null; } })();
+  const stdinPipeOrFile = !!stdinStat && (stdinStat.isFIFO() || stdinStat.isFile());
+  const stdinSocket = !!stdinStat && stdinStat.isSocket();
+  if (!isChat && !process.stdin.isTTY && (stdinPipeOrFile || stdinSocket)) {
+    const graceMs = stdinSocket && promptParts.length ? 500 : 0;
     stdinContent = await new Promise((resolvePipe) => {
       let data = '';
+      let settled = false;
+      const finish = (v) => { if (!settled) { settled = true; resolvePipe(v); } };
       process.stdin.setEncoding('utf8');
       process.stdin.on('data', (chunk) => { data += chunk; });
-      process.stdin.on('end', () => resolvePipe(data.trim()));
+      process.stdin.on('end', () => finish(data.trim()));
+      process.stdin.on('error', () => finish(data.trim()));
+      if (graceMs) {
+        setTimeout(() => {
+          if (data) return; // des données arrivent : on lit jusqu'à la fin
+          process.stdin.removeAllListeners('data');
+          process.stdin.destroy();
+          finish('');
+        }, graceMs);
+      }
     });
   }
 
