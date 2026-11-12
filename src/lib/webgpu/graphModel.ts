@@ -252,16 +252,14 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 		let t0 = performance.now();
 		const { embeds, extra, tiles } = await this.prepare(tokens, pastLen, sessionId);
 		T?.('préparation CPU', t0); t0 = performance.now();
-		const { d } = this.manifest.config;
 		const vocab = this.projVocab;
 		const trash: Gpu[] = [];
 		const enc = e.device.createCommandEncoder();
 		const last = this.recordForward(enc, trash, embeds, extra, tokens.length, pastLen);
-		const logits = e.storage(vocab * 4); trash.push(logits);
-		for (const t of tiles) {
-			const tl = e.recMM(enc, trash, last, t.w, 1, d, t.rows, false);
-			enc.copyBufferToBuffer(tl, 0, logits, t.r0 * 4, t.rows * 4);
-		}
+		// PAR recordHead, comme topKKV : une sous-classe peut transformer l'entrée de la tête. La copie
+		// en ligne qui était ici sautait la rotation de Hadamard de Qwen35Model (Bonsai 27B) — logits
+		// quasi uniformes (~0,1 % le premier choix) par ce chemin, alors que topK était juste.
+		const logits = this.recordHead(enc, trash, last, 1, tiles);
 		T?.(`enregistrement (${trash.length} buffers)`, t0); t0 = performance.now();
 		e.device.queue.submit([enc.finish()]);
 		const out = await e.readBack(logits, vocab * 4);

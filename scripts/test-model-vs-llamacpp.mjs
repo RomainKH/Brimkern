@@ -3,6 +3,8 @@
 // llama.cpp, sur le MÊME GGUF local.
 //
 //   node scripts/test-model-vs-llamacpp.mjs <fichier.gguf> [--tokens=48] [--llama] [--long]
+//   LLAMA_REF_TEXT=ref.txt node scripts/test-model-vs-llamacpp.mjs <fichier.gguf> --llama
+//     (référence = sortie gloutonne de llama-simple sur le même prompt, sans llama-server)
 //
 // 1. prochain token après le prompt : top-10 du moteur vs top-10 de llama-server (n_probs) ;
 // 2. génération gloutonne : texte + débit, et premier écart avec llama.cpp (--llama).
@@ -96,6 +98,14 @@ const ids = tok.encode(PROMPT);
 const REF_FILE = process.env.LLAMA_REF;
 const { existsSync: exists, readFileSync: readF, writeFileSync: writeF } = await import('node:fs');
 async function llamaRef(nPredict) {
+  // LLAMA_REF_TEXT=<fichier> : la suite gloutonne écrite par un llama.cpp SANS serveur (llama-simple,
+  // p. ex. le fork PrismML pour PQ2_0 + rotation, où seuls llama-cli/llama-simple sont construits),
+  // découpée par NOTRE tokenizer. Pas de top-10 de référence dans ce cas : seuls l'accord glouton et
+  // le forçage comptent (un découpage non canonique de llama.cpp ferait un faux écart, rare).
+  if (process.env.LLAMA_REF_TEXT) {
+    const content = readF(process.env.LLAMA_REF_TEXT, 'utf8');
+    return { content, completion_probabilities: tok.encode(content).slice(0, nPredict).map((id) => ({ id })) };
+  }
   if (REF_FILE && exists(REF_FILE)) return JSON.parse(readF(REF_FILE, 'utf8'));
   const port = 18000 + Math.floor(Math.random() * 1000);
   const srv = spawn(process.env.LLAMA_SERVER || 'llama-server', ['-m', gguf, '--port', String(port), '-ngl', '99', '-c', '4096', '--log-disable', ...(process.env.LLAMA_ARGS || '').split(' ').filter(Boolean)], { stdio: 'ignore' });
@@ -162,12 +172,12 @@ if (WITH_LLAMA) {
     const j = await llamaRef(gen.length);
     const ref = (j.completion_probabilities || []).slice(0, gen.length);
     const refTop = (ref[0]?.top_logprobs || ref[0]?.probs || []).map((t) => ({ id: t.id, p: t.logprob !== undefined ? Math.exp(t.logprob) : t.prob }));
-    console.log('top-10 llama.cpp :', refTop.map((t) => `${JSON.stringify(tok.decode([t.id]))} ${(t.p * 100).toFixed(1)}%`).join(' · '));
+    console.log('top-10 llama.cpp :', refTop.length ? refTop.map((t) => `${JSON.stringify(tok.decode([t.id]))} ${(t.p * 100).toFixed(1)}%`).join(' · ') : '(indisponible : référence par texte)');
     const ov = top.filter((t) => refTop.some((r) => r.id === t.id)).length;
     const refIds = ref.map((c) => c.id);
     if (!refIds.length) throw new Error('référence llama.cpp vide');
     let agree = 0; while (agree < Math.min(refIds.length, gen.length) && refIds[agree] === gen[agree]) agree++;
-    console.log(`recouvrement top-10 : ${ov}/10 · accord glouton : ${agree}/${Math.min(refIds.length, gen.length)} premiers tokens`);
+    console.log(`${refTop.length ? `recouvrement top-10 : ${ov}/10 · ` : ''}accord glouton : ${agree}/${Math.min(refIds.length, gen.length)} premiers tokens`);
     console.log('--- sortie llama.cpp ---\n' + (j.content || '') + '\n---');
     // Forçage : on rejoue la séquence de llama.cpp dans le moteur. À chaque pas, notre 1er choix
     // est-il le sien ? Un écart isolé entre deux candidats proches = requantification ; des écarts
