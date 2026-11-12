@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Dossier de build surchargeable (bancs) : construire et servir un second build à côté d'un
+  // `next start` déjà lancé, sans réécrire le `.next` qu'il sert. Défaut inchangé.
+  // ⚠️ `next build` ajoute alors `<dossier>/types` à tsconfig.json : restaurer (git checkout) avant de commiter.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   // Badge « N » Next.js en bas de l'écran en mode dev : masqué (il n'apparaît jamais en prod,
   // mais pas de marque tierce à l'écran, même en dev). Les erreurs de compil restent affichées.
   devIndicators: false,
