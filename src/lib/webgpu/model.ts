@@ -660,6 +660,31 @@ export class CustomWebModel {
 			this.projQ8 = tiles;
 			return tiles;
 		}
+		// Tête ternaire PQ2_0 (Bonsai, liée à token_embd) gardée en 2 bits NATIFS comme les couches, au
+		// lieu d'une requantification int8 (4B : 0,41 → 0,10 Go, calculé). Contrôlée sur SES poids
+		// (checkPq2Matrix : n = vocab dépasse les formes du gate pq2NativeOk) ; écart → repli int8.
+		// ?pq2head=0 → int8 (bras témoin du banc).
+		if (info.type === 'PQ2_0' && this.engine.pq2NativeOk && this.engine.pq2HeadOk && d % 128 === 0 && info.bytes % vocab === 0) {
+			const rowBytes = info.bytes / vocab;
+			const T = Math.max(1, Math.floor((this.engine.maxStorageBufferBindingSize * 0.9) / rowBytes));
+			const pq: { w: any; rows: number; r0: number }[] = [];
+			for (let r0 = 0; r0 < vocab; r0 += T) {
+				const rows = Math.min(T, vocab - r0);
+				pq.push({ w: this.engine.uploadKq('PQ2_0', raw.subarray(r0 * rowBytes, (r0 + rows) * rowBytes)), rows, r0 });
+			}
+			let bad: string | null = null;
+			for (const t of pq) {
+				bad = await this.engine.checkPq2Matrix(t.w, raw.subarray(t.r0 * rowBytes, (t.r0 + t.rows) * rowBytes), d, t.rows);
+				if (bad) break;
+			}
+			if (!bad) {
+				if (name === 'output.weight') this.rawCache.delete(name);
+				this.projQ8 = pq;
+				return pq;
+			}
+			for (const t of pq) CustomWebModel.destroyWeight(t.w);
+			console.error(`[pq2head] tête PQ2_0 native KO (${bad}) : repli int8`);
+		}
 		// GGUF déquantifiable sur GPU : tuiles int8 construites SUR LE GPU avec UN f32 de travail. Le
 		// chemin ci-dessous matérialise un blob int8 COMPLET côté JS (≈ 1 Go pour une tête 248k × 4 096)
 		// puis le recopie tuile par tuile : l'essentiel du pic de chargement d'un GGUF.
@@ -702,9 +727,11 @@ export class CustomWebModel {
 		const tiles = await this.getProjectionQ8(d);
 		let best = 0, bestVal = -Infinity;
 		for (const t of tiles) {
-			const part = t.w.nib
-				? await this.engine.matmulQ4(hiddenLast, t.w.nib, t.w.sc, t.w.mn, 1, d, t.rows)
-				: await this.engine.matmulQ8(hiddenLast, t.w.codes, t.w.sc, 1, d, t.rows);
+			const part = t.w.kq
+				? await this.engine.matmulHandle(hiddenLast, t.w, 1, d, t.rows)
+				: t.w.nib
+					? await this.engine.matmulQ4(hiddenLast, t.w.nib, t.w.sc, t.w.mn, 1, d, t.rows)
+					: await this.engine.matmulQ8(hiddenLast, t.w.codes, t.w.sc, 1, d, t.rows);
 			for (let i = 0; i < part.length; i++) if (part[i] > bestVal) { bestVal = part[i]; best = t.r0 + i; }
 		}
 		return best;

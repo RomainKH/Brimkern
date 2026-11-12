@@ -208,6 +208,10 @@ export class WebGpuEngine {
 	// Poids ternaires PQ2_0 NATIFS (même handle { kq, buf }, GEMV matmul_t_pq2_vec au décodage) : gate
 	// posé par selfValidate, ou forcé par ?pq2native=0 → requantification int8 (~4× la VRAM du 2 bits).
 	pq2NativeOk = true;
+	// Tête (projection logits) PQ2_0 gardée native elle aussi. Pas de gate global : la tête est
+	// contrôlée sur SES poids au chargement (checkPq2Matrix — n = vocab, au-delà de ce que le gate
+	// pq2NativeOk couvre). Kill-switch ?pq2head=0 → tête int8 (bras témoin).
+	pq2HeadOk = true;
 	// Interpolation d'images RIFE (video/rife.ts) : gate posé par selfValidate (chaque brique contre sa
 	// référence CPU), ou forcé par ?rife=0 → clips sans interpolation (16 frames, comme avant).
 	rifeOk = true;
@@ -320,6 +324,7 @@ export class WebGpuEngine {
 			try { this.device = await adapter.requestDevice({ requiredLimits: want }); }
 			catch { this.device = await adapter.requestDevice(); }
 		}
+		this.instrumentMemory();
 		this.maxStorageBufferBindingSize = this.device.limits?.maxStorageBufferBindingSize ?? 134217728;
 		this.hasF16 = !!this.device.features?.has?.('shader-f16');
 		this.hasSubgroups = !!this.device.features?.has?.('subgroups');
@@ -422,6 +427,10 @@ export class WebGpuEngine {
 			if (urlFlag('pq2native') === '0') {
 				this.pq2NativeOk = false;
 				console.warn('[webgpu] poids PQ2_0 natifs COUPÉS par ?pq2native=0 : requantification int8');
+			}
+			if (urlFlag('pq2head') === '0') {
+				this.pq2HeadOk = false;
+				console.warn('[webgpu] tête PQ2_0 native COUPÉE par ?pq2head=0 : tête requantifiée en int8');
 			}
 			if (urlFlag('gemma4') === '0') {
 				this.gemma4Ok = false;
@@ -2291,6 +2300,74 @@ export class WebGpuEngine {
 	}
 	// Poids K-quant natifs : blocs GGUF Q4_K / Q6_K envoyés TELS QUELS (lignes contiguës, k % 256 == 0).
 	// Handle { kq, buf } reconnu par recMM. ~4,5 et ~6,6 bits par poids au lieu de 8,5 en int8.
+	// Compteur de mémoire GPU : octets VIVANTS (créés, pas encore détruits) et pic, pour TOUT tampon de
+	// ce device — poids, cache KV, pools, tampons de travail. WebGPU n'expose pas la VRAM, et l'empreinte
+	// du processus GPU de Chrome cumule d'un rechargement à l'autre (ROADMAP § 26) : c'est l'instrument
+	// qui permet d'annoncer une mémoire mesurée. ⚠️ Logique, pas physique : Dawn peut rendre la mémoire
+	// en différé après destroy() (§ 18), et un tampon jamais détruit compte jusqu'à sa collecte.
+	readonly gpuMem = { live: 0, peak: 0, buffers: 0, instrumented: false };
+	private instrumentMemory(): void {
+		const dev = this.device, m = this.gpuMem;
+		try {
+			const create = dev.createBuffer.bind(dev);
+			dev.createBuffer = (desc: { size: number }) => {
+				const b = create(desc);
+				const size = Number(desc?.size) || 0;
+				m.live += size; m.buffers++;
+				if (m.live > m.peak) m.peak = m.live;
+				try {
+					const destroy = b.destroy.bind(b);
+					let freed = false;
+					b.destroy = () => { if (!freed) { freed = true; m.live -= size; m.buffers--; } return destroy(); };
+				} catch { /* objet non extensible : la création reste comptée, pas la libération */ }
+				return b;
+			};
+			m.instrumented = true;
+		} catch { /* device non modifiable (implémentation native) : compteur inactif, dit par `instrumented` */ }
+	}
+	resetGpuMemPeak(): void { this.gpuMem.peak = this.gpuMem.live; }
+
+	// a·Wᵀ avec relecture, pour N'IMPORTE QUEL handle de poids recMM (q8, q4, K-quant natif, PQ2_0) :
+	// l'équivalent de matmulQ8 / matmulQ4 pour les formats natifs.
+	async matmulHandle(a: Float32Array, w: GPUAny, m: number, k: number, n: number): Promise<Float32Array> {
+		const G = globalThis as any;
+		const ab = this.storage(a.byteLength); this.device.queue.writeBuffer(ab, 0, a);
+		const trash: GPUAny[] = [];
+		const enc = this.device.createCommandEncoder();
+		const out = this.recMM(enc, trash, ab, w, m, k, n, false);
+		const read = this.device.createBuffer({ size: m * n * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+		enc.copyBufferToBuffer(out, 0, read, 0, m * n * 4);
+		this.device.queue.submit([enc.finish()]);
+		await read.mapAsync(G.GPUMapMode.READ);
+		const got = new Float32Array(read.getMappedRange().slice(0));
+		read.unmap(); read.destroy();
+		this.release([...trash, ab]);
+		return got;
+	}
+
+	// Contrôle d'une matrice PQ2_0 NATIVE sur ses vrais poids : un GEMV contre la déquantification CPU
+	// de lignes échantillonnées — la première, la dernière, celles autour de 65 535 (la grille passe en
+	// 2-D au-delà) et 44 au hasard. Sert à la tête du Bonsai (n = 151 669 × k = 2 560), une forme que
+	// le gate pq2NativeOk ne couvre pas. Rend null si conforme, sinon la première ligne fautive.
+	async checkPq2Matrix(w: { kq: 'PQ2_0'; buf: GPUAny }, blocks: Uint8Array, k: number, n: number): Promise<string | null> {
+		const a = Float32Array.from({ length: k }, () => Math.random() * 2 - 1);
+		const got = await this.matmulHandle(a, w, 1, k, n);
+		const rowBytes = (k / 128) * 34;
+		const rows = new Set<number>([0, n - 1, Math.min(n - 1, 65535), Math.min(n - 1, 65536)]);
+		for (let i = 0; i < 44; i++) rows.add(Math.floor(Math.random() * n));
+		const refs = new Map<number, number>();
+		let mx = 0;
+		for (const r of rows) {
+			const wf = dequantPQ2_0Cpu(blocks.subarray(r * rowBytes, (r + 1) * rowBytes), k / 128);
+			let acc = 0;
+			for (let i = 0; i < k; i++) acc += a[i] * wf[i];
+			refs.set(r, acc);
+			mx = Math.max(mx, Math.abs(acc));
+		}
+		for (const [r, ref] of refs) if (!(Math.abs(got[r] - ref) <= 2e-3 * (mx + 1))) return `ligne ${r} : ${got[r]} au lieu de ${ref}`;
+		return null;
+	}
+
 	uploadKq<T extends 'Q4_K' | 'Q6_K' | 'PQ2_0'>(type: T, bytes: Uint8Array): { kq: T; buf: GPUAny } {
 		const size = Math.ceil(bytes.byteLength / 4) * 4;
 		const buf = this.device.createBuffer({ size, usage: WebGpuEngine.STORAGE_USAGE });

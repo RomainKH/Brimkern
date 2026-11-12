@@ -1086,6 +1086,21 @@ function App() {
       return r;
     };
   }, [activeEngine, imageGen, videoGen, visionSession]);
+  // __gpuMem(resetPeak?) : la mémoire GPU que le moteur a réellement allouée (octets vivants et pic,
+  // tous tampons du device — cf. WebGpuEngine.gpuMem). L'instrument des chiffres de VRAM publiés.
+  useEffect(() => {
+    (window as any).__gpuMem = (resetPeak = false) => {
+      const engines = { llm: activeEngine, image: imageGen?.engine, video: videoGen?.engine, vision: visionSession?.engine };
+      const out: Record<string, { liveMB: number; peakMB: number; buffers: number; instrumented: boolean }> = {};
+      for (const [k, e] of Object.entries(engines)) {
+        const m = (e as { gpuMem?: { live: number; peak: number; buffers: number; instrumented: boolean } } | null | undefined)?.gpuMem;
+        if (!m) continue;
+        out[k] = { liveMB: Math.round(m.live / 1e5) / 10, peakMB: Math.round(m.peak / 1e5) / 10, buffers: m.buffers, instrumented: m.instrumented };
+        if (resetPeak) (e as { resetGpuMemPeak?: () => void }).resetGpuMemPeak?.();
+      }
+      return Object.keys(out).length ? out : { error: 'aucun moteur chargé' };
+    };
+  }, [activeEngine, imageGen, videoGen, visionSession]);
   // Le hook de banc de tokenisation doit voir le modèle COURANT : dans l'effet de montage il
   // capturerait le tokenizer de la première render (null). Effet dédié, re-posé à chaque
   // changement de modèle/tokenizer.
