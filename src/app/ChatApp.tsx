@@ -2085,8 +2085,8 @@ function App() {
     setLoadingStep(useLtx ? t('Loading the video pipeline (LTX-Video)…', 'Chargement du pipeline vidéo (LTX-Video)…') : t('Loading the video pipeline (AnimateDiff)…', 'Chargement du pipeline vidéo (AnimateDiff)…'));
     try {
       const { loadVideoGenerator } = await import('@/lib/webgpu/video/videoGen');
-      // ?vengine=ltx : le pipeline LTX-Video (T5 + DiT + décodeur, 512×320, 49 images, ~40 s) à la place
-      // d'AnimateDiff — chemin de développement tant que ses BRIK ne sont pas sur le Hub (LTX_BRIK).
+      // LTX-Video (T5 + DiT + décodeur ; le chat demande size 256 → 384×256, 49 images) : la carte
+      // « LTX-Video 2B », ou ?vengine=ltx qui le substitue à AnimateDiff. BRIK sur le Hub (LTX_BRIK).
       if (useLtx) {
         const { loadLtxGenerator } = await import('@/lib/webgpu/video/ltxGen');
         const gen = await loadLtxGenerator(LTX_BRIK, onLoadProgress, t);
@@ -2095,8 +2095,8 @@ function App() {
         setVideoGen(gen);
         setCurrentConvId(null);
         setMessages([{ id: 'welcome', role: 'assistant', content: t(
-          'Video mode: **LTX-Video 2B** (preview). Describe a scene: 2 seconds in 512×320 at 25 fps, about 40 s of GPU work on an M4 Mac.',
-          'Mode vidéo : **LTX-Video 2B** (aperçu). Décris une scène : 2 secondes en 512×320 à 25 im/s, environ 40 s de calcul GPU sur un Mac M4.') }]);
+          'Video mode: **LTX-Video 2B** (preview). Describe a scene: 2 seconds in 384×256 at 25 fps, about 22 s of GPU work on an M4 Mac.',
+          'Mode vidéo : **LTX-Video 2B** (aperçu). Décris une scène : 2 secondes en 384×256 à 25 im/s, environ 22 s de calcul GPU sur un Mac M4.') }]);
         setModelState('ready');
         return;
       }

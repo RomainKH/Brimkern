@@ -66,16 +66,17 @@ export const VIDEO_BRIK = {
 	rife: `${VIDEO_BRIK_BASE}/rife-4.26-f16.safetensors`,
 };
 // LTX-Video 0.9.8 distillé (docs/ltx-video-feasibility.md) : T5 q4 + transformeur q4 + décodeur q8.
-// ⚠️ Servis EN LOCAL (public/models, hors git) tant qu'ils ne sont pas téléversés sur le Hub : en
-// production, /models/ltx-*.brik répond la page 404 du site (HTML, vu le 2026-11-12) — la carte LTX
-// y était cassée. Elle reste donc MASQUÉE tant que LTX_HOSTED est faux, sauf avec ?vengine=ltx (bancs
-// et build local, où public/models existe). Passer LTX_HOSTED à true EN MÊME TEMPS que LTX_BRIK
-// bascule sur le Hub épinglé.
-export const LTX_HOSTED = false;
+// Servis par le Hub, ÉPINGLÉS au commit 1d1881d2 (2026-11-12 : T5 + carte téléversés ; les trois
+// fichiers vérifiés en 206, sceau BRIK, CORS *, tailles et SHA-256 LFS égaux aux fichiers construits).
+// Avant, ils pointaient sur /models/ltx-*.brik (public/models, hors git) : la production répondait la
+// page 404 du site en HTML, d'où LTX_HOSTED — faux = carte masquée sauf ?vengine=ltx. Un fichier
+// re-téléversé change le commit : ré-épingler ET relancer `node scripts/brik-digest.cjs --write`.
+export const LTX_HOSTED = true;
+const LTX_BRIK_BASE = 'https://huggingface.co/romainkh14/brimkern-ltx-BRIK/resolve/1d1881d2dd873eb809acf357f65d9dee4a5e67ad';
 export const LTX_BRIK = {
-	t5: '/models/ltx-t5-light.brik',
-	transformer: '/models/ltx-transformer-light.brik',
-	decoder: '/models/ltx-vae-decoder-q8-v2.brik',
+	t5: `${LTX_BRIK_BASE}/ltx-t5-light.brik`,
+	transformer: `${LTX_BRIK_BASE}/ltx-transformer-light.brik`,
+	decoder: `${LTX_BRIK_BASE}/ltx-vae-decoder-q8-v2.brik`,
 };
 // 3 034 331 120 (T5) + 1 250 891 776 (transformeur) + 561 524 176 (décodeur) — tailles des BRIK construits le 2026-10-11.
 export const LTX_PIPELINE_BYTES = 3_034_331_120 + 1_250_891_776 + 561_524_176;

@@ -154,8 +154,9 @@ défaut (384×256×33 : 480 jetons, ~2,2× moins de GEMM et ~3,3× moins de déc
 - **Chat, `?vengine=ltx`, prompt réel** (« a cat walking through a sunny garden… ») : pipeline chargé
   en 15 s (cache), **clip 384×256×49 en 22 s** tout compris — `docs/screenshots/ltx-chat-cat-2026-10-11.png`.
 - Tokenizer `Xenova/t5-v1_1-base`.
-- Reste : téléversement HF (+ LICENSE LTXV), carte produit, choix du défaut (384×256 à 22 s contre
-  512×320 à ~45 s), puis GEMM f16 / int3 du T5 pour le poids.
+- Reste (au 2026-10-11) : téléversement HF (+ LICENSE LTXV), carte produit, choix du défaut (384×256
+  à 22 s contre 512×320 à ~45 s), puis GEMM f16 / int3 du T5 pour le poids. Au 2026-11-12, seul le
+  dernier point reste ouvert (cf. étape 5).
 
 ## Étape 5 — produit (2026-10-11)
 
@@ -164,8 +165,13 @@ défaut (384×256×33 : 480 jetons, ~2,2× moins de GEMM et ~3,3× moins de déc
 - Parcours vérifié en vrai Chrome : clic carte → pipeline chargé en 13 s (cache) → clip 384×256×49 en
   **22,2 s** (`docs/screenshots/ltx-chat-cat-2026-10-11.png`, plage : `ltx-chat-sheet2`).
 - Hub : `romainkh14/brimkern-ltx-BRIK` (LICENSE LTXV jointe, README avec mentions de modification et
-  restrictions d'usage) — téléversement des 4,85 Go en cours ; `LTX_BRIK` bascule sur ses URL une fois
-  les empreintes vérifiées.
+  restrictions d'usage). Complet le 2026-11-12 (commit `1d1881d2`) ; `LTX_BRIK` y est épinglé, les trois
+  manifestes dans `MANIFEST_DIGESTS`. Mesuré depuis le Hub sur un profil Chrome NEUF
+  (`scripts/e2e/ltx-first-run.mjs`, build de prod, Mac M4) : pipeline prêt en **205 s** à froid
+  (3 034 + 1 251 + 562 Mo reçus, pas un octet de plus ; dépend de la connexion), **12,0 s** à chaud
+  (0 octet) ; clip 384×256×49 en **21,9 s** les deux fois.
+- Licence : page `/terms` (Annexe A citée mot pour mot) et case d'acceptation sur la carte (§ 3.1 :
+  clause opposable). LTX n'est PAS la vidéo par défaut : AnimateDiff le reste.
 - Mémoire GPU : T5 (3 Go) + transformeur (1,25) + décodeur (0,56) résidents ≈ 5 Go + activations.
   `loadLtxGenerator(…, t5Resident = false)` décharge le T5 après l'encodage : à brancher sur la
   capacité GPU pour les machines à 8-16 Go (non mesuré).

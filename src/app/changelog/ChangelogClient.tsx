@@ -22,10 +22,27 @@ const RELEASES: Release[] = [
   {
     date: { en: 'November 12, 2026', fr: '12 novembre 2026' },
     tagline: {
-      en: 'SDK 0.8.2: third-party models pinned to a commit, per-shard checksums in .brik files, and a corrupted file is refused instead of loaded.',
-      fr: 'SDK 0.8.2 : modèles tiers épinglés à un commit, empreintes par shard dans les .brik, et un fichier corrompu est refusé au lieu d’être chargé.',
+      en: 'LTX-Video 2B arrives in the model browser. SDK 0.8.2: third-party models pinned to a commit, per-shard checksums in .brik files, and a corrupted file is refused instead of loaded.',
+      fr: 'LTX-Video 2B arrive dans le navigateur de modèles. SDK 0.8.2 : modèles tiers épinglés à un commit, empreintes par shard dans les .brik, et un fichier corrompu est refusé au lieu d’être chargé.',
     },
     groups: [
+      {
+        title: { en: 'Text to video: LTX-Video 2B', fr: 'Texte vers vidéo : LTX-Video 2B' },
+        items: [
+          {
+            en: 'LTX-Video 2B by Lightricks now runs in the chat, on desktop: a 2-second clip at 384×256 and 25 fps in about 22 s on an M4 Mac, with nothing sent to a server. AnimateDiff stays the default video model; LTX-Video is a card in the model browser (preview).',
+            fr: 'LTX-Video 2B de Lightricks tourne désormais dans le chat, sur ordinateur : un clip de 2 secondes en 384×256 à 25 im/s en 22 s environ sur un Mac M4, sans rien envoyer à un serveur. AnimateDiff reste le modèle vidéo par défaut ; LTX-Video est une carte du navigateur de modèles (aperçu).',
+          },
+          {
+            en: 'The pipeline is 4.85 GB, downloaded once from Hugging Face and then reused offline: on a second visit it is ready in 12 s.',
+            fr: 'Le pipeline pèse 4,85 Go, téléchargés une seule fois depuis Hugging Face puis réutilisés hors ligne : à la visite suivante, il est prêt en 12 s.',
+          },
+          {
+            en: 'Its license (LTXV Open Weights License) comes with use restrictions. The card asks you to accept them before anything loads, and the new Terms of use page lists them in full.',
+            fr: 'Sa licence (LTXV Open Weights License) impose des restrictions d’usage. La carte demande de les accepter avant tout chargement, et la nouvelle page Conditions d’utilisation les reprend en entier.',
+          },
+        ],
+      },
       {
         title: { en: 'Weights you can trust', fr: 'Des poids dont on est sûr' },
         items: [

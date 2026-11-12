@@ -60,6 +60,12 @@ export const MANIFEST_DIGESTS: Record<string, string> = {
 		'ca3a5c21512542656a8a736c88f67d37a482cacbf499a080c9bf32ca36bf6b0f',
 	'https://huggingface.co/romainkh14/brimkern-image-BRIK/resolve/main/sdxs-unet-light.brik':
 		'42f7c0e82971a558d56548edec947b1ed7d9c0e509d634b51fc29429177e7654',
+	'https://huggingface.co/romainkh14/brimkern-ltx-BRIK/resolve/1d1881d2dd873eb809acf357f65d9dee4a5e67ad/ltx-t5-light.brik':
+		'9805a6e78a811a2e1b73763ea26d8d030cecc97bab52ef0eb8534f3656b83654',
+	'https://huggingface.co/romainkh14/brimkern-ltx-BRIK/resolve/1d1881d2dd873eb809acf357f65d9dee4a5e67ad/ltx-transformer-light.brik':
+		'4de043f5f4402ab776955da5feb24c94e8ba204c7298c8626e9fd1c3f60015e3',
+	'https://huggingface.co/romainkh14/brimkern-ltx-BRIK/resolve/1d1881d2dd873eb809acf357f65d9dee4a5e67ad/ltx-vae-decoder-q8-v2.brik':
+		'61581c9124ad7200dc31737da7de453bb3986c886cc317d6a4e60441426973da',
 	'https://huggingface.co/romainkh14/brimkern-video-BRIK/resolve/main/video-clip-q8.brik':
 		'e81ca57426716237dce2853703c70172a829f78704b7df77c9ee980534c82a76',
 	'https://huggingface.co/romainkh14/brimkern-video-BRIK/resolve/main/video-motion-1step-q8.brik':
