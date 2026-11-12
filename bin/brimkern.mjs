@@ -1176,6 +1176,16 @@ function purgeOrphanCacheBuckets(profile) {
 
 // ── Serveur HTTP local pour le runner WebGPU ─────────────────────────────────────────
 const CHROMIUM_HOST_PORTS = [47631, 47632, 47633, 47634];
+// URL sous laquelle le serveur local sert un fichier de l'utilisateur. Elle porte l'IDENTITÉ du
+// fichier (chemin réel, taille, date de modification) : avec une URL fixe (`/local-model.brik`, port
+// fixe), deux fichiers différents partageaient la même clé de cache — `--model=a.brik` puis
+// `--model=b.brik` chargeait b avec les plages de a, en-tête compris, donc c'est a qui répondait.
+function localModelUrl(port, file, format) {
+  const st = statSync(file);
+  const id = createHash('sha256').update(`${realpathSync(file)}:${st.size}:${st.mtimeMs}`).digest('hex').slice(0, 16);
+  return `http://127.0.0.1:${port}/local-model.${id}.${format === 'gguf' ? 'gguf' : 'brik'}`;
+}
+
 function startLocalServer(localBrikFile = null) {
   const sdkCode = readFileSync(SDK_PATH, 'utf8');
 
@@ -1205,7 +1215,7 @@ function startLocalServer(localBrikFile = null) {
     }
 
     // 2. Modèle local .brik ou .gguf avec support HTTP Range (206 Partial Content)
-    if ((req.url === '/local-model.brik' || req.url === '/local-model.gguf') && localBrikFile && existsSync(localBrikFile)) {
+    if (/^\/local-model(\.[0-9a-f]{16})?\.(brik|gguf)$/.test(req.url || '') && localBrikFile && existsSync(localBrikFile)) {
       const stat = statSync(localBrikFile);
       const range = req.headers.range;
       if (range) {
@@ -1493,6 +1503,7 @@ function initDiskCache() {
 
   const diskCache = {
     async match(key) {
+      if (/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(String(key))) return null; // fichier local : jamais copié en cache
       const { modelDir, groupedFile, legacyFile, legacyCanonicalFile } = parseCacheKeyToPaths(cacheDir, key);
       let target = existsSync(groupedFile) ? groupedFile : null;
       if (!target) {
@@ -1519,6 +1530,7 @@ function initDiskCache() {
       return null;
     },
     async put(key, response) {
+      if (/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(String(key))) return;
       const { modelDir, groupedFile } = parseCacheKeyToPaths(cacheDir, key);
       if (!existsSync(modelDir)) mkdirSync(modelDir, { recursive: true });
       const buf = Buffer.from(await response.arrayBuffer());
@@ -1631,8 +1643,7 @@ class BrimkernNativeDawnEngine {
     if (this.localBrikFile) {
       const { server, port } = await startLocalServer(this.localBrikFile);
       this.server = server;
-      const ext = this.format === 'gguf' ? 'gguf' : 'brik';
-      targetUrl = `http://127.0.0.1:${port}/local-model.${ext}`;
+      targetUrl = localModelUrl(port, this.localBrikFile, this.format);
     }
 
     const sdkPath = getSdkMjsPath();
@@ -1788,8 +1799,7 @@ class BrimkernChromiumEngine {
     this.port = port;
 
     if (this.localBrikFile) {
-      const ext = this.format === 'gguf' ? 'gguf' : 'brik';
-      this.modelUrl = `http://127.0.0.1:${port}/local-model.${ext}`;
+      this.modelUrl = localModelUrl(port, this.localBrikFile, this.format);
     }
 
     // Profil persistant pour mettre en cache les modèles téléchargés (IndexedDB / CacheStorage)
