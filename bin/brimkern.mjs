@@ -15,12 +15,12 @@
  */
 
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, realpathSync, createReadStream, readdirSync, rmSync, mkdirSync, writeFileSync, renameSync, utimesSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir, totalmem } from 'node:os';
 import readline, { createInterface } from 'node:readline';
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { format } from 'node:util';
 import { chromium } from 'playwright-core';
@@ -112,7 +112,7 @@ const PRESET_CLI_MODELS = {
   'super-coder': {
     name: 'Qwen 3.5 4B Super Coder (GGUF)',
     shortName: 'Qwen 3.5 4B Super Coder',
-    url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/main/qwen3.5-4B-super-coder.Q4_0.gguf',
+    url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/1f2362bff662708edca4836deda762da0c046dd0/qwen3.5-4B-super-coder.Q4_0.gguf',
     format: 'gguf',
     formatLabel: 'GGUF Q4_0',
     // Graphe Qwen 3.5 validé contre llama.cpp dans Dawn natif (docs/ROADMAP.md § 17).
@@ -129,7 +129,7 @@ const PRESET_CLI_MODELS = {
   'coder-max': {
     name: 'Qwen 3.6 35B-A3B Coder REAP (GGUF)',
     shortName: 'Qwen 3.6 35B-A3B Coder',
-    url: 'https://huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap50-GGUF/resolve/main/qwen36-reap50-Q4_K_M-imat.gguf',
+    url: 'https://huggingface.co/anik-jha/Qwen3.6-35B-A3B-coding-reap50-GGUF/resolve/260dffbddaba1f7edb30f823118247e477fc8877/qwen36-reap50-Q4_K_M-imat.gguf',
     format: 'gguf',
     formatLabel: 'GGUF Q4_K_M',
     // MoE (128 experts, 8 actifs : ~3 B de paramètres calculés par token sur 19 B) validé contre
@@ -386,7 +386,17 @@ function getGitInfo() {
 
 function getGitDiff(args = '') {
   try {
-    return execSync(`git diff ${args} 2>/dev/null`, { encoding: 'utf8' }).trim();
+    const argv = ['diff'];
+    if (args && typeof args === 'string') {
+      // Exécution directe sans shell (execFileSync) : élimine toute injection de commandes via `/diff`.
+      // On filtre aussi --output et --ext-diff qui permettraient d'écrire des fichiers ou d'exécuter un binaire.
+      const tokens = args.trim().split(/\s+/).filter(Boolean);
+      for (const tok of tokens) {
+        if (tok.startsWith('--output') || tok.startsWith('--ext-diff') || tok === '-x') continue;
+        argv.push(tok);
+      }
+    }
+    return execFileSync('git', argv, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return null;
   }
@@ -422,23 +432,44 @@ function copyToClipboard(text) {
 
 // ── Détection et protection des fichiers sensibles ───────────────────────────────────
 const SENSITIVE_PATTERNS = [
-  /\.env(\..+)?$/i,
+  /(^|\/)\.env(\..+)?$/i,
   /id_rsa/i,
   /id_ed25519/i,
+  /id_ecdsa/i,
+  /id_dsa/i,
   /\.pem$/i,
   /\.key$/i,
   /\.pfx$/i,
-  /etc\/shadow/i,
-  /etc\/passwd/i,
+  /\.p12$/i,
+  /\.keystore$/i,
+  /etc\/(shadow|passwd|master\.passwd)/i,
   /\.git\/config/i,
-  /\.npmrc/i,
-  /\.dockercfg/i,
+  /(^|\/)\.git-credentials$/i,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)\.pypirc$/i,
+  /(^|\/)\.netrc$/i,
+  /(^|\/)\.dockercfg$/i,
   /\.docker\/config\.json/i,
+  /(^|\/)\.ssh\//i,
+  /(^|\/)\.aws\//i,
+  /(^|\/)\.gnupg\//i,
+  /(^|\/)\.kube\/config$/i,
+  /credentials\.json$/i,
 ];
 
 function isSensitivePath(filePath) {
-  const normalized = filePath.replace(/\\/g, '/');
-  return SENSITIVE_PATTERNS.some((pat) => pat.test(normalized));
+  const check = (p) => {
+    const normalized = p.replace(/\\/g, '/');
+    return SENSITIVE_PATTERNS.some((pat) => pat.test(normalized));
+  };
+  if (check(filePath)) return true;
+  try {
+    if (existsSync(filePath)) {
+      const real = realpathSync(filePath);
+      if (real !== filePath && check(real)) return true;
+    }
+  } catch {}
+  return false;
 }
 
 // ── Résolution de fichiers (@chemin/vers/fichier[:début-fin]) ──────────────────────────
@@ -569,6 +600,7 @@ const SLASH_COMMANDS = [
   ['/accept', t('Extract the suggested code blocks', 'Extraire les blocs de code proposés')],
   ['/reset', t('Clear the conversation history', 'Effacer l’historique de la conversation')],
   ['/clear', t('Clear the screen', 'Effacer l’écran')],
+  ['/cache', t('Inspect or clean the model disk cache', 'Inspecter ou purger le cache disque des modèles')],
   ['/update', t('Check and install CLI updates', 'Vérifier et installer les mises à jour')],
   ['/upgrade', t('Check and install CLI updates', 'Vérifier et installer les mises à jour')],
   ['/exit', t('Quit', 'Quitter')],
@@ -577,6 +609,10 @@ const SUBCOMMAND_DESCS = () => ({
   '/mode': Object.fromEntries(Object.entries(CLI_MODES).map(([k, m]) => [k, m.desc])),
   '/think': Object.fromEntries(Object.entries(THINKING_LEVELS).map(([k, t]) => [k, t.desc])),
   '/model': Object.fromEntries(Object.entries(PRESET_CLI_MODELS).map(([k, m]) => [k, `${m.shortName} · ${m.size}`])),
+  '/cache': {
+    status: t('Show cached models & disk usage', 'Afficher les modèles en cache et leur taille'),
+    clean: t('Purge cached models (optional filter)', 'Purger les modèles en cache (filtre optionnel)'),
+  },
 });
 
 function createCliCompleter() {
@@ -1152,9 +1188,18 @@ function startLocalServer(localBrikFile = null) {
       return;
     }
 
-    // 1. SDK Brimkern
+    // Protection anti-exfiltration cross-origin : un site tiers ouvert dans le navigateur de
+    // l'utilisateur a `remoteAddress === 127.0.0.1` mais envoie un en-tête `Origin` externe.
+    const origin = req.headers.origin;
+    if (origin && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+
+    // 1. SDK Brimkern (servi uniquement à la page hôte locale)
     if (req.url === '/sdk.js') {
-      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, { 'Content-Type': 'application/javascript' });
       res.end(sdkCode);
       return;
     }
@@ -1166,7 +1211,13 @@ function startLocalServer(localBrikFile = null) {
       if (range) {
         const parts = range.replace(/bytes=/, '').split('-');
         const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+        const rawEnd = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+        if (Number.isNaN(start) || start < 0 || start >= stat.size || Number.isNaN(rawEnd) || rawEnd < start) {
+          res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+          res.end();
+          return;
+        }
+        const end = Math.min(rawEnd, stat.size - 1);
         const chunkSize = (end - start) + 1;
         const fileStream = createReadStream(localBrikFile, { start, end });
         res.writeHead(206, {
@@ -1174,7 +1225,6 @@ function startLocalServer(localBrikFile = null) {
           'Accept-Ranges': 'bytes',
           'Content-Length': chunkSize,
           'Content-Type': 'application/octet-stream',
-          'Access-Control-Allow-Origin': '*',
         });
         fileStream.pipe(res);
       } else {
@@ -1182,7 +1232,6 @@ function startLocalServer(localBrikFile = null) {
           'Content-Length': stat.size,
           'Accept-Ranges': 'bytes',
           'Content-Type': 'application/octet-stream',
-          'Access-Control-Allow-Origin': '*',
         });
         createReadStream(localBrikFile).pipe(res);
       }
@@ -1225,32 +1274,271 @@ function startLocalServer(localBrikFile = null) {
   })();
 }
 
-// ── Cache disque persistant pour l'inférence native (évite les retéléchargements) ───
+// ── Cache disque persistant pour l'inférence native (groupé par modèle + éviction LRU) ─
+const DEFAULT_CACHE_MAX_GB = 25;
+
+function getDiskCacheMaxBytes() {
+  const envGb = Number.parseFloat(process.env.BRIMKERN_CACHE_MAX_GB || '');
+  const gb = Number.isFinite(envGb) && envGb > 0 ? envGb : DEFAULT_CACHE_MAX_GB;
+  return Math.round(gb * 1024 * 1024 * 1024);
+}
+
+function getDiskCacheDir() {
+  const cacheBase = process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
+  return join(cacheBase, 'brimkern', 'ranges');
+}
+
+// Copie de src/lib/hfCacheKey.ts (la CLI ne charge pas le TypeScript du site) : révisions qui
+// servaient, le jour de l'épinglage, exactement le même fichier que `main` (etag comparé). Liste
+// FIGÉE : un ré-épinglage ultérieur (SHA neuf) télécharge sous sa propre clé.
+const SAME_AS_MAIN_2026_11_12 = new Set([
+  '067b946cf014b7c697f3654f621d577a3e3afd1c', '0a9035302dea19872c96076896304552890a73c2',
+  '1f2362bff662708edca4836deda762da0c046dd0', '23749fefcc72300e3a2ad315e1317431b06b590a',
+  '260dffbddaba1f7edb30f823118247e477fc8877', '361004151d4f4f6b446dc5e6d46fbf4422a80d5f',
+  '855f67caed130e1befc571b52bd181be2e858883', '86b3536ed1ca0dcb4716745642db4e6804bf3d32',
+  '91cad51170dc346986eccefdc2dd33a9da36ead9', '9217f5db79a29953eb74d5343926648285ec7e67',
+  '9cc28b17e86fa2415fcb070f8ee5ec27c965aa61', 'c90975dbd40c0c7b275fefaae758c3415c906238',
+  'd342b33b2ce2f54e9a24cd062bcc9ff37326c4db', 'ebb2015119c907b064c512bf053e945850b5875f',
+  'f86cb2c1fa58255f8052cc32aeede1b7482d4361',
+]);
+function hfCacheUrl(url) {
+  const m = /^(https:\/\/huggingface\.co\/[^/]+\/[^/]+\/resolve\/)([0-9a-f]{40})\//.exec(url);
+  return m && SAME_AS_MAIN_2026_11_12.has(m[2]) ? `${m[1]}main/${url.slice(m[0].length)}` : url;
+}
+
+function parseCacheKeyToPaths(cacheDir, key) {
+  const rawKey = String(key);
+  const legacyFile = join(cacheDir, createHash('sha256').update(rawKey).digest('hex') + '.bin');
+  const qIdx = rawKey.indexOf('?');
+  const baseUrl = qIdx >= 0 ? rawKey.slice(0, qIdx) : rawKey;
+  const query = qIdx >= 0 ? rawKey.slice(qIdx + 1) : '';
+  // Un preset épinglé le 2026-11-12 garde les plages déjà en cache sous `/resolve/main/` — SEULEMENT
+  // pour les révisions figées (cf. SAME_AS_MAIN_2026_11_12) : normaliser toute révision aurait servi
+  // en silence les octets d'une révision à la place d'une autre (URL `/resolve/<rev>/` collée).
+  const canonicalUrl = hfCacheUrl(baseUrl);
+  const urlHash8 = createHash('sha256').update(canonicalUrl).digest('hex').slice(0, 8);
+  const lastSeg = decodeURIComponent(baseUrl.split('/').filter(Boolean).pop() || 'model');
+  const modelSlug = (lastSeg.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120)) || 'model';
+  const rangeMatch = query.match(/(?:^|&)__brik=(\d+-\d+)/);
+  const fileTag = rangeMatch ? `range_${rangeMatch[1]}` : `full_${createHash('sha256').update(rawKey).digest('hex').slice(0, 12)}`;
+  const modelDir = join(cacheDir, modelSlug);
+  const groupedFile = join(modelDir, `${urlHash8}_${fileTag}.bin`);
+  // Migration aussi depuis une clé legacy qui utilisait `/resolve/main/` avant l'épinglage SHA.
+  const canonicalKey = qIdx >= 0 ? `${canonicalUrl}?${query}` : canonicalUrl;
+  const legacyCanonicalFile = join(cacheDir, createHash('sha256').update(canonicalKey).digest('hex') + '.bin');
+  return { modelSlug, modelDir, groupedFile, legacyFile, legacyCanonicalFile };
+}
+
+function formatCacheBytes(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} ${t('GB', 'Go')}`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('MB', 'Mo')}`;
+}
+
+function inspectDiskCache(cacheDir = getDiskCacheDir()) {
+  if (!existsSync(cacheDir)) return { entries: [], totalBytes: 0 };
+  const entries = [];
+  let legacyBytes = 0;
+  let legacyCount = 0;
+  let legacyMtime = 0;
+
+  for (const dirent of readdirSync(cacheDir, { withFileTypes: true })) {
+    const full = join(cacheDir, dirent.name);
+    if (dirent.isDirectory()) {
+      let bytes = 0;
+      let chunks = 0;
+      let mtimeMs = 0;
+      try {
+        for (const f of readdirSync(full)) {
+          const fp = join(full, f);
+          const st = statSync(fp);
+          if (st.isFile()) {
+            bytes += st.size;
+            chunks++;
+            if (st.mtimeMs > mtimeMs) mtimeMs = st.mtimeMs;
+          }
+        }
+      } catch {}
+      if (chunks > 0) {
+        entries.push({ slug: dirent.name, path: full, isDir: true, bytes, chunks, mtimeMs });
+      }
+    } else if (dirent.isFile() && dirent.name.endsWith('.bin')) {
+      try {
+        const st = statSync(full);
+        legacyBytes += st.size;
+        legacyCount++;
+        if (st.mtimeMs > legacyMtime) legacyMtime = st.mtimeMs;
+      } catch {}
+    }
+  }
+  if (legacyCount > 0) {
+    entries.push({ slug: '[legacy-flat]', path: cacheDir, isDir: false, bytes: legacyBytes, chunks: legacyCount, mtimeMs: legacyMtime });
+  }
+  entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const totalBytes = entries.reduce((s, e) => s + e.bytes, 0);
+  return { entries, totalBytes };
+}
+
+// `keepDir` : le modèle en cours de téléchargement. Sans lui, un modèle plus gros que le plafond
+// (coder-max = 11 Go sous BRIMKERN_CACHE_MAX_GB=5) effaçait ses propres plages pendant qu'il les écrivait.
+function enforceDiskCacheLimit(cacheDir = getDiskCacheDir(), maxBytes = getDiskCacheMaxBytes(), keepDir = null) {
+  try {
+    const { entries, totalBytes } = inspectDiskCache(cacheDir);
+    if (totalBytes <= maxBytes) return;
+    const targetBytes = Math.floor(maxBytes * 0.85);
+    let currentBytes = totalBytes;
+    // Tri du plus ancien au plus récent (LRU).
+    const oldestFirst = [...entries].sort((a, b) => a.mtimeMs - b.mtimeMs);
+    for (const item of oldestFirst) {
+      if (currentBytes <= targetBytes) break;
+      if (keepDir && item.path === keepDir) continue;
+      if (item.isDir) {
+        rmSync(item.path, { recursive: true, force: true });
+        currentBytes -= item.bytes;
+      } else {
+        // Fichiers plats legacy : on supprime les plus anciens d'abord.
+        const files = readdirSync(cacheDir)
+          .filter((n) => n.endsWith('.bin'))
+          .map((n) => {
+            const p = join(cacheDir, n);
+            const st = statSync(p);
+            return { p, size: st.size, mtimeMs: st.mtimeMs };
+          })
+          .sort((a, b) => a.mtimeMs - b.mtimeMs);
+        for (const f of files) {
+          if (currentBytes <= targetBytes) break;
+          rmSync(f.p, { force: true });
+          currentBytes -= f.size;
+        }
+      }
+    }
+  } catch {}
+}
+
+function runCliCacheCommand(action = 'status', filterArg = '') {
+  const cacheDir = getDiskCacheDir();
+  const maxBytes = getDiskCacheMaxBytes();
+  action = String(action || 'status').toLowerCase();
+
+  if (action === 'clean' || action === 'clear' || action === 'rm' || action === 'prune') {
+    const filter = String(filterArg || '').trim().toLowerCase();
+    const { entries, totalBytes } = inspectDiskCache(cacheDir);
+    if (entries.length === 0) {
+      console.log(`\n${C.dim}${t('Disk cache is already empty.', 'Le cache disque est déjà vide.')}${C.reset}\n`);
+      return;
+    }
+    if (!filter || filter === 'all') {
+      rmSync(cacheDir, { recursive: true, force: true });
+      mkdirSync(cacheDir, { recursive: true });
+      console.log(`\n${C.green}✓ ${t(`Cleared entire model cache (${formatCacheBytes(totalBytes)} freed).`, `Cache des modèles intégralement vidé (${formatCacheBytes(totalBytes)} libérés).`)}${C.reset}\n`);
+      return;
+    }
+    // Résolution d'un alias preset éventuel (ex: `brimkern cache clean coder-max` → fichier du preset)
+    const presetKey = MODEL_ALIASES[filter] || filter;
+    const presetFile = PRESET_CLI_MODELS[presetKey]?.url?.split('/').pop()?.toLowerCase() || '';
+    let freed = 0;
+    let removedCount = 0;
+    for (const item of entries) {
+      const slugLower = item.slug.toLowerCase();
+      const matches = item.isDir
+        ? slugLower.includes(filter) || (presetFile && slugLower.includes(presetFile))
+        : filter === 'legacy';
+      if (matches) {
+        if (item.isDir) {
+          rmSync(item.path, { recursive: true, force: true });
+        } else {
+          for (const f of readdirSync(cacheDir).filter((n) => n.endsWith('.bin'))) {
+            rmSync(join(cacheDir, f), { force: true });
+          }
+        }
+        freed += item.bytes;
+        removedCount++;
+      }
+    }
+    if (removedCount === 0) {
+      console.log(`\n${C.yellow}ℹ ${t(`No cached model matched "${filter}".`, `Aucun modèle en cache ne correspond à « ${filter} ».`)}${C.reset}\n`);
+    } else {
+      console.log(`\n${C.green}✓ ${t(`Removed ${removedCount} cached model entry/entries (${formatCacheBytes(freed)} freed).`, `${removedCount} entrée(s) de modèle supprimée(s) du cache (${formatCacheBytes(freed)} libérés).`)}${C.reset}\n`);
+    }
+    return;
+  }
+
+  // Affichage du statut du cache
+  const { entries, totalBytes } = inspectDiskCache(cacheDir);
+  console.log(`\n${C.boldRed}Brimkern CLI${C.reset} — ${t('Model Disk Cache (LRU)', 'Cache disque des modèles (LRU)')}\n`);
+  console.log(`  • ${t('Location', 'Emplacement').padEnd(18)}: ${cacheDir}`);
+  console.log(`  • ${t('Usage / Ceiling', 'Utilisé / Plafond').padEnd(18)}: ${C.yellow}${formatCacheBytes(totalBytes)}${C.reset} / ${formatCacheBytes(maxBytes)} ${C.dim}(BRIMKERN_CACHE_MAX_GB)${C.reset}\n`);
+  if (entries.length === 0) {
+    console.log(`  ${C.dim}${t('No models cached on disk yet.', 'Aucun modèle en cache sur le disque pour le moment.')}${C.reset}\n`);
+    return;
+  }
+  for (const item of entries) {
+    const dateStr = item.mtimeMs ? new Date(item.mtimeMs).toISOString().slice(0, 10) : '—';
+    const label = item.slug === '[legacy-flat]'
+      ? t('[legacy ungrouped ranges]', '[plages legacy non groupées]')
+      : item.slug;
+    console.log(`  ${C.cyan}${label.padEnd(42)}${C.reset} ${C.yellow}${formatCacheBytes(item.bytes).padStart(10)}${C.reset}  ${C.dim}(${item.chunks} ${t('ranges', 'plages')} · ${dateStr})${C.reset}`);
+  }
+  console.log(`\n  ${C.dim}${t('Clean all: `brimkern cache clean` · Clean one model: `brimkern cache clean <name>`', 'Tout vider : `brimkern cache clean` · Vider un modèle : `brimkern cache clean <nom>`')}${C.reset}\n`);
+}
+
 function initDiskCache() {
   if (globalThis.caches && globalThis.__brimkern_disk_cache) return;
-  const cacheBase = process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
-  const cacheDir = join(cacheBase, 'brimkern', 'ranges');
+  const cacheDir = getDiskCacheDir();
   if (!existsSync(cacheDir)) {
     mkdirSync(cacheDir, { recursive: true });
   }
-
-  function keyToFilename(key) {
-    return createHash('sha256').update(key).digest('hex') + '.bin';
-  }
+  let writesSinceCheck = 0;
 
   const diskCache = {
     async match(key) {
-      const file = join(cacheDir, keyToFilename(key));
-      if (existsSync(file)) {
-        const buf = readFileSync(file);
+      const { modelDir, groupedFile, legacyFile, legacyCanonicalFile } = parseCacheKeyToPaths(cacheDir, key);
+      let target = existsSync(groupedFile) ? groupedFile : null;
+      if (!target) {
+        const legacyHit = existsSync(legacyFile) ? legacyFile : (existsSync(legacyCanonicalFile) ? legacyCanonicalFile : null);
+        if (legacyHit) {
+          // Migration transparente de l'ancien cache plat vers le sous-dossier du modèle.
+          try {
+            if (!existsSync(modelDir)) mkdirSync(modelDir, { recursive: true });
+            renameSync(legacyHit, groupedFile);
+            target = groupedFile;
+          } catch {
+            target = legacyHit;
+          }
+        }
+      }
+      if (target) {
+        try {
+          const now = new Date();
+          utimesSync(target, now, now);
+        } catch {}
+        const buf = readFileSync(target);
         return new Response(buf, { headers: { 'Content-Length': String(buf.byteLength) } });
       }
       return null;
     },
     async put(key, response) {
-      const file = join(cacheDir, keyToFilename(key));
-      const buf = await response.arrayBuffer();
-      writeFileSync(file, Buffer.from(buf));
+      const { modelDir, groupedFile } = parseCacheKeyToPaths(cacheDir, key);
+      if (!existsSync(modelDir)) mkdirSync(modelDir, { recursive: true });
+      const buf = Buffer.from(await response.arrayBuffer());
+      writeFileSync(groupedFile, buf);
+      writesSinceCheck++;
+      if (writesSinceCheck >= 40 || buf.byteLength >= 8 * 1024 * 1024) {
+        writesSinceCheck = 0;
+        enforceDiskCacheLimit(cacheDir, getDiskCacheMaxBytes(), modelDir);
+      }
+    },
+    async delete(key) {
+      const { groupedFile, legacyFile, legacyCanonicalFile } = parseCacheKeyToPaths(cacheDir, key);
+      try {
+        for (const f of [groupedFile, legacyFile, legacyCanonicalFile]) {
+          if (existsSync(f)) rmSync(f, { force: true });
+        }
+        return true;
+      } catch {
+        return false;
+      }
     }
   };
 
@@ -1795,7 +2083,7 @@ function scheduleBackgroundUpdateCheck() {
 
       let hasUpdate = false;
       try {
-        execSync(`git merge-base --is-ancestor ${remoteCommit} HEAD`, {
+        execFileSync('git', ['merge-base', '--is-ancestor', remoteCommit, 'HEAD'], {
           cwd: ROOT,
           stdio: ['ignore', 'ignore', 'ignore'],
         });
@@ -1850,7 +2138,7 @@ async function runCliUpdate() {
       const targetRef = currentBranch === 'HEAD' ? 'origin/main' : `origin/${currentBranch}`;
       let remoteCommit = '';
       try {
-        remoteCommit = execSync(`git rev-parse --short ${targetRef}`, { cwd: ROOT, encoding: 'utf8' }).trim();
+        remoteCommit = execFileSync('git', ['rev-parse', '--short', targetRef], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
       } catch {
         remoteCommit = execSync('git rev-parse --short origin/main', { cwd: ROOT, encoding: 'utf8' }).trim();
       }
@@ -1875,7 +2163,7 @@ async function runCliUpdate() {
       console.log(`${C.cyan}▸ ${t(`Updating: ${currentCommit} → ${remoteCommit}...`, `Mise à jour : ${currentCommit} → ${remoteCommit}...`)}${C.reset}`);
 
       if (ROOT === join(homedir(), '.brimkern')) {
-        execSync(`git checkout --quiet --force ${remoteCommit}`, { cwd: ROOT });
+        execFileSync('git', ['checkout', '--quiet', '--force', remoteCommit], { cwd: ROOT });
       } else {
         execSync('git pull --ff-only', { cwd: ROOT });
       }
@@ -1978,6 +2266,7 @@ ${row('Escape', t('Stops the running inference / clears the input', "Interrompt 
 ${row('Ctrl+C', t('Cancels generation without killing the REPL session', 'Annule la génération sans tuer la session REPL'), C.yellow)}
 
 ${head(t('SYSTEM & UPDATES', 'SYSTÈME & MISES À JOUR'))}
+${row(t('/cache [clean [model]]', '/cache [clean [modèle]]'), t('Inspects or cleans the on-disk model cache', 'Inspecte ou purge le cache disque des modèles'))}
 ${row('/update, /upgrade', t('Checks and installs CLI updates', 'Vérifie et installe les mises à jour de la CLI'))}
 ${row(t('!command', '!commande'), t(`Runs a local shell command (e.g. ${C.dim}!git status${C.reset})`, `Exécute une commande shell locale (ex: ${C.dim}!git status${C.reset})`))}
 ${row('/exit, /quit', t('Quits the session', 'Quitte la session'))}
@@ -1998,6 +2287,7 @@ ${use('brimkern [options] [prompt]')}
 ${use('brimkern chat                   ', t('Interactive REPL', 'Mode REPL interactif'))}
 ${use('brimkern mcp                    ', t('Model Context Protocol (MCP) stdio server for AI agents', 'Serveur stdio MCP (Model Context Protocol) pour agents IA'))}
 ${use('brimkern models                 ', t('Lists the preset models', 'Liste les modèles pré-configurés'))}
+${use('brimkern cache [clean [model]]  ', t('Inspects or cleans the on-disk model cache', 'Inspecte ou purge le cache disque des modèles'))}
 ${use('brimkern update                 ', t('Updates the CLI to the latest version', 'Met à jour la CLI vers la dernière version'))}
 ${use(`cat file.ts | brimkern "${t('Find the bugs', 'Trouve les bugs')}"`)}
 ${use(`brimkern "${t('Explain', 'Explique')} @src/app/Composer.tsx:10-40"`)}
@@ -2032,7 +2322,7 @@ function printModels() {
   console.log(`${C.gray}${t('You can also pass a local file: --model=/path/to/model.brik', 'Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik')}${C.reset}\n`);
 }
 
-const KNOWN_COMMANDS = ['chat', 'models', 'list', 'update', 'upgrade', 'help', 'version', 'config', 'status', 'mcp', 'serve-mcp'];
+const KNOWN_COMMANDS = ['chat', 'models', 'list', 'cache', 'update', 'upgrade', 'help', 'version', 'config', 'status', 'mcp', 'serve-mcp'];
 const COMMON_ALIASES = {
   'run': 'chat',
   'start': 'chat',
@@ -2655,6 +2945,12 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
       resumeAndPrompt();
       return;
     }
+    if (input === '/cache' || input.startsWith('/cache ')) {
+      const parts = input.slice(6).trim().split(/\s+/).filter(Boolean);
+      runCliCacheCommand(parts[0] || 'status', parts.slice(1).join(' '));
+      resumeAndPrompt();
+      return;
+    }
     if (input === '/update' || input === '/upgrade') {
       const updated = await runCliUpdate();
       if (updated) {
@@ -2718,6 +3014,7 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
     }
 
     // 3. Raccourcis Git intégrés
+    let skipFileResolution = false;
     if (input === '/diff' || input.startsWith('/diff ')) {
       const diffArgs = input.slice(5).trim();
       const diff = getGitDiff(diffArgs);
@@ -2728,6 +3025,7 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
       }
       console.log(`${C.dim}${t(`Analyzing the git diff (${diff.split('\n').length} lines)...`, `Analyse du diff git (${diff.split('\n').length} lignes)...`)}${C.reset}\n`);
       input = `${t('Give a concise technical review of these git changes: potential bugs, regressions, security and style.', 'Fais une revue technique concise de ces changements git : bugs potentiels, régressions, sécurité et style.')}\n\n\`\`\`diff\n${diff}\n\`\`\``;
+      skipFileResolution = true;
     } else if (input === '/commit') {
       const status = getGitStatusSummary();
       const diff = getGitDiff();
@@ -2741,10 +3039,16 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
         `Here is the current state of my git repository:\n\nStatus:\n${status}\n\nDiff:\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\nWrite 3 concise conventional commit message suggestions (type: explicit title), each with a short one-sentence diagnosis.`,
         `Voici l'état actuel de mon dépôt git :\n\nStatus :\n${status}\n\nDiff :\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\nRédige 3 propositions de messages de commit conventionnels concis (type: titre explicite) en français et en anglais avec un court diagnostic de 1 phrase.`,
       );
+      skipFileResolution = true;
     } else if (input.startsWith('/review ')) {
       const targetFile = input.slice(8).trim();
       const resolved = resolve(process.cwd(), targetFile);
-      if (!existsSync(resolved)) {
+      if (isSensitivePath(resolved)) {
+        console.log(`${C.yellow}⚠ ${t(`Security: sensitive file blocked to protect your secrets: ${targetFile}`, `Sécurité : Fichier sensible bloqué pour protéger vos secrets : ${targetFile}`)}${C.reset}\n`);
+        resumeAndPrompt();
+        return;
+      }
+      if (!existsSync(resolved) || !statSync(resolved).isFile()) {
         console.log(`${C.red}${t('File not found:', 'Fichier introuvable :')} ${targetFile}${C.reset}\n`);
         resumeAndPrompt();
         return;
@@ -2752,10 +3056,13 @@ ${C.bold}${t('Brimkern session stats:', 'Statistiques de session Brimkern :')}${
       const code = readFileSync(resolved, 'utf8');
       console.log(`${C.dim}${t(`Reviewing ${targetFile} (${code.split('\n').length} lines)...`, `Revue de code de ${targetFile} (${code.split('\n').length} lignes)...`)}${C.reset}\n`);
       input = `${t(`In-depth code review of ${targetFile}: analyze potential bugs, robustness, performance and edge cases.`, `Revue de code approfondie pour le fichier ${targetFile} : analyse les bugs potentiels, la robustesse, les performances et les cas limites.`)}\n\n\`\`\`\n${code.slice(0, 4000)}\n\`\`\``;
+      skipFileResolution = true;
     }
 
-    // 4. Résolution des références de fichiers @chemin/vers/fichier
-    const { prompt: finalPrompt, files } = resolveFileReferences(input);
+    // 4. Résolution des références de fichiers @chemin/vers/fichier (hors diff/review déjà expansés)
+    const { prompt: finalPrompt, files } = skipFileResolution
+      ? { prompt: input, files: [] }
+      : resolveFileReferences(input);
     if (files.length > 0) {
       for (const f of files) {
         console.log(`${C.dim}📎 ${t('Context loaded:', 'Contexte chargé :')} @${f.path} (${f.lineCount} ${t('lines', 'lignes')})${C.reset}`);
@@ -3178,16 +3485,24 @@ async function main() {
       printModels();
       return;
     }
+    if (a === 'cache') {
+      const sub = args[i + 1] && !args[i + 1].startsWith('-') ? args[i + 1] : 'status';
+      const filter = args[i + 2] && !args[i + 2].startsWith('-') ? args.slice(i + 2).filter((x) => !x.startsWith('-')).join(' ') : '';
+      runCliCacheCommand(sub, filter);
+      return;
+    }
     if (a === 'update' || a === 'upgrade') {
       await runCliUpdate();
       return;
     }
     if (a === 'status' || a === 'config') {
       const cfg = loadCliConfig();
+      const cacheInfo = inspectDiskCache();
       console.log(`\n${C.boldRed}Brimkern CLI${C.reset} — ${t('Status & Configuration', 'Statut & Configuration')}\n`);
       console.log(`  • ${t('Config file', 'Fichier config').padEnd(18)}: ${join(homedir(), '.config', 'brimkern', 'config.json')}`);
       const effectiveModel = resolveModelKey(cfg.lastModel || 'coder');
       console.log(`  • ${t('Default model', 'Modèle par défaut').padEnd(18)}: ${effectiveModel} (${PRESET_CLI_MODELS[effectiveModel]?.shortName || 'custom'})`);
+      console.log(`  • ${t('Disk cache', 'Cache disque').padEnd(18)}: ${formatCacheBytes(cacheInfo.totalBytes)} / ${formatCacheBytes(getDiskCacheMaxBytes())} (${getDiskCacheDir()})`);
       console.log(`  • ${t('WebGPU runtime', 'Runtime WebGPU').padEnd(18)}: Dawn (native) & Chromium headless`);
       console.log(`  • ${t('Install location', 'Emplacement install').padEnd(18)}: ${ROOT}\n`);
       return;
@@ -3284,15 +3599,10 @@ async function main() {
   }
 
   let prompt = promptParts.join(' ').trim();
-  if (stdinContent) {
-    if (prompt) {
-      prompt = `${prompt}\n\n\`\`\`\n${stdinContent}\n\`\`\``;
-    } else {
-      prompt = stdinContent;
-    }
-  }
 
-  // Résolution des références de fichiers @fichier en mode one-shot
+  // Résolution des références de fichiers @fichier en mode one-shot UNIQUEMENT sur les arguments
+  // CLI (avant d'annexer stdin) : un flux pipé non fiable (logs, diff PR, courriel) contenant un
+  // motif `@chemin/fichier` ne doit jamais déclencher la lecture d'un fichier local.
   if (prompt) {
     const { prompt: resolvedPrompt, files } = resolveFileReferences(prompt);
     prompt = resolvedPrompt;
@@ -3300,6 +3610,14 @@ async function main() {
       for (const f of files) {
         process.stderr.write(`${C.dim}📎 ${t('Context loaded:', 'Contexte chargé :')} @${f.path} (${f.lineCount} ${t('lines', 'lignes')})${C.reset}\n`);
       }
+    }
+  }
+
+  if (stdinContent) {
+    if (prompt) {
+      prompt = `${prompt}\n\n\`\`\`\n${stdinContent}\n\`\`\``;
+    } else {
+      prompt = stdinContent;
     }
   }
 
