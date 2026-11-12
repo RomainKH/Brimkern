@@ -68,7 +68,7 @@ async function arm(label, extraQuery) {
   // imposer le fichier — sur un dépôt qui publie plusieurs quantifications, laisser le résolveur
   // choisir ferait comparer deux bras sur deux fichiers différents.
   const q = MODEL.includes('=') ? MODEL : `model=${encodeURIComponent(MODEL)}`;
-  await page.goto(`http://localhost:3618/chat?${q}${extraQuery}&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://localhost:${process.env.PORT || 3618}/chat?${q}${extraQuery}&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => { const ta = document.querySelector('textarea'); return ta && !ta.disabled; }, null, { timeout: 900_000, polling: 1000 });
   // Modèles « thinking » (arch deepseek / qwen3) : le budget <think> par défaut (medium = 700
   // tokens) s'AJOUTE à maxTokens. Sur un 7B à ~10 t/s le tir frôle puis dépasse les 300 s d'attente

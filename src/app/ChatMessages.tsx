@@ -374,27 +374,29 @@ const MessageItem = memo(function MessageItem({ msg, index, copied, showTyping, 
               </span>
               <ChevronDown size={11} style={{ transform: showStatsDetails ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
             </button>
-            {showStatsDetails && (
-              <div className="message-stats">
+            {/* Toujours dans le DOM, masqué quand replié : les bancs (scripts/e2e/bench-decode,
+                profile-*, jank-chat, rope-family) lisent « Generation: … t/s (N t) » et « Total: » dans
+                textContent. Le rendu conditionnel du 2026-09-23 (484d897) les avait tous cassés en
+                silence — chaque tir attendait 5 min puis s'abandonnait. */}
+            <div className="message-stats" style={showStatsDetails ? undefined : { display: 'none' }}>
+              <span className="stat-item">
+                <Cpu size={12} /> {t('Prompt:', 'Prompt :')} {msg.timings.prompt_speed_ts.toFixed(1)} t/s ({msg.timings.prompt_tokens} t {t('in', 'en')} {msg.timings.prompt_time_ms.toFixed(0)}ms)
+              </span>
+              {msg.timings.decode_speed_ts > 0 && (
                 <span className="stat-item">
-                  <Cpu size={12} /> {t('Prompt:', 'Prompt :')} {msg.timings.prompt_speed_ts.toFixed(1)} t/s ({msg.timings.prompt_tokens} t {t('in', 'en')} {msg.timings.prompt_time_ms.toFixed(0)}ms)
+                  <Zap size={12} /> {t('Generation:', 'Génération :')} {msg.timings.decode_speed_ts.toFixed(1)} t/s ({msg.timings.decode_tokens} t)
                 </span>
-                {msg.timings.decode_speed_ts > 0 && (
-                  <span className="stat-item">
-                    <Zap size={12} /> {t('Generation:', 'Génération :')} {msg.timings.decode_speed_ts.toFixed(1)} t/s ({msg.timings.decode_tokens} t)
-                  </span>
-                )}
-                <span className="stat-item">
-                  {t('Total:', 'Total :')} {(msg.timings.total_time_ms / 1000).toFixed(2)}s
+              )}
+              <span className="stat-item">
+                {t('Total:', 'Total :')} {(msg.timings.total_time_ms / 1000).toFixed(2)}s
+              </span>
+              {msg.timings.info && (
+                // Ce qui a réellement tourné (précision · KV · sampling · préfixe) — diagnostic terrain.
+                <span className="stat-item" style={{ fontFamily: 'var(--font-mono)', opacity: 0.85 }}>
+                  {msg.timings.info}
                 </span>
-                {msg.timings.info && (
-                  // Ce qui a réellement tourné (précision · KV · sampling · préfixe) — diagnostic terrain.
-                  <span className="stat-item" style={{ fontFamily: 'var(--font-mono)', opacity: 0.85 }}>
-                    {msg.timings.info}
-                  </span>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
