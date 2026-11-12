@@ -22,6 +22,7 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   { path: '/vs-webllm', freq: 'monthly', prio: 0.8 }, // comparaison mesurée (porte d'entrée SEO)
   { path: '/convert', freq: 'monthly', prio: 0.6 },  // convertisseur GGUF→BRIK
   { path: '/changelog', freq: 'weekly', prio: 0.5 },
+  { path: '/terms', freq: 'monthly', prio: 0.3 },    // conditions d'utilisation (Annexe A de la licence LTXV)
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

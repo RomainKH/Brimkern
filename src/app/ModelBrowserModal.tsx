@@ -10,12 +10,12 @@
 import { useEffect, useState, type Dispatch, type SetStateAction, type DragEvent, type ChangeEvent } from 'react';
 import { Database, X, Upload, Search, Info, Play, Wifi, WifiOff, Signal, SignalLow, SignalMedium, Feather, HardDriveDownload, DownloadCloud, Cpu, Gauge, AlertCircle, Film } from 'lucide-react';
 import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
-import { COMING_SOON, MODALITY_PILL, IMAGE_PIPELINE_BYTES, VIDEO_PIPELINE_BYTES, LTX_PIPELINE_BYTES, VISION_PIPELINE_BYTES, fmtModelSize, normModelName } from '@/lib/modelCatalog';
+import { COMING_SOON, MODALITY_PILL, IMAGE_PIPELINE_BYTES, VIDEO_PIPELINE_BYTES, LTX_PIPELINE_BYTES, LTX_HOSTED, VISION_PIPELINE_BYTES, fmtModelSize, normModelName } from '@/lib/modelCatalog';
 import { type WeightDType } from '@/lib/brik/convert';
 import { useNetworkStatus, estimateDownloadSeconds, formatDuration, type NetTier } from '@/lib/useNetworkStatus';
 import { useGpuCapability, gpuVerdict, verdictForGB, type GpuVerdict } from '@/lib/useGpuCapability';
 import { isStoragePersisted, requestPersistentStorage, storageEstimate } from '@/lib/storage';
-import { useT } from '@/lib/i18n';
+import { useT, useHref } from '@/lib/i18n';
 import HfModelInput from './HfModelInput';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
@@ -25,6 +25,11 @@ const HF_INPUT_EXAMPLES = [
   { label: 'Qwen3 0.6B (GGUF)', value: 'Qwen/Qwen3-0.6B-GGUF' },
   { label: 'Gemma 3 270M (GGUF)', value: 'unsloth/gemma-3-270m-it-GGUF' },
 ];
+
+// Acceptation des conditions LTX-Video (/terms#ltx-video), mémorisée par navigateur. La version change
+// si le texte des conditions change : l'utilisateur doit alors les accepter à nouveau.
+const LTX_TERMS_KEY = 'brimkern.ltxTermsAccepted';
+const LTX_TERMS_VERSION = 'ltxv-open-weights-0.x@2026-11-12';
 
 type UserModel = { url?: string; name: string; kind: 'gguf' | 'brik' | 'local' };
 type ModelState = 'idle' | 'initializing' | 'loading' | 'ready' | 'generating' | 'error';
@@ -115,6 +120,20 @@ export function ModelBrowserModal({
   // StoragePanel qui lit son propre stockage.
   const net = useNetworkStatus();
   const gpu = useGpuCapability(isMobile);
+  const href = useHref();
+  // LTX-Video : carte masquée tant que ses poids ne sont pas servis en production (LTX_HOSTED), sauf
+  // avec ?vengine=ltx (bancs, build local). La modale n'est montée qu'après un clic, dans un portail
+  // (ChatApp) : jamais rendue au serveur, `window` existe dès l'initialisation.
+  const [ltxForced] = useState(() => new URLSearchParams(window.location.search).get('vengine') === 'ltx');
+  // Licence LTXV § 3.1 : l'Annexe A doit figurer comme clause OPPOSABLE de l'accord qui encadre
+  // l'usage. Un avis sur la carte n'est pas un accord — d'où une acceptation explicite, mémorisée.
+  const [ltxTermsOk, setLtxTermsOk] = useState(() => {
+    try { return localStorage.getItem(LTX_TERMS_KEY) === LTX_TERMS_VERSION; } catch { return false; /* stockage indisponible : on redemandera */ }
+  });
+  const acceptLtxTerms = (ok: boolean) => {
+    setLtxTermsOk(ok);
+    try { if (ok) localStorage.setItem(LTX_TERMS_KEY, LTX_TERMS_VERSION); else localStorage.removeItem(LTX_TERMS_KEY); } catch { /* valable pour cette visite seulement */ }
+  };
   // Verdict d'accessibilité par modèle selon le GPU détecté (estimation VRAM — jamais bloquant).
   const gpuMeta: Record<GpuVerdict, { label: string; color: string }> = {
     good: { label: t('Runs well', 'Tourne bien'), color: 'var(--success)' },
@@ -742,7 +761,7 @@ export function ModelBrowserModal({
                   })}
                   {/* LTX-Video 2B : le DiT vidéo (docs/ltx-video-feasibility.md) — la carte vidéo de référence ;
                       AnimateDiff reste en dessous pour les machines plus petites. */}
-                  {showVideoLab && (() => {
+                  {showVideoLab && (LTX_HOSTED || ltxForced) && (() => {
                     const isLtxActive = !!loadedModelName && loadedModelName.includes('LTX-Video');
                     // Besoin résident ≈ poids × 1,25, la même marge que les cartes texte (≈ 6,1 Go) :
                     // une estimation affichée, jamais un blocage (cf. useGpuCapability).
@@ -784,13 +803,26 @@ export function ModelBrowserModal({
                               `${fmtModelSize(LTX_PIPELINE_BYTES, true)} à télécharger, puis environ 22 s de calcul GPU par clip de 2 s sur un Mac M4, davantage sur un GPU plus modeste. Demande ~6 Go de mémoire GPU.`)}</span>
                       </div>
                       {/* La licence LTXV (§ 3.1) impose d'avertir chaque utilisateur à qui l'on distribue le
-                          modèle de ses restrictions d'usage — le site le distribue, au navigateur du visiteur. */}
+                          modèle de ses restrictions d'usage — le site le distribue, au navigateur du visiteur —
+                          ET d'en faire une clause opposable : la case à cocher renvoie à /terms, qui les cite. */}
                       <div style={{ fontSize: '10px', lineHeight: 1.35, color: 'var(--text-muted)' }}>
                         {t('LTXV license: use restrictions apply, and companies with $10M+ annual revenue need a commercial license. ', 'Licence LTXV : des restrictions d’usage s’appliquent, et une entreprise à 10 M$ de CA annuel ou plus doit obtenir une licence commerciale. ')}
                         <a href="https://huggingface.co/romainkh14/brimkern-ltx-BRIK/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
                           {t('Read the license', 'Lire la licence')}
                         </a>
                       </div>
+                      {!isLtxActive && onLoadVideoModel && (
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: '11px', lineHeight: 1.35, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={ltxTermsOk} onChange={(e) => acceptLtxTerms(e.target.checked)} style={{ marginTop: 1, flexShrink: 0 }} />
+                          <span>
+                            {t('I agree to the ', 'J’accepte les ')}
+                            <a href={`${href('/terms')}#ltx-video`} target="_blank" rel="noopener" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                              {t('LTX-Video terms of use', 'conditions d’utilisation de LTX-Video')}
+                            </a>
+                            {t(', including its use restrictions.', ', dont ses restrictions d’usage.')}
+                          </span>
+                        </label>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
                         {isLtxActive ? (
                           <span style={{ fontSize: '11px', color: 'var(--success)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
@@ -798,7 +830,7 @@ export function ModelBrowserModal({
                           </span>
                         ) : onLoadVideoModel && (
                           <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '6px' }}
-                            disabled={modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
+                            disabled={!ltxTermsOk || modelState === 'initializing' || modelState === 'loading' || modelState === 'generating'}
                             onClick={() => onLoadVideoModel('ltx')}>
                             <Film size={12} /> {t('Generate in the chat', 'Générer dans le chat')}
                           </button>

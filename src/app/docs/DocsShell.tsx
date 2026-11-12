@@ -232,6 +232,7 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
     { path: '/docs/diagnostics', label: t('Diagnostics', 'Diagnostics') },
     { path: '/vs-webllm', label: t('Compared to WebLLM', 'Comparé à WebLLM') },
     { path: '/changelog', label: 'Changelog' },
+    { path: '/terms', label: t('Terms of use', 'Conditions d’utilisation') },
   ];
 
   return (

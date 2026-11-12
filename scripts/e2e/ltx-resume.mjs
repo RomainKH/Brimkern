@@ -31,9 +31,14 @@ cdp.on('Network.requestWillBeSent', (e) => { if (e.request.url.includes(T5)) kin
 cdp.on('Network.dataReceived', (e) => { const k = kind.get(e.requestId); if (k === 't5') t5 += e.dataLength; else if (k === 'dit') dit += e.dataLength; });
 
 async function lancer() {
-  await page.goto(`${BASE}/chat?v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
+  // ?vengine=ltx : la carte est masquée tant que LTX_HOSTED est faux ; la case des conditions
+  // (/terms#ltx-video) conditionne le bouton.
+  await page.goto(`${BASE}/chat?vengine=ltx&v=${Date.now()}`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: /Browse \/ load a model/ }).click({ timeout: 60_000 });
-  await page.locator('.model-card', { hasText: 'LTX-Video 2B' }).getByRole('button', { name: /Generate in the chat/ }).click({ timeout: 60_000 });
+  const carte = page.locator('.model-card', { hasText: 'LTX-Video 2B' });
+  const cgu = carte.getByRole('checkbox');
+  if (await cgu.count() && !(await cgu.isChecked())) await cgu.check();
+  await carte.getByRole('button', { name: /Generate in the chat/ }).click({ timeout: 60_000 });
 }
 const attendre = async (cond, max = 900_000) => { const t0 = Date.now(); while (!cond()) { if (Date.now() - t0 > max) return false; await new Promise((r) => setTimeout(r, 250)); } return true; };
 const plagesT5 = () => page.evaluate(async (f) => {

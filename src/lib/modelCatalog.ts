@@ -66,8 +66,12 @@ export const VIDEO_BRIK = {
 	rife: `${VIDEO_BRIK_BASE}/rife-4.26-f16.safetensors`,
 };
 // LTX-Video 0.9.8 distillé (docs/ltx-video-feasibility.md) : T5 q4 + transformeur q4 + décodeur q8.
-// ⚠️ Servis EN LOCAL (public/models, hors git) tant qu'ils ne sont pas téléversés sur le Hub : le
-// moteur vidéo LTX ne s'active que par ?vengine=ltx.
+// ⚠️ Servis EN LOCAL (public/models, hors git) tant qu'ils ne sont pas téléversés sur le Hub : en
+// production, /models/ltx-*.brik répond la page 404 du site (HTML, vu le 2026-11-12) — la carte LTX
+// y était cassée. Elle reste donc MASQUÉE tant que LTX_HOSTED est faux, sauf avec ?vengine=ltx (bancs
+// et build local, où public/models existe). Passer LTX_HOSTED à true EN MÊME TEMPS que LTX_BRIK
+// bascule sur le Hub épinglé.
+export const LTX_HOSTED = false;
 export const LTX_BRIK = {
 	t5: '/models/ltx-t5-light.brik',
 	transformer: '/models/ltx-transformer-light.brik',
