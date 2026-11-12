@@ -37,5 +37,14 @@ const dv = new DataView(zipped.buffer, zipped.byteOffset, zipped.byteLength);
 check('starts with local file header', dv.getUint32(0, true) === 0x04034b50);
 check('ends with end-of-central-directory', dv.getUint32(zipped.length - 22, true) === 0x06054b50);
 
+// Security: rejects corrupted payload (CRC-32 mismatch).
+{
+	const tampered = zipped.slice();
+	tampered[45] ^= 0xff; // flip a byte inside manifest.json payload
+	let threw = false;
+	try { readZip(tampered); } catch { threw = true; }
+	check('rejects corrupted ZIP payload (CRC-32 mismatch)', threw);
+}
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
 process.exit(failures === 0 ? 0 : 1);

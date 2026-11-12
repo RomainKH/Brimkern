@@ -230,9 +230,17 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   // 3. Header counts
   const tensorCount = reader.uint64();
   const metadataCount = reader.uint64();
+  if (!Number.isSafeInteger(tensorCount) || tensorCount < 0 || tensorCount > 100_000) {
+    throw new Error(`GGUF invalide : nombre de tenseurs hors bornes (${tensorCount})`);
+  }
+  if (!Number.isSafeInteger(metadataCount) || metadataCount < 0 || metadataCount > 100_000) {
+    throw new Error(`GGUF invalide : nombre de métadonnées hors bornes (${metadataCount})`);
+  }
 
-  // Helper to read metadata value recursively
-  const readMetadataVal = (type: number): any => {
+  // Helper to read metadata value recursively (with depth and array length guards)
+  const MAX_META_ARRAY_LEN = 2_000_000; // vocabulaires BPE/SentencePiece ≤ 512k
+  const readMetadataVal = (type: number, depth = 0): any => {
+    if (depth > 8) throw new Error('GGUF invalide : imbrication de métadonnées excessive');
     switch (type) {
       case 0: return reader.uint8();
       case 1: return reader.int8();
@@ -246,9 +254,12 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
       case 9: { // array
         const itemType = reader.uint32();
         const len = reader.uint64();
+        if (!Number.isSafeInteger(len) || len < 0 || len > MAX_META_ARRAY_LEN) {
+          throw new Error(`GGUF invalide : longueur de tableau de métadonnées hors bornes (${len})`);
+        }
         const arr = [];
         for (let i = 0; i < len; i++) {
-          arr.push(readMetadataVal(itemType));
+          arr.push(readMetadataVal(itemType, depth + 1));
         }
         return arr;
       }
@@ -266,11 +277,14 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
     const key = reader.string();
     const valType = reader.uint32();
     const val = readMetadataVal(valType);
-    metadata[key] = val;
+    if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
+      metadata[key] = val;
+    }
   }
 
-  const alignment = (metadata['general.alignment'] as number) ?? 32;
-  const arch = (metadata['general.architecture'] as string) ?? 'llama';
+  const rawAlign = Number(metadata['general.alignment'] ?? 32);
+  const alignment = Number.isSafeInteger(rawAlign) && rawAlign > 0 && rawAlign <= 4096 && (rawAlign & (rawAlign - 1)) === 0 ? rawAlign : 32;
+  const arch = typeof metadata['general.architecture'] === 'string' ? metadata['general.architecture'] : 'llama';
 
   // 5. Parse Tensor Info
   interface RawTensorInfo {
@@ -284,12 +298,20 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   for (let i = 0; i < tensorCount; i++) {
     const name = reader.string();
     const nDims = reader.uint32();
+    if (nDims > 8) throw new Error(`GGUF invalide : nombre de dimensions hors bornes (${nDims}) pour ${name}`);
     const shape: number[] = [];
     for (let d = 0; d < nDims; d++) {
-      shape.push(reader.uint64());
+      const dim = reader.uint64();
+      if (!Number.isSafeInteger(dim) || dim < 0 || dim > 1e9) {
+        throw new Error(`GGUF invalide : dimension hors bornes (${dim}) pour ${name}`);
+      }
+      shape.push(dim);
     }
     const typeIdx = reader.uint32();
     const relativeOffset = reader.uint64();
+    if (!Number.isSafeInteger(relativeOffset) || relativeOffset < 0) {
+      throw new Error(`GGUF invalide : offset négatif ou hors bornes (${relativeOffset}) pour ${name}`);
+    }
     rawTensors.push({ name, shape, typeIdx, relativeOffset });
   }
 
@@ -302,10 +324,14 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
   const tensors: Record<string, TensorInfo> = {};
   for (let i = 0; i < rawTensors.length; i++) {
     const t = rawTensors[i];
+    if (t.name === '__proto__' || t.name === 'constructor' || t.name === 'prototype') continue;
     const typeName = GGML_TYPE_NAMES[t.typeIdx] || GGML_TYPE_NAMES_HIGH[t.typeIdx] || "UNKNOWN";
 
     // Total elements in tensor
     const nElems = t.shape.reduce((a, b) => a * b, 1);
+    if (!Number.isSafeInteger(nElems) || nElems < 0) {
+      throw new Error(`GGUF invalide : nombre d'éléments hors bornes pour ${t.name}`);
+    }
 
     // Compute byte length using relative offset of next tensor if available, 
     // or block size math as fallback
@@ -319,12 +345,15 @@ export async function parseGguf(file: Blob | File): Promise<Manifest> {
       try {
         const { block, size } = getGgmlBlockInfo(typeName);
         const exact = (nElems / block) * size;
-        if (Number.isInteger(exact) && exact <= bytes) bytes = exact;
+        if (Number.isInteger(exact) && (bytes < 0 || exact <= bytes)) bytes = exact;
       } catch { /* type non lu : l'écart, comme avant */ }
     } else {
       // Last tensor goes to the end of file (or we calculate it using blocks)
       const { block, size } = getGgmlBlockInfo(typeName);
       bytes = (nElems / block) * size;
+    }
+    if (!Number.isSafeInteger(bytes) || bytes < 0) {
+      throw new Error(`GGUF invalide : taille d'octets invalide (${bytes}) pour ${t.name}`);
     }
 
     tensors[t.name] = {

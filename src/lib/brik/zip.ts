@@ -122,11 +122,13 @@ export function concatParts(parts: Uint8Array[]): Uint8Array {
 // Parse a stored-only ZIP (the kind makeZip emits — method 0, no data descriptors) back into its
 // named entries, walking the central directory.
 export function readZip(buf: Uint8Array): ZipEntry[] {
+	if (buf.length < 22) throw new Error('ZIP invalide : end-of-central-directory introuvable');
 	const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 
 	// Find the End-Of-Central-Directory by scanning backwards for its signature.
 	let eocd = -1;
-	for (let i = buf.length - 22; i >= 0; i--) {
+	const minEocd = Math.max(0, buf.length - 22 - 0xffff);
+	for (let i = buf.length - 22; i >= minEocd; i--) {
 		if (dv.getUint32(i, true) === EOCD_SIG) {
 			eocd = i;
 			break;
@@ -139,23 +141,39 @@ export function readZip(buf: Uint8Array): ZipEntry[] {
 	const entries: ZipEntry[] = [];
 
 	for (let i = 0; i < count; i++) {
-		if (dv.getUint32(p, true) !== CENTRAL_SIG) throw new Error('ZIP invalide : entrée de répertoire central corrompue');
+		if (p + 46 > buf.length || dv.getUint32(p, true) !== CENTRAL_SIG) {
+			throw new Error('ZIP invalide : entrée de répertoire central corrompue');
+		}
 		const method = dv.getUint16(p + 10, true);
+		const expectedCrc = dv.getUint32(p + 16, true);
+		const compSize = dv.getUint32(p + 20, true);
 		const size = dv.getUint32(p + 24, true); // uncompressed (== compressed for stored)
 		const nameLen = dv.getUint16(p + 28, true);
 		const extraLen = dv.getUint16(p + 30, true);
 		const commentLen = dv.getUint16(p + 32, true);
 		const localOff = dv.getUint32(p + 42, true);
+		if (p + 46 + nameLen + extraLen + commentLen > buf.length) {
+			throw new Error('ZIP invalide : entrée de répertoire central hors bornes');
+		}
 		const name = new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nameLen));
 		if (method !== 0) throw new Error(`ZIP non supporté : la méthode ${method} (compressée) pour ${name}`);
+		if (compSize !== size) throw new Error(`ZIP invalide : tailles incohérentes pour ${name}`);
 
 		// Jump to the local header to find where the data actually starts (its name/extra lengths
 		// can differ from the central record's).
-		if (dv.getUint32(localOff, true) !== LOCAL_SIG) throw new Error('ZIP invalide : en-tête local corrompu');
+		if (localOff + 30 > buf.length || dv.getUint32(localOff, true) !== LOCAL_SIG) {
+			throw new Error('ZIP invalide : en-tête local corrompu');
+		}
 		const lNameLen = dv.getUint16(localOff + 26, true);
 		const lExtraLen = dv.getUint16(localOff + 28, true);
 		const dataStart = localOff + 30 + lNameLen + lExtraLen;
+		if (dataStart + size > buf.length) {
+			throw new Error(`ZIP invalide : données tronquées pour ${name}`);
+		}
 		const data = buf.subarray(dataStart, dataStart + size);
+		if (crc32(data) !== expectedCrc) {
+			throw new Error(`ZIP invalide : somme de contrôle CRC-32 incorrecte pour ${name}`);
+		}
 		entries.push({ name, data });
 
 		p += 46 + nameLen + extraLen + commentLen;

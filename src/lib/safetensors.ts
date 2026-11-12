@@ -25,23 +25,51 @@ export function toF32(t: TensorData): Float32Array {
   return out;
 }
 
+const MAX_SAFETENSORS_HEADER = 100 * 1024 * 1024;
+
 export function parseSafetensors(buf: ArrayBuffer, opts: { keepF16?: boolean } = {}): Map<string, SafeTensor> {
+  if (buf.byteLength < 8) throw new Error('safetensors: fichier tronqué (en-tête < 8 octets)');
   const dv = new DataView(buf);
-  const headerLen = Number(dv.getBigUint64(0, true));
+  const headerLenBig = dv.getBigUint64(0, true);
+  if (headerLenBig <= BigInt(0) || headerLenBig > BigInt(MAX_SAFETENSORS_HEADER) || 8 + Number(headerLenBig) > buf.byteLength) {
+    throw new Error(`safetensors: longueur d'en-tête invalide (${headerLenBig} octets pour un tampon de ${buf.byteLength})`);
+  }
+  const headerLen = Number(headerLenBig);
   const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, headerLen)));
+  if (!header || typeof header !== 'object' || Array.isArray(header)) {
+    throw new Error('safetensors: en-tête JSON invalide');
+  }
   const dataStart = 8 + headerLen;
   const out = new Map<string, SafeTensor>();
   for (const [name, info] of Object.entries(header as Record<string, any>)) {
-    if (name === '__metadata__') continue;
+    if (name === '__metadata__' || name === '__proto__' || name === 'constructor' || name === 'prototype') continue;
+    if (!info || typeof info !== 'object') throw new Error(`safetensors: descripteur invalide pour "${name}"`);
     const { dtype, shape, data_offsets } = info;
+    if (!Array.isArray(shape) || !shape.every((d: unknown) => typeof d === 'number' && Number.isInteger(d) && d >= 0)) {
+      throw new Error(`safetensors: shape invalide pour "${name}"`);
+    }
+    if (!Array.isArray(data_offsets) || data_offsets.length !== 2) {
+      throw new Error(`safetensors: data_offsets invalide pour "${name}"`);
+    }
     const [s, e] = data_offsets as [number, number];
+    if (!Number.isSafeInteger(s) || !Number.isSafeInteger(e) || s < 0 || e < s || dataStart + e > buf.byteLength) {
+      throw new Error(`safetensors: data_offsets hors bornes [${s}, ${e}] pour "${name}"`);
+    }
+    const byteLen = e - s;
+    const expectedElems = shape.reduce((a: number, b: number) => a * b, 1);
     let data: TensorData;
     if (dtype === 'F32') {
+      if (byteLen % 4 !== 0 || byteLen / 4 !== expectedElems) {
+        throw new Error(`safetensors: taille F32 incohérente (${byteLen} o vs ${expectedElems} élém.) pour "${name}"`);
+      }
       data = new Float32Array(buf.slice(dataStart + s, dataStart + e));
     } else if (dtype === 'F16') {
-      const n = (e - s) / 2;
+      if (byteLen % 2 !== 0 || byteLen / 2 !== expectedElems) {
+        throw new Error(`safetensors: taille F16 incohérente (${byteLen} o vs ${expectedElems} élém.) pour "${name}"`);
+      }
+      const n = byteLen / 2;
       if (opts.keepF16) {
-        data = { f16: new Uint8Array(buf, dataStart + s, e - s), n }; // view, zero copy
+        data = { f16: new Uint8Array(buf, dataStart + s, byteLen), n }; // view, zero copy
       } else {
         const u16 = new Uint16Array(buf.slice(dataStart + s, dataStart + e));
         const f32 = new Float32Array(n);
