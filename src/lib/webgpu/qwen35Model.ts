@@ -25,7 +25,7 @@
 // token de la passe (snapT = 0 dans les kernels conv/DeltaNet), le cache KV est simplement réécrit.
 
 import { CustomWebModel, type TensorSource } from './model';
-import { type WebGpuEngine } from './kernels';
+import { type WebGpuEngine, hadamardInverseRowCpu } from './kernels';
 import { type Manifest } from './ggufParser';
 import { GraphModel, type Gpu } from './graphModel';
 import { urlFlag } from './urlFlags';
@@ -53,8 +53,15 @@ interface MtpLayer {
 	attnNorm: Gpu; attn: AttnWeights; ffnNorm: Gpu; wgate: Gpu; wup: Gpu; wdown: Gpu;
 }
 
+// Rotation de Hadamard des Bonsai PrismML (métadonnées prism.hadamard.*, fork llama.cpp PrismML) :
+// un poids « replié » W_f = W·D·H se multiplie par H·(D·x) (cf. shaders.ts hadamard_rows) ;
+// l'embedding « latent » se relit h = s ⊙ (H·z). Signes par largeur d'entrée (5 120 / 6 144 / 17 408
+// sur le 27B) ; `perm` = réordonnancement gdn_v_grouped de l'entrée de ssm_out.
+interface Hadamard { rot: Set<string>; inv: Set<string>; signs: Map<number, Gpu>; signsCpu: Map<number, Float32Array>; perm: { hd: number; nk: number; rep: number } | null }
+
 export class Qwen35Model extends GraphModel<null> {
 	private layers: Q35Layer[] = [];
+	private hd: Hadamard | null = null;
 	private mtp: MtpLayer | null = null;
 	private convState = new Map<number, Gpu>();
 	private ssmState = new Map<number, Gpu>();
@@ -207,6 +214,7 @@ export class Qwen35Model extends GraphModel<null> {
 	async prewarmGpu(onProgress?: (doneBytes: number, totalBytes: number) => void): Promise<void> {
 		if (!this.engine.qwen35SsmOk) throw new Error('Qwen 3.5 indisponible sur ce GPU (selfValidate, ou ?qwen35ssm=0).');
 		if (this.q.moe && !this.engine.moeOk) throw new Error('Modèle à experts indisponible sur ce GPU (selfValidate MoE, ou ?moe=0).');
+		this.loadHadamard();
 		const { d } = this.manifest.config;
 		const layerBytes = this.layerBytes(this.nLayer);
 		const total = layerBytes.reduce((a, b) => a + b, 0);
@@ -219,7 +227,8 @@ export class Qwen35Model extends GraphModel<null> {
 		}
 		// Le décodage spéculatif exige les GEMV à deux lignes (sinon une passe de 2 tokens coûte 5×).
 		// MTP : couche dense seulement pour l'instant (celle d'un qwen35moe a elle aussi des experts).
-		if (Qwen35Model.mtpOn && this.engine.gemvMOk && !this.q.moe) {
+		// Pas de MTP sur un modèle à poids repliés : la couche nextn aurait ses propres transformations.
+		if (Qwen35Model.mtpOn && this.engine.gemvMOk && !this.q.moe && !this.hd) {
 			this.mtp = await this.loadMtp().catch((e) => { console.warn('[qwen35] couche MTP illisible, décodage classique :', e); return null; });
 			await this.engine.settleGpu();
 		}
@@ -255,6 +264,67 @@ export class Qwen35Model extends GraphModel<null> {
 
 	protected prepareInputs(): Promise<null> { return Promise.resolve(null); }
 
+	private loadHadamard(): void {
+		const md = this.manifest.metadata as Record<string, unknown>;
+		const version = md['prism.hadamard.version'];
+		if (version === undefined) return;
+		const no = (why: string) => { throw new Error(`prism.hadamard : ${why} — ce modèle ne peut pas tourner correctement ici.`); };
+		if (Number(version) !== 1) no(`version ${String(version)} non gérée (1 seulement : tête explicite, pas de tête latente partagée)`);
+		if (Number(md['prism.hadamard.block_size']) !== 1024) no(`bloc de ${String(md['prism.hadamard.block_size'])} (1 024 seulement)`);
+		if (md['prism.hadamard.transform'] !== 'normalized-sylvester-walsh-hadamard') no(`transformée « ${String(md['prism.hadamard.transform'])} »`);
+		if (md['prism.hadamard.axis'] !== 'input-last-dimension') no(`axe « ${String(md['prism.hadamard.axis'])} »`);
+		if (this.q.moe) no('modèle à experts');
+		if (!this.engine.hadamardOk) no('rotation de Hadamard indisponible sur ce GPU (selfValidate)');
+		const widths = (md['prism.hadamard.sign_widths'] as number[] | undefined) ?? [];
+		const values = (md['prism.hadamard.sign_values'] as number[] | undefined) ?? [];
+		const signsCpu = new Map<number, Float32Array>();
+		let off = 0;
+		for (const w of widths) {
+			const v = Float32Array.from(values.slice(off, off + w));
+			if (v.length !== w || v.some((x) => x !== 1 && x !== -1)) no(`signes de largeur ${w} invalides`);
+			signsCpu.set(w, v);
+			off += w;
+		}
+		if (off !== values.length) no('longueur des signes incohérente');
+		const { S, Hk, Hv } = this.ssm;
+		this.hd = {
+			rot: new Set((md['prism.hadamard.weight_names'] as string[] | undefined) ?? []),
+			inv: new Set((md['prism.hadamard.inverse_weight_names'] as string[] | undefined) ?? []),
+			signsCpu,
+			signs: new Map([...signsCpu].map(([w, v]) => [w, this.up(v)])),
+			perm: md['prism.hadamard.gdn_v_grouped'] ? { hd: S, nk: Hk, rep: Hv / Hk } : null,
+		};
+		console.info(`[qwen35] prism.hadamard : ${this.hd.rot.size} poids repliés, ${this.hd.inv.size} table(s) latente(s), FWHT ${this.engine.fwhtOk ? 'rapide' : 'naïve'}`);
+	}
+
+	// Entrée d'un ou plusieurs poids qui lisent le MÊME x : transformée une fois si tous sont repliés,
+	// rendue telle quelle si aucun ne l'est ; un mélange n'existe pas dans les fichiers PrismML.
+	private rotIn(enc: Gpu, trash: Gpu[], x: Gpu, T: number, W: number, names: string[], ssmOut = false): Gpu {
+		if (!this.hd) return x;
+		const n = names.filter((x) => this.hd!.rot.has(x)).length;
+		if (n === 0) return x;
+		if (n !== names.length) throw new Error(`prism.hadamard : ${names.join(', ')} partagent une entrée mais pas leur repliement`);
+		const s = this.hd.signs.get(W);
+		if (!s) throw new Error(`prism.hadamard : pas de signes pour la largeur ${W}`);
+		return this.engine.recHadamard(enc, trash, x, T, W, s, ssmOut ? this.hd.perm ?? undefined : undefined);
+	}
+
+	// Table d'embedding latente : h = s ⊙ (H·z), sur le CPU (une ligne de d par jeton).
+	public async embed(tokens: number[], d: number): Promise<Float32Array> {
+		const out = await super.embed(tokens, d);
+		if (!this.hd?.inv.has('token_embd.weight')) return out;
+		const s = this.hd.signsCpu.get(d);
+		if (!s) throw new Error(`prism.hadamard : pas de signes pour l'embedding (largeur ${d})`);
+		for (let i = 0; i < tokens.length; i++) out.set(hadamardInverseRowCpu(out.subarray(i * d, (i + 1) * d), s), i * d);
+		return out;
+	}
+
+	// Tête repliée (output.weight dans prism.hadamard.weight_names) : son entrée normée est transformée.
+	protected recordHead(enc: Gpu, trash: Gpu[], hidden: Gpu, rows: number, tiles: { w: any; rows: number; r0: number }[]): Gpu {
+		const h = this.rotIn(enc, trash, hidden, rows, this.manifest.config.d, ['output.weight']);
+		return super.recordHead(enc, trash, h, rows, tiles);
+	}
+
 	public unload(): void {
 		this.resetState();
 		// Poids : tampons ou handles quantifiés ; les sous-couches d'attention sont des objets imbriqués.
@@ -279,10 +349,12 @@ export class Qwen35Model extends GraphModel<null> {
 		const e = this.engine;
 		const { d, nHeads, nKvHeads, headDim: hd, rmsEps: eps, ropeTheta } = this.manifest.config;
 		const kvLen = pastLen + T, kvDim = nKvHeads * hd, qDim = nHeads * hd;
-		let q = e.recMM(enc, trash, n1, w.wq, T, d, qDim, false);
-		const gate = e.recMM(enc, trash, n1, w.wqGate, T, d, qDim, false);
-		const kP = e.recMM(enc, trash, n1, w.wk, T, d, kvDim, false);
-		const vP = e.recMM(enc, trash, n1, w.wv, T, d, kvDim, false);
+		const p = `blk.${cacheLayer}`;
+		const n1r = this.rotIn(enc, trash, n1, T, d, [`${p}.attn_q.weight`, `${p}.attn_k.weight`, `${p}.attn_v.weight`]);
+		let q = e.recMM(enc, trash, n1r, w.wq, T, d, qDim, false);
+		const gate = e.recMM(enc, trash, n1r, w.wqGate, T, d, qDim, false);
+		const kP = e.recMM(enc, trash, n1r, w.wk, T, d, kvDim, false);
+		const vP = e.recMM(enc, trash, n1r, w.wv, T, d, kvDim, false);
 		q = e.recRopePartial(enc, trash, e.recRmsnorm(enc, trash, q, w.qNorm, T * nHeads, hd, eps), T * nHeads, hd, nHeads, pastLen, ropeTheta, this.q.nRot);
 		const k = e.recRopePartial(enc, trash, e.recRmsnorm(enc, trash, kP, w.kNorm, T * nKvHeads, hd, eps), T * nKvHeads, hd, nKvHeads, pastLen, ropeTheta, this.q.nRot);
 		const cache = this.ensureKv(cacheLayer, kvLen, kvDim);
@@ -291,7 +363,8 @@ export class Qwen35Model extends GraphModel<null> {
 		const att = e.recAttention(enc, trash, q, cache.k, cache.v, T, nHeads, nKvHeads, hd, kvLen, pastLen, 1 / Math.sqrt(hd), 0, 0);
 		const sg = e.storage(T * qDim * 4); trash.push(sg);
 		e.recordPass(enc, 'sigmoid', [gate, sg], e.grid1D(T * qDim));
-		return e.recMM(enc, trash, e.recBinary(enc, trash, 'mul', att, sg, T * qDim), w.wo, T, qDim, d, false);
+		const ao = this.rotIn(enc, trash, e.recBinary(enc, trash, 'mul', att, sg, T * qDim), T, qDim, [`${p}.attn_output.weight`]);
+		return e.recMM(enc, trash, ao, w.wo, T, qDim, d, false);
 	}
 
 	// Couches du modèle principal + norme finale. Rend TOUTES les lignes normées [T, d] (la tête et le
@@ -307,6 +380,7 @@ export class Qwen35Model extends GraphModel<null> {
 		for (let i = 0; i < this.nLayer; i++) {
 			const layerStart = trash.length;
 			const w = this.layers[i];
+			const p = `blk.${i}`;
 			const n1 = e.recRmsnorm(enc, trash, x, w.attnNorm, T, d, eps);
 			let attnOut: Gpu;
 			if (w.recurrent) {
@@ -314,15 +388,17 @@ export class Qwen35Model extends GraphModel<null> {
 				const ss = this.stateFor(this.ssmState, i, Hv * S * S * 4);
 				const csSnap = snap ? this.stateFor(this.convSnap, i, 3 * C * 4) : undefined;
 				const ssSnap = snap ? this.stateFor(this.ssmSnap, i, Hv * S * S * 4) : undefined;
-				const qkv = e.recMM(enc, trash, n1, w.wqkv, T, d, C, false);
-				const z = e.recMM(enc, trash, n1, w.wz, T, d, dInner, false);
-				const al = e.recMM(enc, trash, n1, w.walpha, T, d, Hv, false);
-				const be = e.recMM(enc, trash, n1, w.wbeta, T, d, Hv, false);
+				// ssm_alpha / ssm_beta ne sont pas repliés : ils lisent n1 tel quel.
+				const n1r = this.rotIn(enc, trash, n1, T, d, [`${p}.attn_qkv.weight`, `${p}.attn_gate.weight`]);
+				const qkv = e.recMM(enc, trash, n1r, w.wqkv, T, d, C, false);
+				const z = e.recMM(enc, trash, n1r, w.wz, T, d, dInner, false);
+				const al = e.recMM(enc, trash, this.rotIn(enc, trash, n1, T, d, [`${p}.ssm_alpha.weight`]), w.walpha, T, d, Hv, false);
+				const be = e.recMM(enc, trash, this.rotIn(enc, trash, n1, T, d, [`${p}.ssm_beta.weight`]), w.wbeta, T, d, Hv, false);
 				const conv = e.recQwen35Conv(enc, trash, qkv, w.conv, cs, T, C, csSnap, 0);
 				const o = e.recQwen35Gdn(enc, trash, conv, al, be, w.dt, w.A, ss, T, Hv, Hk, S, C, kOff, vOff, eps, ssSnap, 0);
 				const on = e.recRmsnorm(enc, trash, o, w.ssmNorm, T * Hv, S, eps);
 				const gated = e.recBinary(enc, trash, 'swiglu', z, on, T * dInner); // silu(z) ⊙ norme
-				attnOut = e.recMM(enc, trash, gated, w.wout, T, dInner, d, false);
+				attnOut = e.recMM(enc, trash, this.rotIn(enc, trash, gated, T, dInner, [`${p}.ssm_out.weight`], true), w.wout, T, dInner, d, false);
 			} else {
 				attnOut = this.recordAttn(enc, trash, n1, w.attn!, i, T, pastLen);
 			}
@@ -331,8 +407,9 @@ export class Qwen35Model extends GraphModel<null> {
 			if (w.moe) {
 				x = e.recBinary(enc, trash, 'add', h, this.recordMoe(enc, trash, n2, w.moe, T), T * d);
 			} else {
-				const g = e.recBinary(enc, trash, 'swiglu', e.recMM(enc, trash, n2, w.wgate, T, d, ffn, false), e.recMM(enc, trash, n2, w.wup, T, d, ffn, false), T * ffn);
-				x = e.recBinary(enc, trash, 'add', h, e.recMM(enc, trash, g, w.wdown, T, ffn, d, false), T * d);
+				const n2r = this.rotIn(enc, trash, n2, T, d, [`${p}.ffn_gate.weight`, `${p}.ffn_up.weight`]);
+				const g = e.recBinary(enc, trash, 'swiglu', e.recMM(enc, trash, n2r, w.wgate, T, d, ffn, false), e.recMM(enc, trash, n2r, w.wup, T, d, ffn, false), T * ffn);
+				x = e.recBinary(enc, trash, 'add', h, e.recMM(enc, trash, this.rotIn(enc, trash, g, T, ffn, [`${p}.ffn_down.weight`]), w.wdown, T, ffn, d, false), T * d);
 			}
 			e.recycleStorage(trash.slice(layerStart).filter((b) => b !== x));
 		}

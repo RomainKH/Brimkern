@@ -5561,6 +5561,84 @@ ${Array.from({ length: 16 }, (_, i) => `				o[oBase + ${i}u] = a${i} * inv;`).jo
 			st[c] = s0; st[p.C + c] = s1; st[2u * p.C + c] = s2;
 		}`,
 
+	// Rotation de Hadamard des Bonsai PrismML (prism.hadamard, llama.cpp fork PrismML) : un poids
+	// « replié » vaut W_f = W·D·H, donc W·x = W_f·(H·(D·x)). Avant chaque matmul replié, l'entrée est
+	// transformée : permutation optionnelle (ssm_out « gdn_v_grouped » : ordre tuilé [hd, nk, rep] →
+	// groupé [hd, rep, nk]), signes D (vecteur de largeur W), puis Walsh-Hadamard de Sylvester
+	// NORMALISÉE par blocs de 1 024 (H[r][c] = (−1)^popcount(r & c) / 32). Un workgroup = un bloc d'une
+	// ligne : 256 lanes × 4 éléments en mémoire partagée, 10 étages papillon. Grille (W / 1 024, T).
+	hadamard_rows: `
+		struct P { T: u32, W: u32, hd: u32, nk: u32, rep: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> sgn: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> y: array<f32>;
+		var<workgroup> buf: array<f32, 1024>;
+		fn src(j: u32) -> u32 {
+			if (p.rep <= 1u) { return j; }
+			let hd = j % p.hd;
+			let q = j / p.hd;
+			return hd + p.hd * (q / p.rep + p.nk * (q % p.rep));
+		}
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+			let b = wid.x;
+			let t = wid.y;
+			for (var r = 0u; r < 4u; r++) {
+				let i = lid.x + r * 256u;
+				let j = b * 1024u + i;
+				buf[i] = x[t * p.W + src(j)] * sgn[j];
+			}
+			workgroupBarrier();
+			for (var h = 1u; h < 1024u; h = h * 2u) {
+				for (var r = 0u; r < 2u; r++) {
+					let k = lid.x + r * 256u;
+					let lo = (k / h) * 2u * h + (k % h);
+					let a = buf[lo];
+					let c = buf[lo + h];
+					buf[lo] = a + c;
+					buf[lo + h] = a - c;
+				}
+				workgroupBarrier();
+			}
+			for (var r = 0u; r < 4u; r++) {
+				let i = lid.x + r * 256u;
+				y[t * p.W + b * 1024u + i] = buf[i] * 0.03125;
+			}
+		}
+	`,
+	// Repli de hadamard_rows (gate fwhtOk) : un thread par sortie, somme DIRECTE sur la parité des
+	// bits — 1 024 lectures par élément, lent mais sans mémoire partagée ni barrière.
+	hadamard_rows_naive: `
+		struct P { T: u32, W: u32, hd: u32, nk: u32, rep: u32 };
+		@group(0) @binding(0) var<uniform> p: P;
+		@group(0) @binding(1) var<storage, read> x: array<f32>;
+		@group(0) @binding(2) var<storage, read> sgn: array<f32>;
+		@group(0) @binding(3) var<storage, read_write> y: array<f32>;
+		fn src(j: u32) -> u32 {
+			if (p.rep <= 1u) { return j; }
+			let hd = j % p.hd;
+			let q = j / p.hd;
+			return hd + p.hd * (q / p.rep + p.nk * (q % p.rep));
+		}
+		@compute @workgroup_size(256)
+		fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>) {
+			let idx = (wid.y * nwg.x + wid.x) * 256u + lid.x;
+			if (idx >= p.T * p.W) { return; }
+			let t = idx / p.W;
+			let j = idx % p.W;
+			let b = j / 1024u;
+			let r = j % 1024u;
+			var acc = 0.0;
+			for (var c = 0u; c < 1024u; c++) {
+				let jc = b * 1024u + c;
+				let v = x[t * p.W + src(jc)] * sgn[jc];
+				acc = acc + select(v, -v, (countOneBits(r & c) & 1u) == 1u);
+			}
+			y[idx] = acc * 0.03125;
+		}
+	`,
+
 	// Gated DeltaNet sur T tokens. Un workgroup de S (= 128) lanes par tête de VALEUR h ; la lane j
 	// porte la colonne j de l'état S_h [S×S] (S[i][j] : i = clé, j = valeur, j le plus rapide) — une
 	// colonne n'a besoin que d'elle-même, d'où une récurrence exacte sans synchronisation sur S.

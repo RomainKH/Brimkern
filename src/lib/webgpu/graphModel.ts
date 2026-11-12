@@ -10,7 +10,7 @@
 // normée sur le GPU) et `prepareInputs` (ce que son graphe doit téléverser en plus des embeddings).
 
 import { CustomWebModel, type TensorSource } from './model';
-import { type WebGpuEngine, dequantQ6KCpu, dequantQ4KCpu } from './kernels';
+import { type WebGpuEngine, dequantQ6KCpu, dequantQ4KCpu, dequantPQ2_0Cpu } from './kernels';
 import { type Manifest } from './ggufParser';
 import { urlFlag } from './urlFlags';
 
@@ -43,6 +43,9 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 		const native = this.engine.kqOk && !GraphModel.q4Requant && t.shape[0] % 256 === 0
 			&& (t.type === 'Q4_K' || (t.type === 'Q6_K' && GraphModel.q6Native));
 		if (native) return this.engine.uploadKq(t.type as 'Q4_K' | 'Q6_K', bytes);
+		// Ternaire PQ2_0 (Bonsai 27B, arch qwen35) : 2 bits natifs comme dans CustomWebModel — requantifié
+		// en int8, le 27B demanderait ~28 Go de VRAM au lieu de ~7.
+		if (t.type === 'PQ2_0' && this.engine.pq2NativeOk && t.shape[0] % 128 === 0) return this.engine.uploadKq('PQ2_0', bytes);
 		const f32 = this.engine.dequantizeToGpu(t.type, bytes, nElems);
 		const q = GraphModel.q4Requant && (t.type === 'Q4_K' || t.type === 'Q4_0' || t.type === 'Q4_1')
 			? this.engine.f32ToQ4Gpu(f32, nElems)
@@ -74,10 +77,12 @@ export abstract class GraphModel<Extra> extends CustomWebModel {
 	// Embeddings : lignes de token_embd (× embedScale), déquantifiées sur le CPU pour Q6_K et Q4_K.
 	public async embed(tokens: number[], d: number): Promise<Float32Array> {
 		const info = this.manifest.tensors['token_embd.weight'];
-		const cpu = info.type === 'Q6_K' ? dequantQ6KCpu : info.type === 'Q4_K' ? dequantQ4KCpu : null;
+		// PQ2_0 (Bonsai 27B) : blocs de 128 — sur le CPU aussi, plutôt qu'un aller-retour GPU par jeton.
+		const cpu = info.type === 'Q6_K' ? dequantQ6KCpu : info.type === 'Q4_K' ? dequantQ4KCpu
+			: info.type === 'PQ2_0' ? (b: Uint8Array, n: number) => dequantPQ2_0Cpu(b, n * 2) : null;
 		if (!cpu) return super.embed(tokens, d);
 		const raw = await this.rawTensor('token_embd.weight');
-		const rowBytes = (d / 256) * (info.type === 'Q6_K' ? 210 : 144);
+		const rowBytes = (d / 256) * (info.type === 'Q6_K' ? 210 : info.type === 'PQ2_0' ? 68 : 144);
 		const s = this.manifest.config.embedScale ?? 1;
 		const out = new Float32Array(tokens.length * d);
 		for (let i = 0; i < tokens.length; i++) {

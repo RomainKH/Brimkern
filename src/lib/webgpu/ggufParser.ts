@@ -195,6 +195,7 @@ const getGgmlBlockInfo = (typeStr: string) => {
     case "Q6_K": return { block: 256, size: 210 };
     case "Q8_K": return { block: 256, size: 288 };
     case "PQ2_0": return { block: 128, size: 34 }; // d f16 + 128 codes 2 bits (PrismML, ternaire)
+    case "BF16": return { block: 1, size: 2 }; // Bonsai 27B : ssm_alpha / ssm_beta
     // Pas de repli silencieux : un type inconnu renvoyait { block: 1, size: 4 }, donc des tailles de
     // tenseurs FAUSSES (un IQ4_XS annoncé 4 o/élément au lieu de 0,53) — le fichier se chargeait puis
     // échouait beaucoup plus loin, sur une lecture hors bornes sans rapport apparent. Le moteur ne

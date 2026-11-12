@@ -185,6 +185,11 @@ export class WebGpuEngine {
 	// Santé des kernels Qwen 3.5 SSM (Gated DeltaNet, moteur v2) : false → une archi qwen35 refuserait de
 	// charger (jamais bloquant pour les autres archis). Posé par selfValidate, ou forcé par ?qwen35ssm=0.
 	qwen35SsmOk = true;
+	// Rotation de Hadamard des Bonsai PrismML (shaders hadamard_rows) : fwhtOk = la FWHT en mémoire
+	// partagée, sinon repli sur le kernel naïf (hadamardOk) ; les deux KO → un modèle à poids
+	// « repliés » refuse de charger (il produirait du charabia sans planter). ?fwht=0 → naïf.
+	fwhtOk = true;
+	hadamardOk = true;
 	// Gemma 4 (gemma4Model.ts) : kernel `scale` + attention générique aux formes réelles (têtes de 256
 	// ET 512, fenêtre 512, échelle 1). false → une archi gemma4 refuse de charger avec un message
 	// clair (jamais bloquant pour les autres). Posé par selfValidate, ou forcé par ?gemma4=0.
@@ -427,6 +432,10 @@ export class WebGpuEngine {
 			if (urlFlag('pq2native') === '0') {
 				this.pq2NativeOk = false;
 				console.warn('[webgpu] poids PQ2_0 natifs COUPÉS par ?pq2native=0 : requantification int8');
+			}
+			if (urlFlag('fwht') === '0') {
+				this.fwhtOk = false;
+				console.warn('[webgpu] FWHT COUPÉE par ?fwht=0 : rotation de Hadamard par le kernel naïf');
 			}
 			if (urlFlag('pq2head') === '0') {
 				this.pq2HeadOk = false;
@@ -1110,6 +1119,7 @@ export class WebGpuEngine {
 	// string. F32 is returned as-is; F16 is decoded on the CPU (cheap, only norms/biases).
 	async dequantizeByType(type: string, data: Uint8Array, nElems: number): Promise<Float32Array> {
 		if (type === 'F32') return new Float32Array(data.buffer, data.byteOffset, nElems);
+		if (type === 'BF16') return bf16ToF32(data, nElems);
 		if (type === 'F16') {
 			const dv = new DataView(data.buffer, data.byteOffset);
 			const o = new Float32Array(nElems);
@@ -1170,6 +1180,7 @@ export class WebGpuEngine {
 			for (let i = 0; i < nElems; i++) o[i] = f16ToF32(dv.getUint16(i * 2, true));
 			return this.buf(o, ST);
 		}
+		if (type === 'BF16') return this.buf(bf16ToF32(data, nElems), ST);
 		// BRIK-native quants: no GPU dequant shader; decode on the CPU (cheap, sync) then upload f32.
 		// Only hit when a natively-quantized model is forced to the f32 tier.
 		if (type === 'Q4W') return this.buf(dequantizeQ4(unpackQ4(data, nElems)), ST);
@@ -2640,6 +2651,17 @@ export class WebGpuEngine {
 		this.device.queue.writeBuffer(p, 32, new Uint32Array([snap ? snapT : 0xFFFFFFFF]));
 		const out = this.storage(T * Hv * S * 4);
 		this.recordPass(enc, 'qwen35_gdn_batch', [p, conv, alpha, beta, dt, A, state, out, this.snapOrDummy(snap)], [Hv, 1, 1]);
+		trash.push(p, out);
+		return out;
+	}
+	// Rotation de Hadamard d'entrée d'un poids replié (cf. shaders.ts hadamard_rows) : [T, W] → [T, W].
+	// perm : réordonnancement « gdn_v_grouped » de ssm_out ({ hd, nk, rep }), sinon identité.
+	recHadamard(enc: GPUAny, trash: GPUAny[], x: GPUAny, T: number, W: number, signs: GPUAny, perm?: { hd: number; nk: number; rep: number }): GPUAny {
+		if (W % 1024 !== 0) throw new Error(`Hadamard : largeur ${W} non multiple de 1 024`);
+		const p = this.uniform([T, W, perm?.hd ?? 1, perm?.nk ?? 1, perm?.rep ?? 1]);
+		const out = this.storage(T * W * 4);
+		if (this.fwhtOk) this.recordPass(enc, 'hadamard_rows', [p, x, signs, out], [W / 1024, T, 1]);
+		else this.recordPass(enc, 'hadamard_rows_naive', [p, x, signs, out], this.grid1D(T * W));
 		trash.push(p, out);
 		return out;
 	}
@@ -5307,6 +5329,47 @@ export class WebGpuEngine {
 		// k = 384 : 3 blocs par ligne → lignes de 102 o, donc des lignes qui commencent à 2 modulo 4
 		// (le cas word2 recollé que les formes réelles paires ne testent qu'à l'intérieur d'une ligne).
 		// m = 3 : prefill (déquant GPU + int8 + GEMM tuilé), vérifié à 2 % comme pour les K-quants.
+		// Rotation de Hadamard (Bonsai 27B) : FWHT et kernel naïf contre la référence CPU, sur les trois
+		// largeurs réelles du 27B (5 120, 6 144 avec la permutation gdn_v_grouped [128, 16, 3], 17 408).
+		{
+			const G = globalThis as any;
+			const run = async (name: string, x: Float32Array, sg: Float32Array, T: number, W: number, perm?: { hd: number; nk: number; rep: number }) => {
+				const xb = this.storage(x.byteLength); this.device.queue.writeBuffer(xb, 0, x);
+				const sb = this.storage(sg.byteLength); this.device.queue.writeBuffer(sb, 0, sg);
+				const p = this.uniform([T, W, perm?.hd ?? 1, perm?.nk ?? 1, perm?.rep ?? 1]);
+				const out = this.storage(T * W * 4);
+				const enc = this.device.createCommandEncoder();
+				this.recordPass(enc, name, [p, xb, sb, out], name === 'hadamard_rows' ? [W / 1024, T, 1] : this.grid1D(T * W));
+				const read = this.device.createBuffer({ size: T * W * 4, usage: G.GPUBufferUsage.COPY_DST | G.GPUBufferUsage.MAP_READ });
+				enc.copyBufferToBuffer(out, 0, read, 0, T * W * 4);
+				this.device.queue.submit([enc.finish()]);
+				await read.mapAsync(G.GPUMapMode.READ);
+				const got = new Float32Array(read.getMappedRange().slice(0));
+				read.unmap(); read.destroy();
+				this.release([xb, sb, p, out]);
+				return got;
+			};
+			const check = async (name: string) => {
+				for (const [T, W, perm] of [[1, 5120, undefined], [3, 6144, { hd: 128, nk: 16, rep: 3 }], [2, 17408, undefined]] as [number, number, { hd: number; nk: number; rep: number } | undefined][]) {
+					const x = Float32Array.from({ length: T * W }, () => Math.random() * 2 - 1);
+					const sg = Float32Array.from({ length: W }, () => (Math.random() < 0.5 ? -1 : 1));
+					const ref = hadamardRowsCpu(x, T, W, sg, perm);
+					const got = await run(name, x, sg, T, W, perm);
+					for (let i = 0; i < ref.length; i++) if (!(Math.abs(got[i] - ref[i]) <= 1e-4 * (1 + Math.abs(ref[i])))) return `T=${T} W=${W}${perm ? ' (perm)' : ''} : [${i}] ${got[i]} au lieu de ${ref[i]}`;
+				}
+				return null;
+			};
+			try {
+				const badNaive = await check('hadamard_rows_naive');
+				if (badNaive) { this.hadamardOk = false; this.fwhtOk = false; console.error(`[selfValidate] rotation de Hadamard KO (${badNaive}) : un modèle à poids repliés refusera de charger.`); }
+				else if (this.fwhtOk) {
+					const badFast = await check('hadamard_rows');
+					if (badFast) { this.fwhtOk = false; console.error(`[selfValidate] FWHT KO (${badFast}) : repli sur le kernel naïf.`); }
+					else console.log('[selfValidate] rotation de Hadamard OK (FWHT, 5 120 / 6 144 permutée / 17 408)');
+				}
+			} catch (e) { this.hadamardOk = false; this.fwhtOk = false; console.error('[selfValidate] rotation de Hadamard KO :', e); }
+		}
+
 		if (this.pq2NativeOk) {
 			const G = globalThis as any;
 			const relK = (x: Float32Array, y: Float32Array, tol: number) => { let mx = 0; for (const v of y) mx = Math.max(mx, Math.abs(v)); return x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) <= tol * (mx + 1)); };
@@ -6186,7 +6249,51 @@ function dequantQ4_1Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 // PQ2_0 CPU reference (miroir de dequantize_row_pq2_0, fork PrismML-Eng/llama.cpp) : bloc de 34
 // octets = d f16 + 32 octets de codes 2 bits, poids j aux bits 2·(j % 4) de l'octet j / 4,
 // w = (q − 1)·d (00 = −1, 01 = 0, 10 = +1, 11 = +2 réservé).
-function dequantPQ2_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
+// Référence CPU de hadamard_rows (et de l'inverse de l'embedding, cf. hadamardInverseRowCpu) :
+// permutation gdn_v_grouped optionnelle, signes, puis Walsh-Hadamard de Sylvester normalisée par
+// blocs de 1 024 (FWHT en place).
+export function fwhtInPlace(v: Float32Array, off: number, n = 1024): void {
+	for (let h = 1; h < n; h *= 2) {
+		for (let i = 0; i < n; i += 2 * h) {
+			for (let j = i; j < i + h; j++) {
+				const a = v[off + j], c = v[off + j + h];
+				v[off + j] = a + c; v[off + j + h] = a - c;
+			}
+		}
+	}
+	const s = 1 / Math.sqrt(n);
+	for (let j = 0; j < n; j++) v[off + j] *= s;
+}
+export function hadamardRowsCpu(x: Float32Array, T: number, W: number, signs: Float32Array, perm?: { hd: number; nk: number; rep: number }): Float32Array {
+	const y = new Float32Array(T * W);
+	for (let t = 0; t < T; t++) {
+		for (let j = 0; j < W; j++) {
+			let src = j;
+			if (perm && perm.rep > 1) { const hd = j % perm.hd, q = Math.floor(j / perm.hd); src = hd + perm.hd * (Math.floor(q / perm.rep) + perm.nk * (q % perm.rep)); }
+			y[t * W + j] = x[t * W + src] * signs[j];
+		}
+		for (let b = 0; b < W; b += 1024) fwhtInPlace(y, t * W + b);
+	}
+	return y;
+}
+// Inverse après lecture d'un embedding « latent » : h = s ⊙ (H·z) (Hadamard d'abord, signes ensuite).
+export function hadamardInverseRowCpu(z: Float32Array, signs: Float32Array): Float32Array {
+	const h = Float32Array.from(z);
+	for (let b = 0; b < h.length; b += 1024) fwhtInPlace(h, b);
+	for (let j = 0; j < h.length; j++) h[j] *= signs[j];
+	return h;
+}
+
+// BF16 = les 16 bits de poids fort d'un f32 (Bonsai 27B : ssm_alpha / ssm_beta, [5 120, 48]).
+export function bf16ToF32(bytes: Uint8Array, nElems: number): Float32Array {
+	const out = new Float32Array(nElems);
+	const u = new Uint32Array(out.buffer);
+	const dv = new DataView(bytes.buffer, bytes.byteOffset, nElems * 2);
+	for (let i = 0; i < nElems; i++) u[i] = dv.getUint16(i * 2, true) << 16;
+	return out;
+}
+
+export function dequantPQ2_0Cpu(bytes: Uint8Array, nBlocks: number): Float32Array {
 	const out = new Float32Array(nBlocks * 128);
 	const dv = new DataView(bytes.buffer, bytes.byteOffset);
 	for (let blk = 0; blk < nBlocks; blk++) {
