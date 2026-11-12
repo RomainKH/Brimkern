@@ -105,7 +105,11 @@ export function estimateResidentGB(paramsB: number, name: string, gpu: GpuCapabi
 
 // Verdict vs the GPU budget: comfortably under → good; near the budget → tight; over → heavy.
 export function gpuVerdict(paramsB: number, name: string, gpu: GpuCapability, isMobile: boolean): GpuVerdict {
-  const need = estimateResidentGB(paramsB, name, gpu, isMobile);
+  return verdictForGB(estimateResidentGB(paramsB, name, gpu, isMobile), gpu);
+}
+
+// Même verdict pour un besoin déjà chiffré en Go (pipelines multi-fichiers : LTX-Video).
+export function verdictForGB(need: number, gpu: GpuCapability): GpuVerdict {
   if (need <= gpu.budgetGB * 0.7) return 'good';
   if (need <= gpu.budgetGB) return 'tight';
   return 'heavy';

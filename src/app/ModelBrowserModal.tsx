@@ -13,7 +13,7 @@ import { PRESET_MODELS, TOKENIZER_PRESETS } from '@/lib/presets';
 import { COMING_SOON, MODALITY_PILL, IMAGE_PIPELINE_BYTES, VIDEO_PIPELINE_BYTES, LTX_PIPELINE_BYTES, VISION_PIPELINE_BYTES, fmtModelSize, normModelName } from '@/lib/modelCatalog';
 import { type WeightDType } from '@/lib/brik/convert';
 import { useNetworkStatus, estimateDownloadSeconds, formatDuration, type NetTier } from '@/lib/useNetworkStatus';
-import { useGpuCapability, gpuVerdict, type GpuVerdict } from '@/lib/useGpuCapability';
+import { useGpuCapability, gpuVerdict, verdictForGB, type GpuVerdict } from '@/lib/useGpuCapability';
 import { isStoragePersisted, requestPersistentStorage, storageEstimate } from '@/lib/storage';
 import { useT } from '@/lib/i18n';
 import HfModelInput from './HfModelInput';
@@ -744,6 +744,9 @@ export function ModelBrowserModal({
                       AnimateDiff reste en dessous pour les machines plus petites. */}
                   {showVideoLab && (() => {
                     const isLtxActive = !!loadedModelName && loadedModelName.includes('LTX-Video');
+                    // Besoin résident ≈ poids × 1,25, la même marge que les cartes texte (≈ 6,1 Go) :
+                    // une estimation affichée, jamais un blocage (cf. useGpuCapability).
+                    const ltxGv = gpu.probed && gpu.supported ? verdictForGB((LTX_PIPELINE_BYTES / 1e9) * 1.25, gpu) : null;
                     return (
                     <div
                       className="model-card"
@@ -762,6 +765,14 @@ export function ModelBrowserModal({
                         {ltxPipelineCached && (
                           <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'rgba(34, 197, 94, 0.15)', color: 'var(--success)', border: '1px solid rgba(34, 197, 94, 0.3)', fontWeight: 600 }}>{t('Downloaded', 'Téléchargé')}</span>
                         )}
+                        {ltxGv && (
+                          <span
+                            title={t('Estimated fit on your GPU (approximate: WebGPU exposes no VRAM).', 'Adéquation estimée à ton GPU (approximatif : WebGPU n’expose pas la VRAM).')}
+                            style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: `color-mix(in srgb, ${gpuMeta[ltxGv].color} 15%, transparent)`, color: gpuMeta[ltxGv].color, border: `1px solid ${gpuMeta[ltxGv].color}40`, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                          >
+                            <Gauge size={10} /> {gpuMeta[ltxGv].label}
+                          </span>
+                        )}
                         <span style={{ fontSize: '9.5px', padding: '1px 6px', borderRadius: '4px', background: 'var(--bg-card-hover, rgba(127,127,127,0.12))', color: 'var(--text-muted)' }}>{t('preview', 'aperçu')}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 5, fontSize: '10px', lineHeight: 1.35, color: 'var(--warning, #a86a0c)' }}>
@@ -771,6 +782,14 @@ export function ModelBrowserModal({
                               'Déjà téléchargé — environ 22 s de calcul GPU par clip de 2 s sur un Mac M4, davantage sur un GPU plus modeste. Demande ~6 Go de mémoire GPU.')
                           : t(`${fmtModelSize(LTX_PIPELINE_BYTES, false)} to download, then about 22 s of GPU work per 2-second clip on an M4 Mac, longer on smaller GPUs. Needs ~6 GB of GPU memory.`,
                               `${fmtModelSize(LTX_PIPELINE_BYTES, true)} à télécharger, puis environ 22 s de calcul GPU par clip de 2 s sur un Mac M4, davantage sur un GPU plus modeste. Demande ~6 Go de mémoire GPU.`)}</span>
+                      </div>
+                      {/* La licence LTXV (§ 3.1) impose d'avertir chaque utilisateur à qui l'on distribue le
+                          modèle de ses restrictions d'usage — le site le distribue, au navigateur du visiteur. */}
+                      <div style={{ fontSize: '10px', lineHeight: 1.35, color: 'var(--text-muted)' }}>
+                        {t('LTXV license: use restrictions apply, and companies with $10M+ annual revenue need a commercial license. ', 'Licence LTXV : des restrictions d’usage s’appliquent, et une entreprise à 10 M$ de CA annuel ou plus doit obtenir une licence commerciale. ')}
+                        <a href="https://huggingface.co/romainkh14/brimkern-ltx-BRIK/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                          {t('Read the license', 'Lire la licence')}
+                        </a>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginTop: 'auto', flexWrap: 'wrap' }}>
                         {isLtxActive ? (
