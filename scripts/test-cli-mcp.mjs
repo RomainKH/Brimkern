@@ -98,6 +98,9 @@ let toolNames = [];
     call(6, 'brimkern_ask', {}),
     call(7, 'brimkern_stats'),
     { id: 8, method: 'initialize', params: { protocolVersion: '1999-01-01' } },
+    call(9, 'brimkern_review', { file_path: '/etc/hosts' }),
+    call(10, 'brimkern_generate_tests', { file_path: '.env' }),
+    call(11, 'brimkern_review', {}),
   ]);
   const r = s.responses;
   check(r.get(1)?.result?.protocolVersion === '2025-06-18', 'initialize reprend la version demandée si connue');
@@ -109,11 +112,32 @@ let toolNames = [];
   check(r.get(null)?.error?.code === -32700, 'ligne non JSON → -32700');
   check(r.get(5)?.result?.isError === true, 'outil inconnu → isError');
   check(r.get(6)?.result?.isError === true && /prompt/.test(textOf(r.get(6))), 'paramètre manquant → isError');
+  check(r.get(9)?.result?.isError === true && /inside the working directory/.test(textOf(r.get(9))), 'file_path hors du dossier de travail → refusé', textOf(r.get(9)));
+  check(r.get(10)?.result?.isError === true && /secret|not found/i.test(textOf(r.get(10))), 'file_path .env → refusé (ou absent)', textOf(r.get(10)));
+  check(r.get(11)?.result?.isError === true && /file_path/.test(textOf(r.get(11))), 'ni code ni file_path → isError', textOf(r.get(11)));
   const stats = JSON.parse(textOf(r.get(7)) || '{}');
   check(stats.loaded === false, 'brimkern_stats ne charge pas de modèle');
   check(!/Loading model/.test(s.stderr), 'aucun modèle chargé pendant ces appels');
   check(s.garbage.length === 0, 'stdout ne contient que du JSON-RPC', s.garbage.slice(0, 3).join(' | '));
   check(s.exitCode === 0 && s.exitedAfterEof, 'sortie propre à la fin de stdin');
+}
+
+// ── 2b. Tests générés EXÉCUTÉS (bin/mcp-tests.mjs), sans modèle ─────────────────────────
+// Le cas réel du § 21 : un test faux (`clamp(5, 2, 8)` attendu 7) livré comme valide.
+console.log('\nMCP · vérification des tests générés');
+{
+  const { verifyTests } = await import('../bin/mcp-tests.mjs');
+  const ts = 'export function clamp(x: number, lo: number, hi: number): number {\n  return Math.min(hi, Math.max(lo, x));\n}\n';
+  const tsOut = "```ts\nimport { describe, it, expect } from 'vitest';\nimport { clamp } from './clamp';\ndescribe('clamp', () => {\n  it('keeps a value in range', () => {\n    expect(clamp(5, 2, 8)).toBe(5);\n  });\n  it('mock dependency', () => {\n    expect(clamp(5, 2, 8)).toBe(7);\n  });\n  it('clamps below', () => { expect(clamp(-1, 0, 10)).toBe(0); });\n});\n```";
+  const a = verifyTests({ lang: 'js', code: ts, testsText: tsOut });
+  check(a.ran && a.passed === 2 && a.total === 3, 'TS : 2/3 passent, exécutés par node', a.text.split('\n')[0]);
+  check(!/toBe\(7\)/.test(a.text) && /mock dependency: expected 7, received 5/.test(a.text), 'TS : le cas faux est retiré, avec sa raison');
+  const py = 'def clamp(x, lo, hi):\n    return min(hi, max(lo, x))\n';
+  const pyOut = '```python\nimport pytest\nfrom clamp import clamp\n\ndef test_ok():\n    assert clamp(5, 2, 8) == 5\n\ndef test_wrong():\n    assert clamp(5, 2, 8) == 7\n\n@pytest.mark.parametrize("x,e", [(-1, 0), (11, 10)])\ndef test_param(x, e):\n    assert clamp(x, 0, 10) == e\n```';
+  const b = verifyTests({ lang: 'python', code: py, testsText: pyOut });
+  check(b.ran && b.passed === 2 && b.total === 3 && !/test_wrong/.test(b.text.split('\n').slice(3).join('\n')), 'Python : 2/3 passent, test_wrong retiré', b.text.split('\n')[0]);
+  const c = verifyTests({ lang: 'js', code: 'enum E { A }\nexport const f = () => E.A;', testsText: "it('a', () => { expect(f()).toBe(0); });" });
+  check(!c.ran && /NOT VERIFIED/.test(c.text), 'code non exécutable → « NOT VERIFIED », pas présenté comme valide', c.text.split('\n')[0]);
 }
 
 // ── 3. Skill ──────────────────────────────────────────────────────────────────────────

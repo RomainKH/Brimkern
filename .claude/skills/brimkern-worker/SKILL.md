@@ -99,8 +99,14 @@ Inside the Brimkern repository: `"command": "node", "args": ["bin/brimkern.mjs",
 
 ### Tools
 1. **`brimkern_ask`**: on-device query. Accepts `prompt`, `model`, `mode` (`code`, `plan`, `review`, `auto`), `max_tokens` (default 512).
-2. **`brimkern_review`**: code review of `code` (optional `file_path`) for bugs, security and edge cases.
-3. **`brimkern_generate_tests`**: unit tests for `code` in `test_framework` (default `vitest`).
+2. **`brimkern_review`**: code review for bugs, security and edge cases. Pass `file_path` instead of
+   `code`: the server reads the file itself (inside the working directory, first 16 000 characters),
+   so you do not spend tokens copying it.
+3. **`brimkern_generate_tests`**: unit tests in `test_framework` (default `vitest`, `pytest` for
+   `.py`), from `code` or `file_path`. The tests are **executed** against the code (JS/TS with node,
+   Python with python3, code inlined, no project setup needed) and only the passing ones come back,
+   with a header listing the removed ones and why. `NOT VERIFIED` in the header means they could not
+   run (unsupported syntax, missing interpreter): treat them as unchecked. `verify: false` skips it.
 4. **`brimkern_stats`**: active model, calls and tokens served, estimated savings. Does not load a model.
 
 Each call is independent (no memory of earlier calls). Calls run one after another on a single
@@ -111,6 +117,7 @@ model kept in VRAM; the first call pays the model load. An answer cut by `max_to
 
 ## Delegation Pattern: test-first scaffolding
 
-1. Call `brimkern_generate_tests` with the draft implementation.
-2. Review and fix the generated suite (expect wrong imports or assertions).
+1. Call `brimkern_generate_tests` with `file_path` of the draft implementation.
+2. Fix the imports for your project (the cases were run with the code inlined); a passing case only
+   proves the assertion matches what the code does today — read the removed ones: they may be bugs.
 3. Run the project's test runner.

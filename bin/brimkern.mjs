@@ -24,6 +24,7 @@ import { execSync, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { format } from 'node:util';
 import { chromium } from 'playwright-core';
+import { readSource, languageOf, verifyTests } from './mcp-tests.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -3182,28 +3183,28 @@ const MCP_TOOLS = [
   },
   {
     name: 'brimkern_review',
-    description: 'Run a code review on a file or code snippet using local WebGPU inference. Looks for bugs, edge cases, vulnerabilities, and perf issues without spending API credits.',
+    description: 'Run a code review on a file or code snippet using local WebGPU inference. Looks for bugs, edge cases, vulnerabilities, and perf issues without spending API credits. Pass file_path instead of code to have the server read the file (saves your tokens).',
     inputSchema: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'The source code content to review' },
-        file_path: { type: 'string', description: 'Optional file path or name for context' },
+        code: { type: 'string', description: 'The source code content to review (or pass file_path)' },
+        file_path: { type: 'string', description: 'Path of the file to review, read by the server when code is omitted (inside the working directory)' },
         max_tokens: { type: 'integer', description: `Maximum tokens to generate (default: ${MCP_DEFAULT_MAX_TOKENS})` },
       },
-      required: ['code'],
     },
   },
   {
     name: 'brimkern_generate_tests',
-    description: 'Generate unit tests for a code snippet locally on WebGPU with zero API cost.',
+    description: 'Generate unit tests locally on WebGPU with zero API cost. The tests are EXECUTED against the code (JS/TS with node, Python with python3) and only the passing ones are returned, with a summary of the removed ones. Pass file_path instead of code to have the server read the file.',
     inputSchema: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'The source code to write unit tests for' },
-        test_framework: { type: 'string', description: 'Test framework: vitest (default), jest, pytest, bats, etc.' },
+        code: { type: 'string', description: 'The source code to write unit tests for (or pass file_path)' },
+        file_path: { type: 'string', description: 'Path of the file to test, read by the server when code is omitted (inside the working directory)' },
+        test_framework: { type: 'string', description: 'Test framework: vitest (default for JS/TS), jest, pytest (default for .py)' },
+        verify: { type: 'boolean', description: 'Execute the generated tests and keep only the passing ones (default: true)' },
         max_tokens: { type: 'integer', description: `Maximum tokens to generate (default: ${MCP_DEFAULT_MAX_TOKENS})` },
       },
-      required: ['code'],
     },
   },
   {
@@ -3283,17 +3284,25 @@ async function runMcpServer(initialOptions = {}) {
       return a.prompt + (CLI_MODES[a.mode]?.systemSuffix || '');
     },
     brimkern_review: (a) => {
-      if (!a.code) throw new Error('Missing parameter "code"');
-      return `Perform an in-depth, rigorous code review of ${a.file_path || 'snippet'}. Focus on:
+      const src = readSource(a, process.cwd(), isSensitivePath);
+      return `Perform an in-depth, rigorous code review of ${src.label}. Focus on:
 1. Potential bugs, off-by-one errors, null/undefined crashes
 2. Performance bottlenecks and memory leaks
 3. Edge cases and error handling robustness
 4. Security vulnerabilities
-Provide concise, actionable findings and corrected code blocks where applicable.\n\n\`\`\`\n${a.code}\n\`\`\`${CLI_MODES.review.systemSuffix}`;
+Provide concise, actionable findings and corrected code blocks where applicable.\n\n\`\`\`\n${src.code}\n\`\`\`${src.note}${CLI_MODES.review.systemSuffix}`;
     },
+    // Les tests générés sont EXÉCUTÉS (bin/mcp-tests.mjs) : seuls ceux qui passent sont rendus. L'ancienne
+    // consigne « mock dependencies if needed » fabriquait des tests faux quand il n'y avait rien à
+    // mocker (§ 21 : clamp(5, 2, 8) attendu « 7 », intitulé « mock dependency »).
     brimkern_generate_tests: (a) => {
-      if (!a.code) throw new Error('Missing parameter "code"');
-      return `Generate a complete, production-grade test suite using ${a.test_framework || 'vitest'} for the following code. Include happy path, boundary values, invalid inputs, and mock dependencies if needed:\n\n\`\`\`\n${a.code}\n\`\`\``;
+      const src = readSource(a, process.cwd(), isSensitivePath);
+      const lang = languageOf(a.test_framework, src.path || a.file_path, src.code);
+      const fw = a.test_framework || (lang === 'python' ? 'pytest' : 'vitest');
+      const block = lang === 'python' ? 'one `def test_...():` function per case' : 'one `it(...)` per case inside a `describe`';
+      const prompt = `Write unit tests with ${fw} for the code below (${src.label}). Rules: ${block}; cover the normal path, boundary values and invalid inputs; every expected value must be computed from the code as written, not guessed; no mocks unless the code calls an external dependency. Answer with a single code block.\n\n\`\`\`\n${src.code}\n\`\`\`${src.note}`;
+      if (a.verify === false) return prompt;
+      return { prompt, post: (text) => verifyTests({ lang, code: src.code, testsText: text }).text };
     },
   };
 
@@ -3373,13 +3382,15 @@ Provide concise, actionable findings and corrected code blocks where applicable.
     if (name === 'brimkern_stats') return enqueue({ kind: 'stats' });
     const build = TOOL_PROMPTS[name];
     if (!build) throw new Error(`Unknown tool "${name}"`);
-    const prompt = build(args);
+    const spec = build(args);
+    const { prompt, post } = typeof spec === 'string' ? { prompt: spec, post: null } : spec;
     const { text, truncated } = await enqueue({ kind: 'gen', args: {
       prompt,
       model: name === 'brimkern_ask' ? args.model : undefined,
       maxTokens: args.max_tokens,
     } });
-    return truncated ? `${text}\n\n[truncated at max_tokens]` : text;
+    const out = post ? post(text) : text;
+    return truncated ? `${out}\n\n[truncated at max_tokens]` : out;
   }
 
   const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n');
