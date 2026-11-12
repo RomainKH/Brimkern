@@ -9,6 +9,7 @@
 
 import { BRIK_VERSION, type BrikManifest, type BrikArchProfile, type BrikTensorEntry, type BrikDType } from './format';
 import { packShard, type TensorToPack } from './codec';
+import { sha256Hex, sha256HexSync } from './integrity';
 import type { GgufManifest } from './loader';
 
 export interface BrikInputTensor {
@@ -72,7 +73,7 @@ export function assembleBrik(input: BrikBuildInput): BrikBuildOutput {
 		Object.assign(tensors, entries);
 		const file = shardFile(shardId);
 		shards.push({ file, bytes: buffer });
-		shardMeta.push({ id: shardId, file, byteLength: buffer.length });
+		shardMeta.push({ id: shardId, file, byteLength: buffer.length, sha256: sha256HexSync(buffer) });
 	});
 
 	const manifest: BrikManifest = {
@@ -251,7 +252,7 @@ export async function convertModelToBrik(
 		Object.assign(tensors, entries);
 		const file = shardFile(shardId);
 		shards.push({ file, bytes: buffer });
-		shardMeta.push({ id: shardId, file, byteLength: buffer.length });
+		shardMeta.push({ id: shardId, file, byteLength: buffer.length, sha256: await sha256Hex(buffer) });
 		// `toPack` (this shard's decoded/encoded tensors) drops out of scope before the next shard.
 	}
 

@@ -14,6 +14,7 @@
 // supprimer des centaines de Mo en silence serait pire que le problème.
 
 import { BRIK_RANGE_CACHE, GGUF_CACHE, cacheEntries, groupCacheEntries, deleteCacheEntriesFor } from './storage';
+import { cacheUrl } from './hfCacheKey';
 
 const USAGE_KEY = 'brimkern-model-usage';   // { [clé modèle]: timestamp du dernier usage }
 const POLICY_KEY = 'brimkern-evict-days';   // '0' = jamais, sinon nombre de jours
@@ -28,9 +29,12 @@ export const DEFAULT_EVICT_DAYS = 30;
 // ⚠️ Les DEUX séparateurs comptent : source.ts écrit `&__brik=` dès que l'URL du modèle porte déjà
 // une query. Ne reconnaître que `?` faisait de chaque plage un « modèle » différent — donc jamais
 // daté, donc jamais évincé, pour exactement les modèles dont l'URL vient d'un lien de téléchargement.
+// `cacheUrl` : un preset épinglé le 2026-11-12 est chargé sous son SHA mais rangé sous `/resolve/main/`.
+// Sans cet alias, son usage serait daté sous une clé qu'aucune entrée de cache ne porte — donc le
+// modèle évincé à 30 jours alors qu'il sert tous les jours, et le modèle chargé non protégé.
 export function modelKey(url: string): string {
   const m = /[?&]__brik=/.exec(url || '');
-  return m ? (url || '').slice(0, m.index) : (url || '');
+  return cacheUrl(m ? (url || '').slice(0, m.index) : (url || ''));
 }
 
 type UsageMap = Record<string, number>;

@@ -9,33 +9,50 @@
 import { coalescedSpan, LAZY_TENSORS, lazyChunkRanges } from './layerSpans';
 import { type TensorSource } from './model';
 import { parseGguf } from './ggufParser';
-import { parseBrik, parseBrikHeader } from '../brik/container';
+import { parseBrik, parseBrikHeader, readBrikManifestLength } from '../brik/container';
 import { brikToGgufManifest, computeShardBases, type GgufManifest } from '../brik/loader';
-import { verifyManifestDigest } from '../brik/integrity';
-import type { BrikManifest, BrikTensorEntry } from '../brik/format';
+import { verifyBrikShards, verifyManifestDigest, verifyShardDigest } from '../brik/integrity';
+import { cacheUrl } from '../hfCacheKey';
+import { alignUp, type BrikManifest, type BrikShard, type BrikTensorEntry } from '../brik/format';
 
 const CACHE_NAME = 'brik-range-v1';
 
 // Cache key for a byte range. A query string (not a #fragment — those are stripped by the Cache
 // API) keeps each range distinct under the same origin URL.
+// `cacheUrl` : un preset épinglé le 2026-11-12 garde la clé `/resolve/main/` de ses plages déjà en cache.
 function rangeKey(url: string, offset: number, end: number): string {
-	return `${url}${url.includes('?') ? '&' : '?'}__brik=${offset}-${end}`;
+	const base = cacheUrl(url);
+	return `${base}${base.includes('?') ? '&' : '?'}__brik=${offset}-${end}`;
 }
 
 async function openCache(): Promise<Cache | null> {
 	try { return await caches.open(CACHE_NAME); } catch { return null; }
 }
 
+async function evictCachedRange(url: string, offset: number, length: number): Promise<void> {
+	const cache = await openCache();
+	if (!cache) return;
+	await cache.delete(rangeKey(url, offset, offset + length - 1)).catch(() => {});
+}
+
 // Fetch [offset, offset+length) via a Range request, served from the Cache API when present. Returns
 // { bytes, ranged } — `ranged` is false when the server ignored Range and sent the whole body.
 // `signal` (préchargement) : annulation immédiate, y compris en plein milieu d'une plage.
 export async function fetchRange(url: string, offset: number, length: number, signal?: AbortSignal): Promise<{ bytes: Uint8Array; ranged: boolean }> {
+	if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length <= 0) {
+		throw new Error(`range fetch invalide : offset=${offset} length=${length}`);
+	}
 	const end = offset + length - 1;
 	const cache = await openCache();
 	const key = rangeKey(url, offset, end);
 	if (cache) {
 		const hit = await cache.match(key);
-		if (hit) return { bytes: new Uint8Array(await hit.arrayBuffer()), ranged: true };
+		if (hit) {
+			const cached = new Uint8Array(await hit.arrayBuffer());
+			if (cached.byteLength === length) return { bytes: cached, ranged: true };
+			// Entrée de cache tronquée ou corrompue : on l'évince et on retélécharge.
+			await cache.delete(key).catch(() => {});
+		}
 	}
 	// Retry with backoff: on mobile the network blips and the tab is suspended on sleep, which aborts
 	// an in-flight fetch ("Failed to fetch"). Each completed range is cached, so retrying (or simply
@@ -46,10 +63,19 @@ export async function fetchRange(url: string, offset: number, length: number, si
 			const resp = await fetch(url, { headers: { Range: `bytes=${offset}-${end}` }, signal });
 			if (!resp.ok && resp.status !== 206) throw new Error(`range fetch ${offset}-${end} échoué : HTTP ${resp.status}`);
 			const ranged = resp.status === 206;
+			const clHeader = resp.headers.get('Content-Length');
+			const declaredLen = clHeader ? parseInt(clHeader, 10) : 0;
 			const body = new Uint8Array(await resp.arrayBuffer());
+			if (declaredLen > 0 && body.byteLength !== declaredLen) {
+				throw new Error(`range fetch ${offset}-${end} tronqué : reçu ${body.byteLength} o sur ${declaredLen} annoncés`);
+			}
 			const bytes = ranged ? body : body.subarray(offset, offset + length);
-			// Store with an explicit Content-Length so the storage panel can sum cache size from headers.
-			if (cache && ranged) { try { await cache.put(key, new Response(bytes, { headers: { 'Content-Length': String(bytes.byteLength) } })); } catch (e) { warnCachePutOnce(e); } }
+			// Ne jamais mettre en cache une plage partielle (ex. sonde GGUF de 8 Mo sur un petit fichier
+			// ou réponse 206 tronquée par un proxy) : empoisonner `brik-range-v1` avec un tampon plus
+			// court corromprait les poids à chaque rechargement jusqu'au vidage manuel du stockage.
+			if (cache && ranged && bytes.byteLength === length) {
+				try { await cache.put(key, new Response(bytes, { headers: { 'Content-Length': String(bytes.byteLength) } })); } catch (e) { warnCachePutOnce(e); }
+			}
 			return { bytes, ranged };
 		} catch (e) {
 			if (signal?.aborted) throw e; // annulation volontaire — ne pas retenter
@@ -76,9 +102,10 @@ function warnCachePutOnce(e: unknown) {
 // le fichier à chaque ouverture. Lecture cache d'abord, écriture après (signalée si refusée).
 const FULL_CACHE = 'brimkern-model-cache';
 export async function fetchFullCached(url: string): Promise<Uint8Array> {
+	const key = cacheUrl(url);
 	try {
 		const c = await caches.open(FULL_CACHE);
-		const hit = await c.match(url);
+		const hit = await c.match(key);
 		if (hit) return new Uint8Array(await hit.arrayBuffer());
 	} catch { /* Cache API absente */ }
 	const resp = await fetch(url);
@@ -86,13 +113,57 @@ export async function fetchFullCached(url: string): Promise<Uint8Array> {
 	const bytes = new Uint8Array(await resp.arrayBuffer());
 	try {
 		const c = await caches.open(FULL_CACHE);
-		await c.put(url, new Response(bytes.slice() as unknown as BodyInit, { headers: { 'Content-Length': String(bytes.byteLength) } }));
+		await c.put(key, new Response(bytes.slice() as unknown as BodyInit, { headers: { 'Content-Length': String(bytes.byteLength) } }));
 	} catch (e) { warnCachePutOnce(e); }
 	return bytes;
 }
 
-export function rangeSource(url: string, baseOffset: number): TensorSource {
-	return { bytes: async (offset, length) => (await fetchRange(url, baseOffset + offset, length)).bytes };
+export function rangeSource(url: string, baseOffset: number, shards?: BrikShard[]): TensorSource {
+	const raw: TensorSource = { bytes: async (offset, length) => (await fetchRange(url, baseOffset + offset, length)).bytes };
+	// Une plage qui échoue à la vérification sort du cache : sinon elle resservirait les mêmes octets
+	// faux à chaque rechargement, jusqu'au vidage manuel du stockage.
+	return withShardDigests(raw, shards, (offset, length) => evictCachedRange(url, baseOffset + offset, length));
+}
+
+// Vérifie à la volée `shard.sha256` (manifeste BRIK) sur toute lecture qui couvre un shard ENTIER
+// — un span de couche de `coalescedSpan` en pratique — en hachant les octets déjà lus : aucune lecture
+// en plus. Les lectures partielles (embeddings découpés à la demande) passent sans vérification.
+// Sans effet si aucun shard ne déclare d'empreinte (tous les .brik publiés avant le 2026-11-12).
+export function withShardDigests(
+	source: TensorSource,
+	shards: BrikShard[] | undefined,
+	onBad?: (offset: number, length: number) => Promise<void>,
+): TensorSource {
+	const shardByBase = new Map<number, BrikShard>();
+	if (shards && shards.some((s) => s.sha256)) {
+		const bases = computeShardBases(shards);
+		for (const sh of shards) {
+			if (sh.sha256 && bases[sh.id] !== undefined) shardByBase.set(bases[sh.id], sh);
+		}
+	}
+	if (shardByBase.size === 0) return source;
+	return {
+		...source,
+		bytes: async (offset, length) => {
+			const bytes = await source.bytes(offset, length);
+			const sh = shardByBase.get(offset);
+			if (sh && sh.sha256 && (length === sh.byteLength || alignUp(length) === sh.byteLength)) {
+				// `packShard` aligne la taille finale du shard sur 16 octets en complétant par des zéros :
+				// si `coalescedSpan` a demandé `length` avant le bourrage final (0..15 octets), on reconstitue
+				// le tampon aligné sans changer la plage lue ni la clé de cache.
+				const toVerify = length === sh.byteLength
+					? bytes
+					: (() => { const p = new Uint8Array(sh.byteLength); p.set(bytes); return p; })();
+				try {
+					await verifyShardDigest(sh.id, sh.sha256, toVerify);
+				} catch (e) {
+					await onBad?.(offset, length);
+					throw e;
+				}
+			}
+			return bytes;
+		},
+	};
 }
 
 // A TensorSource backed by an in-memory Uint8Array (the no-range fallback).
@@ -122,24 +193,27 @@ export async function loadBrikStream(url: string): Promise<StreamLoadable> {
 		// No Range support → one full download, parsed in memory — CACHED whole (sinon chaque
 		// ouverture re-téléchargeait l'intégralité du fichier).
 		const full = await fetchFullCached(url);
-		const { manifest, data } = parseBrik(full);
+		// Verify-then-parse : on vérifie l'empreinte SHA-256 AVANT de JSON.parse le manifeste.
 		await verifyManifestDigest(url, manifestBytes(full));
+		const { manifest, data } = parseBrik(full);
+		await verifyBrikShards(manifest, data);
 		return loadableFrom(manifest, bytesSource(data));
 	}
-	const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
+	const manifestLen = readBrikManifestLength(head.bytes);
 	const header = await fetchRange(url, 0, 12 + manifestLen);
-	const { manifest, dataStart } = parseBrikHeader(header.bytes);
-	// Intégrité AVANT le premier tenseur : sur une URL que l'app a choisie elle-même, un manifeste
-	// d'empreinte inattendue fait échouer le chargement (cf. brik/integrity.ts).
+	// Intégrité AVANT parseBrikHeader et AVANT le premier tenseur : sur une URL que l'app a choisie
+	// elle-même, un manifeste d'empreinte inattendue est rejeté avant même tout JSON.parse.
 	await verifyManifestDigest(url, manifestBytes(header.bytes));
-	return loadableFrom(manifest, rangeSource(url, dataStart));
+	const { manifest, dataStart } = parseBrikHeader(header.bytes);
+	return loadableFrom(manifest, rangeSource(url, dataStart, manifest.shards));
 }
 
 // Les octets EXACTS du manifeste dans un en-tête .brik : [12, 12+longueur). C'est la tranche que
 // scripts/brik-digest.cjs hache — les deux doivent découper au même endroit, sinon toute empreinte
 // est fausse. Une seule fonction pour les deux appelants, plutôt que deux subarray recopiés.
 function manifestBytes(headerOrFull: Uint8Array): Uint8Array {
-	const len = new DataView(headerOrFull.buffer, headerOrFull.byteOffset, 12).getUint32(8, true);
+	const len = readBrikManifestLength(headerOrFull);
+	if (12 + len > headerOrFull.byteLength) throw new Error('BRIK: manifeste tronqué');
 	return headerOrFull.subarray(12, 12 + len);
 }
 
@@ -189,13 +263,13 @@ export async function streamImageBrik(
 		// Pas de Range côté serveur → téléchargement d'un bloc, mis en cache entier (sans quoi
 		// chaque ouverture re-téléchargeait tout — pas de reprise, mais au moins la réutilisation).
 		full = await fetchFullCached(url);
-		({ manifest, dataStart } = parseBrikHeader(full));
 		await verifyManifestDigest(url, manifestBytes(full));
+		({ manifest, dataStart } = parseBrikHeader(full));
 	} else {
-		const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
+		const manifestLen = readBrikManifestLength(head.bytes);
 		const header = await fetchRange(url, 0, 12 + manifestLen);
-		({ manifest, dataStart } = parseBrikHeader(header.bytes));
 		await verifyManifestDigest(url, manifestBytes(header.bytes));
+		({ manifest, dataStart } = parseBrikHeader(header.bytes));
 	}
 	if (manifest.model?.uiArch !== 'image') {
 		throw new Error('Ce BRIK n\'est pas un modèle image (uiArch ≠ image).');
@@ -216,6 +290,12 @@ export async function streamImageBrik(
 		const bytes = full
 			? full.subarray(off, off + shard.byteLength)
 			: (await fetchRange(url, off, shard.byteLength)).bytes;
+		try {
+			await verifyShardDigest(shard.id, shard.sha256, bytes);
+		} catch (e) {
+			if (!full) await evictCachedRange(url, off, shard.byteLength);
+			throw e;
+		}
 		for (const [name, t] of byShard.get(shard.id) ?? []) {
 			onTensor(name, t, bytes.subarray(t.offset, t.offset + t.byteLength));
 		}
@@ -231,8 +311,9 @@ async function planImageBrikRanges(url: string, signal?: AbortSignal): Promise<{
 	if (!cache) return null;
 	const head = await fetchRange(url, 0, 12, signal);
 	if (!head.ranged) return null;
-	const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
+	const manifestLen = readBrikManifestLength(head.bytes);
 	const header = await fetchRange(url, 0, 12 + manifestLen, signal);
+	await verifyManifestDigest(url, manifestBytes(header.bytes));
 	const { manifest, dataStart } = parseBrikHeader(header.bytes);
 	if (!manifest.shards) return null;
 	const bases = computeShardBases(manifest.shards);
@@ -363,7 +444,7 @@ export async function fullCached(url: string): Promise<boolean> {
 export async function ggufFullCached(url: string): Promise<boolean> {
 	try {
 		const c = await caches.open(FULL_CACHE);
-		return !!(await c.match(url));
+		return !!(await c.match(cacheUrl(url)));
 	} catch {
 		return false;
 	}
@@ -400,8 +481,9 @@ async function planBrikRanges(url: string, signal?: AbortSignal): Promise<{ cach
 	if (!cache) return null;
 	const head = await fetchRange(url, 0, 12, signal);
 	if (!head.ranged) return null; // pas de Range → le loader téléchargera tout d'un bloc, rien à précacher
-	const manifestLen = new DataView(head.bytes.buffer, head.bytes.byteOffset, 12).getUint32(8, true);
+	const manifestLen = readBrikManifestLength(head.bytes);
 	const header = await fetchRange(url, 0, 12 + manifestLen, signal);
+	await verifyManifestDigest(url, manifestBytes(header.bytes));
 	const { manifest, dataStart } = parseBrikHeader(header.bytes);
 	return { cache, ranges: planTensorRanges(brikToGgufManifest(manifest), dataStart) };
 }

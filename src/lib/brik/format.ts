@@ -52,6 +52,8 @@ export interface BrikShard {
 	id: number;
 	file: string;
 	byteLength: number;
+	/** Empreinte SHA-256 hexadécimale (64 car.) des octets du shard. Optionnel (compatibilité .brik v1). */
+	sha256?: string;
 }
 
 export interface BrikManifest {
@@ -114,6 +116,8 @@ export function isValidTokenizerId(id: string): boolean {
 const entier = (v: unknown, max: number): boolean =>
 	typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max;
 
+const RE_SHA256 = /^[0-9a-f]{64}$/i;
+
 /** Lève sur un manifeste malformé ou aux valeurs invraisemblables. Retourne le manifeste tel quel. */
 export function validateBrikManifest(m: BrikManifest): BrikManifest {
 	// Annotation explicite sur la VARIABLE (pas seulement sur le retour de la lambda) : c'est ce qui
@@ -150,6 +154,9 @@ export function validateBrikManifest(m: BrikManifest): BrikManifest {
 		if (tailleShard.has(sh.id)) ko(`shard ${sh.id} déclaré deux fois`);
 		if (typeof sh.file !== 'string' || sh.file.length > 256) ko(`shard.file du shard ${sh.id}`);
 		if (!entier(sh.byteLength, MAX_BYTES)) ko(`shard.byteLength du shard ${sh.id} = ${String(sh.byteLength)}`);
+		if (sh.sha256 !== undefined && (typeof sh.sha256 !== 'string' || !RE_SHA256.test(sh.sha256))) {
+			ko(`shard.sha256 du shard ${sh.id}`);
+		}
 		tailleShard.set(sh.id, sh.byteLength);
 	}
 

@@ -22,6 +22,7 @@ import { BpeTokenizer } from '../lib/bpeTokenizer';
 import { tokenizerFromGguf } from '../lib/ggufTokenizer';
 import { sampleFromTopK } from '../lib/webgpu/sampling';
 import { parseGguf, type Manifest } from '../lib/webgpu/ggufParser';
+import { isValidTokenizerId } from '../lib/brik/format';
 import type { ArchType } from '../lib/presets';
 import { ggufArchFamilyFor, SDK_DEFAULT_BRIK_URL } from '../lib/modelCatalog';
 
@@ -334,8 +335,8 @@ export const MODELS: Record<string, string> = {
   'qwen3-0.6b-shop': SDK_DEFAULT_BRIK_URL,
   'lfm2.5-230m': 'https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
   'qwen-0.5b': 'https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik',
-  'coder-0.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
-  'coder-1.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+  'coder-0.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/ebb2015119c907b064c512bf053e945850b5875f/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+  'coder-1.5b': 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/f86cb2c1fa58255f8052cc32aeede1b7482d4361/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
   'rwkv-0.4b': 'https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
   'rwkv-0.1b': 'https://huggingface.co/romainkh14/RWKV-7-G1-0.1B_BRIK/resolve/main/rwkv7-g1-0.1b-q4.brik',
 };
@@ -425,7 +426,10 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
       const emb = (manifest as any).tensors?.['token_embd.weight'];
       const vocab = emb && (manifest as any).config?.d ? emb.nElems / (manifest as any).config.d : null;
       const family = ggufArchFamilyFor(String((manifest as any).arch || ''), vocab);
-      const tokId = family?.tokenizerId || (manifest.metadata?.['tokenizer.ggml.id'] as string) || (archType === 'llama3' ? 'unsloth/Llama-3.2-1B-Instruct' : 'Qwen/Qwen2.5-Coder-0.5B-Instruct');
+      const rawTokId = (manifest.metadata?.['tokenizer.ggml.id'] as string) || '';
+      const fallbackTok = archType === 'llama3' ? 'unsloth/Llama-3.2-1B-Instruct' : 'Qwen/Qwen2.5-Coder-0.5B-Instruct';
+      const tokId = family?.tokenizerId || (isValidTokenizerId(rawTokId) ? rawTokId : fallbackTok);
+      if (!isValidTokenizerId(tokId)) throw new Error(`[brimkern] identifiant de tokenizer refusé : "${tokId}"`);
       const hf = await tf.AutoTokenizer.from_pretrained(tokId);
       tok = {
         encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),
@@ -476,6 +480,7 @@ async function buildModel(url: string, onProgress: (s: LoadPhase, p?: LoadProgre
     } else {
       const tf: any = await import(/* @vite-ignore */ TRANSFORMERS_CDN);
       const tokId = loadable.tokenizerId || 'Qwen/Qwen2.5-0.5B-Instruct';
+      if (!isValidTokenizerId(tokId)) throw new Error(`[brimkern] identifiant de tokenizer refusé : "${tokId}"`);
       const hf = await tf.AutoTokenizer.from_pretrained(tokId);
       tok = {
         encode: (s: string) => Array.from((hf(s) as any).input_ids.data as ArrayLike<number | bigint>, (v) => Number(v)),

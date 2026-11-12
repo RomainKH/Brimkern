@@ -15,7 +15,8 @@ import {
   Plus, MessageSquare, ChevronDown, HardDrive, Settings, RefreshCw, Image as ImageIcon
 } from 'lucide-react';
 import { cachedModelUrls, pruneRedundantRanges } from '@/lib/storage';
-import { PRESET_MODELS, TOKENIZER_PRESETS, type ArchType } from '@/lib/presets';
+import { TOKENIZER_PRESETS, findPresetByUrl, type ArchType } from '@/lib/presets';
+import { cacheUrl } from '@/lib/hfCacheKey';
 import { stripTurnMarkers, formatPrompt, isStopToken, declaredStopIds, templateWritesBos, THINK_BUDGETS, type ReflectionLevel } from '@/lib/chatFormat';
 import { MOBILE_BRIK_URL, QWEN_MOBILE_BRIK_URL, IMAGE_BRIK, VIDEO_BRIK, VIDEO_MOTION, VIDEO_STEPS_DEFAULT, VIDEO_INTERP_DEFAULT, LTX_BRIK, TAESD_DECODER, SD_TURBO_REV, pickAutoPrecision, PREC_LABEL } from '@/lib/modelCatalog';
 import { sampleNextToken, sampleFromTopK } from '@/lib/webgpu/sampling';
@@ -387,7 +388,8 @@ function App() {
   // reloaded later in one click. Presets already live in the library, so they're skipped.
   const rememberUserModel = (url: string, kind: 'gguf' | 'brik') => {
     const u = url.trim();
-    if (!u || PRESET_MODELS.some((m) => m.url === u)) return;
+    // findPresetByUrl : une conversation d'avant l'épinglage rouvre le preset sous `/resolve/main/`.
+    if (!u || findPresetByUrl(u)) return;
     setUserModels((prev) => prev.some((m) => m.url === u) ? prev : [{ url: u, name: u.split('/').pop() || u, kind }, ...prev].slice(0, 20));
   };
   // Record a locally-imported model (no reloadable URL — its tile re-opens the file picker), deduped by name.
@@ -398,7 +400,8 @@ function App() {
   // A model URL counts as cached if any cache entry starts with it — streamed .brik are cached per byte
   // RANGE under `url?__brik=…` keys, so an exact Set.has(url) would miss them. Used for the badge,
   // auto-resume, and cache→library pruning so all three agree.
-  const isCached = (url?: string) => !!url && [...cachedUrls].some((c) => c.startsWith(url));
+  // `cacheUrl` : un preset épinglé à un SHA le 2026-11-12 garde ses plages sous `/resolve/main/`.
+  const isCached = (url?: string) => !!url && [...cachedUrls].some((c) => c.startsWith(cacheUrl(url)));
 
   // Pipelines IMAGE réellement téléchargés (UNet + CLIP intégraux), pour le badge des cartes image.
   // ⚠️ Le test par PRÉFIXE ci-dessus ne suffit PAS ici, et le banc image-cache.mjs l'a prouvé : lire

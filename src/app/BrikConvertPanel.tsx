@@ -14,6 +14,7 @@ import { parseGguf } from '@/lib/webgpu/ggufParser';
 import { convertModelToBrik, type BrikBuildOutput, type WeightDType } from '@/lib/brik/convert';
 import { brikToLoadable, brikFileToLoadable, type BrikLoadable } from '@/lib/brik/loader';
 import { serializeBrik, parseBrik } from '@/lib/brik/container';
+import { verifyBrikShards } from '@/lib/brik/integrity';
 import { readZip } from '@/lib/brik/zip';
 import type { BrikManifest } from '@/lib/brik/format';
 import { useT } from '@/lib/i18n';
@@ -173,6 +174,7 @@ export default function BrikConvertPanel({ disabled, tokenizerPresets, presetMod
 			const isContainer = buf.length >= 4 && buf[0] === 0x42 && buf[1] === 0x52 && buf[2] === 0x49 && buf[3] === 0x4B; // "BRIK"
 			if (isContainer) {
 				const { manifest, data } = parseBrik(buf);
+				await verifyBrikShards(manifest, data);
 				setPhase('idle');
 				await onLoadBrik(brikFileToLoadable(manifest, data));
 				return;

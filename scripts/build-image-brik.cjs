@@ -271,6 +271,7 @@ function shardKey(name) {
 		byShard.get(key).push(entry);
 	}
 
+	const crypto = require('crypto');
 	// shared = shard 0, puis les unités en ordre stable (ordre du fichier ≈ ordre du forward).
 	// NB : le module motion (video-motion) n'a AUCUN tenseur hors unité → pas de shard « shared ».
 	const keys = ['shared', ...[...byShard.keys()].filter((k) => k !== 'shared')].filter((k) => byShard.has(k));
@@ -280,7 +281,12 @@ function shardKey(name) {
 	keys.forEach((key, id) => {
 		const { buffer, entries } = packShard(byShard.get(key), id);
 		shards.push({ file: `${key}.bin`, bytes: buffer });
-		shardMetas.push({ id, file: `${key}.bin`, byteLength: buffer.length });
+		shardMetas.push({
+			id,
+			file: `${key}.bin`,
+			byteLength: buffer.length,
+			sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+		});
 		Object.assign(tensors, entries);
 	});
 

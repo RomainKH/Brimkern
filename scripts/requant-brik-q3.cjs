@@ -63,7 +63,12 @@ for (const sh of shardsOrdered) {
   Object.assign(outTensors, entries);
   const file = `shard-${String(sh.id).padStart(4, '0')}.brik`;
   outShards.push({ file, bytes: buffer });
-  outMeta.push({ id: sh.id, file, byteLength: buffer.length });
+  outMeta.push({
+    id: sh.id,
+    file,
+    byteLength: buffer.length,
+    sha256: require('crypto').createHash('sha256').update(buffer).digest('hex'),
+  });
   process.stdout.write(`\rShard ${sh.id + 1}/${shardsOrdered.length} — corps→q3: ${nQ3}, conservés: ${nKept}   `);
 }
 fs.closeSync(fd);

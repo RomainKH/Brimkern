@@ -17,11 +17,14 @@ export interface PresetModel { name: string; vendor: string; url: string; size: 
 export interface TokenizerPreset { name: string; id: string; type: ArchType }
 
 // Preset models suitable for browser WebGPU running.
+// Politique d'intégrité (identique à modelCatalog.ts) : nos propres paquets .brik (`romainkh14/*`)
+// sont couverts par SHA-256 (`MANIFEST_DIGESTS` + `shards[].sha256`), tandis que tout dépôt GGUF
+// tiers est épinglé à un SHA de commit Hugging Face immuable au lieu de `/resolve/main/`.
 export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'DeepSeek-R1 Distill Qwen 1.5B (Q4_K_M)',
 		vendor: 'DeepSeek',
-		url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
+		url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/9cc28b17e86fa2415fcb070f8ee5ec27c965aa61/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
 		size: '1,12 Go',
 		sizeBytes: 1_120_000_000,
 		desc: {
@@ -71,7 +74,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Ministral 3 3B Instruct (Q4_K_M)',
 		vendor: 'Mistral AI',
-		url: 'https://huggingface.co/bartowski/mistralai_Ministral-3-3B-Instruct-2512-GGUF/resolve/main/mistralai_Ministral-3-3B-Instruct-2512-Q4_K_M.gguf',
+		url: 'https://huggingface.co/bartowski/mistralai_Ministral-3-3B-Instruct-2512-GGUF/resolve/0a9035302dea19872c96076896304552890a73c2/mistralai_Ministral-3-3B-Instruct-2512-Q4_K_M.gguf',
 		size: '2,15 Go',
 		sizeBytes: 2_150_000_000,
 		desc: {
@@ -87,7 +90,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 2.5 Coder 0.5B Instruct (Q4_K_M)',
 		vendor: 'Alibaba',
-		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
+		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/ebb2015119c907b064c512bf053e945850b5875f/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf',
 		size: '491 Mo',
 		sizeBytes: 491_400_064,
 		desc: {
@@ -103,7 +106,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 2.5 Coder 1.5B Instruct (Q4_K_M)',
 		vendor: 'Alibaba',
-		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+		url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/f86cb2c1fa58255f8052cc32aeede1b7482d4361/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
 		size: '1,12 Go',
 		sizeBytes: 1_117_320_768,
 		desc: {
@@ -119,7 +122,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 2.5 Coder 3B Opus Distilled (Q4_K_M)',
 		vendor: 'ryzdfm',
-		url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
+		url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/d342b33b2ce2f54e9a24cd062bcc9ff37326c4db/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
 		size: '1,93 Go',
 		sizeBytes: 1_929_902_560,
 		desc: {
@@ -135,7 +138,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 3.5 4B Super Coder (GGUF Q4_0)',
 		vendor: 'jica98 / Alibaba',
-		url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/main/qwen3.5-4B-super-coder.Q4_0.gguf',
+		url: 'https://huggingface.co/jica98/qwen3.5-4B-super-coder/resolve/1f2362bff662708edca4836deda762da0c046dd0/qwen3.5-4B-super-coder.Q4_0.gguf',
 		size: '2,61 Go',
 		sizeBytes: 2_611_783_040,
 		desc: {
@@ -151,7 +154,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'DeepSeek-R1 Distill Qwen 7B (Q4_K_M)',
 		vendor: 'DeepSeek',
-		url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf',
+		url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/361004151d4f4f6b446dc5e6d46fbf4422a80d5f/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf',
 		size: '4,68 Go',
 		sizeBytes: 4_683_073_504,
 		desc: {
@@ -167,7 +170,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Gemma 2 2B Instruct (Q4_K_M)',
 		vendor: 'Google',
-		url: 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf',
+		url: 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/855f67caed130e1befc571b52bd181be2e858883/gemma-2-2b-it-Q4_K_M.gguf',
 		size: '1,71 Go',
 		sizeBytes: 1_710_000_000,
 		desc: {
@@ -199,7 +202,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 3 0.6B (Q8_0)',
 		vendor: 'Alibaba',
-		url: 'https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q8_0.gguf',
+		url: 'https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/23749fefcc72300e3a2ad315e1317431b06b590a/Qwen3-0.6B-Q8_0.gguf',
 		size: '639 Mo',
 		sizeBytes: 639_000_000,
 		desc: {
@@ -215,7 +218,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Llama 3.2 1B Instruct (Q4_K_M)',
 		vendor: 'Meta',
-		url: 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+		url: 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/067b946cf014b7c697f3654f621d577a3e3afd1c/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
 		size: '808 Mo',
 		sizeBytes: 808_000_000,
 		desc: {
@@ -231,7 +234,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'SmolLM3 3B (Q4_K_M)',
 		vendor: 'Hugging Face',
-		url: 'https://huggingface.co/bartowski/HuggingFaceTB_SmolLM3-3B-GGUF/resolve/main/HuggingFaceTB_SmolLM3-3B-Q4_K_M.gguf',
+		url: 'https://huggingface.co/bartowski/HuggingFaceTB_SmolLM3-3B-GGUF/resolve/86b3536ed1ca0dcb4716745642db4e6804bf3d32/HuggingFaceTB_SmolLM3-3B-Q4_K_M.gguf',
 		size: '1,92 Go',
 		sizeBytes: 1_915_305_792,
 		desc: {
@@ -247,7 +250,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 2.5 1.5B Instruct (Q4_K_M)',
 		vendor: 'Alibaba',
-		url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+		url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf',
 		size: '1,12 Go',
 		sizeBytes: 1_117_320_736,
 		desc: {
@@ -263,7 +266,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Gemma 3 270M Instruct (Q4_K_M)',
 		vendor: 'Google',
-		url: 'https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/main/gemma-3-270m-it-Q4_K_M.gguf',
+		url: 'https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/c90975dbd40c0c7b275fefaae758c3415c906238/gemma-3-270m-it-Q4_K_M.gguf',
 		size: '253 Mo',
 		sizeBytes: 253_100_000,
 		desc: {
@@ -279,7 +282,7 @@ export const PRESET_MODELS: PresetModel[] = [
 	{
 		name: 'Qwen 2.5 0.5B Instruct (Q8_0)',
 		vendor: 'Alibaba',
-		url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf',
+		url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q8_0.gguf',
 		size: '676 Mo',
 		sizeBytes: 675_710_816,
 		desc: {
@@ -325,6 +328,16 @@ export const PRESET_MODELS: PresetModel[] = [
 		mobile: true,
 	},
 ];
+
+/** Normalise une URL Hugging Face `.../resolve/<rev>/<file>` pour comparer un modèle indépendamment de sa révision (`main` vs SHA de commit). */
+export function normalizeHfUrl(url: string): string {
+	return url.replace(/^(https:\/\/huggingface\.co\/[^/]+\/[^/]+\/resolve\/)[^/]+\//, '$1main/');
+}
+
+export function findPresetByUrl(url: string): PresetModel | undefined {
+	const norm = normalizeHfUrl(url);
+	return PRESET_MODELS.find((m) => m.url === url || normalizeHfUrl(m.url) === norm);
+}
 
 export const TOKENIZER_PRESETS: TokenizerPreset[] = [
 	{ name: 'DeepSeek-R1 Distill (Qwen)', id: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B', type: 'deepseek' },

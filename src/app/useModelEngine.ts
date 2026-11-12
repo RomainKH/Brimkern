@@ -17,12 +17,13 @@ import { CustomWebModel, spanRawTensor, type TensorSource } from '@/lib/webgpu/m
 import { parseGguf, type Manifest } from '@/lib/webgpu/ggufParser';
 import { brikFileToLoadable, brikToGgufManifest, type BrikLoadable } from '@/lib/brik/loader';
 import { convertModelToBrik, type WeightDType } from '@/lib/brik/convert';
-import { serializeBrik, parseBrik, parseBrikHeader } from '@/lib/brik/container';
+import { serializeBrik, parseBrik, parseBrikHeader, readBrikManifestLength } from '@/lib/brik/container';
+import { verifyBrikShards } from '@/lib/brik/integrity';
 import { isValidTokenizerId } from '@/lib/brik/format';
 import { brikCacheKey, getBrik, putBrik } from '@/lib/brikCache';
 import { cachedModelUrls } from '@/lib/storage';
-import { loadBrikStream, prefetchBrik, loadGgufStream, prefetchGguf } from '@/lib/webgpu/source';
-import { PRESET_MODELS, type ArchType } from '@/lib/presets';
+import { loadBrikStream, prefetchBrik, loadGgufStream, prefetchGguf, withShardDigests } from '@/lib/webgpu/source';
+import { PRESET_MODELS, findPresetByUrl, type ArchType } from '@/lib/presets';
 import { pickAutoPrecision, ggufArchFamilyFor } from '@/lib/modelCatalog';
 import { useT } from '@/lib/i18n';
 import { metric, metricOnce } from '@/lib/metrics';
@@ -570,6 +571,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
     const sig = f.name ? `${f.name}:${f.size}:${f.lastModified}` : `${modelName}:${fileBlob.size}`;
     const key = brikCacheKey(sig, tier);
     let bytes = await getBrik(key).catch(() => null);
+    const fromCache = !!bytes;
     if (bytes) {
       setLoadingStep(t('Loading the cached BRIK (no reconversion)…', 'Chargement du BRIK en cache (pas de reconversion)…'));
     } else {
@@ -603,6 +605,9 @@ export function useModelEngine(deps: ModelEngineDeps) {
       }
     }
     const { manifest, data } = parseBrik(bytes);
+    // Relu d'IndexedDB → vérifié (stockage corrompu) ; juste converti → empreintes calculées sur ces
+    // mêmes octets, rien à revérifier.
+    if (fromCache) await verifyBrikShards(manifest, data);
     return brikFileToLoadable(manifest, data);
   };
 
@@ -713,7 +718,7 @@ export function useModelEngine(deps: ModelEngineDeps) {
     setLoadedModelUrl(url);
     rememberUserModel(url, 'gguf');
 
-    const preset = PRESET_MODELS.find(m => m.url === url);
+    const preset = findPresetByUrl(url) ?? PRESET_MODELS.find(m => m.url === url);
     if (preset) {
       setSelectedTokenizerId(preset.tokenizer);
       setModelArchType(preset.type);
@@ -772,10 +777,14 @@ export function useModelEngine(deps: ModelEngineDeps) {
     setLoadingStep(t('Reading the BRIK header…', 'Lecture de l’en-tête BRIK…'));
     try {
       const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-      const manifestLen = new DataView(head.buffer).getUint32(8, true);
+      const manifestLen = readBrikManifestLength(head);
       const headerBytes = new Uint8Array(await file.slice(0, 12 + manifestLen).arrayBuffer());
       const { manifest, dataStart } = parseBrikHeader(headerBytes);
-      const source = { bytes: async (o: number, l: number) => new Uint8Array(await file.slice(dataStart + o, dataStart + o + l).arrayBuffer()) };
+      // Empreintes par shard vérifiées à la lecture (fichier tronqué ou altéré → erreur claire, pas des poids faux).
+      const source = withShardDigests(
+        { bytes: async (o: number, l: number) => new Uint8Array(await file.slice(dataStart + o, dataStart + o + l).arrayBuffer()) },
+        manifest.shards,
+      );
       await activateModel(
         brikToGgufManifest(manifest) as unknown as Manifest,
         source,

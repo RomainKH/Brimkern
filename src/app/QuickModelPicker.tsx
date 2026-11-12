@@ -75,7 +75,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     badge: { en: 'Reasoning', fr: 'Raisonnement' },
     desc: { en: 'Step-by-step thinking (<think>) for math & logic', fr: 'Pensée pas à pas (<think>) pour maths & logique' },
     type: 'gguf',
-    url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/9cc28b17e86fa2415fcb070f8ee5ec27c965aa61/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf',
     icon: Brain,
   },
   {
@@ -86,7 +86,7 @@ export const QUICK_MODELS: QuickModelOption[] = [
     badge: { en: 'Code & Dev', fr: 'Code & Dev' },
     desc: { en: 'Claude Opus 4.6 distilled · High coding power', fr: 'Distillé Claude Opus 4.6 · Haute précision de code' },
     type: 'gguf',
-    url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
+    url: 'https://huggingface.co/ryzdfm/qwen2.5-coder-3b-claude_opus_4.6-distilled/resolve/d342b33b2ce2f54e9a24cd062bcc9ff37326c4db/qwen2.5-coder-3b-instruct.Q4_K_M.gguf',
     icon: Code2,
     desktopOnly: true,
   },

@@ -96,6 +96,34 @@ function tableActuelle() {
 		if (!(url in table)) console.log(`  ORPHELIN  ${url.split('/').pop()} — plus dans le catalogue, entrée à retirer`);
 	}
 
+	// ── Audit des dépôts tiers : aucune URL hors `romainkh14/*` ne doit rester en `/resolve/main/` ─
+	// Tout `src/` + la CLI, pas une liste de fichiers : la liste initiale (catalogue, presets, SDK, CLI)
+	// avait laissé passer les deux URL tierces du sélecteur rapide (QuickModelPicker.tsx).
+	const fichiersTiers = ['bin/brimkern.mjs'];
+	const parcourir = (dir) => {
+		for (const e of fs.readdirSync(path.join(RACINE, dir), { withFileTypes: true })) {
+			const rel = path.join(dir, e.name);
+			if (e.isDirectory()) parcourir(rel);
+			else if (/\.(ts|tsx|mjs|cjs|js)$/.test(e.name) && !/\.test\./.test(e.name)) fichiersTiers.push(rel);
+		}
+	};
+	parcourir('src');
+	const nonEpingles = [];
+	for (const rel of fichiersTiers) {
+		const p = path.join(RACINE, rel);
+		if (!fs.existsSync(p)) continue;
+		const contenu = fs.readFileSync(p, 'utf8');
+		for (const m of contenu.matchAll(/https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/main\/([^\x27"`\s]+)/g)) {
+			if (!m[1].startsWith('romainkh14/')) nonEpingles.push({ fichier: rel, url: m[0] });
+		}
+	}
+	if (nonEpingles.length > 0) {
+		console.log(`\n⚠️  ${nonEpingles.length} URL(s) tierce(s) non épinglée(s) (en /resolve/main/ au lieu d'un SHA de commit) :`);
+		for (const { fichier, url } of nonEpingles) console.log(`  - [${fichier}] ${url}`);
+	} else {
+		console.log('\n✓ Toutes les URLs Hugging Face tierces du catalogue/SDK/CLI sont épinglées à un SHA de commit.');
+	}
+
 	if (change) {
 		console.log(`\n⚠️  ${change} empreinte(s) nouvelle(s) ou modifiée(s). Une empreinte qui change SANS`);
 		console.log('   téléversement de ta part signifie que le fichier distant a été remplacé : vérifie AVANT d’écrire.');
