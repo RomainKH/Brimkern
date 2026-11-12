@@ -44,11 +44,20 @@ const RELEASES: Release[] = [
         ],
       },
       {
+        title: { en: 'Engine', fr: 'Moteur' },
+        items: [
+          {
+            en: 'Ternary Bonsai 4B keeps its output layer in 2-bit weights on the GPU too, instead of 8-bit: 309 MB less GPU memory, same speed (measured in Chrome on an M4 Mac).',
+            fr: 'Ternary Bonsai 4B garde aussi sa couche de sortie en poids 2 bits sur le GPU, au lieu de 8 bits : 309 Mo de mémoire GPU en moins, même vitesse (mesuré dans Chrome sur un Mac M4).',
+          },
+        ],
+      },
+      {
         title: { en: 'SDK 0.8.2', fr: 'SDK 0.8.2' },
         items: [
           {
-            en: 'Includes all of the above, plus the engine kernels added since 0.8.1: 563 KB minified instead of 512 KB.',
-            fr: 'Reprend tout ce qui précède, plus les kernels ajoutés au moteur depuis 0.8.1 : 563 Ko minifié au lieu de 512 Ko.',
+            en: 'Includes all of the above, plus the engine kernels added since 0.8.1.',
+            fr: 'Reprend tout ce qui précède, plus les kernels ajoutés au moteur depuis 0.8.1.',
           },
         ],
       },
