@@ -248,5 +248,12 @@ les libellés anglais, le thème sombre, et axe-core sur le panneau.
 ⚠️ Google sert un captcha (`/sorry/`) au Chrome piloté : la page de résultats est
 `fixtures/google-serp-fr.html` (structure de Google, textes du banc), servie par interception
 Playwright — interception qui passe APRÈS la redirection de l'extension, d'où l'URL servie déjà en
-`udm=14`. Le vrai DOM du jour, lui, ne se vérifie qu'à la main. Profil dédié `chrome-profile-ext` :
-il garde le modèle d'un tirage à l'autre (même chemin d'extension = même origine de cache).
+`udm=14`. Profil dédié `chrome-profile-ext` : il garde le modèle d'un tirage à l'autre (même chemin
+d'extension = même origine de cache).
+
+Le VRAI Google, lui, se vérifie dans un Chrome **non piloté** : le captcha vient du mode automatisé
+de Playwright (`--enable-automation`), pas de Chrome. Lancer Chrome for Testing à la main avec
+`--user-data-dir=… --load-extension=packages/extension/dist --remote-debugging-port=9333`, puis
+`chromium.connectOverCDP('http://127.0.0.1:9333')` → `navigator.webdriver` = false, vraie page.
+C'est ainsi qu'on a trouvé, le 2026-11-14, les liens `/goto?url=<jeton>` que la fixture ignorait.
+⚠️ Jamais en même temps que ce banc sur le même profil : deux Chrome sur un profil = délai expiré.

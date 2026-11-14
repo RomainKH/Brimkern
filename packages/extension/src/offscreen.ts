@@ -77,7 +77,7 @@ async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: A
     model,
     system: SYSTEM[req.lang],
     lang: req.lang,
-    knowledge: req.results.map((r) => ({ title: `${r.title} — ${r.site}`, text: r.snippet })),
+    knowledge: req.results.map((r) => ({ title: r.site ? `${r.title} — ${r.site}` : r.title, text: r.snippet })),
     knowledgeBudget: 1600,
     maxTokens: 220,
     worker: false,

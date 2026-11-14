@@ -128,7 +128,8 @@ function mount(query: string, results: SerpResult[]) {
       const li = el('li');
       const a = el('a', undefined, r.title);
       a.href = r.url;
-      li.append(a, el('span', 'site', ` — ${r.site}`));
+      li.append(a);
+      if (r.site) li.append(el('span', 'site', ` — ${r.site}`));
       return li;
     }));
   };

@@ -73,9 +73,10 @@ try {
   const lus = await page.evaluate(() => (window).__bkSerp.extractResults(document));
   console.log(`2. ${lus.length} résultats lus :`);
   for (const r of lus) console.log(`   - ${r.site} | ${r.title} | ${r.snippet.slice(0, 70)}…`);
-  assert.deepEqual(lus.map((r) => r.site), ['toureiffel.paris', 'fr.wikipedia.org', 'paris.fr', 'exemple-actu.fr']);
+  assert.deepEqual(lus.map((r) => r.site), ['toureiffel.paris', 'fr.wikipedia.org', 'paris.fr', 'exemple-actu.fr', 'petit-guide.fr', 'YouTube']);
   assert.match(lus[2].snippet, /^14 mars 2024 — Haute de 330 m/); // repli sans classe connue
   assert.equal(lus[3].url, 'https://www.exemple-actu.fr/sciences/tour-eiffel-six-metres'); // /url?q= déballé
+  assert.match(lus[4].url, /^https:\/\/www\.google\.fr\/goto\?url=/); // jeton opaque : la redirection de Google est gardée
   assert.ok(lus.every((r) => !/Cite|›/.test(r.snippet)), 'l’URL affichée ne doit pas entrer dans l’extrait');
 
   // 3. le panneau, premier clic
