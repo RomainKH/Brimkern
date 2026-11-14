@@ -8,10 +8,12 @@
 // ÉCHOUE si une URL de code distant subsiste dans la sortie.
 // Usage : node scripts/build-extension.mjs
 import * as esbuild from 'esbuild';
-import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { udm14Rules } from '../packages/extension/rules.mjs';
+import { sansCodeDistant } from '../packages/extension/sans-code-distant.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = path.join(ROOT, 'packages/extension');
@@ -20,24 +22,6 @@ rmSync(DIST, { recursive: true, force: true });
 mkdirSync(path.join(DIST, 'rules'), { recursive: true });
 
 const sdkVersion = JSON.parse(readFileSync(path.join(ROOT, 'packages/sdk/package.json'), 'utf8')).version;
-
-const sansCodeDistant = {
-  name: 'sans-code-distant',
-  setup(build) {
-    build.onLoad({ filter: /src[\\/]sdk[\\/]engineCore\.ts$/ }, (args) => {
-      const src = readFileSync(args.path, 'utf8');
-      const motif = /import\(\/\* @vite-ignore \*\/ TRANSFORMERS_CDN\)/g;
-      const n = (src.match(motif) || []).length;
-      // Si le SDK change sa façon d'importer le repli, le remplacement ne trouverait rien et l'URL
-      // partirait dans le bundle sans un mot : on exige d'avoir trouvé ce qu'on retire.
-      if (!n) throw new Error('engineCore.ts : import du repli transformers.js introuvable — mettre à jour build-extension.mjs');
-      return {
-        contents: src.replace(motif, "Promise.reject(new Error('[brimkern] tokenizer fallback unavailable in the extension (no remote code in Manifest V3)'))"),
-        loader: 'ts',
-      };
-    });
-  },
-};
 
 const commun = {
   absWorkingDir: ROOT,
@@ -73,7 +57,14 @@ writeFileSync(path.join(DIST, 'rules/udm14.json'), JSON.stringify(udm14Rules(dom
 for (const d of ['_locales', 'icons']) cpSync(path.join(EXT, d), path.join(DIST, d), { recursive: true });
 cpSync(path.join(EXT, 'offscreen.html'), path.join(DIST, 'offscreen.html'));
 
+// Le paquet à déposer sur le Chrome Web Store : le CONTENU de dist/ (manifest.json à la racine du
+// zip, pas dans un sous-dossier — sinon le dépôt est refusé). -X : pas d'attributs macOS.
+const zip = path.join(EXT, `brimkern-extension-${manifest.version}.zip`);
+rmSync(zip, { force: true });
+execFileSync('zip', ['-r', '-q', '-X', zip, '.'], { cwd: DIST });
+
 const ko = (r) => (Object.values(r.metafile.outputs)[0].bytes / 1024).toFixed(0);
 console.log(`packages/extension/dist — v${manifest.version} (moteur du SDK ${sdkVersion})`);
 console.log(`  background.js ${ko(sorties[0])} KB · offscreen.js ${ko(sorties[1])} KB · content.js ${ko(sorties[2])} KB`);
 console.log(`  ${domaines.length} domaines Google`);
+console.log(`  ${path.relative(ROOT, zip)} — ${(statSync(zip).size / 1024).toFixed(0)} KB, à déposer sur le Chrome Web Store`);

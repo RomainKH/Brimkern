@@ -15,6 +15,9 @@ const tmp = mkdtempSync(path.join(tmpdir(), 'bk-ext-'));
 const out = path.join(tmp, 'tier.mjs');
 await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/tier.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { chooseTier, TIER_MODELS } = await import(pathToFileURL(out).href);
+const outA = path.join(tmp, 'answer.mjs');
+await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/answer.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outA, logLevel: 'error' });
+const { cleanAnswer, buildAnswer } = await import(pathToFileURL(outA).href);
 rmSync(tmp, { recursive: true, force: true });
 
 let n = 0;
@@ -31,6 +34,19 @@ test('2g sans débit : léger', () => assert.equal(chooseTier({ webgpu: true, ef
 test('≤ 2 Go de mémoire : léger', () => assert.equal(chooseTier({ webgpu: true, deviceMemoryGB: 2 }).reason, 'low-memory'));
 test('aucune info réseau ni mémoire (Firefox/Safari) : standard', () => assert.equal(chooseTier({ webgpu: true }).tier, 'standard'));
 test('le léger est plus petit que le standard', () => assert.ok(TIER_MODELS.light.bytes < TIER_MODELS.standard.bytes));
+
+console.log('answer.ts');
+// Les phrases réelles relevées au banc qualité du 2026-11-14.
+test('formule de boutique retirée (FR)', () => assert.equal(cleanAnswer('L’eau bout à environ 93°. Puis-je vous aider pour autre chose ?'), 'L’eau bout à environ 93°.'));
+test('formule de boutique retirée (variante)', () => assert.equal(cleanAnswer('Un œuf dur : 10 min. Je peux vous aider pour autre chose ?'), 'Un œuf dur : 10 min.'));
+test('« Je ne peux pas vous aider pour autre chose… » retiré', () => assert.equal(cleanAnswer('Il faut un compte ANTS. Je ne peux pas vous aider pour autre chose que ce sujet précisément.'), 'Il faut un compte ANTS.'));
+test('formule anglaise retirée', () => assert.equal(cleanAnswer('It is 212°F. Is there anything else I can help you with?'), 'It is 212°F.'));
+test('/no_think retiré', () => assert.equal(cleanAnswer('Environ 384 400 km /no_think.'), 'Environ 384 400 km.'));
+test('réponse normale intacte', () => assert.equal(cleanAnswer('Victor Hugo, en 1862 [1].'), 'Victor Hugo, en 1862 [1].'));
+test('« aider » dans le sens courant intact', () => assert.equal(cleanAnswer('Le vinaigre peut aider à détartrer.'), 'Le vinaigre peut aider à détartrer.'));
+const res = [{ title: 'T', url: 'https://a.fr', site: 'a.fr', snippet: 'x' }];
+test('format livré : sdk (knowledge du SDK)', () => { const a = buildAnswer('m', 'q', res, 'fr'); assert.ok(a.config.knowledge && a.docs === null && a.text === 'q'); });
+test('format web : résultats numérotés dans l’ordre', () => { const a = buildAnswer('m', 'q', [...res, { ...res[0], title: 'U' }], 'en', 'web'); assert.match(a.text, /^Search: q\n\nResults:\n\[1\] T — a\.fr\nx\n\n\[2\] U/); assert.deepEqual(a.docs, [0, 1]); });
 
 console.log('rules.mjs (udm=14)');
 // Simulation de declarativeNetRequest pour CES deux règles : la règle d'autorisation (priorité 2)

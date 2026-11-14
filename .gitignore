@@ -93,10 +93,13 @@ docs/vision-feasibility.md
 # `public/sdk.js` et `public/sdk-<version>.js`, eux, sont VERSIONNÉS : c'est le site qui les sert.
 /packages/sdk/dist
 /packages/extension/dist
+/packages/extension/*.zip
 
 
 # Profils Chrome des bancs e2e (créés au vol par Playwright — jamais versionnés)
 scripts/e2e/chrome-profile*/
+# Captures Google du banc qualité de l'extension : extraits de Google et des sites, restent locales
+scripts/e2e/serp-captures/
 
 # Résolveur du Hub compilé pour la CLI (npm run build:sdk)
 /bin/generated

@@ -12,13 +12,7 @@ import { MODELS } from '../../../src/sdk/engineCore';
 import { brikCacheComplete } from '../../../src/lib/webgpu/source';
 import { chooseTier, TIER_MODELS, type Probe, type Tier } from './tier';
 import { PORT_NAME, IDLE, IDLE_MS, type AskRequest, type EngineEvent } from './protocol';
-
-// Consigne des réponses : courte, citée, et bornée aux extraits — la recherche, elle, a déjà eu
-// lieu chez Google ; le modèle ne fait que lire ce que la page affiche.
-const SYSTEM = {
-  en: 'You answer web searches using the search result snippets provided. Reply in 2 to 4 short sentences, in the language of the search. Cite the notes you use as [1], [2].',
-  fr: 'Tu réponds à des recherches web à partir des extraits de résultats fournis. Réponds en 2 à 4 phrases courtes, dans la langue de la recherche. Cite les fiches utilisées sous la forme [1], [2].',
-};
+import { buildAnswer, cleanAnswer } from './answer';
 
 // Un modèle se note « téléchargé » quand il a été chargé une fois en entier. Sans cette marque, la
 // vérification du cache demanderait l'en-tête du fichier au Hub — une requête réseau AVANT que
@@ -73,28 +67,26 @@ async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: A
   if (!picked.cached && !req.consent) {
     return send({ type: 'need-consent', model, bytes });
   }
-  const session = createSession({
-    model,
-    system: SYSTEM[req.lang],
-    lang: req.lang,
-    knowledge: req.results.map((r) => ({ title: r.site ? `${r.title} — ${r.site}` : r.title, text: r.snippet })),
-    knowledgeBudget: 1600,
-    maxTokens: 220,
-    worker: false,
-  });
+  const a = buildAnswer(model, req.query, req.results, req.lang);
+  const session = createSession(a.config);
   session.on('progress', (phase, pr) => send({ type: 'progress', phase, loaded: pr?.loaded, total: pr?.total }));
   // Le chrono part quand le modèle est prêt : « calculée en N s » ne doit pas compter le
   // téléchargement du premier usage (mesuré : 136,5 s affichées pour ~2 s de calcul).
   let t0 = performance.now();
-  session.on('ready', () => { t0 = performance.now(); });
+  session.on('ready', () => {
+    t0 = performance.now();
+    // Format 'web' : les sources sont les N premiers résultats, connues d'avance — annoncées quand
+    // le modèle est prêt, pas pendant le téléchargement.
+    if (a.docs) send({ type: 'sources', docs: a.docs });
+  });
   try {
-    const text = await session.ask(req.query, {
+    const text = await session.ask(a.text, {
       signal,
-      onSources: (s) => send({ type: 'sources', docs: s.map((x) => x.doc) }),
-      onToken: (t) => send({ type: 'token', text: t }),
+      onSources: a.docs ? undefined : (s) => send({ type: 'sources', docs: s.map((x) => x.doc) }),
+      onToken: (t) => send({ type: 'token', text: cleanAnswer(t) }),
     });
     mark(model);
-    if (!signal.aborted) send({ type: 'done', text, ms: Math.round(performance.now() - t0) });
+    if (!signal.aborted) send({ type: 'done', text: cleanAnswer(text), ms: Math.round(performance.now() - t0) });
   } finally {
     session.destroy();
   }
