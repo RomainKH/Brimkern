@@ -92,6 +92,7 @@ docs/vision-feasibility.md
 # Sortie de build du paquet npm (regénérée par `npm run build:sdk`, publiée par prepublishOnly).
 # `public/sdk.js` et `public/sdk-<version>.js`, eux, sont VERSIONNÉS : c'est le site qui les sert.
 /packages/sdk/dist
+/packages/extension/dist
 
 
 # Profils Chrome des bancs e2e (créés au vol par Playwright — jamais versionnés)

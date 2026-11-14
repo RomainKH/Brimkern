@@ -232,3 +232,21 @@ pour un modèle qui en fait ~158, soit quatre fois moins que la vérité.
 `undefined`, donc un test de `typeof` fait dehors échoue toujours, même quand tout va bien), et une
 génération **streamée** valide sa première bribe si l'on attend « du texte non vide » — le signal de
 fin est le bouton d'envoi qui se réactive, pas le premier token.
+
+### `extension-google.mjs` — l'extension Chrome sur une page de résultats Google
+
+```bash
+npm run build:extension
+node scripts/e2e/extension-google.mjs --fresh --shots=/tmp/x   # --fresh : premier usage (304 Mo)
+```
+
+Pas de `next start` : le banc charge `packages/extension/dist` dans Chrome for Testing
+(`--load-extension`) et vérifie la règle `udm=14` (vraie redirection `declarativeNetRequest`), la
+lecture des résultats, le consentement, la réponse et ses sources, le second clic (moteur chaud),
+les libellés anglais, le thème sombre, et axe-core sur le panneau.
+
+⚠️ Google sert un captcha (`/sorry/`) au Chrome piloté : la page de résultats est
+`fixtures/google-serp-fr.html` (structure de Google, textes du banc), servie par interception
+Playwright — interception qui passe APRÈS la redirection de l'extension, d'où l'URL servie déjà en
+`udm=14`. Le vrai DOM du jour, lui, ne se vérifie qu'à la main. Profil dédié `chrome-profile-ext` :
+il garde le modèle d'un tirage à l'autre (même chemin d'extension = même origine de cache).
