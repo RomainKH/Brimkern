@@ -35,6 +35,28 @@ const MODELES = {
   'llama-3.2-1b': { url: 'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/067b946cf014b7c697f3654f621d577a3e3afd1c/Llama-3.2-1B-Instruct-Q4_K_M.gguf', label: 'Llama 3.2 1B' },
   'qwen2.5-1.5b': { url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf', label: 'Qwen2.5 1.5B' },
   'gemma-2-2b': { url: 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/855f67caed130e1befc571b52bd181be2e858883/gemma-2-2b-it-Q4_K_M.gguf', label: 'Gemma 2 2B' },
+  // 2026-11-15 : les candidats d'un palier plus fort (tokenizer natif : pas de code distant).
+  // Qwen3.5 0.8B : l'URL `main` est celle déjà en cache dans le profil des bancs.
+  'qwen3.5-0.8b': { url: 'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf', label: 'Qwen3.5 0.8B' },
+  'qwen3-1.7b': { url: 'https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/d7f544eead698dbd1f15126ef60b45a1e1933222/Qwen3-1.7B-Q4_K_M.gguf', label: 'Qwen3 1.7B' },
+  'qwen3.5-2b': { url: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf', label: 'Qwen3.5 2B' },
+  'bonsai-4b': { url: 'https://huggingface.co/prism-ml/Ternary-Bonsai-4B-gguf/resolve/a3eb42bafe873f9686bc97486c43b72ef7d75ec8/Ternary-Bonsai-4B-PQ2_0.gguf', label: 'Ternary Bonsai 4B' },
+  'qwen3-4b': { url: 'https://huggingface.co/romainkh14/Qwen3-4B_BRIK/resolve/main/qwen3-4b-q4.brik', label: 'Qwen3 4B (BRIK)' },
+  'qwen3.5-4b': { url: 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf', label: 'Qwen3.5 4B' },
+};
+
+// Les nombres de la réponse qu'AUCUN des résultats lus ne contient — l'invention typique d'un petit
+// modèle (« Bell, 1844 »). Normalisés : espaces fines et séparateurs de milliers retirés, virgule
+// décimale = point. Un nombre absent n'est pas forcément faux (« 100 °C » déduit de « 212 °F ») :
+// c'est un signal pour la lecture, pas un juge.
+// Un espace ne sépare des milliers que devant 3 chiffres exactement : « 2000, 93.3, 93.0 » (un
+// tableau d'extrait) reste trois nombres.
+const nombres = (s) => (s.match(/\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)*/g) || [])
+  .map((n) => n.replace(/[ \u00a0\u202f\u2009]/g, ''))
+  .map((n) => (/^\d{1,3}([.,]\d{3})+$/.test(n) ? n.replace(/[.,]/g, '') : n.replace(',', '.')));
+const nonSources = (texte, extraits) => {
+  const dispo = new Set(nombres(extraits));
+  return [...new Set(nombres(texte.replace(/\[\d+\]/g, '')))].filter((n) => !dispo.has(n));
 };
 
 // Le fait clé attendu, écrit AVANT de lire les réponses. Il ne compte que si les extraits de la
@@ -81,17 +103,20 @@ if (!pages.length) throw new Error('aucune capture : lancer d’abord node scrip
 const modeles = arg('models', Object.keys(MODELES).join(',')).split(',');
 const passes = Number(arg('passes', '2'));
 
-// Format du prompt : celui que l'extension livre (ANSWER_FORMAT) sauf --prompt=sdk|web.
+// Format du prompt : celui que l'extension livre (ANSWER_FORMAT) sauf --prompt=sdk|web|search.
+// --penalty=1.3 : pénalité de répétition imposée (format 'search' seulement ; défaut du format sinon).
 const format = arg('prompt', '');
+const penalite = arg('penalty', '');
 const entry = `
 import { createSession, preload } from ${JSON.stringify(path.join(ROOT, 'src/sdk/index.ts'))};
 import { buildAnswer, ANSWER_FORMAT } from ${JSON.stringify(path.join(ROOT, 'packages/extension/src/answer.ts'))};
 const FORMAT = ${JSON.stringify(format)} || ANSWER_FORMAT;
+const OPTS = ${JSON.stringify(penalite ? { repeatPenalty: Number(penalite) } : {})};
 window.__bk = {
   format: FORMAT,
   async load(model) { const t0 = performance.now(); const ok = await preload({ model, worker: false }); return { ok, ms: performance.now() - t0 }; },
   async run(model, results, query, lang) {
-    const a = buildAnswer(model, query, results, lang, FORMAT);
+    const a = buildAnswer(model, query, results, lang, FORMAT, OPTS);
     const s = createSession(a.config);
     let sources = a.docs || [];
     const t0 = performance.now();
@@ -113,8 +138,8 @@ const ctx = await chromium.launchPersistentContext(fileURLToPath(new URL('./chro
   executablePath: CHROME, headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal'],
 });
 await ctx.route('http://localhost:3618/__serp-bench', (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: HTML }));
-const sortie = { date: new Date().toISOString(), passes, format: format || 'défaut', pages: pages.map((p) => p.id), modeles: {} };
-const fichier = path.join(CAPTURES, `resultats-${sortie.date.slice(0, 16).replace(/[:T]/g, '-')}${format ? '-' + format : ''}.json`);
+const sortie = { date: new Date().toISOString(), passes, format: format || 'défaut', penalite: penalite || 'défaut', pages: pages.map((p) => p.id), modeles: {} };
+const fichier = path.join(CAPTURES, `resultats-${sortie.date.slice(0, 16).replace(/[:T]/g, '-')}${format ? '-' + format : ''}${penalite ? '-p' + penalite : ''}.json`);
 try {
   for (const m of modeles) {
     const def = MODELES[m];
@@ -146,6 +171,7 @@ try {
           langueOk: langue(texte) === p.lang,
           fuite: FUITE_BOUTIQUE.test(texte),
           refus: REFUS.test(texte),
+          nonSources: nonSources(texte, extraits),
         });
       }
     }
@@ -158,9 +184,10 @@ try {
       fuites: R.filter((x) => x.fuite).length,
       refus: R.filter((x) => x.refus).length,
       erreurs: R.filter((x) => x.erreur).length,
+      nonSources: R.filter((x) => x.nonSources.length).length,
       medianeMs: ms[Math.floor(ms.length / 2)],
     };
-    console.log(`${def.label.padEnd(26)} fait ${res.resume.fait.padEnd(6)} langue ${res.resume.langue.padEnd(6)} fuites ${res.resume.fuites}  refus ${res.resume.refus}  erreurs ${res.resume.erreurs}  médiane ${(res.resume.medianeMs / 1000).toFixed(1)} s  chargement ${(res.chargementMs / 1000).toFixed(1)} s`);
+    console.log(`${def.label.padEnd(26)} fait ${res.resume.fait.padEnd(6)} langue ${res.resume.langue.padEnd(6)} fuites ${res.resume.fuites}  refus ${res.resume.refus}  chiffres hors sources ${res.resume.nonSources}  erreurs ${res.resume.erreurs}  médiane ${(res.resume.medianeMs / 1000).toFixed(1)} s  chargement ${(res.chargementMs / 1000).toFixed(1)} s`);
     writeFileSync(fichier, JSON.stringify(sortie, null, 2));
     await page.close();
   }

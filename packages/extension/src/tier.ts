@@ -1,21 +1,33 @@
 // Quel modèle pour CETTE machine et CE réseau — fonction pure, testée sans navigateur
 // (scripts/test-extension.mjs).
 //
-// Deux paliers seulement, tous deux déjà mesurés au banc du SDK (sdk-rag, sdk-dialogue) : un palier
-// « fort » n'entrera ici qu'après le banc qualité sur pages de résultats (ROADMAP, extension lot 2).
+// Deux paliers, choisis au banc qualité sur 24 vraies pages Google × 2 passes, réponses lues une à
+// une (scripts/e2e/serp-quality.mjs, format 'search', ROADMAP § 30, 2026-11-15) — score = justes +
+// ½ partielles, sur 48 :
+//   Qwen3.5 2B 46 (0 faux, 5,5 s) · Qwen3.5 4B 46,5 (0 faux, 14 s, 2,7 Go : rien de plus pour ×2,5)
+//   Qwen3.5 0.8B 43 (1 faux) · Qwen3 1.7B 42,5 · Qwen3 0.6B Shop 40,5 (2 faux, 2,4 s)
+//   LFM2.5 230M ~31 (recopie des titres) : retiré — une réponse fausse n'a rien de sobre.
 // Le choix ne sert qu'au PREMIER téléchargement : un modèle déjà en cache est toujours préféré
-// (cf. offscreen.ts) — retélécharger 300 Mo parce que le Wi-Fi est meilleur aujourd'hui n'est pas
-// sobre.
+// (cf. offscreen.ts) — retélécharger un modèle parce que le Wi-Fi est meilleur aujourd'hui n'est
+// pas sobre.
 
 export type Tier = 'light' | 'standard';
 
-// Clés de MODELS (src/sdk/engineCore.ts) — l'URL est résolue par le SDK, pas recopiée ici. Octets
-// lus sur le Hub (`curl -sIL … | grep content-length`, 2026-11-14) : ce qu'on annonce avant le
-// téléchargement doit être ce qui va réellement transiter.
-export const TIER_MODELS: Record<Tier, { model: string; bytes: number }> = {
-  light: { model: 'lfm2.5-230m', bytes: 149_212_720 },
-  standard: { model: 'qwen3-0.6b-shop', bytes: 304_464_672 },
+// `model` : une clé de MODELS (src/sdk/engineCore.ts) ou l'URL d'un GGUF à révision ÉPINGLÉE.
+// Octets lus sur le Hub (`curl -sIL … | grep content-length`) : ce qu'on annonce avant le
+// téléchargement doit être ce qui va réellement transiter. `label` : le nom affiché au consentement
+// et sur la page /extension.
+export const TIER_MODELS: Record<Tier, { model: string; label: string; bytes: number }> = {
+  light: { model: 'qwen3-0.6b-shop', label: 'Qwen3 0.6B', bytes: 304_464_672 },
+  standard: {
+    model: 'https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf',
+    label: 'Qwen3.5 2B',
+    bytes: 1_280_835_840,
+  },
 };
+// Mémoire de l'appareil (navigator.deviceMemory, paliers 0,25 … 8) en dessous de laquelle on prend le
+// léger : le 2B occupe ~1,3 Go de poids, plus le cache KV, à côté de Chrome et de la page Google.
+export const LIGHT_MEMORY_GB = 4;
 
 export interface Probe {
   webgpu: boolean;
@@ -44,7 +56,7 @@ export function chooseTier(p: Probe): Choice {
     ? p.downlinkMbps < 1.5
     : p.effectiveType === 'slow-2g' || p.effectiveType === '2g';
   if (slow) return { tier: 'light', reason: 'slow-network' };
-  if (p.deviceMemoryGB != null && p.deviceMemoryGB <= 2) return { tier: 'light', reason: 'low-memory' };
+  if (p.deviceMemoryGB != null && p.deviceMemoryGB <= LIGHT_MEMORY_GB) return { tier: 'light', reason: 'low-memory' };
   return { tier: 'standard', reason: 'default' };
 }
 // Pas d'estimation de durée de téléchargement : mesuré le 2026-11-14 (extension-google.mjs, profil

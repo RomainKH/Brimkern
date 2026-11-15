@@ -65,8 +65,8 @@ passe par le tableau de bord développeur, avec le compte de Romain.
     under google.com.
   - `declarativeNetRequest` : adds Google's own `udm=14` ("Web") parameter to web searches, so the
     results page is served without an AI Overview. Explicit tabs (Images, News…) are untouched.
-  - `unlimitedStorage` : keeps the downloaded model (150 to 300 MB) in the browser cache so it is
-    not downloaded again.
+  - `unlimitedStorage` : keeps the downloaded model (300 MB to 1.3 GB depending on the device) in
+    the browser cache so it is not downloaded again.
   - Hôtes `https://www.google.<tld>/*` : the content script reads the results page to build the
     answer and shows the answer panel there; the rule above needs host access to redirect.
 - **Code distant** : « No, I am not using remote code. » (les poids du modèle sont des données, pas

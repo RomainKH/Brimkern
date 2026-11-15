@@ -9,7 +9,7 @@
 
 import { createSession } from '../../../src/sdk/index';
 import { MODELS } from '../../../src/sdk/engineCore';
-import { brikCacheComplete } from '../../../src/lib/webgpu/source';
+import { brikCacheComplete, ggufCacheComplete } from '../../../src/lib/webgpu/source';
 import { chooseTier, TIER_MODELS, type Probe, type Tier } from './tier';
 import { PORT_NAME, IDLE, IDLE_MS, type AskRequest, type EngineEvent } from './protocol';
 import { buildAnswer, cleanAnswer } from './answer';
@@ -35,6 +35,11 @@ async function probe(): Promise<Probe> {
   };
 }
 
+// Chaque format a son plan de plages : brikCacheComplete sur un GGUF répond toujours « non » —
+// mesuré le 2026-11-15, le consentement « 1,28 Go » revenait à chaque session alors que le modèle
+// était sur le disque (réponse en 16,5 s, sans téléchargement).
+const cacheComplete = (url: string) => (/\.gguf(\?|$)/i.test(url) ? ggufCacheComplete(url) : brikCacheComplete(url));
+
 // Le modèle à utiliser : un modèle déjà en cache gagne toujours (aucun téléchargement), sinon le
 // palier choisi pour cette machine et ce réseau.
 async function pickModel(p: Probe): Promise<{ tier: Tier; cached: boolean } | EngineEvent> {
@@ -43,7 +48,7 @@ async function pickModel(p: Probe): Promise<{ tier: Tier; cached: boolean } | En
   const order: Tier[] = choice.tier === 'standard' ? ['standard', 'light'] : ['light', 'standard'];
   for (const t of order) {
     const m = TIER_MODELS[t].model;
-    if (marked(m) && await brikCacheComplete(MODELS[m])) return { tier: t, cached: true };
+    if (marked(m) && await cacheComplete(MODELS[m] ?? m)) return { tier: t, cached: true };
   }
   return { tier: choice.tier, cached: false };
 }

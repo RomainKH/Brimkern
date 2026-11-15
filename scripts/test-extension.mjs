@@ -32,6 +32,13 @@ test('débit < 1,5 Mbit/s : léger', () => assert.equal(chooseTier({ webgpu: tru
 test('le débit prime sur effectiveType', () => assert.equal(chooseTier({ webgpu: true, downlinkMbps: 8, effectiveType: '2g' }).tier, 'standard'));
 test('2g sans débit : léger', () => assert.equal(chooseTier({ webgpu: true, effectiveType: '2g' }).tier, 'light'));
 test('≤ 2 Go de mémoire : léger', () => assert.equal(chooseTier({ webgpu: true, deviceMemoryGB: 2 }).reason, 'low-memory'));
+test('4 Go de mémoire : léger (le 2B ne tiendrait pas à côté de Chrome)', () => assert.equal(chooseTier({ webgpu: true, deviceMemoryGB: 4 }).tier, 'light'));
+test('les modèles distants sont épinglés à une révision, et nommés', () => {
+  for (const { model, label } of Object.values(TIER_MODELS)) {
+    assert.ok(label, model);
+    if (model.startsWith('https://')) assert.match(model, /\/resolve\/[0-9a-f]{40}\//);
+  }
+});
 test('aucune info réseau ni mémoire (Firefox/Safari) : standard', () => assert.equal(chooseTier({ webgpu: true }).tier, 'standard'));
 test('le léger est plus petit que le standard', () => assert.ok(TIER_MODELS.light.bytes < TIER_MODELS.standard.bytes));
 
@@ -45,8 +52,28 @@ test('/no_think retiré', () => assert.equal(cleanAnswer('Environ 384 400 km /no
 test('réponse normale intacte', () => assert.equal(cleanAnswer('Victor Hugo, en 1862 [1].'), 'Victor Hugo, en 1862 [1].'));
 test('« aider » dans le sens courant intact', () => assert.equal(cleanAnswer('Le vinaigre peut aider à détartrer.'), 'Le vinaigre peut aider à détartrer.'));
 const res = [{ title: 'T', url: 'https://a.fr', site: 'a.fr', snippet: 'x' }];
-test('format livré : sdk (knowledge du SDK)', () => { const a = buildAnswer('m', 'q', res, 'fr'); assert.ok(a.config.knowledge && a.docs === null && a.text === 'q'); });
+test('format livré : search', () => { const a = buildAnswer('m', 'q', res, 'fr'); assert.ok(a.config.examples && !a.config.knowledge && a.config.repeatPenalty === 1); });
+test('format sdk (banc) : knowledge du SDK', () => { const a = buildAnswer('m', 'q', res, 'fr', 'sdk'); assert.ok(a.config.knowledge && a.docs === null && a.text === 'q'); });
 test('format web : résultats numérotés dans l’ordre', () => { const a = buildAnswer('m', 'q', [...res, { ...res[0], title: 'U' }], 'en', 'web'); assert.match(a.text, /^Search: q\n\nResults:\n\[1\] T — a\.fr\nx\n\n\[2\] U/); assert.deepEqual(a.docs, [0, 1]); });
+// Format 'search' (2026-11-15) : la pénalité de répétition du SDK (1,3) déformait les mots de la
+// recherche (« boilig », « bouillière ») — elle doit rester à 1 sauf demande explicite.
+const six = Array.from({ length: 6 }, (_, i) => ({ ...res[0], title: `T${i + 1}` }));
+test('format search : pas de pénalité de répétition par défaut', () => assert.equal(buildAnswer('m', 'q', res, 'fr', 'search').config.repeatPenalty, 1));
+test('format search : pénalité imposée par le banc', () => assert.equal(buildAnswer('m', 'q', res, 'fr', 'search', { repeatPenalty: 1.3 }).config.repeatPenalty, 1.3));
+test('format search : 5 résultats, la recherche en dernier', () => { const a = buildAnswer('m', 'ma recherche', six, 'fr', 'search'); assert.match(a.text, /^Résultats :\n\[1\] T1 — a\.fr\nx\n\n[\s\S]*\[5\] T5[\s\S]*\n\nRecherche : ma recherche$/); assert.ok(!a.text.includes('T6')); assert.deepEqual(a.docs, [0, 1, 2, 3, 4]); });
+test('format search : démonstrations au format exact des vrais tours', () => {
+  for (const lang of ['fr', 'en']) {
+    const a = buildAnswer('m', 'q', res, lang, 'search');
+    const vrai = a.text.split('\n')[0];
+    assert.ok(a.config.examples.length >= 2 && a.config.examples.every((e) => e.user.split('\n')[0] === vrai && /\[\d\]\.?$/.test(e.assistant)));
+    assert.ok(!('knowledge' in a.config), 'aucun exemple de boutique (mode knowledge)');
+  }
+});
+test('format search : aucune démonstration ne recoupe une requête du banc', () => {
+  const banc = JSON.parse(readFileSync(path.join(ROOT, 'scripts/e2e/serp-queries.json'), 'utf8')).map((q) => q.q);
+  const demos = ['fr', 'en'].flatMap((l) => buildAnswer('m', 'q', res, l, 'search').config.examples.map((e) => e.user.split('\n').at(-1)));
+  for (const d of demos) assert.ok(!banc.some((q) => d.endsWith(q)), d);
+});
 
 console.log('rules.mjs (udm=14)');
 // Simulation de declarativeNetRequest pour CES deux règles : la règle d'autorisation (priorité 2)

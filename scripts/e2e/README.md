@@ -237,7 +237,7 @@ fin est le bouton d'envoi qui se réactive, pas le premier token.
 
 ```bash
 npm run build:extension
-node scripts/e2e/extension-google.mjs --fresh --shots=/tmp/x   # --fresh : premier usage (304 Mo)
+node scripts/e2e/extension-google.mjs --fresh --shots=/tmp/x   # --fresh : premier usage (1,28 Go, ~8 min)
 ```
 
 Pas de `next start` : le banc charge `packages/extension/dist` dans Chrome for Testing
@@ -257,3 +257,19 @@ de Playwright (`--enable-automation`), pas de Chrome. Lancer Chrome for Testing 
 `chromium.connectOverCDP('http://127.0.0.1:9333')` → `navigator.webdriver` = false, vraie page.
 C'est ainsi qu'on a trouvé, le 2026-11-14, les liens `/goto?url=<jeton>` que la fixture ignorait.
 ⚠️ Jamais en même temps que ce banc sur le même profil : deux Chrome sur un profil = délai expiré.
+
+### `serp-capture.mjs` + `serp-quality.mjs` — la QUALITÉ des réponses sur de vraies pages
+
+```bash
+node scripts/e2e/serp-capture.mjs          # à lancer par Romain (le mode auto de Claude Code le refuse)
+node scripts/e2e/serp-quality.mjs --prompt=search --models=qwen3.5-2b,qwen3-0.6b-shop --passes=2
+node scripts/e2e/serp-quality.mjs --prompt=search --penalty=1.3 --models=qwen3-0.6b-shop
+```
+
+`serp-capture` enregistre la sortie de `serp.ts` pour les 24 requêtes de `serp-queries.json`
+(`serp-captures/`, ignoré par git : contenu de Google). `serp-quality` rejoue la réponse EXACTE de
+l'extension (`answer.ts` partagé) et compte ce qui se compte seul : fait attendu, langue, fuite
+« boutique », refus, nombres absents des extraits (`nonSources`, un signal, pas un juge). Le
+verdict, lui, se fait en LISANT les réponses (juste / partielle / fausse) : un fait présent peut
+entourer une explication fausse. `--prompt=sdk|web|search`, `--penalty=` (format `search`).
+Profil partagé `chrome-profile` (cache des modèles des autres bancs), page servie par interception.

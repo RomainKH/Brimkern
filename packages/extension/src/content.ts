@@ -7,12 +7,13 @@
 import { extractResults, searchQuery } from './serp';
 import { ENSURE, PORT_NAME, type AskRequest, type EngineEvent, type SerpResult } from './protocol';
 import { fmtModelSize } from '../../../src/lib/modelCatalog';
+import { TIER_MODELS } from './tier';
 
 const HOST_ID = 'brimkern-answer';
 const fr = /^fr\b/i.test(document.documentElement.lang || navigator.language || '');
 const t = (en: string, frText: string) => (fr ? frText : en);
 
-const MODEL_NAMES: Record<string, string> = { 'qwen3-0.6b-shop': 'Qwen3 0.6B', 'lfm2.5-230m': 'LFM2.5 230M' };
+const modelName = (model: string) => Object.values(TIER_MODELS).find((x) => x.model === model)?.label ?? model;
 const PHASES: Record<string, () => string> = {
   init: () => t('Starting the engine…', 'Démarrage du moteur…'),
   download: () => t('Downloading the model…', 'Téléchargement du modèle…'),
@@ -170,7 +171,7 @@ function mount(query: string, results: SerpResult[]) {
           settled = true;
           port.disconnect();
           status.textContent = '';
-          const what = `${MODEL_NAMES[e.model] || e.model}, ${fmtModelSize(e.bytes, fr)}`;
+          const what = `${modelName(e.model)}, ${fmtModelSize(e.bytes, fr)}`;
           note.textContent = t(
             `First use: the model (${what}) is downloaded once from Hugging Face and stays on this computer.`,
             `Premier usage : le modèle (${what}) est téléchargé une seule fois depuis Hugging Face et reste sur cet ordinateur.`,
