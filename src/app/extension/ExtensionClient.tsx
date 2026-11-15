@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { useT, useHref, useLocale } from '@/lib/i18n';
 import { fmtModelSize } from '@/lib/modelCatalog';
-import { TIER_MODELS } from '../../../packages/extension/src/tier';
+import { TIER_MODELS, LIGHT_MEMORY_GB } from '../../../packages/extension/src/tier';
 import DocsShell, { Code, P } from '../docs/DocsShell';
 import s from '../cli/cli.module.css';
 
@@ -74,10 +74,7 @@ export default function ExtensionClient() {
         </p>
         <p className={s.caption} style={{ marginTop: 0 }}>
           <strong>{t('Status:', 'Statut :')}</strong>{' '}
-          {t(
-            'preview. Not on the Chrome Web Store yet; answer quality is being benchmarked on real result pages before release.',
-            'aperçu. Pas encore sur le Chrome Web Store ; la qualité des réponses est en cours de mesure sur de vraies pages de résultats avant la sortie.'
-          )}
+          {t('preview. Not on the Chrome Web Store yet.', 'aperçu. Pas encore sur le Chrome Web Store.')}
         </p>
       </div>
 
@@ -141,13 +138,13 @@ export default function ExtensionClient() {
           </thead>
           <tbody>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-              <td style={cell}>{t('Data saver on, connection under 1.5 Mbit/s, or 2 GB of memory or less', 'Économiseur de données, connexion sous 1,5 Mbit/s, ou 2 Go de mémoire ou moins')}</td>
-              <td style={{ ...cell, fontFamily: 'var(--font-mono)' }}>LFM2.5 230M</td>
+              <td style={cell}>{t(`Data saver on, connection under 1.5 Mbit/s, or ${LIGHT_MEMORY_GB} GB of memory or less`, `Économiseur de données, connexion sous 1,5 Mbit/s, ou ${LIGHT_MEMORY_GB} Go de mémoire ou moins`)}</td>
+              <td style={{ ...cell, fontFamily: 'var(--font-mono)' }}>{TIER_MODELS.light.label}</td>
               <td style={cell}>{light}</td>
             </tr>
             <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
               <td style={cell}>{t('Otherwise', 'Sinon')}</td>
-              <td style={{ ...cell, fontFamily: 'var(--font-mono)' }}>Qwen3 0.6B</td>
+              <td style={{ ...cell, fontFamily: 'var(--font-mono)' }}>{TIER_MODELS.standard.label}</td>
               <td style={cell}>{standard}</td>
             </tr>
             <tr>
@@ -159,8 +156,8 @@ export default function ExtensionClient() {
       </div>
       <P>
         {t(
-          'The first download is never silent: the panel shows the model, its exact size and where it comes from (Hugging Face), and waits for your click. These two models are the current ones; the benchmark under way may replace them.',
-          'Le premier téléchargement n’est jamais silencieux : le panneau affiche le modèle, sa taille exacte et sa provenance (Hugging Face), et attend votre clic. Ces deux modèles sont ceux d’aujourd’hui ; le banc en cours peut les remplacer.'
+          'The first download is never silent: the panel shows the model, its exact size and where it comes from (Hugging Face), and waits for your click.',
+          'Le premier téléchargement n’est jamais silencieux : le panneau affiche le modèle, sa taille exacte et sa provenance (Hugging Face), et attend votre clic.'
         )}
       </P>
 
@@ -168,22 +165,26 @@ export default function ExtensionClient() {
       <H2 id="measured" n="04">{t('Measured', 'Mesuré')}</H2>
       <div className={s.points}>
         <div className={s.point}>
-          <p className={s.pointTitle}>{t('First use: 137 s', 'Premier usage : 137 s')}</p>
-          <p className={s.pointText}>{t(`Click to answer, including the ${standard} download.`, `Du clic à la réponse, téléchargement de ${standard} compris.`)}</p>
+          <p className={s.pointTitle}>{t('44 right answers in 48, none wrong', '44 réponses justes sur 48, aucune fausse')}</p>
+          <p className={s.pointText}>{t(`${TIER_MODELS.standard.label}, on 24 real Google results pages (14 in French, 10 in English), each answered twice. The other 4 were partly right: vague, or a detail off.`, `${TIER_MODELS.standard.label}, sur 24 vraies pages de résultats Google (14 en français, 10 en anglais), chacune deux fois. Les 4 autres étaient en partie justes : vagues, ou un détail inexact.`)}</p>
         </div>
         <div className={s.point}>
-          <p className={s.pointTitle}>{t('After a browser restart: about 10 s', 'Après un redémarrage du navigateur : 10 s environ')}</p>
+          <p className={s.pointTitle}>{t('First use: about 7 min 40 s', 'Premier usage : 7 min 40 s environ')}</p>
+          <p className={s.pointText}>{t(`Click to answer, including the ${standard} download; it depends on your connection.`, `Du clic à la réponse, téléchargement de ${standard} compris ; cela dépend de votre connexion.`)}</p>
+        </div>
+        <div className={s.point}>
+          <p className={s.pointTitle}>{t('After a browser restart: 16 to 22 s', 'Après un redémarrage du navigateur : 16 à 22 s')}</p>
           <p className={s.pointText}>{t('The first answer of a session moves the model from disk to the GPU.', 'La première réponse d’une session fait passer le modèle du disque au GPU.')}</p>
         </div>
         <div className={s.point}>
-          <p className={s.pointTitle}>{t('Then: 2.3 to 2.9 s', 'Ensuite : 2,3 à 2,9 s')}</p>
-          <p className={s.pointText}>{t('Per answer, of which 1.8 to 2.6 s of computation.', 'Par réponse, dont 1,8 à 2,6 s de calcul.')}</p>
+          <p className={s.pointTitle}>{t('Then: 5.3 to 5.9 s', 'Ensuite : 5,3 à 5,9 s')}</p>
+          <p className={s.pointText}>{t('Per answer, of which 4.2 to 4.6 s of computation.', 'Par réponse, dont 4,2 à 4,6 s de calcul.')}</p>
         </div>
       </div>
       <p className={s.caption}>
         {t(
-          'Measured on 2026-11-14 on an M-series Mac in Chrome: first use by the extension bench on a fresh profile (scripts/e2e/extension-google.mjs), the other figures on real Google results pages.',
-          'Mesuré le 14/11/2026 sur un Mac série M dans Chrome : premier usage par le banc de l’extension sur un profil neuf (scripts/e2e/extension-google.mjs), les autres chiffres sur de vraies pages de résultats Google.'
+          'Measured on 2026-11-15 on an M-series Mac in Chrome. Quality: pages captured from Google, answers read one by one (scripts/e2e/serp-quality.mjs). Times: the extension bench, on a fresh profile for the first use (scripts/e2e/extension-google.mjs).',
+          'Mesuré le 15/11/2026 sur un Mac série M dans Chrome. Qualité : pages capturées sur Google, réponses lues une à une (scripts/e2e/serp-quality.mjs). Temps : le banc de l’extension, sur un profil neuf pour le premier usage (scripts/e2e/extension-google.mjs).'
         )}
       </p>
 
@@ -232,7 +233,7 @@ export default function ExtensionClient() {
       <div className={s.points}>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('A small model can be wrong', 'Un petit modèle peut se tromper')}</p>
-          <p className={s.pointText}>{t('Short factual answers hold up best; explanations are where it slips. The panel says so under every answer, next to the sources.', 'Les réponses factuelles courtes tiennent le mieux ; c’est sur les explications qu’il dérape. Le panneau le dit sous chaque réponse, à côté des sources.')}</p>
+          <p className={s.pointText}>{t(`On our benchmark, ${TIER_MODELS.standard.label} gave no wrong answer, but some stay vague (the products to use where steps were asked). The light model got 2 answers in 48 wrong. The panel says so under every answer, next to the sources.`, `Sur notre banc, ${TIER_MODELS.standard.label} n’a donné aucune réponse fausse, mais certaines restent vagues (les produits à utiliser quand on demandait les étapes). Le modèle léger s’est trompé 2 fois sur 48. Le panneau le rappelle sous chaque réponse, à côté des sources.`)}</p>
         </div>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('Chrome and Google only', 'Chrome et Google seulement')}</p>
