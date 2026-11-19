@@ -31,6 +31,19 @@ function Screen({ title, children }: { title: string; children: React.ReactNode 
   );
 }
 
+// Captures de vraies pages Google (scripts/e2e/extension-shots.mjs, 1280×800) : une par langue,
+// la légende ne cite que ce que l'image montre.
+function Shot({ src, alt, caption }: { src: string; alt: string; caption: string }) {
+  return (
+    <figure style={{ margin: '18px 0' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- PNG statique servi tel quel, sans optimiseur d'images */}
+      <img src={src} alt={alt} width={1280} height={800} loading="lazy" decoding="async"
+        style={{ display: 'block', width: '100%', height: 'auto', borderRadius: 8, border: '1px solid var(--border-color)' }} />
+      <figcaption className={s.caption}>{caption}</figcaption>
+    </figure>
+  );
+}
+
 function H2({ id, n, children }: { id: string; n: string; children: React.ReactNode }) {
   return (
     <h2 id={id} className={s.h2} style={{ scrollMarginTop: 24 }}>
@@ -80,6 +93,17 @@ export default function ExtensionClient() {
           {t('beta. Not on the Chrome Web Store yet: ', 'bêta. Pas encore sur le Chrome Web Store : ')}
           <a href="#try" style={{ color: 'var(--text-primary)' }}>{t('install it from this page', 'elle s’installe depuis cette page')}</a>.{''}
         </p>
+        <Shot
+          src={`/media/extension/extension-google-${fr ? 'fr' : 'en'}-answer.png`}
+          alt={t(
+            'A Google results page for “why is the sky blue”: above the results, the Brimkern panel shows a two-sentence answer, five numbered sources and the note “Computed on this device in 4.2 s”.',
+            'Une page de résultats Google pour « pourquoi le ciel est bleu » : au-dessus des résultats, le panneau Brimkern affiche une réponse d’une phrase, cinq sources numérotées et la mention « Calculée sur cet appareil en 3,9 s ».'
+          )}
+          caption={t(
+            'A real Google results page, 2026-11-19, Chrome on an M-series Mac: the answer, its sources, the time it took.',
+            'Une vraie page de résultats Google, le 19/11/2026, Chrome sur un Mac série M : la réponse, ses sources, le temps de calcul.'
+          )}
+        />
       </div>
 
       {/* ── CE QU'ELLE FAIT ─────────────────────────────────────────────────────────────── */}
@@ -98,6 +122,18 @@ export default function ExtensionClient() {
           <p className={s.pointText}>{t('Each answer lists the results it was built from, so you can check it in one click.', 'Chaque réponse liste les résultats dont elle est tirée : on la vérifie en un clic.')}</p>
         </div>
       </div>
+
+      <Shot
+        src={`/media/extension/extension-google-${fr ? 'fr' : 'en'}-button.png`}
+        alt={t(
+          'The same Google results page before the click: the Brimkern panel holds one line of explanation and a button, “Answer on this device”.',
+          'La même page de résultats Google avant le clic : le panneau Brimkern contient une ligne d’explication et un bouton, « Répondre sur cet appareil ».'
+        )}
+        caption={t(
+          'Before the click: the “Web” tab, no AI Overview, and a button. Nothing has been computed.',
+          'Avant le clic : l’onglet « Web », pas d’aperçu IA, et un bouton. Rien n’a été calculé.'
+        )}
+      />
 
       {/* ── COMMENT ÇA MARCHE ───────────────────────────────────────────────────────────── */}
       <H2 id="how" n="02">{t('How it works', 'Comment ça marche')}</H2>
