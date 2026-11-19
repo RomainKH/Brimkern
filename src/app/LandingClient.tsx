@@ -578,9 +578,34 @@ export default function LandingClient() {
           </Link>
         </section>
 
+        {/* ── L'EXTENSION CHROME ─────────────────────────────────────────────────────────────────
+            Un renvoi et UNE capture (vraie page Google, scripts/e2e/extension-shots.mjs) : le détail,
+            les mesures et l'installation vivent sur /extension. */}
+        <section className="lp-section">
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">07</span> {t('also in your Google searches · beta', 'aussi dans vos recherches Google · bêta')}</div>
+          <h2 className="lp-h2">{t('A Chrome extension that answers on your GPU instead of Google’s AI Overview', 'Une extension Chrome qui répond sur votre GPU, à la place de l’aperçu IA de Google')}</h2>
+          <p className="lp-strength-desc" style={{ maxWidth: 640 }}>
+            {t('It stops requesting the AI Overview and puts a button in its place. Click it, and the engine answers from the results already on the page, with its sources. No click, no computation.',
+               'Elle cesse de demander l’aperçu IA et met un bouton à sa place. Un clic, et le moteur répond à partir des résultats déjà affichés, sources à l’appui. Pas de clic, pas de calcul.')}
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element -- PNG statique servi tel quel, sans optimiseur d'images */}
+          <img
+            src={`/media/extension/extension-google-${locale === 'fr' ? 'fr' : 'en'}-answer.png`}
+            alt={t(
+              'A Google results page for “why is the sky blue”: above the results, the Brimkern panel shows an answer, five numbered sources and the note “Computed on this device in 4.2 s”.',
+              'Une page de résultats Google pour « pourquoi le ciel est bleu » : au-dessus des résultats, le panneau Brimkern affiche une réponse, cinq sources numérotées et la mention « Calculée sur cet appareil en 3,9 s ».'
+            )}
+            width={1280} height={800} loading="lazy" decoding="async"
+            style={{ display: 'block', width: '100%', maxWidth: 860, height: 'auto', margin: '20px 0', borderRadius: 8, border: '1px solid var(--border-color)' }}
+          />
+          <Link href={href('/extension')} className="lp-cta-ghost">
+            {t('Install the beta', 'Installer la bêta')} <ArrowRight size={14} />
+          </Link>
+        </section>
+
         {/* ── LES PORTES ───────────────────────────────────────────────────────────────────────── */}
         <section className="lp-section">
-          <div className="lp-eyebrow"><span className="lp-quick-kicker">07</span> {t('also in the box', 'aussi dans la boîte')}</div>
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">08</span> {t('also in the box', 'aussi dans la boîte')}</div>
           <h2 className="lp-h2">{t('One engine, four modalities', 'Un moteur, quatre modalités')}</h2>
           <ul className="lp-list">
             <li><strong>{t('Chat', 'Chat')}</strong>{t(': ', ' : ')}{t('multi-turn, reasoning models, French & English, on a resident GPU KV cache.', 'multi-tours, modèles à raisonnement, français & anglais, sur un cache KV résident en GPU.')}</li>
@@ -597,6 +622,7 @@ export default function LandingClient() {
           <Link href={href('/docs')}>{t('Documentation', 'Documentation')}</Link>
           <Link href={href('/docs/sdk')}>SDK</Link>
           <Link href={href('/cli')}>CLI</Link>
+          <Link href={href('/extension')}>{t('Chrome extension', 'Extension Chrome')}</Link>
           {/* La comparaison mesurée : c'est la question que se pose tout visiteur qui connaît
               déjà WebLLM, et la porte d'entrée SEO sur « run an LLM in the browser ». */}
           <Link href={href('/vs-webllm')}>{t('vs WebLLM', 'vs WebLLM')}</Link>
