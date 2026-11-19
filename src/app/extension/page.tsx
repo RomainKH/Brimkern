@@ -5,7 +5,7 @@ import ExtensionClient from './ExtensionClient';
 export const metadata: Metadata = {
   title: 'Chrome Extension: Local Answers for Google Search, on Your GPU | Brimkern',
   description:
-    'A Chrome extension that stops requesting Google’s AI Overview and answers your search on your own GPU, only when you click, from the results already on the page, with sources. Preview.',
+    'A Chrome extension that stops requesting Google’s AI Overview and answers your search on your own GPU, only when you click, from the results already on the page, with sources. Beta.',
   keywords: [
     'Chrome extension', 'Google AI Overview', 'udm=14', 'local AI', 'on-device LLM', 'WebGPU',
     'private search answers', 'brimkern extension',
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Brimkern for Chrome: local answers for Google Search',
     description:
-      'No AI Overview requested; an answer computed on your GPU, only when you click, with its sources. Preview.',
+      'No AI Overview requested; an answer computed on your GPU, only when you click, with its sources. Beta.',
     url: `${SITE_URL}/extension`,
     type: 'website',
   },

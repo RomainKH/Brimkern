@@ -7,6 +7,7 @@ décisions : `docs/ROADMAP.md` § 30.
 
 ```bash
 npm run build:extension                      # → dist/ (à charger « non empaquetée ») + brimkern-extension-<version>.zip
+                                             #   + public/brimkern-extension-<version>.zip (la bêta servie par /extension)
 npm run test:extension                       # paliers + règle udm=14, sans navigateur
 node scripts/e2e/extension-google.mjs        # bout en bout dans Chrome (page synthétique)
 node scripts/e2e/serp-quality.mjs            # banc qualité (après serp-capture.mjs)
@@ -82,6 +83,6 @@ passe par le tableau de bord développeur, avec le compte de Romain.
 - *Submit for review* : « quelques jours, jusqu'à quelques semaines » ; plus long pour un nouveau
   développeur, une nouvelle extension, ou des permissions d'hôte larges. Au-delà de 3 semaines :
   contacter le support.
-- Après publication : remplacer « Status: preview » et les instructions de build de `/extension`
+- Après publication : remplacer « Status: beta » et l'installation à la main de `/extension`
   par le lien du Store — dans les DEUX langues — et vérifier en ligne (règle 4 : une
   fonctionnalité annoncée doit exister dans ce qui est publié).

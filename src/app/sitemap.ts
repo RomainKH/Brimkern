@@ -20,7 +20,7 @@ const PAGES: { path: string; freq: 'weekly' | 'monthly'; prio: number }[] = [
   // elle déclare maintenant ses alternates comme les autres pages produit.
   { path: '/sdk-demo', freq: 'monthly', prio: 0.7 },
   { path: '/vs-webllm', freq: 'monthly', prio: 0.8 }, // comparaison mesurée (porte d'entrée SEO)
-  { path: '/extension', freq: 'monthly', prio: 0.6 }, // extension Chrome (aperçu, pas encore sur le Web Store)
+  { path: '/extension', freq: 'monthly', prio: 0.6 }, // extension Chrome (bêta : zip servi par le site, pas encore sur le Web Store)
   { path: '/convert', freq: 'monthly', prio: 0.6 },  // convertisseur GGUF→BRIK
   { path: '/changelog', freq: 'weekly', prio: 0.5 },
   { path: '/terms', freq: 'monthly', prio: 0.3 },    // conditions d'utilisation (Annexe A de la licence LTXV)

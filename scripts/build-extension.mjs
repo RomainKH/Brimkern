@@ -62,9 +62,14 @@ cpSync(path.join(EXT, 'offscreen.html'), path.join(DIST, 'offscreen.html'));
 const zip = path.join(EXT, `brimkern-extension-${manifest.version}.zip`);
 rmSync(zip, { force: true });
 execFileSync('zip', ['-r', '-q', '-X', zip, '.'], { cwd: DIST });
+// Bêta : le MÊME zip est servi par le site (/extension le propose en téléchargement, à charger
+// « non empaquetée »). Copie versionnée, comme public/sdk-<version>.js.
+const zipPublic = path.join(ROOT, `public/brimkern-extension-${manifest.version}.zip`);
+cpSync(zip, zipPublic);
 
 const ko = (r) => (Object.values(r.metafile.outputs)[0].bytes / 1024).toFixed(0);
 console.log(`packages/extension/dist — v${manifest.version} (moteur du SDK ${sdkVersion})`);
 console.log(`  background.js ${ko(sorties[0])} KB · offscreen.js ${ko(sorties[1])} KB · content.js ${ko(sorties[2])} KB`);
 console.log(`  ${domaines.length} domaines Google`);
 console.log(`  ${path.relative(ROOT, zip)} — ${(statSync(zip).size / 1024).toFixed(0)} KB, à déposer sur le Chrome Web Store`);
+console.log(`  ${path.relative(ROOT, zipPublic)} — copie servie par le site (/extension)`);

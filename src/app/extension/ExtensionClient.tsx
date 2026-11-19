@@ -1,8 +1,9 @@
 "use client";
 
 // L'extension Chrome (/extension) — page de DOCUMENTATION (DocsShell), même direction artistique que
-// /agents. C'est un APERÇU : l'extension n'est pas publiée sur le Chrome Web Store, la page le dit
-// en tête et n'annonce que ce qui existe et a été mesuré (règle 4 du dépôt). Pas d'allégation
+// /agents. C'est une BÊTA : l'extension n'est pas publiée sur le Chrome Web Store, la page le dit
+// en tête, sert le zip du build (public/brimkern-extension-<version>.zip, copié par
+// scripts/build-extension.mjs) et n'annonce que ce qui existe et a été mesuré (règle 4 du dépôt). Pas d'allégation
 // écologique générique : des faits (aperçu IA non demandé, calcul au clic seulement) et, pour
 // l'énergie, l'annonce qu'un chiffre sera MESURÉ avant d'être publié (ROADMAP § 30).
 //
@@ -10,10 +11,11 @@
 // consentement affiché par l'extension.
 
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Download } from 'lucide-react';
 import { useT, useHref, useLocale } from '@/lib/i18n';
 import { fmtModelSize } from '@/lib/modelCatalog';
 import { TIER_MODELS, LIGHT_MEMORY_GB } from '../../../packages/extension/src/tier';
+import manifest from '../../../packages/extension/manifest.json';
 import DocsShell, { Code, P } from '../docs/DocsShell';
 import s from '../cli/cli.module.css';
 
@@ -39,6 +41,7 @@ function H2({ id, n, children }: { id: string; n: string; children: React.ReactN
 }
 
 const cell = { padding: '8px 12px' } as const;
+const ZIP = `/brimkern-extension-${manifest.version}.zip`;
 
 export default function ExtensionClient() {
   const t = useT();
@@ -55,14 +58,14 @@ export default function ExtensionClient() {
     { id: 'measured', label: t('Measured', 'Mesuré') },
     { id: 'privacy', label: t('Privacy and energy', 'Confidentialité et énergie') },
     { id: 'limits', label: t('Limits', 'Limites') },
-    { id: 'try', label: t('Try the preview', 'Essayer l’aperçu') },
+    { id: 'try', label: t('Install the beta', 'Installer la bêta') },
   ];
 
   return (
     <DocsShell toc={toc}>
       {/* ── EN-TÊTE ─────────────────────────────────────────────────────────────────────── */}
       <div style={{ marginTop: 12 }}>
-        <p className={s.eyebrow}>{t('Chrome extension · preview', 'Extension Chrome · aperçu')}</p>
+        <p className={s.eyebrow}>{t('Chrome extension · beta', 'Extension Chrome · bêta')}</p>
         <h1 className={s.h1}>
           {t('Answers to your Google searches, computed on your device', 'Des réponses à vos recherches Google, calculées sur votre appareil')}
         </h1>
@@ -74,7 +77,8 @@ export default function ExtensionClient() {
         </p>
         <p className={s.caption} style={{ marginTop: 0 }}>
           <strong>{t('Status:', 'Statut :')}</strong>{' '}
-          {t('preview. Not on the Chrome Web Store yet.', 'aperçu. Pas encore sur le Chrome Web Store.')}
+          {t('beta. Not on the Chrome Web Store yet: ', 'bêta. Pas encore sur le Chrome Web Store : ')}
+          <a href="#try" style={{ color: 'var(--text-primary)' }}>{t('install it from this page', 'elle s’installe depuis cette page')}</a>.{''}
         </p>
       </div>
 
@@ -246,15 +250,32 @@ export default function ExtensionClient() {
       </div>
 
       {/* ── ESSAYER ─────────────────────────────────────────────────────────────────────── */}
-      <H2 id="try" n="07">{t('Try the preview', 'Essayer l’aperçu')}</H2>
-      <P>{t('Until the Chrome Web Store release, the extension is built from the repository:', 'En attendant la sortie sur le Chrome Web Store, l’extension se construit depuis le dépôt :')}</P>
-      <Code lang="sh">{'git clone https://github.com/RomainKH/Brimkern && cd Brimkern\nnpm install\nnpm run build:extension'}</Code>
+      <H2 id="try" n="07">{t('Install the beta', 'Installer la bêta')}</H2>
       <P>
         {t(
-          'Then open chrome://extensions, turn on Developer mode, choose “Load unpacked” and select packages/extension/dist.',
-          'Puis ouvrez chrome://extensions, activez le mode développeur, choisissez « Charger l’extension non empaquetée » et sélectionnez packages/extension/dist.'
+          'Until the Chrome Web Store release, the extension is installed by hand, in Chrome 116 or later. It takes a minute.',
+          'En attendant la sortie sur le Chrome Web Store, l’extension s’installe à la main, dans Chrome 116 ou plus récent. Cela prend une minute.'
         )}
       </P>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 14px' }}>
+        <a href={ZIP} download className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
+          <Download size={14} aria-hidden="true" /> {t(`Download the beta (v${manifest.version}, .zip)`, `Télécharger la bêta (v${manifest.version}, .zip)`)}
+        </a>
+      </div>
+      <ol style={{ margin: '0 0 14px', paddingLeft: 22, lineHeight: 1.7, fontSize: 14.5 }}>
+        <li>{t('Unzip the file, and put the folder somewhere it can stay: Chrome loads the extension from it at every start.', 'Décompressez le fichier, et rangez le dossier là où il pourra rester : Chrome charge l’extension depuis ce dossier à chaque démarrage.')}</li>
+        <li>{t('Open chrome://extensions and turn on “Developer mode” (top right).', 'Ouvrez chrome://extensions et activez le « Mode développeur » (en haut à droite).')}</li>
+        <li>{t('Click “Load unpacked” and select the unzipped folder.', 'Cliquez sur « Charger l’extension non empaquetée » et sélectionnez le dossier décompressé.')}</li>
+        <li>{t('Search on Google: the button appears above the results.', 'Faites une recherche Google : le bouton apparaît au-dessus des résultats.')}</li>
+      </ol>
+      <P>
+        {t(
+          'A beta installed this way does not update itself: for a new version, download it again, replace the folder and press the reload arrow in chrome://extensions. To remove it, click “Remove” there.',
+          'Une bêta installée ainsi ne se met pas à jour seule : pour une nouvelle version, téléchargez-la de nouveau, remplacez le dossier et cliquez sur la flèche de rechargement dans chrome://extensions. Pour la retirer, cliquez sur « Supprimer » au même endroit.'
+        )}
+      </P>
+      <P>{t('The zip is the output of the public build. To build it yourself:', 'Le zip est la sortie du build public. Pour le construire vous-même :')}</P>
+      <Code lang="sh">{'git clone https://github.com/RomainKH/Brimkern && cd Brimkern\nnpm install\nnpm run build:extension'}</Code>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
         <Link href={href('/docs/models')} className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '8px 16px' }}>
           {t('The engine and its models', 'Le moteur et ses modèles')} <ArrowRight size={14} />
