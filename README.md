@@ -90,6 +90,16 @@ const widget = embed({
 
 ---
 
+## 🔎 Chrome Extension (beta)
+
+Google's AI Overview is no longer requested (the extension adds Google's own "Web" filter), and a button takes its place. Click it, and the engine answers on your GPU from the results already on the page, with its sources. No click, no computation.
+
+On 24 real Google results pages, each answered twice, Qwen3.5 2B gave 44 right answers in 48 and none wrong. Not on the Chrome Web Store yet: download and install steps at [brimkern.com/extension](https://brimkern.com/extension), source in [`packages/extension`](packages/extension).
+
+![The Brimkern panel on a Google results page](public/media/extension/extension-google-en-answer.png)
+
+---
+
 ## 🚀 Supported Models & The `.brik` Format
 
 Brimkern loads single-file GGUFs from Hugging Face or `.brik` files optimized for the web:

@@ -20,6 +20,36 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'November 19, 2026', fr: '19 novembre 2026' },
+    tagline: {
+      en: 'A Chrome extension, in beta: Google’s AI Overview is no longer requested, and an answer is computed on your own GPU when you click, from the results already on the page.',
+      fr: 'Une extension Chrome, en bêta : l’aperçu IA de Google n’est plus demandé, et une réponse se calcule sur votre propre GPU au clic, à partir des résultats déjà affichés.',
+    },
+    groups: [
+      {
+        title: { en: 'Chrome extension (beta)', fr: 'Extension Chrome (bêta)' },
+        items: [
+          {
+            en: 'Every web search goes out with Google’s own “Web” filter, whose results page has no AI Overview, and a button takes its place. Until you click, nothing is computed. On a click, the engine answers from the titles and snippets on the page and lists its sources.',
+            fr: 'Chaque recherche web part avec le filtre « Web » de Google lui-même, dont la page de résultats n’a pas d’aperçu IA, et un bouton prend sa place. Tant que vous ne cliquez pas, rien n’est calculé. Au clic, le moteur répond à partir des titres et extraits de la page et liste ses sources.',
+          },
+          {
+            en: 'The model is Qwen3.5 2B (1.28 GB), or Qwen3 0.6B (304 MB) on a slow connection or a device with 4 GB of memory or less. It is downloaded once from Hugging Face, after you agree, and nothing else is sent anywhere.',
+            fr: 'Le modèle est Qwen3.5 2B (1,28 Go), ou Qwen3 0.6B (304 Mo) sur une connexion lente ou un appareil de 4 Go de mémoire ou moins. Il est téléchargé une seule fois depuis Hugging Face, après votre accord, et rien d’autre n’est envoyé.',
+          },
+          {
+            en: 'Measured on 24 real Google results pages, each answered twice: 44 right answers in 48 and none wrong with Qwen3.5 2B. On an M-series Mac, an answer takes 5.3 to 5.9 s once the model is loaded.',
+            fr: 'Mesuré sur 24 vraies pages de résultats Google, chacune deux fois : 44 réponses justes sur 48 et aucune fausse avec Qwen3.5 2B. Sur un Mac série M, une réponse prend 5,3 à 5,9 s une fois le modèle chargé.',
+          },
+          {
+            en: 'It is not on the Chrome Web Store yet: the /extension page has the download and the four installation steps. Installed this way, it does not update itself.',
+            fr: 'Elle n’est pas encore sur le Chrome Web Store : la page /extension propose le téléchargement et les quatre étapes d’installation. Installée ainsi, elle ne se met pas à jour seule.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'November 12, 2026', fr: '12 novembre 2026' },
     tagline: {
       en: 'LTX-Video 2B arrives in the model browser. SDK 0.8.2: third-party models pinned to a commit, per-shard checksums in .brik files, and a corrupted file is refused instead of loaded.',
