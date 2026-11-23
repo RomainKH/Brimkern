@@ -70,7 +70,7 @@ rien ne la corrige. Deux `curl` suffisent.
 
 ## 5. Git
 
-- Commits **en français**, par étapes, message qui dit le DIAGNOSTIC et la mesure — pas la liste des
+- Commits **en anglais**, par étapes, message qui dit le diagnostic et la mesure — pas la liste des
   fichiers touchés.
 - **Aucun trailer d'attribution** (`Co-Authored-By` et assimilés) : Romain reste seul auteur.
 - **Ne JAMAIS `git push`** : commits locaux uniquement, Romain pousse lui-même.
