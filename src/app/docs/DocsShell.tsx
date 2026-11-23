@@ -126,7 +126,7 @@ export function P({ children }: { children: React.ReactNode }) {
 
 export function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
   return (
-    <section id={id} style={{ scrollMarginTop: 24 }}>
+    <section id={id} style={{ scrollMarginTop: 84 }}>
       <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: 22, fontWeight: 800, margin: '38px 0 10px', color: 'var(--text-primary)' }}>{title}</h2>
       {children}
     </section>

@@ -116,7 +116,7 @@ body {
      shows/hides the address bar, which then slides over the fixed header. 100dvh removes the delta. */
   min-height: 100vh;
   min-height: 100dvh;
-  overflow-x: hidden;
+  overflow-x: clip;
   /* Kill rubber-band / pull-to-refresh, which also reveals the browser chrome over the app. */
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
@@ -3271,7 +3271,10 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background-color: #1b1b1f;
   background-image: radial-gradient(ellipse 70% 40% at 50% -10%, rgba(239, 68, 68, 0.06), transparent 60%);
   color: #f0f0eb;
-  overflow-x: hidden;
+  /* clip (et non hidden) : overflow-x: hidden force overflow-y: auto sur cet ancêtre, ce qui en
+     fait un conteneur de défilement et empêche position: sticky (.docs-header et .docs-side) de
+     coller au viewport lors du scroll. */
+  overflow-x: clip;
 
   --ink: #1b1b1f;
   --screen: #222329;
@@ -3323,7 +3326,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   z-index: 1;
   max-width: 1060px;
   margin: 0 auto;
-  padding: 0 24px 80px;
+  padding: 0 24px;
 }
 
 .docs-header {
@@ -3418,6 +3421,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   max-width: 760px;
   min-width: 0;
   flex: 1;
+  padding-bottom: 80px;
 }
 
 .docs-content h1,

@@ -19,7 +19,8 @@
 import { chromium } from 'playwright-core';
 import { CHROME as EXE } from './chrome.mjs';
 
-const PAGES = ['/docs', '/docs/models', '/docs/sdk', '/docs/diagnostics'];
+const PORT = process.env.PORT || 3618;
+const PAGES = ['/docs', '/docs/models', '/docs/sdk', '/docs/cli', '/docs/diagnostics', '/agents', '/extension', '/vs-webllm', '/changelog'];
 
 const ctx = await chromium.launchPersistentContext(
   new URL('./chrome-profile-docs', import.meta.url).pathname,
@@ -38,7 +39,7 @@ const t = (nom, ok, detail = '') => { if (!ok) ko++; console.log(`  ${ok ? 'ok  
 
 for (const u of PAGES) {
   console.log(`── ${u}`);
-  await page.goto(`http://localhost:3618${u}`, { waitUntil: 'networkidle' });
+  await page.goto(`http://localhost:${PORT}${u}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   const ids = await ancres();
   if (ids.length < 2) { console.log('  (pas de sommaire de sections)'); continue; }
@@ -59,6 +60,16 @@ for (const u of PAGES) {
   await page.click(`nav a.docs-side-link[href="${cible}"]`);
   await page.waitForTimeout(250);
   t(`clic sur ${cible} → surligné`, (await lireActif()) === cible, `${await lireActif()}`);
+  const cibleVis = await page.evaluate((hash) => {
+    const el = document.getElementById(hash.slice(1));
+    const hdr = document.querySelector('.docs-header');
+    return {
+      top: Math.round(el?.getBoundingClientRect().top ?? -9999),
+      hdrBottom: Math.round(hdr?.getBoundingClientRect().bottom ?? 0),
+    };
+  }, cible);
+  t(`section ${cible} visible sous l’en-tête (${cibleVis.top} >= ${cibleVis.hdrBottom})`,
+    cibleVis.top >= cibleVis.hdrBottom, `top=${cibleVis.top} px sous header=${cibleVis.hdrBottom} px`);
 
   // 3. Tout en bas : la DERNIÈRE section. C'est la panne d'origine.
   //    On laisse d'abord expirer l'épinglage du clic ci-dessus (700 ms), sinon on mesure encore le
@@ -72,7 +83,21 @@ for (const u of PAGES) {
   await page.waitForTimeout(300);
   t('tout en bas → dernière section', (await lireActif()) === ids[ids.length - 1], `${await lireActif()} au lieu de ${ids[ids.length - 1]}`);
 
-  // 4. Aucun vide à défiler après la fin du contenu — au-delà de la marge du gabarit (80 px).
+  // 4. Le menu latéral (.docs-side) et l'en-tête (.docs-header) restent bien collés au défilement
+  //    (une règle `overflow-x: hidden` sur .docs-page ou un ancêtre casse silencieusement sticky).
+  const sticky = await page.evaluate(() => ({
+    scrollY: window.scrollY,
+    sideTop: Math.round(document.querySelector('.docs-side')?.getBoundingClientRect().top ?? -9999),
+    headerTop: Math.round(document.querySelector('.docs-header')?.getBoundingClientRect().top ?? -9999),
+  }));
+  if (sticky.scrollY > 120) {
+    t(`menu latéral sticky (top=${sticky.sideTop} px à scrollY=${Math.round(sticky.scrollY)})`,
+      Math.abs(sticky.sideTop - 76) <= 2, `top=${sticky.sideTop} px au lieu de ~76 px`);
+    t(`en-tête sticky (top=${sticky.headerTop} px)`,
+      Math.abs(sticky.headerTop) <= 2, `top=${sticky.headerTop} px au lieu de 0 px`);
+  }
+
+  // 5. Aucun vide à défiler après la fin du contenu — au-delà de la marge du gabarit (80 px).
   const vide = await page.evaluate(() => {
     const dernier = document.querySelector('.docs-content > *:last-child');
     return Math.round(document.documentElement.scrollHeight - (dernier.getBoundingClientRect().bottom + window.scrollY));

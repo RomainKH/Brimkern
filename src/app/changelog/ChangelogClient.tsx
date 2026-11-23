@@ -1650,7 +1650,7 @@ export default function ChangelogClient() {
       </p>
 
       {RELEASES.map((r, i) => (
-        <section key={i} id={ANCHORS[i]} style={{ marginBottom: 40, scrollMarginTop: 24 }}>
+        <section key={i} id={ANCHORS[i]} style={{ marginBottom: 40, scrollMarginTop: 84 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
             <span className="status-badge gpu" style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{tr(r.date)}</span>
           </div>

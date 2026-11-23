@@ -28,7 +28,7 @@ function Screen({ title, children }: { title: string; children: React.ReactNode 
 
 function H2({ id, n, children }: { id: string; n: string; children: React.ReactNode }) {
   return (
-    <h2 id={id} className={s.h2} style={{ scrollMarginTop: 24 }}>
+    <h2 id={id} className={s.h2} style={{ scrollMarginTop: 84 }}>
       <span className={s.h2Num} aria-hidden="true">{n}</span>
       {children}
     </h2>

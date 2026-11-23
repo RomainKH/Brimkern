@@ -105,7 +105,7 @@ export default function VsWebllmClient() {
           Un vrai <table> (et non des div en grille) : c'est un tableau de données, les lecteurs
           d'écran doivent pouvoir l'annoncer ligne par ligne avec ses en-têtes. Il défile
           horizontalement dans son propre conteneur sur écran étroit. */}
-      <h2 id="measured" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)', scrollMarginTop: 24 }}>
+      <h2 id="measured" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 8px', color: 'var(--text-primary)', scrollMarginTop: 84 }}>
         {t('Measured, side by side', 'Mesuré, côte à côte')}
       </h2>
       <div style={{ overflowX: 'auto', margin: '18px 0 0' }}>
@@ -139,7 +139,7 @@ export default function VsWebllmClient() {
       </div>
 
       {/* ── LA DIFFÉRENCE DE FOND ──────────────────────────────────────────────────────────── */}
-      <h2 id="difference" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)', scrollMarginTop: 24 }}>
+      <h2 id="difference" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)', scrollMarginTop: 84 }}>
         {t('The difference that decides', 'La différence qui décide')}
       </h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
@@ -164,7 +164,7 @@ export default function VsWebllmClient() {
       </div>
 
       {/* ── QUI DEVRAIT CHOISIR QUOI ───────────────────────────────────────────────────────── */}
-      <h2 id="which" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)', scrollMarginTop: 24 }}>
+      <h2 id="which" style={{ fontFamily: 'var(--font-heading)', fontSize: 26, fontWeight: 800, margin: '46px 0 14px', color: 'var(--text-primary)', scrollMarginTop: 84 }}>
         {t('Which one should you use?', 'Lequel choisir ?')}
       </h2>
       <ul style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.7, margin: 0, paddingLeft: 20 }}>
