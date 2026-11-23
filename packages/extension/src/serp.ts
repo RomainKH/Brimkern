@@ -75,7 +75,11 @@ export function anchorElement(doc: Document): Element | null {
   if (engine === 'ecosia') {
     return doc.querySelector('[data-test-id="mainline"]') || doc.querySelector('main');
   }
-  return doc.querySelector('#center_col') || doc.querySelector('#rcnt') || doc.querySelector('#search');
+  return doc.querySelector('#center_col')
+    || doc.querySelector('#rso')
+    || doc.querySelector('#rcnt')
+    || doc.querySelector('#search')
+    || doc.querySelector('#main');
 }
 
 /**
@@ -130,11 +134,11 @@ export function extractResults(doc: Document, max = 8): SerpResult[] {
   const engine = detectEngine(host) ?? 'google';
   if (engine !== 'google') return extractOtherEngine(doc, engine, host, max);
 
-  const root = doc.querySelector('#rso') || doc.querySelector('#search') || doc.querySelector('#center_col');
+  const root = doc.querySelector('#rso') || doc.querySelector('#search') || doc.querySelector('#center_col') || doc.querySelector('#main');
   if (!root) return [];
   const links: { a: HTMLAnchorElement; h3: HTMLElement; url: string }[] = [];
   const seen = new Set<string>();
-  for (const h3 of Array.from(root.querySelectorAll('h3'))) {
+  for (const h3 of Array.from(root.querySelectorAll('h3, [role="heading"][aria-level="3"]')) as HTMLElement[]) {
     const a = h3.closest('a[href]') as HTMLAnchorElement | null;
     const url = a && resultUrl(a.href, host);
     if (!a || !url || seen.has(url)) continue;

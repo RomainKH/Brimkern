@@ -1,4 +1,4 @@
 {
   "extName": { "message": "Brimkern — Local search answers" },
-  "extDescription": { "message": "Answers your Google searches on your own GPU, only when you ask. Google's AI Overview is not requested." }
+  "extDescription": { "message": "Answers your web searches and open pages on your own GPU (Chrome, Brave, Edge, Chromium). Google's AI Overview is not requested." }
 }

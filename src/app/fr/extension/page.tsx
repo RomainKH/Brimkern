@@ -3,11 +3,11 @@ import { SITE_URL } from '@/lib/site';
 import ExtensionClient from '../../extension/ExtensionClient';
 
 export const metadata: Metadata = {
-  title: 'Extension Chrome : réponses locales pour la recherche Google, sur votre GPU | Brimkern',
+  title: 'Extension Chrome, Brave & Chromium : réponses locales pour vos recherches, sur votre GPU | Brimkern',
   description:
-    'Une extension Chrome qui ne demande plus l’aperçu IA de Google et répond à votre recherche sur votre propre GPU, seulement au clic, à partir des résultats déjà affichés, sources à l’appui. Bêta.',
+    'Une extension Chromium (Chrome, Brave, Edge, Arc, Vivaldi) qui ne demande plus l’aperçu IA de Google et répond à vos recherches et pages ouvertes sur votre GPU, avec sources cliquables et suivi de conversation. Bêta.',
   keywords: [
-    'extension Chrome', 'aperçu IA Google', 'udm=14', 'IA locale', 'LLM sur l’appareil', 'WebGPU',
+    'extension Chrome', 'extension Brave', 'extension Chromium', 'aperçu IA Google', 'udm=14', 'IA locale', 'LLM sur l’appareil', 'WebGPU',
     'réponses de recherche privées', 'extension brimkern',
   ],
   alternates: {
@@ -15,9 +15,9 @@ export const metadata: Metadata = {
     languages: { en: `${SITE_URL}/extension`, fr: `${SITE_URL}/fr/extension`, 'x-default': `${SITE_URL}/extension` },
   },
   openGraph: {
-    title: 'Brimkern pour Chrome : réponses locales pour la recherche Google',
+    title: 'Brimkern pour Chrome, Brave & Chromium : réponses locales pour vos recherches',
     description:
-      'Aperçu IA non demandé ; une réponse calculée sur votre GPU, seulement au clic, avec ses sources. Bêta.',
+      'Aperçu IA non demandé ; une réponse calculée sur votre GPU avec sources cliquables, suivi de conversation et assistant de page. Bêta.',
     url: `${SITE_URL}/fr/extension`,
     type: 'website',
   },

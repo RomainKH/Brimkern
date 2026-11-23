@@ -582,11 +582,11 @@ export default function LandingClient() {
             Un renvoi et UNE capture (vraie page Google, scripts/e2e/extension-shots.mjs) : le détail,
             les mesures et l'installation vivent sur /extension. */}
         <section className="lp-section">
-          <div className="lp-eyebrow"><span className="lp-quick-kicker">07</span> {t('also in your Google searches · beta', 'aussi dans vos recherches Google · bêta')}</div>
-          <h2 className="lp-h2">{t('A Chrome extension that answers on your GPU instead of Google’s AI Overview', 'Une extension Chrome qui répond sur votre GPU, à la place de l’aperçu IA de Google')}</h2>
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">07</span> {t('Chrome, Brave & Chromium · beta', 'Chrome, Brave & Chromium · bêta')}</div>
+          <h2 className="lp-h2">{t('A browser extension that answers on your GPU instead of Google’s AI Overview', 'Une extension navigateur qui répond sur votre GPU, à la place de l’aperçu IA de Google')}</h2>
           <p className="lp-strength-desc" style={{ maxWidth: 640 }}>
-            {t('It stops requesting the AI Overview and puts a button in its place. Click it, and the engine answers from the results already on the page, with its sources. No click, no computation.',
-               'Elle cesse de demander l’aperçu IA et met un bouton à sa place. Un clic, et le moteur répond à partir des résultats déjà affichés, sources à l’appui. Pas de clic, pas de calcul.')}
+            {t('Works in Chrome, Brave, Edge, Arc, Vivaldi and any Chromium browser (mobile-ready layout). It skips Google’s AI Overview, answers on your GPU with clickable sources and follow-up chat across Google, DuckDuckGo, Brave Search, Startpage and Ecosia.',
+               'Fonctionne dans Chrome, Brave, Edge, Arc, Vivaldi et tout navigateur Chromium (interface adaptée au mobile). Elle évite l’aperçu IA de Google et répond sur votre GPU avec sources cliquables et suivi de conversation sur Google, DuckDuckGo, Brave Search, Startpage et Ecosia.')}
           </p>
           {/* eslint-disable-next-line @next/next/no-img-element -- PNG statique servi tel quel, sans optimiseur d'images */}
           <img
@@ -622,7 +622,7 @@ export default function LandingClient() {
           <Link href={href('/docs')}>{t('Documentation', 'Documentation')}</Link>
           <Link href={href('/docs/sdk')}>SDK</Link>
           <Link href={href('/cli')}>CLI</Link>
-          <Link href={href('/extension')}>{t('Chrome extension', 'Extension Chrome')}</Link>
+          <Link href={href('/extension')}>{t('Browser extension', 'Extension navigateur')}</Link>
           {/* La comparaison mesurée : c'est la question que se pose tout visiteur qui connaît
               déjà WebLLM, et la porte d'entrée SEO sur « run an LLM in the browser ». */}
           <Link href={href('/vs-webllm')}>{t('vs WebLLM', 'vs WebLLM')}</Link>

@@ -46,6 +46,7 @@ declare namespace chrome {
   }
   namespace tabs {
     function query(q: { active?: boolean; currentWindow?: boolean }): Promise<Array<{ id?: number; windowId?: number; title?: string; url?: string }>>;
+    function create(opts: { url: string }): Promise<any>;
   }
   namespace scripting {
     function executeScript<T = any>(opts: { target: { tabId: number }; func: () => T }): Promise<Array<{ result: T }>>;

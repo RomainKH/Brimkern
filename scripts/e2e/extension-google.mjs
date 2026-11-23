@@ -182,6 +182,25 @@ try {
   if (SHOTS) await panneau.screenshot({ path: `${SHOTS}/panneau-sombre-en.png` });
   console.log(`6. anglais : « ${resultat.anglais} » — thème ${resultat.themeSombre}, axe-core ${resultat.axeSombre.length} violation(s) ${resultat.axeSombre.join(' ')}`);
   resultat.reponseCite330 = /330/.test(resultat.reponse);
+
+  // 7. mise en page mobile (375×812) : zéro débordement horizontal et 0 violation axe-core
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.waitForTimeout(150);
+  const mobileBox = await page.evaluate(() => {
+    const host = document.querySelector('#brimkern-answer');
+    const card = host?.shadowRoot?.querySelector('.card');
+    return {
+      overflow: card ? card.scrollWidth > card.clientWidth + 1 : true,
+      cardW: card ? Math.round(card.getBoundingClientRect().width) : 0,
+      vpW: window.innerWidth,
+    };
+  });
+  resultat.mobile = mobileBox;
+  resultat.axeMobile = await axe(page);
+  console.log(`7. mobile (375 px) : largeur carte ${mobileBox.cardW} px, débordement=${mobileBox.overflow}, axe-core ${resultat.axeMobile.length} violation(s)`);
+  assert.equal(mobileBox.overflow, false, 'débordement horizontal dans le panneau sur mobile');
+  assert.ok(mobileBox.cardW <= mobileBox.vpW, `carte trop large (${mobileBox.cardW} > ${mobileBox.vpW})`);
+  assert.equal(resultat.axeMobile.length, 0, `violations axe-core mobile : ${resultat.axeMobile.join(', ')}`);
 } finally {
   await ctx.close();
 }

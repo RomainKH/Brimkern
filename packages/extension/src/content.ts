@@ -23,14 +23,15 @@ const PHASES: Record<string, () => string> = {
 const fmtSeconds = (ms: number) => (ms / 1000).toFixed(1).replace('.', fr ? ',' : '.');
 
 const CSS = `
-:host{all:initial;display:block;margin:16px 0 6px;max-width:652px;
+:host{all:initial;display:block;width:100%;max-width:min(652px,calc(100vw - 24px));box-sizing:border-box;margin:16px 0 6px;
   --fg:#1f1f1f;--muted:#4d5156;--line:#dadce0;--surface:#f1f3f4;--link:#1a0dab;--btn-bg:#1f1f1f;--btn-fg:#fff;--bar:#1f1f1f}
 :host([data-theme=dark]){--fg:#e8eaed;--muted:#bdc1c6;--line:#3c4043;--surface:#303134;--link:#99c3ff;--btn-bg:#e8eaed;--btn-fg:#202124;--bar:#e8eaed}
-.card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:var(--fg);font:14px/1.58 arial,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+.card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;color:var(--fg);font:14px/1.58 arial,sans-serif;max-width:100%}
 .hd{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;color:var(--muted)}
 .hd svg{flex:none}
 .hd-opt{margin-left:auto;background:transparent;border:1px solid transparent;color:var(--muted);
-  font:500 12px/1 arial,sans-serif;padding:4px 8px;border-radius:999px;cursor:pointer}
+  font:500 12px/1 arial,sans-serif;padding:4px 8px;border-radius:999px;cursor:pointer;white-space:nowrap}
 .hd-opt:hover{color:var(--fg);border-color:var(--line)}
 .note{color:var(--muted);font-size:12.5px;margin:6px 0 0}
 .note:empty{display:none}
@@ -40,13 +41,13 @@ button{font:500 14px/1 arial,sans-serif;border-radius:999px;padding:9px 16px;cur
   border:1px solid var(--btn-bg);background:var(--btn-bg);color:var(--btn-fg)}
 button.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
 button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-.answer{margin:10px 0 0;white-space:pre-wrap;font-size:15px;line-height:1.6}
+.answer{margin:10px 0 0;white-space:pre-wrap;font-size:15px;line-height:1.6;overflow-wrap:anywhere}
 .answer:empty{display:none}
 .status{margin:10px 0 0;color:var(--muted);font-size:13px}
 .status:empty{display:none}
 .bar{height:3px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}
 .bar>i{display:block;height:100%;width:0;background:var(--bar);transition:width .2s}
-ol{margin:10px 0 0;padding-left:22px;font-size:13px}
+ol{margin:10px 0 0;padding-left:22px;font-size:13px;overflow-wrap:anywhere}
 ol:empty{display:none}
 li{margin:2px 0}
 a{color:var(--link);text-decoration:none}
@@ -58,8 +59,8 @@ a:hover{text-decoration:underline}
 .thread{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
 .thread:empty{display:none}
 .turn{display:flex;flex-direction:column;gap:6px}
-.turn-q{align-self:flex-start;background:var(--surface);color:var(--fg);border-radius:14px;padding:7px 12px;font-size:14px;line-height:1.45;font-weight:500;max-width:100%;word-break:break-word}
-.turn-a{white-space:pre-wrap;font-size:15px;line-height:1.6;color:var(--fg)}
+.turn-q{align-self:flex-start;background:var(--surface);color:var(--fg);border-radius:14px;padding:7px 12px;font-size:14px;line-height:1.45;font-weight:500;max-width:100%;overflow-wrap:anywhere}
+.turn-a{white-space:pre-wrap;font-size:15px;line-height:1.6;color:var(--fg);overflow-wrap:anywhere}
 .turn-a:empty{display:none}
 .followup{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
 .followup[hidden]{display:none}
@@ -69,6 +70,16 @@ a:hover{text-decoration:underline}
 .followup input:disabled{opacity:.6}
 .followup button{flex:none;padding:8px 14px;font-size:13.5px}
 .followup button[hidden]{display:none}
+@media (max-width:600px){
+  :host{margin:10px 0 6px;max-width:min(100%,calc(100vw - 16px))}
+  .card{padding:12px;border-radius:10px}
+  button{min-height:40px;padding:9px 14px}
+  .hd-opt{min-height:32px;padding:5px 10px}
+  ol{padding-left:18px}
+  .followup{gap:6px}
+  .followup input{font-size:16px;padding:9px 12px}
+  .followup button{min-height:40px;padding:8px 12px}
+}
 @media (prefers-reduced-motion:reduce){.bar>i{transition:none}}
 `;
 

@@ -1,8 +1,8 @@
 // Page d'options / popup de l'extension Brimkern.
 // Préférences : auto-réponse, filtre Google Web (udm=14), choix du palier/modèle, gestion du
-// cache disque et raccourci vers le panneau latéral « Questionner cette page ».
+// cache disque et ouverture directe du panneau latéral « Résumer / questionner cette page ».
 
-import { IDLE, OPEN_SIDEPANEL, OPT_AUTO_ANSWER, OPT_TIER, OPT_UDM14, type TierPref } from './protocol';
+import { IDLE, OPT_AUTO_ANSWER, OPT_TIER, OPT_UDM14, type TierPref } from './protocol';
 import { TIER_MODELS } from './tier';
 import { fmtModelSize } from '../../../src/lib/modelCatalog';
 
@@ -17,11 +17,32 @@ const hd = document.getElementById('hd')!;
 hd.innerHTML = MARK;
 hd.append('Brimkern · Options');
 
+// Pré-résolution du windowId au chargement : chrome.sidePanel.open() EXIGE d'être appelé
+// SYNCHRONEMENT dans le geste utilisateur du clic (passer par sendMessage ou un await préalable
+// fait perdre le geste et Chrome refuse silencieusement d'ouvrir le panneau).
+let activeWindowId: number | undefined;
+chrome.tabs?.query?.({ active: true, currentWindow: true }).then(([tab]) => {
+  activeWindowId = tab?.windowId;
+}).catch(() => {});
+
 const openPanelBtn = document.getElementById('open-panel') as HTMLButtonElement;
-openPanelBtn.textContent = t('Ask about the current page (side panel)', 'Questionner la page ouverte (panneau latéral)');
+openPanelBtn.textContent = t('Summarize or ask about this page', 'Résumer ou questionner cette page');
+document.getElementById('open-panel-desc')!.textContent = t(
+  'Opens the side panel to read and discuss the current tab locally on your GPU.',
+  'Ouvre le panneau latéral pour lire et discuter de l’onglet actif en local sur votre GPU.',
+);
 openPanelBtn.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: OPEN_SIDEPANEL }).catch(() => {});
-  window.close();
+  if (chrome.sidePanel?.open && activeWindowId !== undefined) {
+    chrome.sidePanel.open({ windowId: activeWindowId })
+      .then(() => window.close())
+      .catch(() => {
+        chrome.tabs?.create?.({ url: chrome.runtime.getURL('sidepanel.html') }).catch(() => {});
+        window.close();
+      });
+  } else {
+    chrome.tabs?.create?.({ url: chrome.runtime.getURL('sidepanel.html') }).catch(() => {});
+    window.close();
+  }
 });
 
 document.getElementById('auto-title')!.textContent = t(
@@ -63,7 +84,7 @@ for (const opt of tiers) {
 
 document.getElementById('cache-title')!.textContent = t('Model cache on this device', 'Cache des modèles sur cet appareil');
 const clearBtn = document.getElementById('clear-cache') as HTMLButtonElement;
-clearBtn.textContent = t('Clear cache', 'Vider le cache');
+clearBtn.textContent = t('Clear model cache', 'Vider le cache');
 const cacheInfo = document.getElementById('cache-info')!;
 const saved = document.getElementById('saved')!;
 

@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Brimkern</title>
 <style>
-:root{color-scheme:light dark;--bg:#fff;--fg:#1f1f1f;--muted:#4d5156;--line:#dadce0;--surface:#f1f3f4;--accent:#1f1f1f;--accent-fg:#fff;--link:#1a0dab;--danger:#b42318}
-@media (prefers-color-scheme:dark){:root{--bg:#1b1b1f;--fg:#f0f0eb;--muted:#a3a6ad;--line:#33363f;--surface:#222329;--accent:#ef4444;--accent-fg:#fff;--link:#99c3ff;--danger:#f87171}}
+:root{color-scheme:light dark;--bg:#fff;--fg:#1f1f1f;--muted:#4d5156;--line:#dadce0;--surface:#f1f3f4;--accent:#1f1f1f;--accent-hover:#333;--accent-fg:#fff;--link:#1a0dab;--danger:#b42318;--danger-bg:rgba(180,35,24,.08);--danger-border:rgba(180,35,24,.35)}
+@media (prefers-color-scheme:dark){:root{--bg:#1b1b1f;--fg:#f0f0eb;--muted:#a3a6ad;--line:#33363f;--surface:#222329;--accent:#dc2626;--accent-hover:#ef4444;--accent-fg:#fff;--link:#99c3ff;--danger:#f87171;--danger-bg:rgba(239,68,68,.1);--danger-border:rgba(248,113,113,.35)}}
 *{box-sizing:border-box}
-body{margin:0;padding:16px;min-width:330px;max-width:400px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;gap:10px}
+body{margin:0;padding:16px;width:min(100vw,360px);min-width:280px;max-width:100%;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;gap:10px}
 .hd{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;margin-bottom:2px}
 .opt{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
 label.opt{cursor:pointer}
@@ -23,19 +23,23 @@ label.opt{cursor:pointer}
 .switch input:checked+.track{background:var(--accent)}
 .switch input:checked+.track::after{transform:translateX(18px);background:var(--accent-fg)}
 .switch input:focus-visible+.track,select:focus-visible,button:focus-visible{outline:2px solid var(--link);outline-offset:2px}
-select{width:100%;font:13px/1.4 system-ui,-apple-system,sans-serif;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
-.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-button{font:500 13px/1 system-ui,-apple-system,sans-serif;border-radius:999px;padding:8px 14px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg)}
-button.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
-button.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+select{width:100%;font:13px/1.4 system-ui,-apple-system,sans-serif;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}
+button{font:600 13px/1.3 system-ui,-apple-system,sans-serif;border-radius:8px;padding:9px 14px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);transition:background .15s,border-color .15s}
+button:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+button.danger{align-self:flex-start;background:var(--danger-bg);color:var(--danger);border-color:var(--danger-border);white-space:nowrap;padding:7px 12px;font-size:12.5px}
+button.danger:hover{background:rgba(239,68,68,.18);border-color:var(--danger)}
 button.block{width:100%;text-align:center}
 .saved{margin:0;min-height:18px;font-size:12px;color:var(--muted)}
+@media (max-width:420px){body{padding:12px}button{min-height:40px}select{font-size:16px;padding:9px 10px}}
 </style>
 </head>
 <body>
   <div class="hd" id="hd"></div>
 
-  <button type="button" class="block" id="open-panel"></button>
+  <div class="opt-col">
+    <button type="button" class="block" id="open-panel"></button>
+    <span class="opt-desc" id="open-panel-desc"></span>
+  </div>
 
   <label class="opt">
     <span class="opt-text">
@@ -66,11 +70,9 @@ button.block{width:100%;text-align:center}
   </div>
 
   <div class="opt-col">
-    <div class="row">
-      <span class="opt-title" id="cache-title"></span>
-      <button type="button" class="danger" id="clear-cache"></button>
-    </div>
+    <span class="opt-title" id="cache-title"></span>
     <span class="opt-desc" id="cache-info"></span>
+    <button type="button" class="danger" id="clear-cache"></button>
   </div>
 
   <p class="saved" id="saved" role="status" aria-live="polite"></p>

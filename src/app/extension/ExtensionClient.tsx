@@ -78,14 +78,14 @@ export default function ExtensionClient() {
     <DocsShell toc={toc}>
       {/* ── EN-TÊTE ─────────────────────────────────────────────────────────────────────── */}
       <div style={{ marginTop: 12 }}>
-        <p className={s.eyebrow}>{t('Chrome extension · beta', 'Extension Chrome · bêta')}</p>
+        <p className={s.eyebrow}>{t('Chrome, Brave & Chromium extension · beta', 'Extension Chrome, Brave & Chromium · bêta')}</p>
         <h1 className={s.h1}>
-          {t('Answers to your Google searches, computed on your device', 'Des réponses à vos recherches Google, calculées sur votre appareil')}
+          {t('Answers to your web searches, computed on your device', 'Des réponses à vos recherches web, calculées sur votre appareil')}
         </h1>
         <p className={s.lede}>
           {t(
-            'The extension stops asking Google for its AI Overview and puts a button in its place. Click it, and a model running on your own GPU answers from the results already on the page, with its sources. No click, no computation.',
-            'L’extension cesse de demander à Google son aperçu IA et met un bouton à sa place. Un clic, et un modèle qui tourne sur votre propre GPU répond à partir des résultats déjà affichés, sources à l’appui. Pas de clic, pas de calcul.'
+            'Works in Chrome, Brave, Edge, Arc, Vivaldi and any Chromium 116+ browser with WebGPU (plus mobile Chromium browsers that support extensions). It stops asking Google for its AI Overview, answers on your own GPU from the results on the page (Google, DuckDuckGo, Brave Search, Startpage, Ecosia), supports follow-up questions and includes a local page assistant.',
+            'Fonctionne dans Chrome, Brave, Edge, Arc, Vivaldi et tout navigateur Chromium 116+ avec WebGPU (ainsi que les navigateurs Chromium mobiles qui acceptent les extensions). Elle cesse de demander l’aperçu IA à Google, répond sur votre propre GPU à partir des résultats affichés (Google, DuckDuckGo, Brave Search, Startpage, Ecosia), gère le suivi de conversation et inclut un assistant local pour vos pages.'
           )}
         </p>
         <p className={s.caption} style={{ marginTop: 0 }}>
@@ -276,8 +276,8 @@ export default function ExtensionClient() {
           <p className={s.pointText}>{t(`On our benchmark, ${TIER_MODELS.standard.label} gave no wrong answer, but some stay vague (the products to use where steps were asked). The light model got 2 answers in 48 wrong. The panel says so under every answer, next to the sources.`, `Sur notre banc, ${TIER_MODELS.standard.label} n’a donné aucune réponse fausse, mais certaines restent vagues (les produits à utiliser quand on demandait les étapes). Le modèle léger s’est trompé 2 fois sur 48. Le panneau le rappelle sous chaque réponse, à côté des sources.`)}</p>
         </div>
         <div className={s.point}>
-          <p className={s.pointTitle}>{t('Chrome and Google only', 'Chrome et Google seulement')}</p>
-          <p className={s.pointText}>{t('Other Chromium browsers and other search engines are not tested yet.', 'Les autres navigateurs Chromium et les autres moteurs de recherche ne sont pas encore testés.')}</p>
+          <p className={s.pointTitle}>{t('Chromium browsers & mobile', 'Navigateurs Chromium & mobile')}</p>
+          <p className={s.pointText}>{t('Runs on Chrome, Brave, Edge, Arc, Vivaldi, Opera and any Chromium 116+ browser with WebGPU, across Google, DuckDuckGo, Brave Search, Startpage and Ecosia. The card layout adapts to mobile screens (Android Chromium browsers with extension support such as Kiwi or Mises); standard Chrome on Android/iOS does not load extensions.', 'Fonctionne sur Chrome, Brave, Edge, Arc, Vivaldi, Opera et tout navigateur Chromium 116+ avec WebGPU, sur Google, DuckDuckGo, Brave Search, Startpage et Ecosia. L’interface s’adapte aux écrans mobiles (navigateurs Chromium Android compatibles extensions comme Kiwi ou Mises) ; Chrome standard sur Android/iOS ne charge pas d’extensions.')}</p>
         </div>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('The “Web” results page', 'La page de résultats « Web »')}</p>
@@ -289,8 +289,8 @@ export default function ExtensionClient() {
       <H2 id="try" n="07">{t('Install the beta', 'Installer la bêta')}</H2>
       <P>
         {t(
-          'Until the Chrome Web Store release, the extension is installed by hand, in Chrome 116 or later. It takes a minute.',
-          'En attendant la sortie sur le Chrome Web Store, l’extension s’installe à la main, dans Chrome 116 ou plus récent. Cela prend une minute.'
+          'Until the Chrome Web Store release, the extension is installed by hand in Chrome, Brave, Edge, Arc, Vivaldi or any Chromium 116+ browser (including Android Chromium browsers that support unpacked extensions). It takes a minute.',
+          'En attendant la sortie sur le Chrome Web Store, l’extension s’installe à la main dans Chrome, Brave, Edge, Arc, Vivaldi ou tout navigateur Chromium 116+ (y compris les navigateurs Chromium Android acceptant les extensions non empaquetées). Cela prend une minute.'
         )}
       </P>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 14px' }}>
@@ -299,10 +299,10 @@ export default function ExtensionClient() {
         </a>
       </div>
       <ol style={{ margin: '0 0 14px', paddingLeft: 22, lineHeight: 1.7, fontSize: 14.5 }}>
-        <li>{t('Unzip the file, and put the folder somewhere it can stay: Chrome loads the extension from it at every start.', 'Décompressez le fichier, et rangez le dossier là où il pourra rester : Chrome charge l’extension depuis ce dossier à chaque démarrage.')}</li>
-        <li>{t('Open chrome://extensions and turn on “Developer mode” (top right).', 'Ouvrez chrome://extensions et activez le « Mode développeur » (en haut à droite).')}</li>
+        <li>{t('Unzip the file, and put the folder somewhere it can stay: the browser loads the extension from it at every start.', 'Décompressez le fichier, et rangez le dossier là où il pourra rester : le navigateur charge l’extension depuis ce dossier à chaque démarrage.')}</li>
+        <li>{t('Open chrome://extensions (or brave://extensions, edge://extensions) and turn on “Developer mode” (top right).', 'Ouvrez chrome://extensions (ou brave://extensions, edge://extensions) et activez le « Mode développeur » (en haut à droite).')}</li>
         <li>{t('Click “Load unpacked” and select the unzipped folder.', 'Cliquez sur « Charger l’extension non empaquetée » et sélectionnez le dossier décompressé.')}</li>
-        <li>{t('Search on Google: the button appears above the results.', 'Faites une recherche Google : le bouton apparaît au-dessus des résultats.')}</li>
+        <li>{t('Search on Google, DuckDuckGo, Brave Search, Startpage or Ecosia: the panel appears above the results.', 'Faites une recherche sur Google, DuckDuckGo, Brave Search, Startpage ou Ecosia : le panneau apparaît au-dessus des résultats.')}</li>
       </ol>
       <P>
         {t(
