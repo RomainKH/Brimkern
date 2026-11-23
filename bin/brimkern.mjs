@@ -2297,6 +2297,7 @@ ${C.bold}${t('USAGE', 'UTILISATION')}${C.reset}
 ${use('brimkern [options] [prompt]')}
 ${use('brimkern chat                   ', t('Interactive REPL', 'Mode REPL interactif'))}
 ${use('brimkern mcp                    ', t('Model Context Protocol (MCP) stdio server for AI agents', 'Serveur stdio MCP (Model Context Protocol) pour agents IA'))}
+${use('brimkern serve [--port=11435]   ', t('Local OpenAI-compatible HTTP server (/v1/chat/completions)', 'Serveur HTTP local compatible OpenAI (/v1/chat/completions)'))}
 ${use('brimkern models                 ', t('Lists the preset models', 'Liste les modèles pré-configurés'))}
 ${use('brimkern cache [clean [model]]  ', t('Inspects or cleans the on-disk model cache', 'Inspecte ou purge le cache disque des modèles'))}
 ${use('brimkern update                 ', t('Updates the CLI to the latest version', 'Met à jour la CLI vers la dernière version'))}
@@ -2333,7 +2334,7 @@ function printModels() {
   console.log(`${C.gray}${t('You can also pass a local file: --model=/path/to/model.brik', 'Vous pouvez aussi spécifier un fichier local : --model=/chemin/vers/modele.brik')}${C.reset}\n`);
 }
 
-const KNOWN_COMMANDS = ['chat', 'models', 'list', 'cache', 'update', 'upgrade', 'help', 'version', 'config', 'status', 'mcp', 'serve-mcp'];
+const KNOWN_COMMANDS = ['chat', 'models', 'list', 'cache', 'update', 'upgrade', 'help', 'version', 'config', 'status', 'mcp', 'serve-mcp', 'serve'];
 const COMMON_ALIASES = {
   'run': 'chat',
   'start': 'chat',
@@ -2345,7 +2346,7 @@ const COMMON_ALIASES = {
   'model': 'models',
   'install': 'update',
   'mcp-server': 'mcp',
-  'server': 'mcp',
+  'server': 'serve',
 };
 
 function levenshtein(a, b) {
@@ -3214,6 +3215,215 @@ const MCP_TOOLS = [
   },
 ];
 
+async function runOpenAiServer(initialOptions = {}) {
+  const host = initialOptions.host || '127.0.0.1';
+  const requestedPort = Number.isInteger(initialOptions.port) ? initialOptions.port : 11435;
+  let engine = null;
+  let currentModelKey = resolveModelKey(initialOptions.model || 'coder');
+  let queue = Promise.resolve();
+
+  async function getEngine(modelKey) {
+    const resolved = resolveModelKey(modelKey || currentModelKey);
+    if (engine && engine.requestedModel === resolved) return engine;
+    if (engine) {
+      try { await engine.close(); } catch {}
+      engine = null;
+    }
+    process.stderr.write(`[Brimkern serve] Loading model "${resolved}" on WebGPU...\n`);
+    const eng = await createCliEngine({
+      model: resolved,
+      maxTokens: MCP_MAX_TOKENS_CEILING,
+      raw: true,
+      native: initialOptions.native,
+      chromium: initialOptions.chromium,
+    });
+    await eng.init();
+    eng.requestedModel = resolved;
+    engine = eng;
+    currentModelKey = resolved;
+    process.stderr.write(`[Brimkern serve] Model "${resolved}" ready (${eng.gpuBackend || 'WebGPU'}).\n`);
+    return eng;
+  }
+
+  function formatOpenAiMessages(messages) {
+    const parts = [];
+    for (const m of messages) {
+      const text = typeof m?.content === 'string'
+        ? m.content
+        : Array.isArray(m?.content)
+          ? m.content.map((p) => (p?.type === 'text' ? p.text || '' : '')).join('')
+          : '';
+      if (!text.trim()) continue;
+      if (m.role === 'system') parts.push(`[System]\n${text.trim()}`);
+      else if (m.role === 'assistant') parts.push(`[Assistant]\n${text.trim()}`);
+      else parts.push(text.trim());
+    }
+    return parts.join('\n\n');
+  }
+
+  function sendJson(res, status, body) {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    });
+    res.end(payload);
+  }
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url || '/', `http://${host}`);
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      });
+      res.end();
+      return;
+    }
+    if (req.method === 'GET' && (url.pathname === '/health' || url.pathname === '/')) {
+      return sendJson(res, 200, {
+        ok: true,
+        service: 'brimkern',
+        version: CLI_VERSION,
+        model: currentModelKey,
+        loaded: !!engine,
+        backend: engine ? (engine.gpuBackend || 'WebGPU') : null,
+      });
+    }
+    if (req.method === 'GET' && url.pathname === '/v1/models') {
+      const now = Math.floor(Date.now() / 1000);
+      const data = Object.entries(PRESET_CLI_MODELS).map(([id, m]) => ({
+        id,
+        object: 'model',
+        created: now,
+        owned_by: 'brimkern',
+        description: m.name,
+      }));
+      return sendJson(res, 200, { object: 'list', data });
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
+      let rawBody = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        rawBody += chunk;
+        if (rawBody.length > 4 * 1024 * 1024) tooBig = true;
+      });
+      req.on('end', () => {
+        if (tooBig) return sendJson(res, 413, { error: { message: 'Request body too large', type: 'invalid_request_error' } });
+        let body;
+        try { body = JSON.parse(rawBody || '{}'); } catch {
+          return sendJson(res, 400, { error: { message: 'Invalid JSON body', type: 'invalid_request_error' } });
+        }
+        if (!Array.isArray(body.messages) || body.messages.length === 0) {
+          return sendJson(res, 400, { error: { message: 'Missing non-empty "messages" array', type: 'invalid_request_error' } });
+        }
+        const prompt = formatOpenAiMessages(body.messages);
+        if (!prompt) {
+          return sendJson(res, 400, { error: { message: 'Messages contain no text content', type: 'invalid_request_error' } });
+        }
+        const reqModel = body.model || currentModelKey;
+        const limit = Math.min(Math.max(1, Number.parseInt(body.max_tokens, 10) || MCP_DEFAULT_MAX_TOKENS), MCP_MAX_TOKENS_CEILING);
+        const stream = !!body.stream;
+        const id = `chatcmpl-bk-${Date.now().toString(36)}`;
+        const created = Math.floor(Date.now() / 1000);
+
+        queue = queue.then(async () => {
+          const eng = await getEngine(reqModel);
+          await eng.reset();
+          const ac = new AbortController();
+          req.on('close', () => { if (!res.writableEnded) ac.abort(); });
+          const composed = prompt + thinkSuffixFor(eng.modelKey, 'auto');
+          let acc = '';
+          let tokens = 0;
+
+          if (stream) {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            });
+            let sentRole = false;
+            await eng.ask(composed, {
+              signal: ac.signal,
+              onToken: (delta) => {
+                acc += delta;
+                tokens++;
+                const chunk = {
+                  id,
+                  object: 'chat.completion.chunk',
+                  created,
+                  model: eng.requestedModel || reqModel,
+                  choices: [{ index: 0, delta: sentRole ? { content: delta } : { role: 'assistant', content: delta }, finish_reason: null }],
+                };
+                sentRole = true;
+                if (!res.writableEnded) res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                if (tokens >= limit && !ac.signal.aborted) ac.abort();
+              },
+            });
+            if (!res.writableEnded) {
+              const endChunk = {
+                id,
+                object: 'chat.completion.chunk',
+                created,
+                model: eng.requestedModel || reqModel,
+                choices: [{ index: 0, delta: {}, finish_reason: tokens >= limit ? 'length' : 'stop' }],
+              };
+              res.write(`data: ${JSON.stringify(endChunk)}\n\n`);
+              res.write('data: [DONE]\n\n');
+              res.end();
+            }
+          } else {
+            const out = await eng.ask(composed, {
+              signal: ac.signal,
+              onToken: (delta) => {
+                acc += delta;
+                tokens++;
+                if (tokens >= limit && !ac.signal.aborted) ac.abort();
+              },
+            });
+            const text = stripThink(out.text || acc);
+            sendJson(res, 200, {
+              id,
+              object: 'chat.completion',
+              created,
+              model: eng.requestedModel || reqModel,
+              choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: tokens >= limit ? 'length' : 'stop' }],
+              usage: { prompt_tokens: Math.ceil(composed.length / 4), completion_tokens: tokens, total_tokens: Math.ceil(composed.length / 4) + tokens },
+            });
+          }
+        }).catch((e) => {
+          if (!res.headersSent) sendJson(res, 500, { error: { message: String(e?.message || e), type: 'server_error' } });
+          else if (!res.writableEnded) res.end();
+        });
+      });
+      return;
+    }
+    sendJson(res, 404, { error: { message: `Unknown route: ${req.method} ${url.pathname}`, type: 'invalid_request_error' } });
+  });
+
+  await new Promise((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(requestedPort, host, resolveListen);
+  });
+  const addr = server.address();
+  const actualPort = typeof addr === 'object' && addr ? addr.port : requestedPort;
+  process.stdout.write(`Brimkern OpenAI-compatible server listening on http://${host}:${actualPort}/v1 (model: ${currentModelKey})\n`);
+
+  const shutdown = async () => {
+    server.close();
+    if (engine) {
+      try { await engine.close(); } catch {}
+    }
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
 async function runMcpServer(initialOptions = {}) {
   // Le SDK et ses dépendances tracent en console.log : redirigé vers stderr pour toute la durée
   // du serveur (withQuietSdkLogs restaure CETTE version, pas l'originale).
@@ -3491,6 +3701,9 @@ async function main() {
 
   let isChat = false;
   let isMcp = false;
+  let isServe = false;
+  let servePort = 11435;
+  let serveHost = '127.0.0.1';
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -3536,6 +3749,22 @@ async function main() {
     // ignorait le modèle (le serveur partait dès le mot « mcp »).
     if (a === 'mcp' || a === 'serve-mcp') {
       isMcp = true;
+      continue;
+    }
+    if (a === 'serve') {
+      isServe = true;
+      continue;
+    }
+    if (a.startsWith('--port=')) {
+      servePort = parseInt(a.split('=')[1], 10);
+      continue;
+    }
+    if (a === '-p' && args[i + 1]) {
+      servePort = parseInt(args[++i], 10);
+      continue;
+    }
+    if (a.startsWith('--host=')) {
+      serveHost = a.split('=').slice(1).join('=');
       continue;
     }
     if (a === '--json') {
@@ -3591,6 +3820,10 @@ async function main() {
 
   if (isMcp) {
     await runMcpServer({ model, native, chromium });
+    return;
+  }
+  if (isServe) {
+    await runOpenAiServer({ model, native, chromium, port: servePort, host: serveHost });
     return;
   }
 

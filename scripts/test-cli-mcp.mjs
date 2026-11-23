@@ -75,7 +75,7 @@ console.log('\nCLI');
   const v = run(['--version']);
   check(v.status === 0 && /Brimkern CLI v\d/.test(v.stdout), '--version');
   const h = run(['--help']);
-  check(h.status === 0 && h.stdout.includes('mcp'), '--help mentionne mcp');
+  check(h.status === 0 && h.stdout.includes('mcp') && h.stdout.includes('serve'), '--help mentionne mcp et serve');
   const m = run(['models']);
   check(m.status === 0 && m.stdout.includes('coder') && m.stdout.includes('super-coder'), 'models liste coder et super-coder');
   const bad = run(['--nope']);
@@ -120,6 +120,40 @@ let toolNames = [];
   check(!/Loading model/.test(s.stderr), 'aucun modèle chargé pendant ces appels');
   check(s.garbage.length === 0, 'stdout ne contient que du JSON-RPC', s.garbage.slice(0, 3).join(' | '));
   check(s.exitCode === 0 && s.exitedAfterEof, 'sortie propre à la fin de stdin');
+}
+
+// ── 2a-bis. Serveur HTTP compatible OpenAI (brimkern serve), sans modèle ────────────────
+console.log('\nServe · OpenAI HTTP');
+{
+  const srv = spawn(process.execPath, [CLI, 'serve', '--port=0'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  let srvOut = '';
+  let srvErr = '';
+  srv.stderr.on('data', (d) => { srvErr += d; });
+  const baseUrl = await new Promise((resolveUrl, rejectUrl) => {
+    const timer = setTimeout(() => rejectUrl(new Error('timeout brimkern serve')), 10_000);
+    srv.stdout.on('data', (d) => {
+      srvOut += d;
+      const m = srvOut.match(/http:\/\/127\.0\.0\.1:(\d+)\/v1/);
+      if (m) { clearTimeout(timer); resolveUrl(`http://127.0.0.1:${m[1]}`); }
+    });
+    srv.on('exit', (code) => { clearTimeout(timer); rejectUrl(new Error(`brimkern serve exited ${code}: ${srvErr}`)); });
+  });
+  try {
+    const health = await fetch(`${baseUrl}/health`).then((r) => r.json());
+    check(health.ok === true && health.loaded === false, 'GET /health répond sans charger le modèle');
+    const models = await fetch(`${baseUrl}/v1/models`).then((r) => r.json());
+    check(models.object === 'list' && models.data.some((m) => m.id === 'coder'), 'GET /v1/models liste les presets');
+    const bad = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    check(bad.status === 400, 'POST /v1/chat/completions sans messages → 400');
+    check(!/Loading model/.test(srvErr), 'aucun modèle chargé pour /health, /v1/models et 400');
+  } finally {
+    srv.kill('SIGTERM');
+    await new Promise((r) => srv.once('exit', r));
+  }
 }
 
 // ── 2b. Tests générés EXÉCUTÉS (bin/mcp-tests.mjs), sans modèle ─────────────────────────
