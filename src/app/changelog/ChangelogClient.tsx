@@ -27,7 +27,7 @@ const RELEASES: Release[] = [
     },
     groups: [
       {
-        title: { en: 'Chrome extension 0.1.1', fr: 'Extension Chrome 0.1.1' },
+        title: { en: 'Browser extension 0.1.1 (Chrome, Brave & Chromium)', fr: 'Extension navigateur 0.1.1 (Chrome, Brave & Chromium)' },
         items: [
           {
             en: 'Follow-up conversation right inside the search panel: ask follow-up questions with the original numbered search snippets pinned in context, streaming output, Stop button, and Google `/` shortcut isolation.',
@@ -38,8 +38,12 @@ const RELEASES: Release[] = [
             fr: 'Panneau d’options complet : bascule d’auto-réponse (désactivée par défaut), bascule du filtre Google Web (udm=14), choix du modèle (Auto / Qwen3 0.6B / Qwen3.5 2B) et vidage du cache disque en un clic.',
           },
           {
-            en: 'Clickable [1], [2] source citations and safe bold rendering; support expanded beyond Google to DuckDuckGo, Brave Search, Startpage, and Ecosia; plus a Chrome Side Panel & context menu (“Ask Brimkern (local)”) to summarize or query any open web page on your GPU.',
-            fr: 'Citations [1], [2] cliquables et gras sûr ; prise en charge étendue à DuckDuckGo, Brave Search, Startpage et Ecosia ; et panneau latéral Chrome + clic droit (« Demander à Brimkern (local) ») pour résumer ou questionner n’importe quelle page ouverte sur votre GPU.',
+            en: 'Clickable [1], [2] source citations and safe bold rendering; support expanded beyond Google to DuckDuckGo, Brave Search, Startpage, and Ecosia; plus a Side Panel & context menu (“Ask Brimkern (local)”) to summarize or query any open web page on your GPU.',
+            fr: 'Citations [1], [2] cliquables et gras sûr ; prise en charge étendue à DuckDuckGo, Brave Search, Startpage et Ecosia ; et panneau latéral + clic droit (« Demander à Brimkern (local) ») pour résumer ou questionner n’importe quelle page ouverte sur votre GPU.',
+          },
+          {
+            en: 'Mobile-friendly responsive layout (verified at 375 px, 0 horizontal overflow, touch targets and mobile Google DOM support) and explicit support for Chrome, Brave, Edge, Arc, Vivaldi, and all Chromium 116+ browsers.',
+            fr: 'Interface responsive adaptée au mobile (vérifiée à 375 px, zéro débordement horizontal, cibles tactiles et DOM mobile Google) et prise en charge explicite de Chrome, Brave, Edge, Arc, Vivaldi et de tout navigateur Chromium 116+.',
           },
         ],
       },
