@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Brimkern</title>
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#1f1f1f;--muted:#4d5156;--line:#dadce0;--surface:#f1f3f4;--accent:#1f1f1f;--accent-fg:#fff;--link:#1a0dab}
+@media (prefers-color-scheme:dark){:root{--bg:#1b1b1f;--fg:#f0f0eb;--muted:#a3a6ad;--line:#33363f;--surface:#222329;--accent:#ef4444;--accent-fg:#fff;--link:#99c3ff}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:14px/1.55 system-ui,-apple-system,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.page-bar{padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:4px}
+.page-title{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page-meta{font-size:11.5px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.actions{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 0}
+main{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px}
+.msg-u{align-self:flex-end;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:7px 12px;max-width:90%;font-size:13.5px;word-break:break-word}
+.msg-a{align-self:flex-start;white-space:pre-wrap;font-size:14px;line-height:1.6;max-width:100%;word-break:break-word}
+.status{font-size:12.5px;color:var(--muted);padding:0 14px}
+.status:empty{display:none}
+.bar{height:3px;background:var(--line);margin:6px 14px 0;border-radius:3px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.consent{display:flex;flex-wrap:wrap;gap:8px;padding:8px 14px}
+.consent:empty{display:none}
+form{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+input{flex:1;min-width:0;font:14px/1.4 system-ui,-apple-system,sans-serif;color:var(--fg);background:transparent;border:1px solid var(--line);border-radius:999px;padding:8px 13px}
+input::placeholder{color:var(--muted);opacity:1}
+input:focus-visible,button:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+button{font:500 13px/1 system-ui,-apple-system,sans-serif;border-radius:999px;padding:8px 13px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg)}
+button.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+button[hidden]{display:none}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand" id="brand"></div>
+    <button type="button" class="ghost" id="reload-tab"></button>
+  </header>
+  <div class="page-bar">
+    <div class="page-title" id="page-title"></div>
+    <div class="page-meta"><span id="page-meta"></span></div>
+  </div>
+  <div class="actions">
+    <button type="button" class="ghost" id="btn-summarize"></button>
+    <button type="button" class="ghost" id="btn-keypoints"></button>
+  </div>
+  <main id="thread" aria-live="polite"></main>
+  <p class="status" id="status" role="status"></p>
+  <div class="bar" id="bar" hidden><i id="fill"></i></div>
+  <div class="consent" id="consent"></div>
+  <form id="form">
+    <input type="text" id="input" autocomplete="off">
+    <button type="submit" id="send"></button>
+    <button type="button" class="ghost" id="stop" hidden></button>
+  </form>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

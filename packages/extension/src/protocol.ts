@@ -31,6 +31,22 @@ export interface AskRequest {
   history?: ChatTurn[];
 }
 
+/** Question sur la page courante (panneau latéral Chrome). */
+export interface PageAskRequest {
+  type: 'ask-page';
+  title: string;
+  url: string;
+  pageText: string;
+  question: string;
+  lang: 'fr' | 'en';
+  consent: boolean;
+  history?: ChatTurn[];
+}
+
+export type EngineRequest = AskRequest | PageAskRequest;
+
+export type TierPref = 'auto' | 'light' | 'standard';
+
 export type EngineEvent =
   | { type: 'unsupported'; reason: 'no-webgpu' | 'software-gpu' }
   | { type: 'need-consent'; model: string; bytes: number }
@@ -47,8 +63,13 @@ export const ENSURE = 'bk:ensure';
 export const IDLE = 'bk:idle';
 /** Content script → service worker : ouvrir les options de l'extension. */
 export const OPEN_OPTIONS = 'bk:options';
-/** Clé chrome.storage.local : répondre automatiquement à chaque recherche Google. */
+/** Options → service worker : ouvrir le panneau latéral sur l'onglet actif. */
+export const OPEN_SIDEPANEL = 'bk:sidepanel';
+/** Clés chrome.storage.local. */
 export const OPT_AUTO_ANSWER = 'autoAnswer';
+export const OPT_TIER = 'tierPref';
+export const OPT_UDM14 = 'udm14';
+export const PENDING_PAGE_SELECTION = 'pendingSelection';
 // Le moteur garde ~300 Mo de poids en mémoire GPU tant que le document vit. Après dix minutes sans
 // question, on le ferme : les poids restent dans le cache disque et reviennent en quelques secondes.
 export const IDLE_MS = 10 * 60 * 1000;

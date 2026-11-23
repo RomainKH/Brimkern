@@ -104,13 +104,15 @@ try {
   resultat.premierClicMs = Date.now() - t0;
   resultat.reponse = await panneau.locator('.answer').innerText();
   resultat.sources = await panneau.locator('ol a').evaluateAll((as) => as.map((a) => a.href));
+  resultat.citationsCliquables = await panneau.locator('.answer a.cite').count();
   resultat.notePremier = await foot.innerText();
   if (SHOTS) await panneau.screenshot({ path: `${SHOTS}/panneau-reponse.png` });
   console.log(`   réponse en ${(resultat.premierClicMs / 1000).toFixed(1)} s (clic → fin, téléchargement compris s’il a eu lieu)`);
-  console.log(`   « ${resultat.reponse} »`);
+  console.log(`   « ${resultat.reponse} » (${resultat.citationsCliquables} citation(s) cliquable(s))`);
   console.log(`   sources : ${resultat.sources.join(', ')}`);
   assert.ok(resultat.sources.length > 0, 'aucune source affichée');
   assert.ok(resultat.sources.every((u) => lus.some((r) => r.url === u)), 'une source n’est pas un résultat de la page');
+  assert.ok(resultat.citationsCliquables > 0, 'aucune citation [n] cliquable dans la réponse');
   resultat.axeClair = await axe(page);
   console.log(`   axe-core (panneau, thème clair) : ${resultat.axeClair.length} violation(s) ${resultat.axeClair.join(' ')}`);
 
@@ -149,9 +151,11 @@ try {
   const extId = new URL((ctx.serviceWorkers()[0] || await ctx.waitForEvent('serviceworker')).url()).host;
   const optPage = await ctx.newPage();
   await optPage.goto(`chrome-extension://${extId}/options.html`);
-  const sw = optPage.getByRole('switch');
+  const sw = optPage.locator('#auto-toggle');
   await sw.waitFor({ timeout: 5_000 });
   assert.equal(await sw.isChecked(), false, 'autoAnswer doit être désactivé par défaut');
+  assert.equal(await optPage.locator('#udm-toggle').isChecked(), true, 'udm14 doit être activé par défaut');
+  assert.equal(await optPage.locator('#tier-select').inputValue(), 'auto', 'tierPref doit être auto par défaut');
   await sw.click();
   assert.equal(await sw.isChecked(), true);
   await page.reload();

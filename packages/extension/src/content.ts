@@ -4,7 +4,7 @@
 // de sobriété — une recherche dont on lit les liens ne coûte aucun calcul d'IA, ni chez Google
 // (la règle udm=14 ne demande pas l'aperçu) ni sur la machine.
 
-import { extractResults, searchQuery } from './serp';
+import { anchorElement, extractResults, searchQuery } from './serp';
 import { ENSURE, OPEN_OPTIONS, OPT_AUTO_ANSWER, PORT_NAME, type AskRequest, type ChatTurn, type EngineEvent, type SerpResult } from './protocol';
 import { fmtModelSize } from '../../../src/lib/modelCatalog';
 import { TIER_MODELS } from './tier';
@@ -51,6 +51,9 @@ ol:empty{display:none}
 li{margin:2px 0}
 a{color:var(--link);text-decoration:none}
 a:hover{text-decoration:underline}
+.cite{display:inline-block;padding:0 5px;margin:0 1px;border-radius:999px;background:var(--surface);
+  color:var(--link);font-size:12px;font-weight:600;line-height:1.45;vertical-align:baseline}
+.cite:hover{text-decoration:none;filter:brightness(.94)}
 .site{color:var(--muted)}
 .thread{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
 .thread:empty{display:none}
@@ -89,8 +92,43 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 
+// Rend une réponse de façon 100 % sûre (zéro innerHTML) : met **texte** en gras et transforme les
+// citations [1], [2] ou [1, 2] en liens cliquables vers la source correspondante.
+function renderRichText(target: HTMLElement, text: string, cited: SerpResult[]) {
+  const frag = document.createDocumentFragment();
+  const re = /\*\*([^*\n]+)\*\*|\[(\d+(?:\s*,\s*\d+)*)\]/g;
+  let last = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > last) frag.append(document.createTextNode(text.slice(last, m.index)));
+    if (m[1] !== undefined) {
+      const strong = el('strong', undefined, m[1]);
+      frag.append(strong);
+    } else if (m[2] !== undefined) {
+      const nums = m[2].split(',').map((s) => Number(s.trim()));
+      nums.forEach((n, idx) => {
+        if (idx > 0) frag.append(document.createTextNode(' '));
+        const src = n >= 1 ? cited[n - 1] : undefined;
+        if (src) {
+          const a = el('a', 'cite', String(n));
+          a.href = src.url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.title = src.site ? `${src.title} — ${src.site}` : src.title;
+          a.setAttribute('aria-label', `${t('Source', 'Source')} ${n}: ${src.title}`);
+          frag.append(a);
+        } else {
+          frag.append(document.createTextNode(`[${n}]`));
+        }
+      });
+    }
+    last = re.lastIndex;
+  }
+  if (last < text.length) frag.append(document.createTextNode(text.slice(last)));
+  target.replaceChildren(frag);
+}
+
 function mount(query: string, results: SerpResult[]) {
-  const anchor = document.querySelector('#center_col') || document.querySelector('#rcnt') || document.querySelector('#search');
+  const anchor = anchorElement(document);
   if (!anchor || document.getElementById(HOST_ID)) return;
   const host = el('div');
   host.id = HOST_ID;
@@ -185,8 +223,10 @@ function mount(query: string, results: SerpResult[]) {
     buttons({ label: t('Answer on this device', 'Répondre sur cet appareil'), run: () => ask(false) });
   };
 
+  let citedSources: SerpResult[] = results.slice(0, 5);
   const showSources = (docs: number[]) => {
-    sources.replaceChildren(...docs.map((d) => results[d]).filter(Boolean).map((r) => {
+    citedSources = docs.map((d) => results[d]).filter(Boolean);
+    sources.replaceChildren(...citedSources.map((r) => {
       const li = el('li');
       const a = el('a', undefined, r.title);
       a.href = r.url;
@@ -266,12 +306,12 @@ function mount(query: string, results: SerpResult[]) {
         case 'token':
           status.textContent = '';
           answer.setAttribute('aria-busy', 'true');
-          answer.textContent = e.text;
+          renderRichText(answer, e.text, citedSources);
           break;
         case 'done': {
           settled = true;
           answer.removeAttribute('aria-busy');
-          answer.textContent = e.text;
+          renderRichText(answer, e.text, citedSources);
           history.splice(0, history.length, { role: 'assistant', content: e.text });
           foot.textContent = t(
             `Computed on this device in ${fmtSeconds(e.ms)} s. A small model can be wrong: check the sources.`,
@@ -374,7 +414,7 @@ function mount(query: string, results: SerpResult[]) {
           bar.hidden = true;
           status.textContent = '';
           turnAnswer.setAttribute('aria-busy', 'true');
-          turnAnswer.textContent = e.text;
+          renderRichText(turnAnswer, e.text, citedSources);
           break;
         case 'done':
           settled = true;
@@ -382,7 +422,7 @@ function mount(query: string, results: SerpResult[]) {
           bar.hidden = true;
           status.textContent = '';
           turnAnswer.removeAttribute('aria-busy');
-          turnAnswer.textContent = e.text;
+          renderRichText(turnAnswer, e.text, citedSources);
           history.push({ role: 'user', content: question }, { role: 'assistant', content: e.text });
           foot.textContent = t(
             `Computed on this device in ${fmtSeconds(e.ms)} s. A small model can be wrong: check the sources.`,

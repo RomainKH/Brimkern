@@ -227,3 +227,54 @@ export function buildFollowUp(
     docs: null,
   };
 }
+
+const PAGE_TEXT_MAX = 6000;
+const SYSTEM_PAGE = {
+  en: 'You are a local browser assistant answering questions about the web page the user is reading. Rely strictly on the page excerpt given in the first message. Be direct, clear and concise in English. If the page does not contain the answer, say so.',
+  fr: 'Tu es un assistant local du navigateur qui répond aux questions sur la page web que lit l’utilisateur. Appuie-toi strictement sur l’extrait de page fourni au premier message. Réponds de façon directe, claire et concise en français. Si la page ne contient pas la réponse, dis-le.',
+};
+
+/** Question (ou suivi) sur la page ouverte dans l'onglet actif (panneau latéral Chrome). */
+export function buildPageAnswer(
+  model: string,
+  title: string,
+  url: string,
+  pageText: string,
+  question: string,
+  history: ChatTurn[],
+  lang: 'fr' | 'en',
+): Answer {
+  const excerpt = pageText.replace(/\s+/g, ' ').trim().slice(0, PAGE_TEXT_MAX);
+  const header = lang === 'fr'
+    ? `Page : ${title} (${url})\n\nContenu :\n${excerpt}`
+    : `Page: ${title} (${url})\n\nContent:\n${excerpt}`;
+  if (!history.length) {
+    const prompt = lang === 'fr'
+      ? `${header}\n\nQuestion : ${question}`
+      : `${header}\n\nQuestion: ${question}`;
+    return {
+      config: { model, lang, maxTokens: 320, worker: false, system: SYSTEM_PAGE[lang], temperature: 0.25, repeatPenalty: SEARCH_PENALTY },
+      text: prompt,
+      docs: null,
+    };
+  }
+  const firstQ = history[0]?.role === 'user' ? history[0].content : '';
+  const firstA = history[1]?.role === 'assistant' ? history[1].content : '';
+  const firstUser = lang === 'fr' ? `${header}\n\nQuestion : ${firstQ}` : `${header}\n\nQuestion: ${firstQ}`;
+  const rest = firstQ && firstA ? history.slice(2) : history;
+  return {
+    config: {
+      model,
+      lang,
+      maxTokens: 320,
+      worker: false,
+      system: SYSTEM_PAGE[lang],
+      examples: firstQ && firstA ? [{ user: firstUser, assistant: firstA }] : undefined,
+      history: firstQ && firstA ? rest : [{ role: 'user', content: header }, ...rest],
+      temperature: 0.3,
+      repeatPenalty: SEARCH_PENALTY,
+    },
+    text: question,
+    docs: null,
+  };
+}

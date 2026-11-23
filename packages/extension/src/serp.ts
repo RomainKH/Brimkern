@@ -1,19 +1,54 @@
-// Lecture de la page de résultats Google — ce que le modèle reçoit comme « fiches ».
+// Lecture des pages de résultats de recherche — Google, DuckDuckGo, Brave Search, Startpage, Ecosia.
 //
-// Google change son DOM souvent et ses classes sont générées : on s'appuie d'abord sur ce qui porte
-// du SENS (un titre <h3> dans un lien externe, le conteneur #rso), et les classes connues
-// (.VwiC3b pour l'extrait) ne servent que d'accélérateur avec un repli sur le texte du bloc.
-// Testé sur scripts/e2e/fixtures/google-serp-fr.html (structure de Google, textes synthétiques) ET
-// sur le vrai Google du 2026-11-14 (liens /goto opaques, cf. resultUrl).
+// Les moteurs changent souvent leurs classes générées : on s'appuie d'abord sur la sémantique
+// (titres dans des liens externes, conteneurs principaux) avec des sélecteurs dédiés en accélérateur.
+// Testé sur scripts/e2e/fixtures/google-serp-fr.html, sur le vrai Google ET par tests unitaires
+// (scripts/test-extension.mjs).
 
 import type { SerpResult } from './protocol';
 
 const SNIPPET_MAX = 400;
 
+export type SearchEngine = 'google' | 'duckduckgo' | 'brave' | 'startpage' | 'ecosia';
+
+const isGoogle = (host: string) => /(^|\.)google\.[a-z.]+$/.test(host);
+
+export function detectEngine(host: string): SearchEngine | null {
+  const h = host.toLowerCase();
+  if (isGoogle(h)) return 'google';
+  if (h === 'duckduckgo.com' || h.endsWith('.duckduckgo.com')) return 'duckduckgo';
+  if (h === 'search.brave.com') return 'brave';
+  if (h === 'startpage.com' || h.endsWith('.startpage.com')) return 'startpage';
+  if (h === 'ecosia.org' || h.endsWith('.ecosia.org')) return 'ecosia';
+  return null;
+}
+
 /** La recherche de la page, ou null si ce n'est pas une page de résultats web. */
-export function searchQuery(loc: { pathname: string; search: string }): string | null {
-  if (loc.pathname !== '/search') return null;
+export function searchQuery(loc: { hostname?: string; pathname: string; search: string }): string | null {
+  const engine = loc.hostname ? detectEngine(loc.hostname) : 'google';
   const p = new URLSearchParams(loc.search);
+  if (engine === 'duckduckgo') {
+    if (loc.pathname !== '/' && loc.pathname !== '/html' && loc.pathname !== '/html/') return null;
+    const ia = p.get('ia');
+    if (ia && ia !== 'web') return null;
+    return p.get('q')?.trim() || null;
+  }
+  if (engine === 'brave') {
+    if (loc.pathname !== '/search') return null;
+    return p.get('q')?.trim() || null;
+  }
+  if (engine === 'startpage') {
+    if (!/^\/(sp|do)\/search/.test(loc.pathname)) return null;
+    const cat = p.get('cat');
+    if (cat && cat !== 'web') return null;
+    return (p.get('query') || p.get('q'))?.trim() || null;
+  }
+  if (engine === 'ecosia') {
+    if (loc.pathname !== '/search') return null;
+    return p.get('q')?.trim() || null;
+  }
+  if (engine !== 'google') return null;
+  if (loc.pathname !== '/search') return null;
   const q = p.get('q')?.trim();
   if (!q) return null;
   // Onglets Images, Actualités, Vidéos, Mode IA… : pas de panneau. `udm=14` est le filtre « Web »
@@ -23,7 +58,25 @@ export function searchQuery(loc: { pathname: string; search: string }): string |
   return q;
 }
 
-const isGoogle = (host: string) => /(^|\.)google\.[a-z.]+$/.test(host);
+/** L'élément en tête duquel monter le panneau de réponse locale. */
+export function anchorElement(doc: Document): Element | null {
+  const engine = detectEngine(doc.location?.hostname || '') ?? 'google';
+  if (engine === 'duckduckgo') {
+    return doc.querySelector('[data-testid="mainline"]')
+      || doc.querySelector('.react-results--main')
+      || doc.querySelector('#links');
+  }
+  if (engine === 'brave') {
+    return doc.querySelector('#results') || doc.querySelector('main');
+  }
+  if (engine === 'startpage') {
+    return doc.querySelector('.w-gl') || doc.querySelector('#main') || doc.querySelector('main');
+  }
+  if (engine === 'ecosia') {
+    return doc.querySelector('[data-test-id="mainline"]') || doc.querySelector('main');
+  }
+  return doc.querySelector('#center_col') || doc.querySelector('#rcnt') || doc.querySelector('#search');
+}
 
 /**
  * L'URL à citer pour un lien-titre, ou null si ce n'est pas un résultat.
@@ -73,9 +126,12 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
  * résultat.
  */
 export function extractResults(doc: Document, max = 8): SerpResult[] {
+  const host = doc.location?.hostname || '';
+  const engine = detectEngine(host) ?? 'google';
+  if (engine !== 'google') return extractOtherEngine(doc, engine, host, max);
+
   const root = doc.querySelector('#rso') || doc.querySelector('#search') || doc.querySelector('#center_col');
   if (!root) return [];
-  const host = doc.location?.hostname || '';
   const links: { a: HTMLAnchorElement; h3: HTMLElement; url: string }[] = [];
   const seen = new Set<string>();
   for (const h3 of Array.from(root.querySelectorAll('h3'))) {
@@ -99,6 +155,35 @@ export function extractResults(doc: Document, max = 8): SerpResult[] {
     ).slice(0, SNIPPET_MAX);
     if (!title || !snippet) continue;
     out.push({ title, url, site: siteOf(url, a, h3, block), snippet });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+// Extraction pour DuckDuckGo, Brave Search, Startpage et Ecosia : même principe sémantique
+// (un conteneur de résultat, un lien externe de titre, et le texte d'extrait).
+function extractOtherEngine(doc: Document, engine: Exclude<SearchEngine, 'google'>, host: string, max: number): SerpResult[] {
+  const specs: Record<Exclude<SearchEngine, 'google'>, { item: string; title: string; snippet: string }> = {
+    duckduckgo: { item: 'article[data-testid="result"], .result', title: 'a[data-testid="result-title-a"], a.result__a', snippet: '[data-result="snippet"], .result__snippet' },
+    brave: { item: '.snippet[data-type="web"], #results .snippet', title: 'a.heading-serpresult, a[href]', snippet: '.snippet-description, .generic-snippet' },
+    startpage: { item: '.w-gl__result, .result', title: 'a.w-gl__result-title, a.result-link', snippet: '.w-gl__description, .result-description' },
+    ecosia: { item: 'article[data-test-id="mainline-result-web"], .result', title: 'a[data-test-id="result-link"], a.result__link', snippet: '[data-test-id="result-description"], .result__snippet' },
+  };
+  const sp = specs[engine];
+  const out: SerpResult[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.from(doc.querySelectorAll(sp.item))) {
+    const a = item.querySelector(sp.title) as HTMLAnchorElement | null;
+    if (!a?.href) continue;
+    let u: URL;
+    try { u = new URL(a.href); } catch { continue; }
+    if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.hostname === host || seen.has(u.href)) continue;
+    const title = clean(a.textContent || '');
+    const snEl = item.querySelector(sp.snippet) as HTMLElement | null;
+    const snippet = clean(snEl?.innerText || snEl?.textContent || textWithout(item, [a])).slice(0, SNIPPET_MAX);
+    if (!title || !snippet) continue;
+    seen.add(u.href);
+    out.push({ title, url: u.href, site: u.hostname.replace(/^www\./, ''), snippet });
     if (out.length >= max) break;
   }
   return out;

@@ -41,9 +41,10 @@ const sorties = await Promise.all([
   esbuild.build({ ...commun, entryPoints: [path.join(EXT, 'src/offscreen.ts')], format: 'esm', outfile: path.join(DIST, 'offscreen.js') }),
   esbuild.build({ ...commun, entryPoints: [path.join(EXT, 'src/content.ts')], format: 'iife', outfile: path.join(DIST, 'content.js') }),
   esbuild.build({ ...commun, entryPoints: [path.join(EXT, 'src/options.ts')], format: 'esm', outfile: path.join(DIST, 'options.js') }),
+  esbuild.build({ ...commun, entryPoints: [path.join(EXT, 'src/sidepanel.ts')], format: 'esm', outfile: path.join(DIST, 'sidepanel.js') }),
 ]);
 
-for (const f of ['background.js', 'offscreen.js', 'content.js', 'options.js']) {
+for (const f of ['background.js', 'offscreen.js', 'content.js', 'options.js', 'sidepanel.js']) {
   const js = readFileSync(path.join(DIST, f), 'utf8');
   const distant = js.match(/https:\/\/(esm\.sh|cdn\.jsdelivr\.net|unpkg\.com)[^'"`\s]*/);
   if (distant) throw new Error(`${f} contient une URL de code distant (${distant[0]}) : refusé par Manifest V3`);
@@ -51,13 +52,19 @@ for (const f of ['background.js', 'offscreen.js', 'content.js', 'options.js']) {
 
 const domaines = JSON.parse(readFileSync(path.join(EXT, 'google-domains.json'), 'utf8'));
 const manifest = JSON.parse(readFileSync(path.join(EXT, 'manifest.json'), 'utf8'));
+const autresMoteurs = [
+  'https://duckduckgo.com/*',
+  'https://search.brave.com/search*',
+  'https://www.startpage.com/sp/search*',
+  'https://www.startpage.com/do/search*',
+  'https://www.ecosia.org/search*',
+];
 manifest.host_permissions = domaines.map((d) => `https://www.${d}/*`);
-manifest.content_scripts[0].matches = domaines.map((d) => `https://www.${d}/search*`);
+manifest.content_scripts[0].matches = [...domaines.map((d) => `https://www.${d}/search*`), ...autresMoteurs];
 writeFileSync(path.join(DIST, 'manifest.json'), JSON.stringify(manifest, null, 2));
 writeFileSync(path.join(DIST, 'rules/udm14.json'), JSON.stringify(udm14Rules(domaines), null, 2));
 for (const d of ['_locales', 'icons']) cpSync(path.join(EXT, d), path.join(DIST, d), { recursive: true });
-cpSync(path.join(EXT, 'offscreen.html'), path.join(DIST, 'offscreen.html'));
-cpSync(path.join(EXT, 'options.html'), path.join(DIST, 'options.html'));
+for (const h of ['offscreen.html', 'options.html', 'sidepanel.html']) cpSync(path.join(EXT, h), path.join(DIST, h));
 
 // Le paquet à déposer sur le Chrome Web Store : le CONTENU de dist/ (manifest.json à la racine du
 // zip, pas dans un sous-dossier — sinon le dépôt est refusé). -X : pas d'attributs macOS.
@@ -71,7 +78,7 @@ cpSync(zip, zipPublic);
 
 const ko = (r) => (Object.values(r.metafile.outputs)[0].bytes / 1024).toFixed(0);
 console.log(`packages/extension/dist — v${manifest.version} (moteur du SDK ${sdkVersion})`);
-console.log(`  background.js ${ko(sorties[0])} KB · offscreen.js ${ko(sorties[1])} KB · content.js ${ko(sorties[2])} KB · options.js ${ko(sorties[3])} KB`);
+console.log(`  background.js ${ko(sorties[0])} KB · offscreen.js ${ko(sorties[1])} KB · content.js ${ko(sorties[2])} KB · options.js ${ko(sorties[3])} KB · sidepanel.js ${ko(sorties[4])} KB`);
 console.log(`  ${domaines.length} domaines Google`);
 console.log(`  ${path.relative(ROOT, zip)} — ${(statSync(zip).size / 1024).toFixed(0)} KB, à déposer sur le Chrome Web Store`);
 console.log(`  ${path.relative(ROOT, zipPublic)} — copie servie par le site (/extension)`);

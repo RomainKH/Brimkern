@@ -11,8 +11,8 @@ import { createSession } from '../../../src/sdk/index';
 import { MODELS } from '../../../src/sdk/engineCore';
 import { brikCacheComplete, ggufCacheComplete } from '../../../src/lib/webgpu/source';
 import { chooseTier, TIER_MODELS, type Probe, type Tier } from './tier';
-import { PORT_NAME, IDLE, IDLE_MS, type AskRequest, type EngineEvent } from './protocol';
-import { buildAnswer, buildFollowUp, cleanAnswer } from './answer';
+import { PORT_NAME, IDLE, IDLE_MS, OPT_TIER, type EngineRequest, type EngineEvent, type TierPref } from './protocol';
+import { buildAnswer, buildFollowUp, buildPageAnswer, cleanAnswer } from './answer';
 
 // Un modèle se note « téléchargé » quand il a été chargé une fois en entier. Sans cette marque, la
 // vérification du cache demanderait l'en-tête du fichier au Hub — une requête réseau AVANT que
@@ -40,11 +40,26 @@ async function probe(): Promise<Probe> {
 // était sur le disque (réponse en 16,5 s, sans téléchargement).
 const cacheComplete = (url: string) => (/\.gguf(\?|$)/i.test(url) ? ggufCacheComplete(url) : brikCacheComplete(url));
 
-// Le modèle à utiliser : un modèle déjà en cache gagne toujours (aucun téléchargement), sinon le
-// palier choisi pour cette machine et ce réseau.
+// Le modèle à utiliser : si l'utilisateur a choisi un palier explicite dans les options, on le
+// respecte ; en mode 'auto', un modèle déjà en cache gagne toujours (aucun retéléchargement).
+async function readTierPref(): Promise<TierPref> {
+  try {
+    const data = await chrome.storage?.local?.get(OPT_TIER);
+    const v = data?.[OPT_TIER];
+    if (v === 'light' || v === 'standard') return v;
+  } catch {}
+  return 'auto';
+}
+
 async function pickModel(p: Probe): Promise<{ tier: Tier; cached: boolean } | EngineEvent> {
   const choice = chooseTier(p);
   if (choice.tier === null) return { type: 'unsupported', reason: choice.reason };
+  const pref = await readTierPref();
+  if (pref !== 'auto') {
+    const m = TIER_MODELS[pref].model;
+    const cached = marked(m) && await cacheComplete(MODELS[m] ?? m);
+    return { tier: pref, cached };
+  }
   const order: Tier[] = choice.tier === 'standard' ? ['standard', 'light'] : ['light', 'standard'];
   for (const t of order) {
     const m = TIER_MODELS[t].model;
@@ -64,7 +79,7 @@ function armIdle() {
 }
 armIdle();
 
-async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: AbortSignal) {
+async function answer(req: EngineRequest, send: (e: EngineEvent) => void, signal: AbortSignal) {
   const p = await probe();
   const picked = await pickModel(p);
   if ('type' in picked) return send(picked);
@@ -72,9 +87,11 @@ async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: A
   if (!picked.cached && !req.consent) {
     return send({ type: 'need-consent', model, bytes });
   }
-  const a = req.followUp
-    ? buildFollowUp(model, req.query, req.results, req.history ?? [], req.followUp, req.lang)
-    : buildAnswer(model, req.query, req.results, req.lang);
+  const a = req.type === 'ask-page'
+    ? buildPageAnswer(model, req.title, req.url, req.pageText, req.question, req.history ?? [], req.lang)
+    : req.followUp
+      ? buildFollowUp(model, req.query, req.results, req.history ?? [], req.followUp, req.lang)
+      : buildAnswer(model, req.query, req.results, req.lang);
   const session = createSession(a.config);
   session.on('progress', (phase, pr) => send({ type: 'progress', phase, loaded: pr?.loaded, total: pr?.total }));
   // Le chrono part quand le modèle est prêt : « calculée en N s » ne doit pas compter le
@@ -89,7 +106,7 @@ async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: A
   try {
     const text = await session.ask(a.text, {
       signal,
-      onSources: a.docs || req.followUp ? undefined : (s) => send({ type: 'sources', docs: s.map((x) => x.doc) }),
+      onSources: a.docs || req.type === 'ask-page' || req.followUp ? undefined : (s) => send({ type: 'sources', docs: s.map((x) => x.doc) }),
       onToken: (t) => send({ type: 'token', text: cleanAnswer(t) }),
     });
     mark(model);
@@ -105,8 +122,8 @@ chrome.runtime.onConnect.addListener((port) => {
   let open = true;
   port.onDisconnect.addListener(() => { open = false; ctrl.abort(); });
   const send = (e: EngineEvent) => { if (open) port.postMessage(e); };
-  port.onMessage.addListener((msg: AskRequest) => {
-    if (msg?.type !== 'ask') return;
+  port.onMessage.addListener((msg: EngineRequest) => {
+    if (msg?.type !== 'ask' && msg?.type !== 'ask-page') return;
     clearTimeout(idleTimer);
     queue = queue
       .then(() => (ctrl.signal.aborted ? undefined : answer(msg, send, ctrl.signal)))

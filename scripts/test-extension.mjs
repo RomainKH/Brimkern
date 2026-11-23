@@ -17,7 +17,10 @@ await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/tier
 const { chooseTier, TIER_MODELS } = await import(pathToFileURL(out).href);
 const outA = path.join(tmp, 'answer.mjs');
 await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/answer.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outA, logLevel: 'error' });
-const { cleanAnswer, buildAnswer, buildFollowUp } = await import(pathToFileURL(outA).href);
+const { cleanAnswer, buildAnswer, buildFollowUp, buildPageAnswer } = await import(pathToFileURL(outA).href);
+const outS = path.join(tmp, 'serp.mjs');
+await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/serp.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outS, logLevel: 'error' });
+const { detectEngine, searchQuery } = await import(pathToFileURL(outS).href);
 rmSync(tmp, { recursive: true, force: true });
 
 let n = 0;
@@ -103,6 +106,36 @@ test('suivi de conversation (EN) : libellés anglais', () => {
   const f = buildFollowUp('m', 'eiffel tower height', res, [{ role: 'assistant', content: '330 m [1].' }], 'When was it built?', 'en');
   assert.match(f.config.examples[0].user, /^Results:\n\[1\] T[\s\S]*\n\nSearch: eiffel tower height$/);
   assert.match(f.config.system, /in English/);
+});
+test('assistant de page (side panel) : 1er tour et suivi', () => {
+  const p1 = buildPageAnswer('m', 'Guide', 'https://example.com', 'Contenu de test.', 'Résume', [], 'fr');
+  assert.match(p1.text, /^Page : Guide \(https:\/\/example\.com\)\n\nContenu :\nContenu de test\.\n\nQuestion : Résume$/);
+  const p2 = buildPageAnswer('m', 'Guide', 'https://example.com', 'Contenu de test.', 'Détaille ?', [
+    { role: 'user', content: 'Résume' },
+    { role: 'assistant', content: 'Un résumé.' },
+  ], 'fr');
+  assert.equal(p2.text, 'Détaille ?');
+  assert.equal(p2.config.examples.length, 1);
+  assert.equal(p2.config.examples[0].assistant, 'Un résumé.');
+});
+
+console.log('serp.ts (multi-moteurs)');
+test('détection des 5 moteurs de recherche', () => {
+  assert.equal(detectEngine('www.google.fr'), 'google');
+  assert.equal(detectEngine('duckduckgo.com'), 'duckduckgo');
+  assert.equal(detectEngine('search.brave.com'), 'brave');
+  assert.equal(detectEngine('www.startpage.com'), 'startpage');
+  assert.equal(detectEngine('www.ecosia.org'), 'ecosia');
+  assert.equal(detectEngine('example.com'), null);
+});
+test('searchQuery multi-moteurs (web oui, images non)', () => {
+  assert.equal(searchQuery({ hostname: 'www.google.fr', pathname: '/search', search: '?q=brimkern&udm=14' }), 'brimkern');
+  assert.equal(searchQuery({ hostname: 'www.google.fr', pathname: '/search', search: '?q=brimkern&udm=2' }), null);
+  assert.equal(searchQuery({ hostname: 'duckduckgo.com', pathname: '/', search: '?q=webgpu&ia=web' }), 'webgpu');
+  assert.equal(searchQuery({ hostname: 'duckduckgo.com', pathname: '/', search: '?q=webgpu&ia=images' }), null);
+  assert.equal(searchQuery({ hostname: 'search.brave.com', pathname: '/search', search: '?q=wgsl' }), 'wgsl');
+  assert.equal(searchQuery({ hostname: 'www.startpage.com', pathname: '/sp/search', search: '?query=gguf' }), 'gguf');
+  assert.equal(searchQuery({ hostname: 'www.ecosia.org', pathname: '/search', search: '?q=llm+local' }), 'llm local');
 });
 
 console.log('rules.mjs (udm=14)');
