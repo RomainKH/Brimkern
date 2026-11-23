@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Brimkern Starter — Static Docs Q&amp;A</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #1b1b1f; color: #f0f0eb; }
+    section { border-top: 1px solid #33363f; padding: 18px 0; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 20px; color: #f87171; }
+    code { background: #25262e; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Acme Docs — Local Q&amp;A Starter</h1>
+  <p>Open the chat widget in the bottom-right corner to ask questions about the documentation below. The widget indexes the page DOM automatically and runs on your GPU.</p>
+
+  <section id="install">
+    <h2>Installation</h2>
+    <p>Install Acme CLI with <code>npm i -g acme-cli</code>. Node.js 18 or higher is required. Configuration lives in <code>acme.config.json</code> at the project root.</p>
+  </section>
+
+  <section id="auth">
+    <h2>Authentication</h2>
+    <p>Run <code>acme login</code> to authenticate via OAuth. Tokens are stored in your OS keychain and expire after 30 days. CI pipelines can set the <code>ACME_TOKEN</code> environment variable.</p>
+  </section>
+
+  <section id="deploy">
+    <h2>Deployments &amp; Rollbacks</h2>
+    <p>Deploy with <code>acme deploy --prod</code>. Every release gets an immutable URL. Roll back to the previous release at any time with <code>acme rollback</code>.</p>
+  </section>
+
+  <script src="https://brimkern.com/sdk.js"></script>
+  <script>
+    // Index every <section> on the page as local knowledge cards
+    const knowledge = [...document.querySelectorAll('section')].map((sec) => ({
+      title: sec.querySelector('h2')?.textContent?.trim() || sec.id,
+      text: sec.innerText.trim(),
+    }));
+
+    Brimkern.embed({
+      title: 'Docs Assistant (Local GPU)',
+      greeting: 'Ask anything about installation, auth, or deployments.',
+      system: 'You answer questions about Acme Docs using only the provided documentation sections. Be concise.',
+      knowledge,
+      showSources: true,
+      theme: 'dark',
+    });
+  </script>
+</body>
+</html>

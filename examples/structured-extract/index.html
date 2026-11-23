@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Brimkern Starter — Local Structured JSON Extraction</title>
+  <style>
+    body { font: 15px/1.6 system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #1b1b1f; color: #f0f0eb; }
+    textarea { width: 100%; min-height: 110px; background: #222329; color: #f0f0eb; border: 1px solid #33363f; border-radius: 8px; padding: 12px; font: inherit; }
+    button { margin-top: 10px; background: #dc2626; color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
+    pre { background: #161618; border: 1px solid #33363f; border-radius: 8px; padding: 14px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Local Ticket Classifier &amp; JSON Extractor</h1>
+  <p>Uses <code>Brimkern.generateJson()</code> with schema validation — zero server, zero API cost.</p>
+
+  <textarea id="msg">Hi, order #48219 arrived with a cracked screen. Can I get a replacement shipped to Lyon before Friday? — Clara</textarea>
+  <div><button id="run">Extract JSON locally</button></div>
+  <pre id="out">Click “Extract JSON locally” to run on your GPU.</pre>
+
+  <script src="https://brimkern.com/sdk.js"></script>
+  <script>
+    const schema = {
+      type: 'object',
+      required: ['category', 'urgency', 'orderId', 'summary'],
+      properties: {
+        category: { type: 'string', enum: ['billing', 'damaged_item', 'shipping', 'other'] },
+        urgency: { type: 'string', enum: ['low', 'medium', 'high'] },
+        orderId: { type: 'string' },
+        summary: { type: 'string' },
+      },
+    };
+
+    const out = document.getElementById('out');
+    document.getElementById('run').addEventListener('click', async () => {
+      out.textContent = 'Running on local WebGPU…';
+      try {
+        const res = await Brimkern.generateJson({
+          prompt: document.getElementById('msg').value,
+          schema,
+          maxTokens: 160,
+        });
+        out.textContent = JSON.stringify(res.data, null, 2) + `\n\n// validated in ${res.attempts} attempt(s)`;
+      } catch (e) {
+        out.textContent = String(e?.message || e);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Brimkern Starter — Offline Shop Assistant</title>
+  <style>
+    body { font: 16px/1.6 system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #1b1b1f; color: #f0f0eb; }
+    .card { border: 1px solid #33363f; background: #222329; border-radius: 10px; padding: 16px; margin: 14px 0; }
+    button { background: #dc2626; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Nordic Trail — Offline Product Assistant</h1>
+  <p>Product knowledge cards + local calculator tool + conversation persisted in <code>localStorage</code>.</p>
+  <div class="card">
+    <strong>Fjord Shell Jacket — €189</strong>
+    <p>Waterproof 20,000 mm membrane, 340 g, recycled ripstop. Free EU shipping above €100. 30-day free returns.</p>
+    <button id="reset">Reset saved chat</button>
+  </div>
+
+  <script src="https://brimkern.com/sdk.js"></script>
+  <script>
+    const KEY = 'nordic-trail-history';
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch {}
+
+    const widget = Brimkern.embed({
+      title: 'Nordic Trail Support',
+      greeting: 'Need sizing, shipping, or price calculations? Runs locally in your browser.',
+      system: 'You are Nordic Trail customer support. Answer concisely from the product cards.',
+      tools: ['calc'],
+      history: saved,
+      showSources: true,
+      theme: 'dark',
+      knowledge: [
+        { title: 'Fjord Shell Jacket', text: 'Price: €189. Weight: 340 g. Waterproof rating: 20,000 mm. Sizes: XS to XXL. Regular fit; size up for layering.' },
+        { title: 'Shipping & Returns', text: 'Free shipping in the EU over €100 (€7.90 below). Delivery in 2–4 business days. Free returns within 30 days.' },
+        { title: 'Bundle Discount', text: 'Buy 2 jackets and get 15% off the total order.' },
+      ],
+    });
+
+    widget.on('message', () => {
+      try { localStorage.setItem(KEY, JSON.stringify(widget.history)); } catch {}
+    });
+
+    document.getElementById('reset').addEventListener('click', () => {
+      localStorage.removeItem(KEY);
+      widget.setHistory([]);
+    });
+  </script>
+</body>
+</html>

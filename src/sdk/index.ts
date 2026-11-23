@@ -25,6 +25,11 @@ import { resolveModelUrl, type Msg, type LoadProgress } from './engineCore';
 import { pickBackend, type EngineBackend, type TurnRequest } from './backend';
 import { setWorkerScriptUrl } from './selfUrl';
 import { makeSystemBuilder, estFr } from './prompting';
+import { extractJson, validateJsonSchema, formatJsonSystem, runStructuredJson, type JsonSchema, type JsonResult } from './structured';
+import { buildOpenAICompatible, buildLanguageModel, type OpenAIMessage, type OpenAICreateParams, type OpenAIChatCompletion, type OpenAIChatChunk, type AISDKCallOptions } from './adapters';
+
+export type { JsonSchema, JsonResult, OpenAIMessage, OpenAICreateParams, OpenAIChatCompletion, OpenAIChatChunk, AISDKCallOptions };
+export { extractJson, validateJsonSchema };
 
 // `Msg` est public depuis 0.1.3 : l'historique est INJECTABLE (SessionConfig.history), donc son
 // type doit être nommable par l'intégrateur qui le range dans un localStorage.
@@ -898,6 +903,43 @@ export const embed = (cfg: EmbedConfig = {}): BrimkernWidget => {
 
 export { createSession };
 
+/**
+ * Sortie JSON structurée : injecte la contrainte de schéma dans le prompt système, valide le JSON
+ * produit contre `schema` et effectue jusqu'à `retries` passes de réparation en cas d'écart.
+ */
+export const generateJson = async <T = unknown>(
+  opts: SessionConfig & { prompt: string; schema: JsonSchema; retries?: number; signal?: AbortSignal },
+): Promise<JsonResult<T>> => {
+  if (typeof opts !== 'object' || opts === null || typeof opts.prompt !== 'string' || !opts.schema) {
+    throw new TypeError('Brimkern.generateJson expects { prompt: string, schema: JsonSchema, ... }.');
+  }
+  const lang = opts.lang ?? (estFr(opts) ? 'fr' : 'en');
+  const session = createSession({
+    ...opts,
+    system: formatJsonSystem(opts.schema, opts.system, lang),
+    temperature: opts.temperature ?? 0,
+    repeatPenalty: opts.repeatPenalty ?? 1,
+  });
+  try {
+    return await runStructuredJson<T>(
+      (p) => session.ask(p, { signal: opts.signal }),
+      opts.prompt,
+      opts.schema,
+      { retries: opts.retries, lang },
+    );
+  } finally {
+    session.destroy();
+  }
+};
+
+/** Client compatible OpenAI (`client.chat.completions.create`), 100 % local sur WebGPU. */
+export const createOpenAICompatible = (defaults: SessionConfig = {}) =>
+  buildOpenAICompatible(createSession, defaults);
+
+/** Modèle compatible Vercel AI SDK (`LanguageModelV1` : `doGenerate` / `doStream`). */
+export const createLanguageModel = (cfg: SessionConfig = {}) =>
+  buildLanguageModel(createSession, cfg);
+
 /** One-shot : une question, une réponse, pas d'historique conservé. */
 export const generate = async (opts: SessionConfig & { prompt: string; onToken?: (t: string) => void; signal?: AbortSignal; onSources?: (s: Source[]) => void }): Promise<string> => {
   // L'API prend UN objet. Appelée à tort comme `generate('question', { model })` — l'erreur la
@@ -942,5 +984,15 @@ export const status = (model?: string): 'unavailable' | 'idle' | 'loading' | 're
 // La surface globale de la balise <script>. Conditionnée : importer le paquet côté serveur ne doit
 // RIEN faire, pas planter.
 if (typeof window !== 'undefined') {
-  (window as any).Brimkern = { embed, createSession, generate, preload, status, runtime };
+  (window as any).Brimkern = {
+    embed,
+    createSession,
+    generate,
+    generateJson,
+    createOpenAICompatible,
+    createLanguageModel,
+    preload,
+    status,
+    runtime,
+  };
 }
