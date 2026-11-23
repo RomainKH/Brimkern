@@ -20,6 +20,49 @@ interface Release {
 
 const RELEASES: Release[] = [
   {
+    date: { en: 'November 23, 2026', fr: '23 novembre 2026' },
+    tagline: {
+      en: 'Extension 0.1.1 (follow-up chat, full options, clickable citations, 5 search engines, page side panel), SDK 0.8.3 (structured JSON, OpenAI & Vercel AI SDK adapters, live GPU playground), and CLI OpenAI-compatible HTTP server.',
+      fr: 'Extension 0.1.1 (suivi de conversation, options complètes, citations cliquables, 5 moteurs de recherche, panneau latéral de page), SDK 0.8.3 (JSON structuré, adaptateurs OpenAI & Vercel AI SDK, bac à sable GPU live) et serveur HTTP compatible OpenAI dans la CLI.',
+    },
+    groups: [
+      {
+        title: { en: 'Chrome extension 0.1.1', fr: 'Extension Chrome 0.1.1' },
+        items: [
+          {
+            en: 'Follow-up conversation right inside the search panel: ask follow-up questions with the original numbered search snippets pinned in context, streaming output, Stop button, and Google `/` shortcut isolation.',
+            fr: 'Suivi de conversation directement dans le panneau de recherche : posez des questions de suivi en gardant les 5 extraits numérotés épinglés en contexte, avec streaming, bouton Arrêter et blocage du raccourci `/` de Google.',
+          },
+          {
+            en: 'Full options popup & page: auto-answer toggle (off by default), Google Web filter (udm=14) toggle, model tier picker (Auto / Qwen3 0.6B / Qwen3.5 2B), and one-click model cache clearing with live disk usage.',
+            fr: 'Panneau d’options complet : bascule d’auto-réponse (désactivée par défaut), bascule du filtre Google Web (udm=14), choix du modèle (Auto / Qwen3 0.6B / Qwen3.5 2B) et vidage du cache disque en un clic.',
+          },
+          {
+            en: 'Clickable [1], [2] source citations and safe bold rendering; support expanded beyond Google to DuckDuckGo, Brave Search, Startpage, and Ecosia; plus a Chrome Side Panel & context menu (“Ask Brimkern (local)”) to summarize or query any open web page on your GPU.',
+            fr: 'Citations [1], [2] cliquables et gras sûr ; prise en charge étendue à DuckDuckGo, Brave Search, Startpage et Ecosia ; et panneau latéral Chrome + clic droit (« Demander à Brimkern (local) ») pour résumer ou questionner n’importe quelle page ouverte sur votre GPU.',
+          },
+        ],
+      },
+      {
+        title: { en: 'SDK 0.8.3, CLI & docs', fr: 'SDK 0.8.3, CLI & documentation' },
+        items: [
+          {
+            en: 'Added generateJson() (schema validation + automatic repair), createOpenAICompatible() (sync & streaming chat.completions.create), createLanguageModel() (Vercel AI SDK v1 provider), three ready-to-clone starters in examples/, and an interactive GPU playground in /docs/sdk.',
+            fr: 'Ajout de generateJson() (validation de schéma + réparation automatique), createOpenAICompatible() (chat.completions.create sync & stream), createLanguageModel() (provider Vercel AI SDK v1), trois starters dans examples/ et un bac à sable GPU interactif sur /docs/sdk.',
+          },
+          {
+            en: 'Added `brimkern serve` in the CLI: a localhost OpenAI-compatible HTTP server (/v1/chat/completions, /v1/models, /health) with SSE streaming and lazy model loading.',
+            fr: 'Ajout de `brimkern serve` dans la CLI : serveur HTTP local compatible OpenAI (/v1/chat/completions, /v1/models, /health) avec streaming SSE et chargement paresseux du modèle.',
+          },
+          {
+            en: 'Fixed the sticky documentation sidebar & header (overflow-x: clip) and added a filterable verified .brik & SDK model picker in /docs/models.',
+            fr: 'Correction du menu latéral et de l’en-tête collants dans la documentation (overflow-x: clip) et ajout d’un sélecteur filtrable de modèles .brik & SDK vérifiés dans /docs/models.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     date: { en: 'November 19, 2026', fr: '19 novembre 2026' },
     tagline: {
       en: 'A Chrome extension, in beta: Google’s AI Overview is no longer requested, and an answer is computed on your own GPU when you click, from the results already on the page.',

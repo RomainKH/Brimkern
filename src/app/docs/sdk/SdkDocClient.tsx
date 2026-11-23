@@ -8,6 +8,7 @@
 import Link from 'next/link';
 import { useT, useHref } from '@/lib/i18n';
 import DocsShell, { Code, P, Section } from '../DocsShell';
+import SdkPlayground from './SdkPlayground';
 import { SDK_URL, SITE_URL } from '@/lib/site';
 
 // Une ligne de référence : nom mono à gauche, type discret, description. Un tableau HTML serait
@@ -30,12 +31,14 @@ export default function SdkDocClient() {
 
   const toc: { id: string; label: string }[] = [
     { id: 'install', label: t('Install', 'Installation') },
+    { id: 'playground', label: t('Live GPU playground', 'Bac à sable GPU') },
     { id: 'embed', label: 'embed()' },
     { id: 'appearance', label: t('Appearance & labels', 'Apparence & libellés') },
     { id: 'control', label: t('Controlling the widget', 'Piloter le widget') },
     { id: 'events', label: t('Events', 'Événements') },
     { id: 'sessions', label: 'createSession()' },
-    { id: 'generate', label: 'generate()' },
+    { id: 'generate', label: 'generate() & generateJson()' },
+    { id: 'adapters', label: t('OpenAI & Vercel AI SDK', 'OpenAI & Vercel AI SDK') },
     { id: 'knowledge', label: t('Knowledge documents', 'Documents de connaissance') },
     { id: 'tools', label: t('Tools', 'Outils') },
     { id: 'sources', label: t('Sources of an answer', "Sources d'une réponse") },
@@ -76,6 +79,14 @@ import type {
 <script>
   Brimkern.embed({ title: "Ask us anything" });
 </script>`}</Code>
+      </Section>
+
+      <Section id="playground" title={t('Live GPU playground', 'Bac à sable GPU')}>
+        <P>
+          {t('Edit the prompt, knowledge or JSON schema and run Brimkern directly on your own GPU. Nothing is downloaded until you click Run.',
+             'Modifiez le prompt, les fiches ou le schéma JSON et exécutez Brimkern directement sur votre GPU. Rien n’est téléchargé avant le clic.')}
+        </P>
+        <SdkPlayground />
       </Section>
 
       <Section id="embed" title="embed(config?)">
@@ -241,6 +252,44 @@ session.destroy()`}</Code>
   prompt: "Why is the sky blue?",
   onToken: (text) => process(text),
 });`}</Code>
+      </Section>
+
+      <Section id="adapters" title={t('Structured JSON, OpenAI & Vercel AI SDK', 'JSON structuré, OpenAI & Vercel AI SDK')}>
+        <P>
+          {t('Three zero-dependency helpers available on /sdk.js (v0.8.3) for structured extraction and drop-in framework integration:',
+             'Trois briques sans dépendance disponibles sur /sdk.js (v0.8.3) pour l’extraction structurée et l’intégration dans vos frameworks :')}
+        </P>
+        <Code lang="js">{`import { generateJson, createOpenAICompatible, createLanguageModel } from 'brimkern';
+
+// 1. ${t('Validated JSON extraction with automatic retry', 'Extraction JSON validée avec réparation automatique')}
+const { data } = await generateJson({
+  prompt: 'Order #48219 arrived broken, urgent.',
+  schema: {
+    type: 'object',
+    required: ['category', 'urgency'],
+    properties: {
+      category: { type: 'string', enum: ['billing', 'damaged', 'shipping'] },
+      urgency: { type: 'string', enum: ['low', 'high'] },
+    },
+  },
+});
+
+// 2. ${t('OpenAI SDK surface in the browser (sync or stream: true)', 'Surface OpenAI dans le navigateur (sync ou stream: true)')}
+const client = createOpenAICompatible();
+const stream = client.chat.completions.create({
+  stream: true,
+  messages: [{ role: 'user', content: 'Explain WebGPU in 2 sentences.' }],
+});
+for await (const chunk of stream) process(chunk.choices[0].delta.content);
+
+// 3. ${t('Vercel AI SDK v1 provider (doGenerate / doStream)', 'Provider Vercel AI SDK v1 (doGenerate / doStream)')}
+const model = createLanguageModel();
+// ${t('Works directly with generateText({ model, prompt }) / streamText({ model, messages })', 'S’utilise directement avec generateText({ model, prompt }) / streamText({ model, messages })')}`}</Code>
+        <P>
+          {t('Three ready-to-clone HTML starters (static docs Q&A, offline shop with localStorage, JSON extractor) live in ',
+             'Trois starters HTML prêts à cloner (Q&A de doc statique, boutique hors-ligne avec localStorage, extracteur JSON) vivent dans ')}
+          <a href="https://github.com/RomainKH/Brimkern/tree/main/examples" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-text)' }}>examples/</a>.
+        </P>
       </Section>
 
       <Section id="knowledge" title={t('Knowledge documents', 'Documents de connaissance')}>

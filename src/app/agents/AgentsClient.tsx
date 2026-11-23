@@ -58,6 +58,7 @@ export default function AgentsClient() {
     { id: 'tools', label: t('The four tools', 'Les quatre outils') },
     { id: 'skill', label: t('The skill', 'Le skill') },
     { id: 'scripts', label: t('Scripts & JSON', 'Scripts & JSON') },
+    { id: 'serve', label: t('OpenAI-compatible server', 'Serveur compatible OpenAI') },
     { id: 'limits', label: t('Limits', 'Limites') },
   ];
 
@@ -222,8 +223,28 @@ export default function AgentsClient() {
       </Screen>
       <p className={s.caption}>{t('Real output, coder (Qwen 3 4B), native Dawn on an M-series Mac. savedUsd is an estimate of what a paid API would have charged, not a measurement.', 'Sortie réelle, coder (Qwen 3 4B), Dawn natif sur Mac série M. savedUsd est une estimation de ce qu’une API payante aurait facturé, pas une mesure.')}</p>
 
+      {/* ── SERVEUR HTTP COMPATIBLE OPENAI ──────────────────────────────────────────────── */}
+      <H2 id="serve" n="06">{t('OpenAI-compatible local server', 'Serveur HTTP local compatible OpenAI')}</H2>
+      <P>
+        {t(
+          'Any tool that speaks the OpenAI Chat Completions API (Cursor, Continue, Cline, Python scripts, curl) can talk to Brimkern over localhost, with streaming SSE and zero data leaving the machine:',
+          'Tout outil compatible avec l’API OpenAI Chat Completions (Cursor, Continue, Cline, scripts Python, curl) peut appeler Brimkern en localhost, avec streaming SSE et zéro donnée envoyée dehors :'
+        )}
+      </P>
+      <Code lang="sh">{`brimkern serve --port=11435 --model=coder
+
+curl http://127.0.0.1:11435/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -d '{"model":"coder","messages":[{"role":"user","content":"Write a TS debounce helper"}]}'`}</Code>
+      <P>
+        {t(
+          'Hybrid privacy pattern: let your local model handle sensitive files (log redaction, bulk PII scrubbing, offline triage) via MCP or brimkern serve while keeping your cloud agent on high-level architecture.',
+          'Usage hybride privé : déléguez au modèle local les fichiers sensibles (anonymisation de logs, tri en lot hors-ligne) via MCP ou brimkern serve pendant que votre agent cloud garde l’architecture.'
+        )}
+      </P>
+
       {/* ── LIMITES ─────────────────────────────────────────────────────────────────────── */}
-      <H2 id="limits" n="06">{t('Limits', 'Limites')}</H2>
+      <H2 id="limits" n="07">{t('Limits', 'Limites')}</H2>
       <div className={s.points}>
         <div className={s.point}>
           <p className={s.pointTitle}>{t('Parallel calls', 'Appels parallèles')}</p>

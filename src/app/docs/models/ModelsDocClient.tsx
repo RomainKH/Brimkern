@@ -4,17 +4,86 @@
 // Hugging Face, les liens de test instantané, et le format .brik avec son convertisseur. Sections
 // sorties de l'ancienne page /docs unique (découpage en pages, retour Romain du 2026-08-18).
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Package } from 'lucide-react';
-import { useT, useHref } from '@/lib/i18n';
+import { ArrowRight, Check, Copy, Package } from 'lucide-react';
+import { useT, useHref, useLocale } from '@/lib/i18n';
+import { fmtModelSize } from '@/lib/modelCatalog';
 import DocsShell, { Code, P, PageTitle, Section } from '../DocsShell';
 import { SITE_URL } from '@/lib/site';
+
+type CatFilter = 'all' | 'qa' | 'code' | 'light';
+
+interface VerifiedModel {
+  id: string;
+  name: string;
+  bytes: number;
+  minRam: string;
+  cat: Exclude<CatFilter, 'all'>;
+  chatHref: string;
+  note: { en: string; fr: string };
+}
+
+const VERIFIED_MODELS: VerifiedModel[] = [
+  {
+    id: 'qwen3-0.6b-shop',
+    name: 'Qwen3 0.6B Shop (BRIK q4)',
+    bytes: 304_464_672,
+    minRam: '4 GB',
+    cat: 'qa',
+    chatHref: '/chat?brik=https://huggingface.co/romainkh14/Qwen3-0.6B-Shop-ENFR_BRIK/resolve/main/qwen3-0.6b-shop-enfr-q4.brik',
+    note: { en: 'SDK default & extension light tier. EN/FR grounded Q&A.', fr: 'Défaut SDK & palier léger extension. Q&A sourcé EN/FR.' },
+  },
+  {
+    id: 'lfm2.5-230m',
+    name: 'LFM2.5 230M (BRIK q4)',
+    bytes: 156_237_824,
+    minRam: '2 GB',
+    cat: 'light',
+    chatHref: '/chat?brik=https://huggingface.co/romainkh14/LFM2.5-230M_BRIK/resolve/main/lfm25-230m-q4.brik',
+    note: { en: 'Smallest hybrid model (conv + attn). Mobile default.', fr: 'Plus petit modèle hybride (conv + attn). Défaut mobile.' },
+  },
+  {
+    id: 'qwen-0.5b',
+    name: 'Qwen2.5 0.5B Instruct (BRIK mixed)',
+    bytes: 395_313_152,
+    minRam: '4 GB',
+    cat: 'qa',
+    chatHref: '/chat?brik=https://huggingface.co/romainkh14/Qwen2.5-0.5B-Instruct_BRIK/resolve/main/qwen2.5-0.5b-instruct-mixed.brik',
+    note: { en: 'Mixed int4 body + int8 attention for clean mobile chat.', fr: 'Corps int4 + attention int8 pour un chat mobile propre.' },
+  },
+  {
+    id: 'coder-1.5b',
+    name: 'Qwen2.5 Coder 1.5B (GGUF Q4_K_M)',
+    bytes: 986_000_000,
+    minRam: '6 GB',
+    cat: 'code',
+    chatHref: '/chat?model=Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF',
+    note: { en: 'Compact coding assistant directly in the browser.', fr: 'Assistant de code compact directement dans le navigateur.' },
+  },
+  {
+    id: 'rwkv-0.4b',
+    name: 'RWKV-7 G1a 0.4B (BRIK q4)',
+    bytes: 280_000_000,
+    minRam: '2 GB',
+    cat: 'light',
+    chatHref: '/chat?brik=https://huggingface.co/romainkh14/RWKV-7-G1a-0.4B_BRIK/resolve/main/rwkv7-g1a-0.4b-q4.brik',
+    note: { en: 'Recurrent state (~1 MB constant memory, no growing KV cache).', fr: 'État récurrent (~1 Mo constant, sans cache KV qui enfle).' },
+  },
+];
 
 export default function ModelsDocClient() {
   const t = useT();
   const href = useHref();
+  const { locale } = useLocale();
+  const fr = locale === 'fr';
+  const [filter, setFilter] = useState<CatFilter>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const visibleModels = filter === 'all' ? VERIFIED_MODELS : VERIFIED_MODELS.filter((m) => m.cat === filter);
 
   const toc: { id: string; label: string }[] = [
+    { id: 'catalog', label: t('Verified .brik & SDK models', 'Modèles .brik & SDK vérifiés') },
     { id: 'any-model', label: t('Run any Hugging Face model', "N'importe quel modèle Hugging Face") },
     { id: 'architectures', label: t('Supported architectures', 'Architectures supportées') },
     { id: 'quantizations', label: t('Quantizations & WebGPU kernels', 'Quantifications & kernels WebGPU') },
@@ -40,6 +109,61 @@ export default function ModelsDocClient() {
         </a>
       </div>
 
+      <Section id="catalog" title={t('Verified .brik & SDK models', 'Modèles .brik & SDK vérifiés')}>
+        <P>
+          {t('Quick picker for the SDK and browser chat: filter by use case, copy the SDK model key, or open directly in the chat.',
+             'Sélecteur rapide pour le SDK et le chat : filtrez par usage, copiez la clé SDK, ou testez directement dans le chat.')}
+        </P>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 14px' }}>
+          {([
+            ['all', t('All', 'Tous')],
+            ['qa', t('Chat & Q&A', 'Chat & Q&A')],
+            ['code', t('Code', 'Code')],
+            ['light', t('Ultra-light', 'Ultra-léger')],
+          ] as [CatFilter, string][]).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={filter === key ? 'btn btn-primary' : 'btn btn-secondary'}
+              style={{ fontSize: 12.5, padding: '6px 12px' }}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginBottom: 14 }}>
+          {visibleModels.map((m) => (
+            <div key={m.id} style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                <strong style={{ color: 'var(--text-primary)', fontSize: 14 }}>{m.name}</strong>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  {fmtModelSize(m.bytes, fr)} · {m.minRam}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{fr ? m.note.fr : m.note.en}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto', paddingTop: 4 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, padding: '5px 10px' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(m.id).catch(() => {});
+                    setCopiedId(m.id);
+                    setTimeout(() => setCopiedId(null), 1600);
+                  }}
+                >
+                  {copiedId === m.id ? <Check size={12} /> : <Copy size={12} />} {copiedId === m.id ? t('Copied', 'Copié') : m.id}
+                </button>
+                <Link href={href(m.chatHref)} className="btn btn-primary" style={{ textDecoration: 'none', fontSize: 12, padding: '5px 10px' }}>
+                  {t('Try in chat', 'Essayer')} <ArrowRight size={12} />
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
       <Section id="any-model" title={t('Run any Hugging Face model', "N'importe quel modèle Hugging Face")}>
         <P>
           {t('Brimkern reads single-file GGUF models directly: the format hosted by Hugging Face, with zero conversion or server compilation step. Paste any of these formats into the input field on the home screen, in the model browser, or pass them to the CLI:',
@@ -63,49 +187,49 @@ https://example.com/my-custom-model.gguf`}</Code>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, margin: '18px 0' }}>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>Qwen (Alibaba)</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('Qwen 2, Qwen 2.5, Qwen 2.5 Coder, Qwen 3 (with <think> reasoning), and Qwen 3.5 SSM (DeltaNet causal conv + recurrent state).',
                  'Qwen 2, Qwen 2.5, Qwen 2.5 Coder, Qwen 3 (réflexion <think>), et Qwen 3.5 SSM (hybride DeltaNet conv causale + état récurrent).')}
             </p>
           </div>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>Llama (Meta)</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('Llama 2, Llama 3, Llama 3.1, Llama 3.2, Granite 4.0 Micro, and Falcon 3. Interleaved RoPE pairs (ggml NORM) handled natively.',
                  'Llama 2, Llama 3, Llama 3.1, Llama 3.2, Granite 4.0 Micro et Falcon 3. Appariement RoPE entrelacé (ggml NORM) géré nativement.')}
             </p>
           </div>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>DeepSeek (DeepSeek AI)</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('DeepSeek-R1 Distill (Qwen & Llama backbones) from 1.5B to 7B with internal monologue decoding.',
                  'DeepSeek-R1 Distill (sur base Qwen et Llama) de 1.5B à 7B avec décodage du monologue interne.')}
             </p>
           </div>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>Gemma (Google)</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('Gemma 1, Gemma 2 (tanh logit softcaps 50/30, GELU gate, query pre-attn scaling), and Gemma 3 (alternating 5 local / 1 global sliding window attention).',
                  'Gemma 1, Gemma 2 (softcaps tanh 50/30, gate GELU, échelle de pré-attention), et Gemma 3 (attention alternée 5 locales / 1 globale fenêtrée).')}
             </p>
           </div>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>Mistral (Mistral AI)</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('Mistral 7B and Ministral 3 with static YaRN frequency transform and attention scaling.',
                  'Mistral 7B et Ministral 3 avec transform statique YaRN et mise à l’échelle d’attention.')}
             </p>
           </div>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
             <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>SmolLM (Hugging Face)</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('SmolLM, SmolLM2, and SmolLM3 featuring NoPE (1 in 4 layers without RoPE for long contexts).',
                  'SmolLM, SmolLM2 et SmolLM3 avec architecture NoPE (1 couche sur 4 sans RoPE pour contextes longs).')}
             </p>
           </div>
           <div style={{ padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-            <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>Hybrides & Récurrents</strong>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 4 }}>{t('Hybrids & Recurrent', 'Hybrides & Récurrents')}</strong>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {t('Liquid AI LFM2/2.5 (gated short conv + attention) and BlinkDL RWKV-7 (constant ~1MB resident state replacing KV cache).',
                  'Liquid AI LFM2/2.5 (conv courte gatée + attention) et BlinkDL RWKV-7 (état résident fixe ~1 Mo remplaçant le cache KV).')}
             </p>
@@ -124,7 +248,7 @@ https://example.com/my-custom-model.gguf`}</Code>
         <div style={{ overflowX: 'auto', margin: '14px 0' }}>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+              <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
                 <th style={{ padding: '8px 12px' }}>{t('Quantization', 'Quantification')}</th>
                 <th style={{ padding: '8px 12px' }}>{t('Block format', 'Format de bloc')}</th>
                 <th style={{ padding: '8px 12px' }}>{t('GPU kernel', 'Kernel GPU')}</th>
@@ -133,52 +257,52 @@ https://example.com/my-custom-model.gguf`}</Code>
             </thead>
             <tbody>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q4_K_M / Q4_K_S</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q4_K_M / Q4_K_S</td>
                 <td style={{ padding: '8px 12px' }}>256 weights, 144 B</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q4k</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('Default recommended choice for 1B-4B models', 'Choix recommandé par défaut pour modèles 1B-4B')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('Default recommended choice for 1B-4B models', 'Choix recommandé par défaut pour modèles 1B-4B')}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q3_K (M, S, L)</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q3_K (M, S, L)</td>
                 <td style={{ padding: '8px 12px' }}>256 weights, 110 B</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q3k</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('Fits 7B-8B models under ~3.8 GB VRAM on 8GB machines', 'Fait tenir les modèles 7B-8B sous ~3,8 Go de VRAM sur machines 8 Go')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('Fits 7B-8B models under ~3.8 GB VRAM on 8GB machines', 'Fait tenir les modèles 7B-8B sous ~3,8 Go de VRAM sur machines 8 Go')}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q4_0</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q4_0</td>
                 <td style={{ padding: '8px 12px' }}>32 weights, 18 B</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q4_0</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('Standard symmetric 4-bit quantization', 'Quantification 4 bits symétrique standard')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('Standard symmetric 4-bit quantization', 'Quantification 4 bits symétrique standard')}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q4_1</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q4_1</td>
                 <td style={{ padding: '8px 12px' }}>32 weights, 20 B</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q4_1</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('Asymmetric 4-bit with min offset', 'Quantification 4 bits asymétrique avec offset min')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('Asymmetric 4-bit with min offset', 'Quantification 4 bits asymétrique avec offset min')}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q5_0 / Q5_K</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q5_0 / Q5_K</td>
                 <td style={{ padding: '8px 12px' }}>32 / 256 weights</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q5_0 / dequant_q5k</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('Higher precision for critical projections', 'Plus haute précision sur les projections critiques')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('Higher precision for critical projections', 'Plus haute précision sur les projections critiques')}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q6_K</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q6_K</td>
                 <td style={{ padding: '8px 12px' }}>256 weights, 210 B</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q6k</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('High-fidelity layers in mixed-precision GGUFs', 'Couches haute fidélité dans les GGUF mixtes')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('High-fidelity layers in mixed-precision GGUFs', 'Couches haute fidélité dans les GGUF mixtes')}</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>Q8_0</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>Q8_0</td>
                 <td style={{ padding: '8px 12px' }}>32 weights, 34 B</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>dequant_q8_0</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('8-bit integer precision, near lossless output head', 'Précision entière 8 bits, tête de sortie quasi sans perte')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('8-bit integer precision, near lossless output head', 'Précision entière 8 bits, tête de sortie quasi sans perte')}</td>
               </tr>
               <tr>
-                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>F16 / F32</td>
+                <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-text)' }}>F16 / F32</td>
                 <td style={{ padding: '8px 12px' }}>1 weight</td>
                 <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>direct native</td>
-                <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{t('Unquantized tensors (RMSNorm weights, biases)', 'Tenseurs non quantifiés (poids RMSNorm, biais)')}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{t('Unquantized tensors (RMSNorm weights, biases)', 'Tenseurs non quantifiés (poids RMSNorm, biais)')}</td>
               </tr>
             </tbody>
           </table>
