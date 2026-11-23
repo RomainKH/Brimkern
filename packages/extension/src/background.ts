@@ -2,7 +2,7 @@
 // en a besoin, et le ferme quand le moteur signale qu'il est inactif. La règle udm=14, elle, est
 // déclarative (rules/udm14.json) : elle s'applique même quand ce worker dort.
 
-import { ENSURE, IDLE } from './protocol';
+import { ENSURE, IDLE, OPEN_OPTIONS } from './protocol';
 
 let creating: Promise<void> | null = null;
 
@@ -26,5 +26,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   }
   if (msg?.type === IDLE) {
     chrome.offscreen.closeDocument().catch(() => {});
+  }
+  if (msg?.type === OPEN_OPTIONS) {
+    chrome.runtime.openOptionsPage().catch(() => {});
   }
 });

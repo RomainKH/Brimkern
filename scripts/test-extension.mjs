@@ -17,7 +17,7 @@ await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/tier
 const { chooseTier, TIER_MODELS } = await import(pathToFileURL(out).href);
 const outA = path.join(tmp, 'answer.mjs');
 await esbuild.build({ entryPoints: [path.join(ROOT, 'packages/extension/src/answer.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outA, logLevel: 'error' });
-const { cleanAnswer, buildAnswer } = await import(pathToFileURL(outA).href);
+const { cleanAnswer, buildAnswer, buildFollowUp } = await import(pathToFileURL(outA).href);
 rmSync(tmp, { recursive: true, force: true });
 
 let n = 0;
@@ -73,6 +73,36 @@ test('format search : aucune démonstration ne recoupe une requête du banc', ()
   const banc = JSON.parse(readFileSync(path.join(ROOT, 'scripts/e2e/serp-queries.json'), 'utf8')).map((q) => q.q);
   const demos = ['fr', 'en'].flatMap((l) => buildAnswer('m', 'q', res, l, 'search').config.examples.map((e) => e.user.split('\n').at(-1)));
   for (const d of demos) assert.ok(!banc.some((q) => d.endsWith(q)), d);
+});
+test('suivi de conversation : premier tour (résultats + réponse) épinglé, échanges suivants dans history', () => {
+  const f = buildFollowUp(
+    'm',
+    'hauteur tour eiffel',
+    six,
+    [
+      { role: 'assistant', content: 'Elle mesure 330 m [1].' },
+      { role: 'user', content: 'Et sans antenne ?' },
+      { role: 'assistant', content: '300 m [2].' },
+    ],
+    'Quand a-t-elle été construite ?',
+    'fr',
+  );
+  assert.equal(f.text, 'Quand a-t-elle été construite ?');
+  assert.equal(f.docs, null);
+  assert.equal(f.config.examples.length, 1);
+  assert.match(f.config.examples[0].user, /^Résultats :\n\[1\] T1[\s\S]*\[5\] T5[\s\S]*\n\nRecherche : hauteur tour eiffel$/);
+  assert.ok(!f.config.examples[0].user.includes('T6'));
+  assert.equal(f.config.examples[0].assistant, 'Elle mesure 330 m [1].');
+  assert.deepEqual(f.config.history, [
+    { role: 'user', content: 'Et sans antenne ?' },
+    { role: 'assistant', content: '300 m [2].' },
+  ]);
+  assert.equal(f.config.repeatPenalty, 1);
+});
+test('suivi de conversation (EN) : libellés anglais', () => {
+  const f = buildFollowUp('m', 'eiffel tower height', res, [{ role: 'assistant', content: '330 m [1].' }], 'When was it built?', 'en');
+  assert.match(f.config.examples[0].user, /^Results:\n\[1\] T[\s\S]*\n\nSearch: eiffel tower height$/);
+  assert.match(f.config.system, /in English/);
 });
 
 console.log('rules.mjs (udm=14)');

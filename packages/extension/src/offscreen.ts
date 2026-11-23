@@ -12,7 +12,7 @@ import { MODELS } from '../../../src/sdk/engineCore';
 import { brikCacheComplete, ggufCacheComplete } from '../../../src/lib/webgpu/source';
 import { chooseTier, TIER_MODELS, type Probe, type Tier } from './tier';
 import { PORT_NAME, IDLE, IDLE_MS, type AskRequest, type EngineEvent } from './protocol';
-import { buildAnswer, cleanAnswer } from './answer';
+import { buildAnswer, buildFollowUp, cleanAnswer } from './answer';
 
 // Un modèle se note « téléchargé » quand il a été chargé une fois en entier. Sans cette marque, la
 // vérification du cache demanderait l'en-tête du fichier au Hub — une requête réseau AVANT que
@@ -72,7 +72,9 @@ async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: A
   if (!picked.cached && !req.consent) {
     return send({ type: 'need-consent', model, bytes });
   }
-  const a = buildAnswer(model, req.query, req.results, req.lang);
+  const a = req.followUp
+    ? buildFollowUp(model, req.query, req.results, req.history ?? [], req.followUp, req.lang)
+    : buildAnswer(model, req.query, req.results, req.lang);
   const session = createSession(a.config);
   session.on('progress', (phase, pr) => send({ type: 'progress', phase, loaded: pr?.loaded, total: pr?.total }));
   // Le chrono part quand le modèle est prêt : « calculée en N s » ne doit pas compter le
@@ -80,14 +82,14 @@ async function answer(req: AskRequest, send: (e: EngineEvent) => void, signal: A
   let t0 = performance.now();
   session.on('ready', () => {
     t0 = performance.now();
-    // Format 'web' : les sources sont les N premiers résultats, connues d'avance — annoncées quand
-    // le modèle est prêt, pas pendant le téléchargement.
+    // Format 'web'/'search' (1er tour) : les sources sont les N premiers résultats, connues
+    // d'avance — annoncées quand le modèle est prêt, pas pendant le téléchargement.
     if (a.docs) send({ type: 'sources', docs: a.docs });
   });
   try {
     const text = await session.ask(a.text, {
       signal,
-      onSources: a.docs ? undefined : (s) => send({ type: 'sources', docs: s.map((x) => x.doc) }),
+      onSources: a.docs || req.followUp ? undefined : (s) => send({ type: 'sources', docs: s.map((x) => x.doc) }),
       onToken: (t) => send({ type: 'token', text: cleanAnswer(t) }),
     });
     mark(model);

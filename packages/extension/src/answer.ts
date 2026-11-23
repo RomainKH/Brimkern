@@ -11,7 +11,7 @@
 //   numérotés comme la liste de sources affichée, sans exemple épinglé.
 
 import type { SessionConfig } from '../../../src/sdk/index';
-import type { SerpResult } from './protocol';
+import type { ChatTurn, SerpResult } from './protocol';
 
 // - 'search' (2026-11-15) : le format LIVRÉ, décrit plus bas (SYSTEM_SEARCH, DEMOS).
 export type AnswerFormat = 'sdk' | 'web' | 'search';
@@ -77,6 +77,12 @@ export const SEARCH_TEMPERATURE = 0.2;
 const SYSTEM_SEARCH = {
   en: 'You answer a web search from the numbered search results given with it. Answer the search directly in 1 to 3 sentences, in English. Copy figures, dates and names exactly as the results give them, and add none of your own. Put the number of the result you used in brackets, like [1].',
   fr: 'Tu réponds à une recherche web à partir des résultats numérotés fournis avec elle. Réponds directement à la recherche en 1 à 3 phrases, en français correct. Recopie les chiffres, les dates et les noms exactement comme les résultats les donnent, sans en ajouter. Indique entre crochets le numéro du résultat utilisé, comme [1].',
+};
+
+const FOLLOWUP_TEMPERATURE = 0.3;
+const SYSTEM_FOLLOWUP = {
+  en: 'You are continuing a conversation about a web search, using the numbered search results from the first turn and the previous exchanges. Answer directly and concisely in English. Cite the result number in brackets (like [1]) when relying on a snippet; if the snippets do not cover the follow-up, say so briefly or answer carefully.',
+  fr: 'Tu continues une conversation à propos d’une recherche web, à partir des résultats numérotés du premier tour et des échanges précédents. Réponds de façon directe et concise en français. Indique entre crochets le numéro du résultat utilisé (comme [1]) quand tu t’appuies sur un extrait ; si les extraits ne couvrent pas la question, précise-le brièvement ou réponds avec prudence.',
 };
 
 type Demo = { q: string; results: SerpResult[]; answer: string };
@@ -185,5 +191,39 @@ export function buildAnswer(model: string, query: string, results: SerpResult[],
     config: { ...base, system: SYSTEM_WEB[lang], temperature: 0.25 },
     text: `${recherche} ${query}\n\n${resultats}\n${bloc}`,
     docs: lus.map((_, i) => i),
+  };
+}
+
+/**
+ * Un tour de SUIVI dans la conversation en cours. Le premier échange (les N extraits numérotés +
+ * la recherche initiale → la première réponse) est épinglé dans `examples` afin de ne jamais être
+ * évincé par la fenêtre d'historique, même après plusieurs questions de suivi.
+ */
+export function buildFollowUp(
+  model: string,
+  query: string,
+  results: SerpResult[],
+  history: ChatTurn[],
+  followUp: string,
+  lang: 'fr' | 'en',
+): Answer {
+  const lus = results.slice(0, SEARCH_RESULTS);
+  const firstTurnUser = searchTurn(query, lus, lang);
+  const firstAnswer = history[0]?.role === 'assistant' ? history[0].content : '';
+  const rest = firstAnswer ? history.slice(1) : history;
+  return {
+    config: {
+      model,
+      lang,
+      maxTokens: 260,
+      worker: false,
+      system: SYSTEM_FOLLOWUP[lang],
+      examples: firstAnswer ? [{ user: firstTurnUser, assistant: firstAnswer }] : undefined,
+      history: firstAnswer ? rest : [{ role: 'user', content: firstTurnUser }, ...rest],
+      temperature: FOLLOWUP_TEMPERATURE,
+      repeatPenalty: SEARCH_PENALTY,
+    },
+    text: followUp,
+    docs: null,
   };
 }

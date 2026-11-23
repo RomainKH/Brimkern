@@ -12,6 +12,12 @@ export interface SerpResult {
   snippet: string;
 }
 
+/** Un tour de conversation dans le fil de suivi. */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface AskRequest {
   type: 'ask';
   query: string;
@@ -19,6 +25,10 @@ export interface AskRequest {
   lang: 'fr' | 'en';
   /** L'utilisateur a accepté le téléchargement du modèle (premier usage seulement). */
   consent: boolean;
+  /** Question de suivi dans la conversation en cours (absente pour la première réponse). */
+  followUp?: string;
+  /** Historique des tours précédents : réponse initiale, puis paires user/assistant de suivi. */
+  history?: ChatTurn[];
 }
 
 export type EngineEvent =
@@ -35,6 +45,10 @@ export type EngineEvent =
 export const ENSURE = 'bk:ensure';
 /** Document offscreen → service worker : « personne ne m'a parlé depuis IDLE_MS, ferme-moi ». */
 export const IDLE = 'bk:idle';
+/** Content script → service worker : ouvrir les options de l'extension. */
+export const OPEN_OPTIONS = 'bk:options';
+/** Clé chrome.storage.local : répondre automatiquement à chaque recherche Google. */
+export const OPT_AUTO_ANSWER = 'autoAnswer';
 // Le moteur garde ~300 Mo de poids en mémoire GPU tant que le document vit. Après dix minutes sans
 // question, on le ferme : les poids restent dans le cache disque et reviennent en quelques secondes.
 export const IDLE_MS = 10 * 60 * 1000;

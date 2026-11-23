@@ -14,10 +14,20 @@ declare namespace chrome {
     function connect(info: { name: string }): Port;
     function sendMessage(msg: unknown): Promise<any>;
     function getURL(path: string): string;
+    function openOptionsPage(): Promise<void>;
     const onConnect: { addListener(cb: (port: Port) => void): void };
     const onMessage: {
       addListener(cb: (msg: any, sender: unknown, reply: (r: unknown) => void) => boolean | void): void;
     };
+  }
+  namespace storage {
+    const local: {
+      get(keys: string | string[]): Promise<Record<string, any>>;
+      set(items: Record<string, any>): Promise<void>;
+    };
+  }
+  namespace i18n {
+    function getUILanguage(): string;
   }
   namespace offscreen {
     function createDocument(p: { url: string; reasons: string[]; justification: string }): Promise<void>;

@@ -114,6 +114,26 @@ try {
   resultat.axeClair = await axe(page);
   console.log(`   axe-core (panneau, thème clair) : ${resultat.axeClair.length} violation(s) ${resultat.axeClair.join(' ')}`);
 
+  // 3b. suivi de conversation dans le même panneau
+  const champSuivi = panneau.getByRole('textbox', { name: 'Poser une question de suivi' });
+  await champSuivi.waitFor({ timeout: 5_000 });
+  const tSuivi = Date.now();
+  await champSuivi.fill('Et en été, de combien change-t-elle ?');
+  await bouton('Envoyer').click();
+  const reponseSuivi = panneau.locator('.turn-a').first();
+  await reponseSuivi.waitFor({ timeout: 60_000 });
+  await champSuivi.waitFor({ state: 'visible', timeout: 120_000 });
+  await page.waitForFunction(() => {
+    const inp = document.querySelector('#brimkern-answer')?.shadowRoot?.querySelector('.followup input');
+    return !!inp && !inp.disabled;
+  }, undefined, { timeout: 120_000 });
+  resultat.suiviMs = Date.now() - tSuivi;
+  resultat.reponseSuivi = await reponseSuivi.innerText();
+  resultat.axeSuivi = await axe(page);
+  console.log(`   suivi en ${(resultat.suiviMs / 1000).toFixed(1)} s — « ${resultat.reponseSuivi} » (axe-core ${resultat.axeSuivi.length} violation(s))`);
+  assert.ok(resultat.reponseSuivi.trim().length > 0, 'la réponse de suivi est vide');
+  assert.equal(resultat.axeSuivi.length, 0, `violations axe-core sur le suivi : ${resultat.axeSuivi.join(', ')}`);
+
   // 4. second clic, moteur chaud (document offscreen toujours ouvert, poids sur le GPU)
   await page.reload();
   await bouton('Répondre sur cet appareil').waitFor({ timeout: 10_000 });
@@ -125,7 +145,29 @@ try {
   resultat.reponse2 = await panneau.locator('.answer').innerText();
   console.log(`4. second clic : ${(resultat.secondClicMs / 1000).toFixed(1)} s — « ${resultat.reponse2} »`);
 
-  // 5. libellés anglais, sur une page Google en thème sombre
+  // 5. option « répondre automatiquement à chaque recherche » + page d'options
+  const extId = new URL((ctx.serviceWorkers()[0] || await ctx.waitForEvent('serviceworker')).url()).host;
+  const optPage = await ctx.newPage();
+  await optPage.goto(`chrome-extension://${extId}/options.html`);
+  const sw = optPage.getByRole('switch');
+  await sw.waitFor({ timeout: 5_000 });
+  assert.equal(await sw.isChecked(), false, 'autoAnswer doit être désactivé par défaut');
+  await sw.click();
+  assert.equal(await sw.isChecked(), true);
+  await page.reload();
+  // Sans cliquer aucun bouton, la réponse doit démarrer et aboutir toute seule.
+  const tAuto = Date.now();
+  await foot.filter({ hasText: 'Calculée sur cet appareil' }).waitFor({ timeout: 120_000 });
+  resultat.autoMs = Date.now() - tAuto;
+  resultat.reponseAuto = await panneau.locator('.answer').innerText();
+  console.log(`5. auto-réponse : ${(resultat.autoMs / 1000).toFixed(1)} s — « ${resultat.reponseAuto} »`);
+  assert.ok(resultat.reponseAuto.trim().length > 0, 'l’auto-réponse est vide');
+  // Remise à zéro pour laisser le profil propre (et tester le mode manuel anglais juste après).
+  await sw.click();
+  assert.equal(await sw.isChecked(), false);
+  await optPage.close();
+
+  // 6. libellés anglais, sur une page Google en thème sombre
   lang = 'en';
   sombre = true;
   await page.goto('https://www.google.com/search?q=how+tall+is+the+eiffel+tower&hl=en');
@@ -134,7 +176,7 @@ try {
   resultat.themeSombre = await panneau.getAttribute('data-theme');
   resultat.axeSombre = await axe(page);
   if (SHOTS) await panneau.screenshot({ path: `${SHOTS}/panneau-sombre-en.png` });
-  console.log(`5. anglais : « ${resultat.anglais} » — thème ${resultat.themeSombre}, axe-core ${resultat.axeSombre.length} violation(s) ${resultat.axeSombre.join(' ')}`);
+  console.log(`6. anglais : « ${resultat.anglais} » — thème ${resultat.themeSombre}, axe-core ${resultat.axeSombre.length} violation(s) ${resultat.axeSombre.join(' ')}`);
   resultat.reponseCite330 = /330/.test(resultat.reponse);
 } finally {
   await ctx.close();
