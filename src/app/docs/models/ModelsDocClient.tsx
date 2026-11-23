@@ -124,6 +124,7 @@ export default function ModelsDocClient() {
             <button
               key={key}
               type="button"
+              aria-pressed={filter === key}
               className={filter === key ? 'btn btn-primary' : 'btn btn-secondary'}
               style={{ fontSize: 12.5, padding: '6px 12px' }}
               onClick={() => setFilter(key)}
