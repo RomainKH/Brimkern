@@ -25,7 +25,8 @@ import { parseDeeplink, parseModelInput } from '@/lib/deeplink';
 import { metric, metricOnce } from '@/lib/metrics';
 import { SDK_URL } from '@/lib/site';
 import HfModelInput from './HfModelInput';
-import GithubMark from './GithubMark';
+import GithubStarsLink from './GithubStarsLink';
+import XMark from './XMark';
 import ByLine from './ByLine';
 
 // Exemples cliquables du champ « n'importe quel modèle » : des dépôts VÉRIFIÉS en ligne (un exemple
@@ -173,8 +174,9 @@ export default function LandingClient() {
             <Link href={href('/docs')}>{t('Docs', 'Doc')}</Link>
             <Link href={href('/docs/sdk')}>SDK</Link>
             <Link href={href('/changelog')} className="lp-nav-wide">Changelog</Link>
-            <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="lp-nav-icon">
-              <GithubMark size={16} />
+            <GithubStarsLink />
+            <a href="https://x.com/brimkern" target="_blank" rel="noopener noreferrer" aria-label={t('Brimkern on X (@brimkern)', 'Brimkern sur X (@brimkern)')} className="lp-nav-icon">
+              <XMark size={15} />
             </a>
             <button
               onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
@@ -630,6 +632,7 @@ export default function LandingClient() {
           <Link href={href('/changelog')}>Changelog</Link>
           <a href="https://huggingface.co/romainkh14" target="_blank" rel="noopener noreferrer">{t('Models', 'Modèles')}</a>
           <a href="https://github.com/RomainKH/Brimkern" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <a href="https://x.com/brimkern" target="_blank" rel="noopener noreferrer">X (@brimkern)</a>
         </nav>
         <ByLine />
       </footer>

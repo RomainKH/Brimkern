@@ -16,6 +16,8 @@ import { usePathname } from 'next/navigation';
 import { useT, useLocale, useHref } from '@/lib/i18n';
 import ByLine from '../ByLine';
 import BrandMark from '../BrandMark';
+import GithubStarsLink from '../GithubStarsLink';
+import XMark from '../XMark';
 
 export interface TocEntry { id: string; label: string }
 
@@ -250,6 +252,17 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
             <Link href={href('/cli')} className="docs-header-link">CLI</Link>
             <Link href={href('/chat')} className="docs-header-link">{t('Chat', 'Chat')}</Link>
             <Link href={href('/docs/sdk')} className="docs-header-link">SDK</Link>
+            <GithubStarsLink className="lp-gh-stars" size={14} />
+            <a
+              href="https://x.com/brimkern"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t('Brimkern on X (@brimkern)', 'Brimkern sur X (@brimkern)')}
+              className="docs-header-link"
+              style={{ display: 'inline-flex', alignItems: 'center', padding: '6px 8px' }}
+            >
+              <XMark size={14} />
+            </a>
             <button
               onClick={() => setLocale(locale === 'fr' ? 'en' : 'fr')}
               aria-label={locale === 'fr' ? 'Switch to English' : 'Passer en français'}

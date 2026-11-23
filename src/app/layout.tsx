@@ -63,6 +63,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    site: "@brimkern",
+    creator: "@brimkern",
     title: "Brimkern: Local WebGPU LLM engine in your browser",
     description: "Open-source models from Hugging Face, running in your browser on your own GPU. No server, no subscription.",
   },
@@ -105,6 +107,7 @@ export default function RootLayout({
                 license: 'https://opensource.org/licenses/MIT',
                 isAccessibleForFree: true,
                 offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+                sameAs: ['https://github.com/RomainKH/Brimkern', 'https://x.com/brimkern'],
                 author: { '@id': `${SITE_URL}/#author` },
                 creator: { '@id': `${SITE_URL}/#author` },
               },
