@@ -1,20 +1,22 @@
 // La page /chess en vrai Chrome sur un build de production : le modèle charge, le gate GPU tient (ou le
 // repli CPU prend le relais), un coup humain obtient une réponse — et combien de temps elle prend.
 //
-//   PORT=3619 node scripts/e2e/chess.mjs                     # WebGPU, réflexion 256 positions
-//   PORT=3619 node scripts/e2e/chess.mjs --flag=chessgpu=0   # bras témoin : tronc sur le CPU
-//   PORT=3619 node scripts/e2e/chess.mjs --level=1024 --moves=3 --shot=/tmp/chess.png
+//   PORT=3619 node scripts/e2e/chess.mjs                          # WebGPU, niveau « Très fort »
+//   PORT=3619 node scripts/e2e/chess.mjs --flag=chessgpu=0 --level=strong   # bras témoin CPU
+//   PORT=3619 node scripts/e2e/chess.mjs --level=max --playnow=3  # Maximum, « Jouer maintenant » à 3 s
+//   PORT=3619 node scripts/e2e/chess.mjs --moves=3 --shot=/tmp/chess.png
 //
-// Joue 1.e4 puis, pour les coups suivants, le premier coup légal trouvé en cliquant (on mesure la
-// réponse du moteur, pas la qualité du jeu humain). Sortie : statut de la page, backend, temps par
-// réponse (du clic à la pièce posée), positions évaluées et cadence.
+// Joue 1.e4 en GLISSER-DÉPOSER à la souris (le geste réel), puis, pour les coups suivants, le
+// premier coup légal trouvé en clic-clic (on mesure la réponse du moteur, pas la qualité du jeu
+// humain). Sortie : statut de la page, backend, temps par réponse, positions évaluées.
 import { chromium } from 'playwright-core';
 import { CHROME as EXE } from './chrome.mjs';
 
 const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : d; };
 const BASE = `http://localhost:${process.env.PORT || 3618}`;
 const FLAG = arg('flag', '');
-const LEVEL = arg('level', '256');
+const LEVEL = arg('level', 'expert');
+const PLAYNOW = Number(arg('playnow', '0'));
 const MOVES = Number(arg('moves', '2'));
 const SHOT = arg('shot', '');
 const LANG = arg('lang', '');
@@ -56,12 +58,31 @@ for (let i = 0; i < MOVES; i++) {
 			if (target) { from = sq; to = target; ok = true; break; }
 		}
 		if (!ok) { console.log('aucun coup légal trouvé'); break; }
-	} else {
-		await squareBtn(from).click();
 	}
 	const t1 = Date.now();
-	await squareBtn(to).click();
-	await page.waitForFunction(() => /Your move|À vous|Checkmate|Échec et mat|Draw|Nulle/.test(document.querySelector('[aria-live="polite"]')?.textContent || ''), null, { timeout: 300_000, polling: 100 });
+	if (i === 0) {
+		// Glisser-déposer : appui sur e2, déplacement en plusieurs pas, relâché sur e4.
+		const a = await squareBtn(from).boundingBox(), b = await squareBtn(to).boundingBox();
+		await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+		await page.mouse.up();
+		const moved = await page.evaluate(() => document.querySelector('[aria-label^="e4,"]') !== null);
+		console.log(`glisser-déposer e2→e4 : ${moved ? 'OK' : 'ÉCHEC'}`);
+	} else {
+		await squareBtn(to).click();
+	}
+	if (PLAYNOW) {
+		await page.waitForTimeout(PLAYNOW * 1000);
+		await page.getByRole('button', { name: /Play now|Jouer maintenant/ }).click();
+	}
+	// Attendre la RÉPONSE du moteur : la liste des coups doit avoir grandi de 2 (notre coup + le sien) —
+	// le statut « À vous » seul se lit aussi dans les millisecondes qui précèdent sa réflexion.
+	await page.waitForFunction((n) => {
+		const cells = [...document.querySelectorAll('[aria-label="Move list"] span, [aria-label="Liste des coups"] span')].filter((x) => x.textContent && !x.textContent.endsWith('.'));
+		const st = document.querySelector('[aria-live="polite"]')?.textContent || '';
+		return cells.length >= n || /Checkmate|Échec et mat|Draw|Nulle/.test(st);
+	}, 2 * (i + 1), { timeout: 300_000, polling: 100 });
 	const sub = await page.locator('[aria-live="polite"]').innerText();
 	console.log(`coup ${i + 1} : ${from}-${to} → réponse en ${((Date.now() - t1) / 1000).toFixed(2)} s · ${sub.replace(/\s+/g, ' ').slice(0, 200)}`);
 }

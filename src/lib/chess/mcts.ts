@@ -30,7 +30,9 @@ export interface SearchResult {
 
 const key = (fen: string) => fen.split(' ', 4).join(' ');
 
-function priors(logits: Float32Array, moves: Move[], flip: number): Float32Array {
+// aggression : prises et échecs voient leur a priori multiplié par (1 + aggression) — la recherche
+// explore d'abord les coups d'attaque (même règle que Net.evaluate dans play.py).
+function priors(logits: Float32Array, moves: Move[], flip: number, aggression = 0): Float32Array {
 	const lg = new Float32Array(moves.length);
 	let mx = -Infinity;
 	moves.forEach((m, i) => {
@@ -38,14 +40,32 @@ function priors(logits: Float32Array, moves: Move[], flip: number): Float32Array
 		if (lg[i] > mx) mx = lg[i];
 	});
 	let sum = 0;
-	for (let i = 0; i < lg.length; i++) { lg[i] = Math.exp(lg[i] - mx); sum += lg[i]; }
+	for (let i = 0; i < lg.length; i++) {
+		lg[i] = Math.exp(lg[i] - mx);
+		if (aggression > 0 && (moves[i].captured || /[+#]/.test(moves[i].san))) lg[i] *= 1 + aggression;
+		sum += lg[i];
+	}
 	for (let i = 0; i < lg.length; i++) lg[i] /= sum;
 	return lg;
 }
 
-export async function search(model: ChessModel, root: Chess, opts: { nodes: number; batch?: number; signal?: AbortSignal; onProgress?: (done: number, value: number) => void }): Promise<SearchResult> {
+// Options de recherche :
+//   nodes        : plafond d'évaluations (1 = le réseau seul, sans recherche) ;
+//   timeMs       : plafond de temps — la recherche s'arrête au premier des deux plafonds atteint ;
+//   temperature  : réseau seul uniquement — > 0 tire le coup selon la politique^(1/T) au lieu de
+//                  prendre le meilleur (niveaux faibles : des coups plausibles, pas toujours les bons) ;
+//   signal       : « joue maintenant » — la recherche s'arrête et rend le meilleur coup trouvé.
+export interface SearchOptions {
+	nodes: number; timeMs?: number; temperature?: number; batch?: number; signal?: AbortSignal;
+	aggression?: number;   // bonus d'a priori des prises et échecs (style)
+	contempt?: number;     // une nulle vaut −contempt pour le camp qui cherche : il joue pour gagner
+	onProgress?: (done: number, value: number, ms: number) => void;
+}
+
+export async function search(model: ChessModel, root: Chess, opts: SearchOptions): Promise<SearchResult> {
 	const t0 = performance.now();
 	const game = new Chess(root.fen());
+	const rootTurn = game.turn();
 	// Historique des positions (répétitions) : les positions de la partie jouée, plus le chemin courant.
 	const seen = new Map<string, number>();
 	for (const m of root.history({ verbose: true })) seen.set(key(m.before), (seen.get(key(m.before)) ?? 0) + 1);
@@ -54,7 +74,7 @@ export async function search(model: ChessModel, root: Chess, opts: { nodes: numb
 	const expand = async (positions: { game: Chess; legal: Move[] }[]) => {
 		const enc: Encoded[] = positions.map((p) => encodePosition(p.game, p.legal));
 		const ev = await model.evaluate(enc);
-		return ev.map((e, i) => ({ pr: priors(e.logits, positions[i].legal, enc[i].flip), v: 2 * e.value - 1 }));
+		return ev.map((e, i) => ({ pr: priors(e.logits, positions[i].legal, enc[i].flip, opts.aggression ?? 0), v: 2 * e.value - 1 }));
 	};
 
 	const rootNode = new Node(1);
@@ -67,12 +87,19 @@ export async function search(model: ChessModel, root: Chess, opts: { nodes: numb
 	for (let i = 1; i < r0.pr.length; i++) if (r0.pr[i] > r0.pr[best]) best = i;
 	const policyMove = rootLegal[best];
 	if (opts.nodes <= 1 || rootLegal.length === 1) {
-		return { move: policyMove, nodes: 1, value: (r0.v + 1) / 2, pv: [policyMove.san], ms: performance.now() - t0, policyMove };
+		let move = policyMove;
+		if (opts.temperature && opts.temperature > 0 && rootLegal.length > 1) {
+			const w = Array.from(r0.pr, (p) => Math.pow(p, 1 / opts.temperature!));
+			let r = Math.random() * w.reduce((a, b) => a + b, 0);
+			for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) { move = rootLegal[i]; break; } }
+		}
+		return { move, nodes: 1, value: (r0.v + 1) / 2, pv: [move.san], ms: performance.now() - t0, policyMove };
 	}
 
 	const batch = opts.batch ?? 8;
+	const deadline = opts.timeMs ? t0 + opts.timeMs : Infinity;
 	let done = 0;
-	while (done < opts.nodes) {
+	while (done < opts.nodes && performance.now() < deadline) {
 		if (opts.signal?.aborted) break;
 		type Pending = { path: Node[]; leaf?: { game: Chess; legal: Move[] }; tv?: number };
 		const pending: Pending[] = [];
@@ -96,7 +123,11 @@ export async function search(model: ChessModel, root: Chess, opts: { nodes: numb
 				node = node.children[bi];
 				path.push(node);
 				if (game.isCheckmate()) { tv = -1; break; }
-				if (game.isStalemate() || game.isInsufficientMaterial() || game.isDrawByFiftyMoves() || (seen.get(k) ?? 0) >= 2) { tv = 0; break; }
+				if (game.isStalemate() || game.isInsufficientMaterial() || game.isDrawByFiftyMoves() || (seen.get(k) ?? 0) >= 2) {
+					const c = opts.contempt ?? 0;
+					tv = game.turn() === rootTurn ? -c : c;
+					break;
+				}
 			}
 			for (const n of path) { n.N += 1; n.W -= 1; } // perte virtuelle
 			pending.push(tv !== undefined ? { path, tv } : { path, leaf: { game: new Chess(game.fen()), legal: game.moves({ verbose: true }) } });
@@ -120,7 +151,7 @@ export async function search(model: ChessModel, root: Chess, opts: { nodes: numb
 			}
 			done++;
 		}
-		opts.onProgress?.(done, (1 - rootNode.W / rootNode.N) / 2);
+		opts.onProgress?.(done, (1 - rootNode.W / rootNode.N) / 2, performance.now() - t0);
 		await new Promise((r) => setTimeout(r, 0)); // rend la main à l'interface entre deux lots
 	}
 

@@ -4,28 +4,46 @@
 // Le modèle (scripts/chess) : UN bloc de transformeur bouclé, ~244 K paramètres, servi en BRIK
 // (public/models/chess) et publié aussi en GGUF. Tronc sur WebGPU (kernels du chemin T5, validés contre
 // la référence CPU au chargement), repli CPU sinon ; recherche MCTS (src/lib/chess/mcts.ts).
-// Aucun chiffre de force sur la page tant qu'il n'est pas mesuré (règle 4 du dépôt).
+// Niveaux = QUANTITÉ de recherche (et tirage aléatoire pour les plus faibles), jamais un Elo : aucun
+// chiffre de force sur la page tant qu'il n'est pas mesuré (règle 4 du dépôt).
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Chess, type Move, type Square } from 'chess.js';
+import { useEffect, useRef, useState } from 'react';
+import { Chess, type Square } from 'chess.js';
 import { useT, useHref, useLocale } from '@/lib/i18n';
 import type { ChessModel } from '@/lib/chess/model';
 import BrandMark from '../BrandMark';
 import GithubStarsLink from '../GithubStarsLink';
+import Board, { type LastMove, type Premove } from './Board';
 import s from './chess.module.css';
 
 const MODEL_URL = '/models/chess/brimkern-chess-q8.brik';
 const GGUF_URL = '/models/chess/brimkern-chess-q8_0.gguf';
-const FILES = 'abcdefgh';
-const LEVELS = [1, 64, 256, 1024] as const;
 
 type Color = 'w' | 'b';
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
-const PIECE_NAME: Record<string, [string, string]> = {
-	k: ['king', 'roi'], q: ['queen', 'dame'], r: ['rook', 'tour'], b: ['bishop', 'fou'], n: ['knight', 'cavalier'], p: ['pawn', 'pion'],
-};
+// Débutant/Facile : coup TIRÉ selon la politique du réseau (température) — plausible, pas toujours
+// le meilleur. Moyen : le coup préféré du réseau. Fort/Très fort : recherche de 256 / 1 024 positions.
+// Maximum : recherche bornée par le TEMPS choisi, sans plafond de positions.
+interface Level { id: string; en: string; fr: string; nodes: number; temperature?: number; timed?: boolean; hintEn: string; hintFr: string }
+const LEVELS: Level[] = [
+	{ id: 'beginner', en: 'Beginner', fr: 'Débutant', nodes: 1, temperature: 1, hintEn: 'Plays a plausible move drawn at random from its network, no search.', hintFr: 'Joue un coup plausible tiré au hasard par son réseau, sans recherche.' },
+	{ id: 'easy', en: 'Easy', fr: 'Facile', nodes: 1, temperature: 0.35, hintEn: 'Usually its network’s favourite move, sometimes another one.', hintFr: 'Le plus souvent le coup préféré de son réseau, parfois un autre.' },
+	{ id: 'medium', en: 'Medium', fr: 'Moyen', nodes: 1, hintEn: 'Always its network’s favourite move, instantly, no search.', hintFr: 'Toujours le coup préféré de son réseau, instantané, sans recherche.' },
+	{ id: 'strong', en: 'Strong', fr: 'Fort', nodes: 256, hintEn: 'Searches 256 positions before each move.', hintFr: 'Examine 256 positions avant chaque coup.' },
+	{ id: 'expert', en: 'Very strong', fr: 'Très fort', nodes: 1024, hintEn: 'Searches 1,024 positions before each move.', hintFr: 'Examine 1 024 positions avant chaque coup.' },
+	{ id: 'max', en: 'Maximum', fr: 'Maximum', nodes: 1_000_000, timed: true, hintEn: 'Searches as many positions as it can in the time you allow.', hintFr: 'Examine autant de positions que possible dans le temps accordé.' },
+];
+const MAX_TIMES = [10, 30, 60, 120];
+// Style : Agressif = les prises et échecs explorés d'abord (bonus d'a priori) et la nulle comptée
+// comme une demi-défaite (contempt) — il évite les simplifications et joue pour gagner. Mêmes
+// réglages que la boucle d'apprentissage (scripts/chess/learn.py --play-aggression 1 --contempt 0.2).
+const STYLES = {
+	aggressive: { en: 'Aggressive', fr: 'Agressif', aggression: 1, contempt: 0.2 },
+	balanced: { en: 'Balanced', fr: 'Équilibré', aggression: 0, contempt: 0 },
+} as const;
+type StyleId = keyof typeof STYLES;
 
 export default function ChessClient() {
 	const t = useT();
@@ -34,23 +52,30 @@ export default function ChessClient() {
 	const fr = locale === 'fr';
 
 	// La partie et le modèle vivent dans l'état (lisibles au rendu) ; on mute la partie puis `fen`
-	// déclenche le rendu. Seul le contrôleur d'annulation de la recherche est une ref.
+	// déclenche le rendu. Le calcul en cours et le coup anticipé sont des refs (lus par la boucle async).
 	const [game] = useState(() => new Chess());
 	const [model, setModel] = useState<ChessModel | null>(null);
-	const abortRef = useRef<AbortController | null>(null);
+	const runRef = useRef<{ cancelled: boolean; stop: AbortController } | null>(null);
+	const premoveRef = useRef<Premove | null>(null);
+	const seqRef = useRef(0);
 	const [fen, setFen] = useState(() => game.fen());
 	const [human, setHuman] = useState<Color>('w');
 	const [orientation, setOrientation] = useState<Color>('w');
-	const [level, setLevel] = useState<number>(256);
+	const [levelId, setLevelId] = useState('expert');
+	const [maxTime, setMaxTime] = useState(30);
+	const [styleId, setStyleId] = useState<StyleId>('aggressive');
 	const [status, setStatus] = useState<Status>('idle');
 	const [loadMsg, setLoadMsg] = useState('');
 	const [thinking, setThinking] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [selected, setSelected] = useState<Square | null>(null);
-	const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
-	const [promo, setPromo] = useState<{ from: Square; to: Square } | null>(null);
+	const [progress, setProgress] = useState({ done: 0, ms: 0 });
+	const [lastMove, setLastMove] = useState<LastMove | null>(null);
+	const [premove, setPremoveState] = useState<Premove | null>(null);
 	const [whiteWin, setWhiteWin] = useState(0.5);
 	const [info, setInfo] = useState<{ nodes: number; ms: number; pv: string[]; backend: string } | null>(null);
+	const level = LEVELS.find((l) => l.id === levelId) ?? LEVELS[4];
+
+	const setPremove = (p: Premove | null) => { premoveRef.current = p; setPremoveState(p); };
+	const mark = (from: string, to: string, animate: boolean) => setLastMove({ from, to, animate, seq: ++seqRef.current });
 
 	// ── Chargement : WebGPU (validé) puis le modèle. Jamais d'erreur bloquante : repli CPU. ─────────
 	useEffect(() => {
@@ -79,63 +104,83 @@ export default function ChessClient() {
 				if (alive) setStatus('error');
 			}
 		})();
-		return () => { alive = false; abortRef.current?.abort(); loaded?.dispose(); };
+		return () => { alive = false; if (runRef.current) { runRef.current.cancelled = true; runRef.current.stop.abort(); } loaded?.dispose(); };
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	const sync = useCallback(() => setFen(game.fen()), [game]);
+	const sync = () => setFen(game.fen());
 
-	const engineMove = useCallback(async () => {
-		if (!model || game.isGameOver()) return;
-		const ctl = new AbortController();
-		abortRef.current = ctl;
-		setThinking(true);
-		setProgress(0);
-		try {
-			const { search } = await import('@/lib/chess/mcts');
+	const cancelThinking = () => {
+		const run = runRef.current;
+		if (run) { run.cancelled = true; run.stop.abort(); runRef.current = null; }
+		setThinking(false);
+	};
+
+	// ── Le moteur joue tant que ce n'est pas à `me` (la couleur humaine, passée explicitement : une
+	// nouvelle partie change `human` dans le même événement) ; s'il y a un coup anticipé encore légal,
+	// on le joue et le moteur répond à nouveau — une seule boucle, pas de récursion. ──────────────────
+	const engineLoop = async (me: Color) => {
+		if (!model) return;
+		const { search } = await import('@/lib/chess/mcts');
+		while (!game.isGameOver() && game.turn() !== me) {
+			const run = { cancelled: false, stop: new AbortController() };
+			runRef.current = run;
+			setThinking(true);
+			setProgress({ done: 0, ms: 0 });
 			const engineColor = game.turn();
-			const res = await search(model, game, { nodes: level, signal: ctl.signal, onProgress: (n) => setProgress(n) });
-			if (ctl.signal.aborted) return;
+			const res = await search(model, game, {
+				nodes: level.nodes, temperature: level.temperature, timeMs: level.timed ? maxTime * 1000 : undefined,
+				batch: level.nodes > 256 ? 16 : 8, signal: run.stop.signal,
+				aggression: STYLES[styleId].aggression, contempt: STYLES[styleId].contempt,
+				onProgress: (done, _v, ms) => setProgress({ done, ms }),
+			});
+			if (run.cancelled) return;
+			runRef.current = null;
 			const mv = game.move(res.move);
-			setLastMove({ from: mv.from, to: mv.to });
+			mark(mv.from, mv.to, true);
 			setWhiteWin(engineColor === 'w' ? res.value : 1 - res.value);
 			setInfo({ nodes: res.nodes, ms: res.ms, pv: res.pv, backend: model.backend });
 			sync();
-		} finally {
-			if (abortRef.current === ctl) { abortRef.current = null; setThinking(false); }
+			setThinking(false);
+			const pm = premoveRef.current;
+			if (!pm || game.isGameOver()) break;
+			setPremove(null);
+			let played = null;
+			try { played = game.move({ from: pm.from, to: pm.to, promotion: 'q' }); } catch { played = null; }
+			if (!played) break;
+			mark(played.from, played.to, true);
+			sync();
 		}
-	}, [game, model, level, sync]);
+	};
 
 	const newGame = (color: Color) => {
-		abortRef.current?.abort();
+		cancelThinking();
 		game.reset();
 		setHuman(color);
 		setOrientation(color);
-		setSelected(null); setLastMove(null); setPromo(null); setInfo(null); setWhiteWin(0.5);
+		setLastMove(null); setPremove(null); setInfo(null); setWhiteWin(0.5);
 		sync();
-		if (color === 'b') void engineMove();
+		if (color === 'b') void engineLoop('b');
 	};
 
 	const undo = () => {
-		abortRef.current?.abort();
-		setThinking(false);
+		cancelThinking();
+		setPremove(null);
 		if (!game.history().length) return;
 		game.undo();
 		if (game.turn() !== human && game.history().length) game.undo();
 		const h = game.history({ verbose: true });
 		const last = h[h.length - 1];
-		setLastMove(last ? { from: last.from, to: last.to } : null);
-		setSelected(null); setPromo(null);
+		if (last) mark(last.from, last.to, false); else setLastMove(null);
 		sync();
 	};
 
-	const play = (from: Square, to: Square, promotion?: string) => {
-		let mv: Move;
+	const onMove = (from: Square, to: Square, promotion?: string, animate = true) => {
+		let mv;
 		try { mv = game.move({ from, to, promotion }); } catch { return; }
-		setLastMove({ from: mv.from, to: mv.to });
-		setSelected(null); setPromo(null);
+		mark(mv.from, mv.to, animate);
 		sync();
-		void engineMove();
+		void engineLoop(human);
 	};
 
 	// PGN de la partie : la matière que scripts/chess/learn.py --pgn transforme en entraînement.
@@ -144,36 +189,19 @@ export default function ChessClient() {
 		for (const m of game.history({ verbose: true })) g.move(m);
 		const me = t('You', 'Vous');
 		g.setHeader('Event', 'brimkern chess');
-		g.setHeader('Site', typeof window !== 'undefined' ? window.location.origin + '/chess' : 'brimkern');
+		g.setHeader('Site', window.location.origin + '/chess');
 		g.setHeader('Date', new Date().toISOString().slice(0, 10).replace(/-/g, '.'));
-		g.setHeader('White', human === 'w' ? me : `brimkern (${level})`);
-		g.setHeader('Black', human === 'b' ? me : `brimkern (${level})`);
+		g.setHeader('White', human === 'w' ? me : `brimkern (${level.en})`);
+		g.setHeader('Black', human === 'b' ? me : `brimkern (${level.en})`);
 		const url = URL.createObjectURL(new Blob([g.pgn() + '\n'], { type: 'application/x-chess-pgn' }));
 		const a = document.createElement('a');
 		a.href = url; a.download = `brimkern-chess-${Date.now()}.pgn`; a.click();
 		setTimeout(() => URL.revokeObjectURL(url), 1000);
 	};
 
-	const legalFrom = useMemo(() => (selected ? game.moves({ square: selected, verbose: true }) : []),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[selected, fen]);
-
-	const onSquare = (sq: Square) => {
-		if (status !== 'ready' || thinking || game.isGameOver() || game.turn() !== human) return;
-		const piece = game.get(sq);
-		if (selected) {
-			const mv = legalFrom.find((m) => m.to === sq);
-			if (mv) {
-				if (mv.promotion) setPromo({ from: selected, to: sq });
-				else play(selected, sq);
-				return;
-			}
-		}
-		setSelected(piece && piece.color === human ? sq : null);
-	};
-
 	// ── Statut de partie. ───────────────────────────────────────────────────────────────────────────
 	const over = game.isGameOver();
+	const searching = level.nodes > 1;
 	let statusText: string;
 	if (status === 'loading') statusText = loadMsg;
 	else if (status === 'error') statusText = t('The model could not be loaded.', 'Le modèle n’a pas pu être chargé.');
@@ -182,34 +210,17 @@ export default function ChessClient() {
 	else if (game.isThreefoldRepetition()) statusText = t('Draw by threefold repetition.', 'Nulle par triple répétition.');
 	else if (game.isInsufficientMaterial()) statusText = t('Draw: insufficient material.', 'Nulle : matériel insuffisant.');
 	else if (over) statusText = t('Draw (fifty-move rule).', 'Nulle (règle des cinquante coups).');
-	else if (thinking) statusText = level <= 1 ? t('brimkern is playing…', 'brimkern joue…') : t(`brimkern is thinking… ${progress}/${level}`, `brimkern réfléchit… ${progress}/${level}`);
+	else if (thinking && !searching) statusText = t('brimkern is playing…', 'brimkern joue…');
+	else if (thinking && level.timed) statusText = t(`brimkern is thinking… ${progress.done.toLocaleString('en')} positions, ${Math.floor(progress.ms / 1000)} / ${maxTime} s`,
+		`brimkern réfléchit… ${progress.done.toLocaleString('fr')} positions, ${Math.floor(progress.ms / 1000)} / ${maxTime} s`);
+	else if (thinking) statusText = t(`brimkern is thinking… ${progress.done} / ${level.nodes.toLocaleString('en')}`, `brimkern réfléchit… ${progress.done} / ${level.nodes.toLocaleString('fr')}`);
 	else statusText = game.inCheck() ? t('Your move: you are in check.', 'À vous : vous êtes en échec.') : t('Your move.', 'À vous de jouer.');
 
-	// ── Échiquier. ──────────────────────────────────────────────────────────────────────────────────
-	const rows = game.board();
-	const checkSq = game.inCheck() ? rows.flat().find((p) => p && p.type === 'k' && p.color === game.turn())?.square : null;
-	const targets = new Map(legalFrom.map((m) => [m.to, !!m.captured]));
-	const squares: React.ReactNode[] = [];
-	for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
-		const rank = orientation === 'w' ? 8 - i : i + 1;
-		const file = orientation === 'w' ? j : 7 - j;
-		const sq = `${FILES[file]}${rank}` as Square;
-		const p = rows[8 - rank][file];
-		const light = (file + rank) % 2 === 1;
-		const isLast = lastMove && (lastMove.from === sq || lastMove.to === sq);
-		const cls = [s.sq, light ? s.light : s.dark, isLast ? s.last : '', selected === sq ? s.selected : '', checkSq === sq ? s.check : ''].join(' ');
-		const name = p ? `${sq}, ${fr ? `${PIECE_NAME[p.type][1]} ${p.color === 'w' ? 'blanc' : 'noir'}` : `${p.color === 'w' ? 'white' : 'black'} ${PIECE_NAME[p.type][0]}`}` : sq;
-		squares.push(
-			<button key={sq} type="button" className={cls} onClick={() => onSquare(sq)} aria-label={name} aria-pressed={selected === sq}>
-				{p && <span className={`${s.piece} ${s[p.type]} ${p.color === 'w' ? s.pw : s.pb}`} aria-hidden="true" />}
-				{targets.has(sq) && <span className={targets.get(sq) ? s.ring : s.dot} aria-hidden="true" />}
-			</button>,
-		);
-	}
 	const ranks = orientation === 'w' ? [8, 7, 6, 5, 4, 3, 2, 1] : [1, 2, 3, 4, 5, 6, 7, 8];
-	const files = orientation === 'w' ? FILES.split('') : FILES.split('').reverse();
+	const files = orientation === 'w' ? 'abcdefgh'.split('') : 'hgfedcba'.split('');
 	const history = game.history();
 	const whiteShare = Math.round(whiteWin * 100);
+	const backendName = (b: string) => (b === 'webgpu' ? 'WebGPU' : 'CPU');
 
 	return (
 		<div className="docs-page">
@@ -247,41 +258,52 @@ export default function ChessClient() {
 								<div className={s.evalWhite} style={{ flexGrow: whiteShare }} />
 							</div>
 							<div className={s.ranks} aria-hidden="true">{ranks.map((r) => <span key={r}>{r}</span>)}</div>
-							<div className={s.board} role="group" aria-label={t('Chessboard', 'Échiquier')}>
-								{squares}
-								{promo && (
-									<div className={s.promo}>
-										<div className={s.promoBox} role="group" aria-label={t('Promote to', 'Promouvoir en')}>
-											{(['q', 'r', 'b', 'n'] as const).map((k) => (
-												<button key={k} type="button" className={s.promoBtn} onClick={() => play(promo.from, promo.to, k)}
-													aria-label={fr ? PIECE_NAME[k][1] : PIECE_NAME[k][0]}>
-													<span className={`${s.piece} ${s[k]} ${human === 'w' ? s.pw : s.pb}`} aria-hidden="true" />
-												</button>
-											))}
-										</div>
-									</div>
-								)}
-							</div>
+							<Board game={game} fen={fen} orientation={orientation} human={human}
+								canMove={status === 'ready' && !thinking && !over && game.turn() === human}
+								canPremove={status === 'ready' && thinking && !over}
+								lastMove={lastMove} premove={premove} onMove={onMove} onPremove={setPremove} />
 							<div className={s.files} aria-hidden="true">{files.map((f) => <span key={f}>{f}</span>)}</div>
 						</div>
 
 						<div className={s.panel}>
 							<div className={s.card} aria-live="polite">
 								<div className={s.status}>{statusText}</div>
-								{info && (
+								{thinking && searching && (
+									<button type="button" className={`${s.btn} ${s.playNow}`} onClick={() => runRef.current?.stop.abort()}>
+										{t('Play now', 'Jouer maintenant')}
+									</button>
+								)}
+								{premove && <div className={s.sub}>{t(`Premove: ${premove.from}–${premove.to} (click the board to cancel)`, `Coup anticipé : ${premove.from}–${premove.to} (clic sur l’échiquier pour l’annuler)`)}</div>}
+								{info && !thinking && (
 									<div className={s.sub}>
 										{info.nodes > 1
-											? t(`${info.nodes} positions evaluated in ${(info.ms / 1000).toFixed(1)} s (${info.backend === 'webgpu' ? 'WebGPU' : 'CPU'})`,
-												`${info.nodes} positions évaluées en ${(info.ms / 1000).toFixed(1)} s (${info.backend === 'webgpu' ? 'WebGPU' : 'CPU'})`)
-											: t(`Network only, ${Math.round(info.ms)} ms (${info.backend === 'webgpu' ? 'WebGPU' : 'CPU'})`,
-												`Réseau seul, ${Math.round(info.ms)} ms (${info.backend === 'webgpu' ? 'WebGPU' : 'CPU'})`)}
+											? t(`${info.nodes.toLocaleString('en')} positions in ${(info.ms / 1000).toFixed(1)} s (${backendName(info.backend)})`,
+												`${info.nodes.toLocaleString('fr')} positions en ${(info.ms / 1000).toFixed(1)} s (${backendName(info.backend)})`)
+											: t(`Network only, ${Math.round(info.ms)} ms (${backendName(info.backend)})`, `Réseau seul, ${Math.round(info.ms)} ms (${backendName(info.backend)})`)}
 										{info.pv.length > 1 && <><br />{t('Expected line: ', 'Suite attendue : ')}{info.pv.join(' ')}</>}
 									</div>
 								)}
 							</div>
 
 							<div className={s.card}>
-								<div className={s.row} style={{ marginBottom: 12 }}>
+								<label className={s.label} htmlFor="chess-level">{t('Difficulty', 'Difficulté')}</label>
+								<select id="chess-level" className={s.select} value={levelId} onChange={(e) => setLevelId(e.target.value)}>
+									{LEVELS.map((l) => <option key={l.id} value={l.id}>{fr ? l.fr : l.en}</option>)}
+								</select>
+								<div className={s.sub} style={{ marginBottom: level.timed ? 10 : 12 }}>{fr ? level.hintFr : level.hintEn}</div>
+								{level.timed && (
+									<>
+										<label className={s.label} htmlFor="chess-time">{t('Thinking time per move', 'Temps de réflexion par coup')}</label>
+										<select id="chess-time" className={s.select} style={{ marginBottom: 12 }} value={maxTime} onChange={(e) => setMaxTime(Number(e.target.value))}>
+											{MAX_TIMES.map((n) => <option key={n} value={n}>{n < 60 ? `${n} s` : `${n / 60} min`}</option>)}
+										</select>
+									</>
+								)}
+								<label className={s.label} htmlFor="chess-style">{t('Style', 'Style')}</label>
+								<select id="chess-style" className={s.select} style={{ marginBottom: 12 }} value={styleId} onChange={(e) => setStyleId(e.target.value as StyleId)}>
+									{(Object.keys(STYLES) as StyleId[]).map((k) => <option key={k} value={k}>{fr ? STYLES[k].fr : STYLES[k].en}</option>)}
+								</select>
+								<div className={s.row} style={{ marginBottom: 8 }}>
 									<button type="button" className={`${s.btn} ${s.btnPrimary}`} onClick={() => newGame('w')} disabled={status !== 'ready'}>
 										{t('New game (White)', 'Nouvelle partie (blancs)')}
 									</button>
@@ -289,21 +311,11 @@ export default function ChessClient() {
 										{t('Play Black', 'Jouer les noirs')}
 									</button>
 								</div>
-								<div className={s.row} style={{ marginBottom: 12 }}>
+								<div className={s.row}>
 									<button type="button" className={s.btn} onClick={undo} disabled={status !== 'ready' || !history.length}>{t('Take back', 'Reprendre')}</button>
 									<button type="button" className={s.btn} onClick={() => setOrientation((o) => (o === 'w' ? 'b' : 'w'))}>{t('Flip board', 'Retourner')}</button>
+									<button type="button" className={s.btn} onClick={downloadPgn} disabled={!history.length} aria-label={t('Download PGN', 'Télécharger le PGN')}>PGN</button>
 								</div>
-								<div className={s.row} style={{ marginBottom: 12 }}>
-									<button type="button" className={s.btn} onClick={downloadPgn} disabled={!history.length}>{t('Download PGN', 'Télécharger le PGN')}</button>
-								</div>
-								<label className={s.label} htmlFor="chess-level">{t('Thinking per move', 'Réflexion par coup')}</label>
-								<select id="chess-level" className={s.select} value={level} onChange={(e) => setLevel(Number(e.target.value))} disabled={thinking}>
-									{LEVELS.map((n) => (
-										<option key={n} value={n}>
-											{n === 1 ? t('Network only (instant)', 'Réseau seul (instantané)') : t(`${n.toLocaleString('en')} positions`, `${n.toLocaleString('fr')} positions`)}
-										</option>
-									))}
-								</select>
 							</div>
 
 							<div className={s.card}>
@@ -318,7 +330,7 @@ export default function ChessClient() {
 											</div>
 										))}
 									</div>
-								) : <div className={s.sub}>{t('No moves yet.', 'Aucun coup joué.')}</div>}
+								) : <div className={s.sub}>{t('No moves yet. Drag a piece, or click it and then its square.', 'Aucun coup joué. Faites glisser une pièce, ou cliquez-la puis sa case.')}</div>}
 							</div>
 
 							<div className={`${s.card} ${s.info}`}>
@@ -326,6 +338,8 @@ export default function ChessClient() {
 									? t(`Model: ${Math.round(model.bytes / 1024)} KB, one shared block looped ${model.loops} times, running on ${model.backend === 'webgpu' ? 'WebGPU' : 'the CPU (WebGPU unavailable or not validated)'}.`,
 										`Modèle : ${Math.round(model.bytes / 1024)} Ko, un seul bloc partagé bouclé ${model.loops} fois, sur ${model.backend === 'webgpu' ? 'WebGPU' : 'le CPU (WebGPU indisponible ou non validé)'}.`)
 									: t('Model: loading…', 'Modèle : chargement…')}
+								<br />
+								{t('Right-click a square to highlight it, right-drag to draw an arrow.', 'Clic droit sur une case pour la surligner, glisser au clic droit pour une flèche.')}
 								<br />
 								{t('Open weights: ', 'Poids ouverts : ')}
 								<a href={MODEL_URL} download>.brik</a>{' · '}<a href={GGUF_URL} download>.gguf</a>
