@@ -1,0 +1,251 @@
+/* Page /chess — échiquier + panneau. Couleurs : jetons du thème (globals.css), cases en tons neutres. */
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 600;
+  margin: 8px 0 6px;
+  color: var(--text-primary);
+}
+
+.lead {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 720px;
+  margin: 0 0 24px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Grille : barre d'évaluation | rangées | échiquier, puis colonnes sous l'échiquier. Les coordonnées
+   sont HORS des cases : sur le fond de page, leur contraste tient (axe), quelle que soit la case. */
+.boardGrid {
+  display: grid;
+  grid-template-columns: 14px 14px minmax(0, 640px);
+  grid-template-rows: auto 18px;
+  column-gap: 6px;
+  row-gap: 4px;
+}
+.ranks, .files {
+  display: grid;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.ranks { grid-template-rows: repeat(8, 1fr); align-items: center; justify-items: center; }
+.files { grid-column: 3; grid-template-columns: repeat(8, 1fr); justify-items: center; }
+
+/* Barre d'évaluation : part des blancs (bas = blancs quand l'échiquier est à l'endroit). */
+.evalBar {
+  border-radius: 4px;
+  overflow: hidden;
+  background: #2a2a30;
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+}
+.evalBlack { background: #2a2a30; transition: flex-grow 0.4s ease; }
+.evalWhite { background: #ece8df; transition: flex-grow 0.4s ease; }
+
+.board {
+  container-type: inline-size;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.sq {
+  position: relative;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font: inherit;
+}
+.sq:focus-visible { outline: 3px solid var(--cyan); outline-offset: -3px; z-index: 2; }
+.light { background: #e3dccd; }
+.dark { background: #8f7a62; }
+.last.light { background: #e9cf8f; }
+.last.dark { background: #b79a5c; }
+.selected { box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.85); }
+.check { background: radial-gradient(circle, rgba(239, 68, 68, 0.95) 0%, rgba(239, 68, 68, 0.5) 45%, transparent 75%) !important; }
+
+/* Pièces dessinées en pseudo-élément (glyphes pleins + U+FE0E, jamais l'emoji) : le nom accessible
+   est porté par le bouton de la case, pas par le glyphe. */
+.piece {
+  font-size: 10.2cqw;
+  line-height: 1;
+  font-family: 'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols 2', 'DejaVu Sans', serif;
+  pointer-events: none;
+}
+.piece::before { display: block; }
+.k::before { content: '\265A\FE0E'; }
+.q::before { content: '\265B\FE0E'; }
+.r::before { content: '\265C\FE0E'; }
+.b::before { content: '\265D\FE0E'; }
+.n::before { content: '\265E\FE0E'; }
+.p::before { content: '\265F\FE0E'; }
+.pw { color: #fbfaf7; -webkit-text-stroke: 0.06cqw #1b1b1f; text-shadow: 0 0.15cqw 0.3cqw rgba(0, 0, 0, 0.45); }
+.pb { color: #1d1c20; -webkit-text-stroke: 0.04cqw #4a4650; text-shadow: 0 0.15cqw 0.3cqw rgba(0, 0, 0, 0.35); }
+
+.dot {
+  position: absolute;
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  background: rgba(27, 27, 31, 0.32);
+  pointer-events: none;
+}
+.ring {
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  border: 0.9cqw solid rgba(27, 27, 31, 0.32);
+  pointer-events: none;
+}
+
+.promo {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 12, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+.promoBox {
+  display: flex;
+  gap: 8px;
+  background: var(--bg-card);
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+}
+.promoBtn {
+  width: 13cqw;
+  height: 13cqw;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: #e3dccd;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.status {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-height: 22px;
+}
+.sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--bg-card-hover); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btnPrimary { background: var(--accent-solid); border-color: var(--accent-solid); color: #fff; }
+.btnPrimary:hover:not(:disabled) { background: var(--accent); }
+
+.label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.moves {
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  display: grid;
+  grid-template-columns: 34px 1fr 1fr;
+  row-gap: 2px;
+  color: var(--text-primary);
+}
+.moveNum { color: var(--text-muted); }
+
+.info {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.info a { color: var(--accent-text); }
