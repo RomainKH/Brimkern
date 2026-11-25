@@ -70,8 +70,9 @@
   width: 100%;
   aspect-ratio: 1;
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  grid-template-rows: repeat(8, 1fr);
+  /* minmax(0, …) : une case ne grandit jamais avec son glyphe (sinon la 8e rangée sort du cadre). */
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   border-radius: 6px;
   overflow: hidden;
   border: 1px solid var(--border-color);

@@ -20,8 +20,10 @@
   @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
   .player { display: flex; justify-content: space-between; font-weight: 600; padding: 6px 2px; }
   .player .tag { color: var(--muted); font-weight: 400; }
-  .board { container-type: inline-size; display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
-  .sq { display: flex; align-items: center; justify-content: center; position: relative; }
+  /* Rangées de hauteur IMPOSÉE : en `1fr` (minimum = contenu), une rangée prend la hauteur du glyphe,
+     plus haute qu'un huitième du plateau avec Apple Symbols, et la 8e rangée sort du cadre. */
+  .board { container-type: inline-size; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+  .sq { display: flex; align-items: center; justify-content: center; position: relative; min-width: 0; min-height: 0; overflow: hidden; }
   .light { background: #e3dccd; } .dark { background: #8f7a62; }
   .last.light { background: #e9cf8f; } .last.dark { background: #b79a5c; }
   .check { background: radial-gradient(circle, rgba(239,68,68,.95) 0%, rgba(239,68,68,.5) 45%, transparent 75%) !important; }
