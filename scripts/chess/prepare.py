@@ -15,7 +15,8 @@ case s → s ^ 56, couleurs échangées) — le même encodage que src/lib/chess
   [65]     case de prise en passant (0-63) SEULEMENT si une prise est légale, sinon 64
   [66]     valeur : probabilité de gain du trait selon la meilleure ligne, 0-255
   [67:82]  jusqu'à 5 coups candidats (de, vers, probabilité de gain 0-255) ; de = 255 → vide.
-           La promotion se résume à de→vers (le modèle promeut en dame).
+           La promotion se résume à de→vers (le modèle promeut en dame). Un candidat qui MATE a le
+           bit 64 levé sur « de » et stocke le nombre de coups jusqu'au mat au lieu de sa probabilité.
 Validation : une position sur 200 (hachage de la FEN), jamais vue à l'entraînement.
 """
 import argparse
@@ -30,6 +31,7 @@ import chess
 
 REC = 82
 K = 5
+MATE_CP = 90000  # au-delà : score de mat (pv_score / learn.py notent un mat en n par 100000 − n)
 PIECES = {"P": 1, "N": 2, "B": 3, "R": 4, "Q": 5, "K": 6}
 
 
@@ -63,6 +65,10 @@ def record(board, moves):
     rec[64] = (board.has_kingside_castling_rights(me) | board.has_queenside_castling_rights(me) << 1
                | board.has_kingside_castling_rights(opp) << 2 | board.has_queenside_castling_rights(opp) << 3)
     rec[65] = (board.ep_square ^ flip) if (board.ep_square is not None and board.has_legal_en_passant()) else 64
+    # Mats : « gagné » ne suffit pas — un coup qui mate en 2 doit battre un coup qui mate en 20, sinon la
+    # cible est uniforme entre eux et le modèle tourne en rond dans les finales gagnées. Un candidat qui
+    # MATE porte le drapeau 64 sur son octet « de » et stocke le nombre de coups jusqu'au mat à la place
+    # de sa probabilité de gain (train.py en tire une valeur au-dessus de tout coup non matant).
     scored, seen = [], set()
     for cp, f, t in moves:
         piece = board.piece_at(f)
@@ -72,16 +78,23 @@ def record(board, moves):
         if (f, t) in seen:
             continue
         seen.add((f, t))
-        scored.append((winprob(cp, white), f ^ flip, t ^ flip))
+        stm = cp if white else -cp
+        if stm >= MATE_CP:
+            n = int(100000 - stm)                                   # coups jusqu'au mat
+            scored.append((2.0 - n / 1000, 1.0, f ^ flip, t ^ flip, min(max(n, 1), 254)))
+        else:
+            wp = winprob(cp, white)
+            scored.append((wp, wp, f ^ flip, t ^ flip, None))
     if not scored:
         return None
-    scored.sort(reverse=True)
-    rec[66] = round(scored[0][0] * 255)
+    scored.sort(key=lambda x: x[0], reverse=True)
+    rec[66] = round(scored[0][1] * 255)
     for i in range(K):
         o = 67 + 3 * i
         if i < len(scored):
-            wp, f, t = scored[i]
-            rec[o], rec[o + 1], rec[o + 2] = f, t, round(wp * 255)
+            _, wp, f, t, mate = scored[i]
+            rec[o], rec[o + 1] = (f | 64) if mate else f, t
+            rec[o + 2] = mate if mate else round(wp * 255)
         else:
             rec[o] = 255
     return bytes(rec)

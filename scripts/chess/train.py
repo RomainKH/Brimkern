@@ -51,6 +51,11 @@ def to_batch(rec, dev, augment):
     cand = rec[:, 67:82].reshape(-1, K, 3).astype(np.int64)
     frm, to, wp = cand[:, :, 0], cand[:, :, 1], cand[:, :, 2].astype(np.float32) / 255
     valid = frm != 255
+    # Candidats matants (bit 64 de « de », cf. prepare.record) : valeur effective au-dessus de tout coup
+    # non matant, d'autant plus haute que le mat est proche (mat en 1 : 1,19 ; en 20 : 1,0).
+    mate = valid & ((frm & 64) != 0)
+    frm = np.where(valid, frm & 63, frm)
+    wp = np.where(mate, np.clip(1.2 - 0.01 * cand[:, :, 2], 1.0, 1.2), wp).astype(np.float32)
     if augment:
         m = (castle == 0) & (np.random.rand(len(rec)) < 0.5)
         if m.any():

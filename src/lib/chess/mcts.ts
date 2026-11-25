@@ -30,6 +30,81 @@ export interface SearchResult {
 
 const key = (fen: string) => fen.split(' ', 4).join(' ');
 
+// ── Finir les parties (même chose que play.py, ROADMAP § 31) : une partie gagnée, le réseau dit
+// « ~100 % » pour presque tous les coups et tourne en rond. Mat court cherché à la racine, valeur
+// façonnée contre un roi nu, et un mat plus proche vaut plus dans l'arbre. ─────────────────────────
+function matingMaterial(game: Chess, color: 'w' | 'b'): boolean {
+	const t = game.board().flat().filter((p) => p && p.color === color).map((p) => p!.type);
+	const minors = t.filter((x) => x === 'b' || x === 'n').length;
+	return t.includes('q') || t.includes('r') || (minors >= 2 && t.includes('b'));
+}
+
+const VAL: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+// Position GAGNÉE (|v| ≥ 0,9) : la valeur du réseau sature, la recherche ne distingue plus « gagner
+// vite » de « gagner lentement ». Valeur rangée par le PROGRÈS dans [0,80 ; 0,95] (un mat reste
+// au-dessus) — matériel (prendre, simplifier), pions vers la promotion, roi adverse vers le bord et
+// NOTRE roi qui s'approche (poids fort dès que l'adversaire n'a plus que pions / une mineure : partie
+// D+R contre R+P du 2026-11-25, 68 coups d'échecs à la dame), et le compteur des 50 coups qui fait
+// baisser la valeur — une prise ou un coup de pion le remettent à zéro. Même formule que play.py.
+export function progressValue(game: Chess, v: number): number {
+	if (Math.abs(v) < 0.9) return v;
+	const stm = game.turn();
+	const winner = v > 0 ? stm : stm === 'w' ? 'b' : 'w';
+	const pieces = game.board().flat().filter(Boolean) as { type: string; color: 'w' | 'b'; square: string }[];
+	let wm = 0, lm = 0;
+	const pawns: number[] = [];
+	for (const p of pieces) {
+		if (p.color === winner) {
+			wm += VAL[p.type];
+			if (p.type === 'p') { const r = Number(p.square[1]) - 1; pawns.push(winner === 'w' ? r - 1 : 6 - r); }
+		} else lm += VAL[p.type];
+	}
+	const ratio = (wm - lm) / (wm + lm + 1);
+	const adv = pawns.length ? pawns.reduce((a, b) => a + b, 0) / (5 * pawns.length) : 0;
+	const lk = pieces.find((p) => p.color !== winner && p.type === 'k')!.square;
+	const wk = pieces.find((p) => p.color === winner && p.type === 'k')!.square;
+	const f = lk.charCodeAt(0) - 97, r = Number(lk[1]) - 1;
+	const center = Math.max(3 - f, f - 4) + Math.max(3 - r, r - 4);
+	const kd = Math.abs(wk.charCodeAt(0) - 97 - f) + Math.abs(Number(wk[1]) - 1 - r);
+	const king = 0.5 * center / 6 + 0.5 * (14 - kd) / 13;
+	const progress = lm === 0 && matingMaterial(game, winner) ? 0.3 * ratio + 0.7 * king
+		: lm <= 3 ? 0.4 * ratio + 0.2 * adv + 0.4 * king
+		: 0.5 * ratio + 0.3 * adv + 0.2 * king;
+	const halfmove = Number(game.fen().split(' ')[4]) || 0;
+	const shaped = 0.80 + 0.15 * Math.max(0, Math.min(1, progress)) - 0.05 * Math.min(halfmove, 100) / 100;
+	return v > 0 ? shaped : -shaped;
+}
+
+function mateIn1(game: Chess): Move | null {
+	for (const m of game.moves({ verbose: true })) {
+		game.move(m);
+		const mate = game.isCheckmate();
+		game.undo();
+		if (mate) return m;
+	}
+	return null;
+}
+
+// Mat forcé en 2 (exact) — coûteux au milieu de partie : réservé aux finales (≤ 10 pièces).
+function mateIn2(game: Chess): Move | null {
+	for (const m of game.moves({ verbose: true })) {
+		game.move(m);
+		if (game.isCheckmate()) { game.undo(); return m; }
+		const replies = game.moves({ verbose: true });
+		let ok = replies.length > 0;
+		for (const r of replies) {
+			game.move(r);
+			const hit = mateIn1(game) !== null;
+			game.undo();
+			if (!hit) { ok = false; break; }
+		}
+		game.undo();
+		if (ok) return m;
+	}
+	return null;
+}
+
 // aggression : prises et échecs voient leur a priori multiplié par (1 + aggression) — la recherche
 // explore d'abord les coups d'attaque (même règle que Net.evaluate dans play.py).
 function priors(logits: Float32Array, moves: Move[], flip: number, aggression = 0): Float32Array {
@@ -74,8 +149,18 @@ export async function search(model: ChessModel, root: Chess, opts: SearchOptions
 	const expand = async (positions: { game: Chess; legal: Move[] }[]) => {
 		const enc: Encoded[] = positions.map((p) => encodePosition(p.game, p.legal));
 		const ev = await model.evaluate(enc);
-		return ev.map((e, i) => ({ pr: priors(e.logits, positions[i].legal, enc[i].flip, opts.aggression ?? 0), v: 2 * e.value - 1 }));
+		// Style agressif tant que la partie n'est PAS gagnée (|v| < 0,9) : une fois gagnée, les échecs
+		// « pour le style » faisaient tourner la dame en rond (partie du 2026-11-25, 68 coups d'échecs).
+		return ev.map((e, i) => {
+			const raw = 2 * e.value - 1;
+			const aggr = Math.abs(raw) < 0.9 ? opts.aggression ?? 0 : 0;
+			return { pr: priors(e.logits, positions[i].legal, enc[i].flip, aggr), v: progressValue(positions[i].game, raw) };
+		});
 	};
+
+	// Un mat forcé court se joue sans chercher plus loin.
+	const forced = mateIn1(game) ?? (game.board().flat().filter(Boolean).length <= 10 ? mateIn2(game) : null);
+	if (forced) return { move: forced, nodes: 1, value: 1, pv: [forced.san], ms: performance.now() - t0, policyMove: forced };
 
 	const rootNode = new Node(1);
 	const rootLegal = game.moves({ verbose: true });
@@ -122,7 +207,7 @@ export async function search(model: ChessModel, root: Chess, opts: SearchOptions
 				bump(k, 1); pushed.push(k);
 				node = node.children[bi];
 				path.push(node);
-				if (game.isCheckmate()) { tv = -1; break; }
+				if (game.isCheckmate()) { tv = -(1 - 0.002 * pushed.length); break; } // un mat plus proche vaut plus (≥ 0,96 à 20 demi-coups)
 				if (game.isStalemate() || game.isInsufficientMaterial() || game.isDrawByFiftyMoves() || (seen.get(k) ?? 0) >= 2) {
 					const c = opts.contempt ?? 0;
 					tv = game.turn() === rootTurn ? -c : c;
