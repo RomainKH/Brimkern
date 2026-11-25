@@ -132,6 +132,7 @@ def main():
     ap.add_argument("--extra", help="second train.bin directory (positions from the model's own games, learn.py)")
     ap.add_argument("--extra-frac", type=float, default=0.5, help="share of each batch drawn from --extra")
     ap.add_argument("--warmup", type=int, default=500)
+    ap.add_argument("--start-step", type=int, default=0, help="resume: the learning-rate schedule continues from this step (with --init)")
     ap.add_argument("--tag", default="", help="free label written in the checkpoint")
     ap.add_argument("--aggression", type=float, default=0.0, help="aggressive style bonus in policy targets (see aggression_bonus)")
     a = ap.parse_args()
@@ -146,7 +147,7 @@ def main():
     n_extra = int(round(a.batch * a.extra_frac)) if extra is not None and len(extra) else 0
 
     model = ChessNet(d=a.d, heads=a.heads, ff=a.ff, dp=a.dp)
-    start_step = 0
+    start_step = a.start_step
     if a.init:
         ck = torch.load(a.init, map_location="cpu")
         model = ChessNet(**ck["cfg"])
