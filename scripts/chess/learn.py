@@ -5,13 +5,19 @@
     python scripts/chess/learn.py ... --pgn mes-parties.pgn       # + les parties jouées sur /chess
 
 Une génération :
-  1. JOUER — N parties contre un barreau de l'ÉCHELLE d'adversaires (--ladder : Maia 1100 → 1900,
-     puis Stockfish bridé) ; le barreau s'ajuste pour que les parties restent SERRÉES (score > 60 %
-     → barreau suivant, < 40 % → précédent), plus les parties PGN fournies (celles jouées sur la page).
+  1. JOUER — N parties contre un barreau de l'ÉCHELLE (--ladder : Stockfish bridé, UCI_Elo 1320 →
+     3190) ; le barreau s'ajuste pour que les parties restent SERRÉES (score > 60 % → barreau
+     suivant, < 40 % → précédent, ±2 au-delà de 85 % / en deçà de 15 %), plus les parties PGN
+     fournies (celles jouées sur la page). L'objectif est de BATTRE Stockfish : le score de ces
+     parties est la courbe qui compte, la ressemblance aux coups de Stockfish n'est qu'un moyen.
   2. ANNOTER — chaque position atteinte est analysée par Stockfish à pleine force (profondeur
      --depth, multi-PV 5) et encodée comme les données de pré-entraînement (prepare.record). Le
      résultat d'une partie seule est un signal trop pauvre ; ce sont les positions où le modèle se
-     trompe, corrigées par le moteur, qui le font progresser (DAgger).
+     trompe, corrigées par le moteur, qui le font progresser (DAgger). Chaque coup JOUÉ par brimkern
+     est noté : une ERREUR (perte de probabilité de gain ≥ --mistake) est écrite --mistake-weight
+     fois dans le tampon — ce sont ces coups-là qui perdent les parties. Erreurs par partie et perte
+     moyenne par coup sont journalisées : la qualité de jeu face à Stockfish, génération après
+     génération.
   3. RÉENTRAÎNER — depuis le champion, sur un mélange (--extra-frac) des positions annotées de TOUTES
      les générations et des données de base (pour ne pas oublier le reste).
   4. DÉPARTAGER — match candidat contre champion ; le candidat ne remplace le champion que s'il marque
@@ -36,7 +42,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from play import Net, elo_from_score, make_opponent, model_move, sample_move  # noqa: E402
-from prepare import record  # noqa: E402
+from prepare import record, winprob  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -90,11 +96,15 @@ def score_for(result, as_white):
     return 1.0 if (result == "1-0") == as_white else 0.0
 
 
-def annotate(fens, depth, out_path, threads=1):
-    """FEN → enregistrements annotés par Stockfish (pleine force), ajoutés à out_path."""
+def annotate(fens, depth, out_path, played=None, mistake=0.10, weight=3, threads=1):
+    """FEN → enregistrements annotés par Stockfish (pleine force), ajoutés à out_path.
+    played : {fen: coup joué par brimkern}. Un coup qui perd ≥ `mistake` de probabilité de gain
+    (point de vue du trait, formule de Lichess) est une erreur : son enregistrement est écrit
+    `weight` fois. Rend (enregistrements écrits, pertes de probabilité des coups de brimkern)."""
+    played = played or {}
     sf = chess.engine.SimpleEngine.popen_uci("stockfish")
     sf.configure({"Threads": threads, "Hash": 64})
-    n = 0
+    n, losses = 0, []
     with open(out_path, "ab") as f:
         for fen in fens:
             board = chess.Board(fen)
@@ -107,13 +117,27 @@ def annotate(fens, depth, out_path, threads=1):
                     continue
                 cp = info["score"].white().score(mate_score=100000)
                 mv = info["pv"][0]
-                moves.append((float(cp), mv.from_square, mv.to_square))
-            rec = record(board, moves)
-            if rec:
+                moves.append((float(cp), mv.from_square, mv.to_square, mv))
+            rec = record(board, [m[:3] for m in moves])
+            if not rec:
+                continue
+            copies = 1
+            mine = played.get(fen)
+            if mine is not None and moves:
+                white = board.turn == chess.WHITE
+                cp_mine = next((cp for cp, _, _, mv in moves if mv == mine), None)
+                if cp_mine is None:  # hors des 5 meilleurs : sa propre note, même profondeur
+                    info = sf.analyse(board, chess.engine.Limit(depth=depth), root_moves=[mine])
+                    cp_mine = float(info["score"].white().score(mate_score=100000))
+                loss = max(0.0, winprob(moves[0][0], white) - winprob(cp_mine, white))
+                losses.append(loss)
+                if loss >= mistake:
+                    copies = weight
+            for _ in range(copies):
                 f.write(rec)
-                n += 1
+            n += copies
     sf.quit()
-    return n
+    return n, losses
 
 
 def pgn_positions(path):
@@ -138,8 +162,10 @@ def main():
     ap.add_argument("--generations", type=int, default=3)
     ap.add_argument("--games", type=int, default=20, help="parties contre Stockfish par génération")
     ap.add_argument("--nodes", type=int, default=200)
-    ap.add_argument("--ladder", default="maia:1100,maia:1300,maia:1500,maia:1700,maia:1900,sf:1320,sf:1500,sf:1700,sf:2000,sf:2300,sf:2600",
-                    help="adversaires du plus faible au plus fort (cf. play.make_opponent)")
+    ap.add_argument("--ladder", default="sf:1320,sf:1500,sf:1700,sf:1900,sf:2100,sf:2300,sf:2500,sf:2700,sf:2900,sf:3190",
+                    help="adversaires du plus faible au plus fort (cf. play.make_opponent ; maia:<elo> possible)")
+    ap.add_argument("--mistake", type=float, default=0.10, help="perte de probabilité de gain qui fait d'un coup de brimkern une erreur")
+    ap.add_argument("--mistake-weight", type=int, default=3, help="nombre de copies d'une erreur dans le tampon")
     ap.add_argument("--rung", type=int, default=0, help="barreau de départ")
     ap.add_argument("--sf-time", type=float, default=0.1)
     ap.add_argument("--pgn", help="parties supplémentaires (ex. jouées sur /chess)")
@@ -186,7 +212,7 @@ def main():
         opp_name, sf, opp_limit = make_opponent(ladder[rung], a.sf_time)
         me = lambda b: model_move(net, b, a.nodes, a.contempt)  # noqa: E731
         them = lambda b: sf.play(b, opp_limit).move  # noqa: E731
-        score, fens = 0.0, []
+        score, fens, played = 0.0, [], {}
         with open(os.path.join(gdir, "games.pgn"), "w") as pgn:
             for g in range(a.games):
                 w = g % 2 == 0
@@ -197,12 +223,18 @@ def main():
                 results.append({"white": names[0], "black": names[1], "result": res, "points": score_for(res, w)})
                 live.set(results=results, score=score)
                 fens += f
+                # Coups de brimkern hors ouverture tirée au sort (4 premiers demi-coups) : ceux qu'on note.
+                for i, (fen, mv) in enumerate(zip(f, board.move_stack)):
+                    if i >= 4 and (i % 2 == 0) == w:
+                        played[fen] = mv
                 game = chess.pgn.Game.from_board(board)
                 game.headers.update({"White": "brimkern" if w else opp_name, "Black": opp_name if w else "brimkern"})
                 print(game, file=pgn, end="\n\n")
                 print(f"[gen {gen}] partie {g + 1}/{a.games} contre {opp_name} : {res} · score {score}/{g + 1}", flush=True)
         sf.quit()
         vs_sf = dict(opponent=opp_name, games=a.games, score=score)
+        if ladder[rung].startswith("sf:"):
+            vs_sf["sf_time"] = a.sf_time
         diff, lo, hi = elo_from_score(score / a.games, a.games)
         vs_sf.update(elo_diff=diff, elo_ci95=[lo, hi])
         if a.pgn and gen == start_gen:
@@ -212,9 +244,13 @@ def main():
         uniq = list(dict.fromkeys(fens))
         t1 = time.time()
         live.set(phase="annotate", positions=len(uniq))
-        added = annotate(uniq, a.depth, buf)
+        added, losses = annotate(uniq, a.depth, buf, played, a.mistake, a.mistake_weight)
         buffer_size = os.path.getsize(buf) // 82
-        print(f"[gen {gen}] {added} positions annotées en {time.time() - t1:.0f} s · tampon {buffer_size}", flush=True)
+        mistakes = sum(l >= a.mistake for l in losses)
+        vs_sf.update(brimkern_moves=len(losses), mistakes=int(mistakes), mistakes_per_game=round(mistakes / a.games, 2),
+                     mean_wp_loss=round(float(np.mean(losses)), 4) if losses else None)
+        print(f"[gen {gen}] {added} enregistrements en {time.time() - t1:.0f} s · tampon {buffer_size} · "
+              f"{mistakes} erreurs de brimkern sur {len(losses)} coups ({mistakes / a.games:.1f}/partie)", flush=True)
 
         # 3. Réentraîner depuis le champion.
         cmd = ["taskpolicy", "-b", sys.executable, "-u", os.path.join(HERE, "train.py"), "--data", a.data, "--out", os.path.join(gdir, "train"),
@@ -254,10 +290,11 @@ def main():
 
         # Barreau de la prochaine génération : là où les parties restent serrées.
         s = score / a.games
+        step = 2 if s >= 0.85 or s <= 0.15 else 1
         if s > 0.6:
-            rung = min(len(ladder) - 1, rung + 1)
+            rung = min(len(ladder) - 1, rung + step)
         elif s < 0.4:
-            rung = max(0, rung - 1)
+            rung = max(0, rung - step)
 
 
 if __name__ == "__main__":
