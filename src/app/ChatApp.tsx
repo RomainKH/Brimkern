@@ -2449,9 +2449,12 @@ function App() {
       // un clip que la bulle lit déjà en boucle (`<video loop>`). La version longue — celle qu'on
       // enregistre — est fabriquée APRÈS, en arrière-plan, et remplace l'URL quand elle est prête.
       // ?vfastwebm=0 : l'ancien chemin (une seule vidéo bouclée de ~10 s) — bras témoin du banc.
-      const slowWebm = q.get('vfastwebm') === '0';
+      // LTX : JAMAIS de version bouclée. Le modèle n'est pas entraîné à boucler (AnimateDiff l'est) :
+      // 49 images à 25 im/s répétées 5× donnaient un fichier de 9,8 s avec un saut toutes les 2 s, là
+      // où le composer annonce « 2 s ». Le fichier enregistré est le clip réel ; la bulle boucle seule.
+      const slowWebm = q.get('vfastwebm') === '0' && videoEngine !== 'ltx';
       const url = await framesToWebm(res.frames, res.fps, slowWebm ? 10 : 0); // null si non supporté
-      if (url && !slowWebm) {
+      if (url && !slowWebm && videoEngine !== 'ltx') {
         void framesToWebm(res.frames, res.fps).then((longUrl) => {
           if (!longUrl) return;
           setMessages(prev => prev.map(m => m.id === aId && m.video?.url === url ? { ...m, video: { ...m.video, url: longUrl } } : m));

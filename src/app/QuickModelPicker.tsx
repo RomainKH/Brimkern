@@ -118,6 +118,7 @@ interface Props {
   activeModelUrl?: string;
   imageMode?: boolean;
   videoMode?: boolean;
+  videoEngine?: 'animatediff' | 'ltx';
   visionMode?: boolean;
   onSelectModel: (model: QuickModelOption) => void;
   onOpenBrowser: () => void;
@@ -130,6 +131,7 @@ export function QuickModelPicker({
   activeModelUrl,
   imageMode,
   videoMode,
+  videoEngine,
   visionMode,
   onSelectModel,
   onOpenBrowser,
@@ -155,7 +157,7 @@ export function QuickModelPicker({
   // Determine label of current active model
   let label = activeModelName || t('LFM2.5 230M (Auto)', 'LFM2.5 230M (Auto)');
   if (imageMode) label = 'SD-Turbo (Image)';
-  else if (videoMode) label = t('AnimateDiff (Video)', 'AnimateDiff (Vidéo)');
+  else if (videoMode) label = videoEngine === 'ltx' ? t('LTX-Video 2B (Video)', 'LTX-Video 2B (Vidéo)') : t('AnimateDiff (Video)', 'AnimateDiff (Vidéo)');
   else if (visionMode) label = 'Qwen2-VL (Vision)';
   else if (activeModelName) {
     const match = QUICK_MODELS.find((m) => m.url === activeModelUrl || activeModelName.toLowerCase().includes(m.id));

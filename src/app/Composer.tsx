@@ -282,6 +282,7 @@ export function Composer({
                 activeModelUrl={activeModelUrl}
                 imageMode={imageMode}
                 videoMode={videoMode}
+                videoEngine={videoEngine}
                 visionMode={visionMode}
                 onSelectModel={onSelectQuickModel}
                 onOpenBrowser={onOpenModelBrowser}
