@@ -15,6 +15,8 @@
     "build:mobile-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-mobile-brik.cjs",
     "build:rwkv-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-rwkv-brik.cjs",
     "build:lfm2-brik": "tsc src/lib/brik/*.ts src/lib/webgpu/ggufParser.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=8192 scripts/build-lfm2-brik.cjs",
+    "build:chess-brik": "tsc src/lib/brik/*.ts src/lib/safetensors.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node scripts/chess/build-chess-brik.cjs",
+    "test:chess": "tsc src/lib/chess/encode.ts src/lib/chess/encode.test.ts --outDir .brik-build/chesstest --module commonjs --target es2022 --moduleResolution node --skipLibCheck --esModuleInterop && node .brik-build/chesstest/encode.test.js",
     "test:rwkv": "tsc src/lib/rwkvTokenizer.ts src/lib/rwkvTokenizer.test.ts --outDir .brik-build/rwkvtest --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node .brik-build/rwkvtest/rwkvTokenizer.test.js",
     "build:image-brik": "tsc src/lib/brik/*.ts src/lib/safetensors.ts --outDir .brik-build --module commonjs --target es2022 --moduleResolution node --skipLibCheck && node --max-old-space-size=12288 scripts/build-image-brik.cjs",
     "build:sdk": "node scripts/build-sdk.mjs",
@@ -45,6 +47,7 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@vercel/analytics": "^2.0.1",
+    "chess.js": "1.4.0",
     "lucide-react": "^1.21.0",
     "next": "16.2.9",
     "react": "19.2.4",

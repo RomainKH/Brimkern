@@ -73,6 +73,9 @@ export interface BrikManifest {
 	// BRIK image (model.uiArch === 'image') : le fichier transporte sa propre config UNet (topologie
 	// diffusers → UnetCfg) — l'app n'a pas à connaître chaque modèle. Absent sur les BRIK LLM.
 	image?: { unetCfg?: Record<string, unknown> };
+	// BRIK échecs (model.uiArch === 'chess', scripts/chess) : la config du modèle (d, têtes, ff, dp,
+	// tours de boucle…), écrite par export.py. Absent ailleurs.
+	chess?: Record<string, unknown>;
 }
 
 // Round a byte length up to the next BRIK_ALIGN boundary.
