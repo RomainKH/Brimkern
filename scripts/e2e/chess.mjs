@@ -5,6 +5,8 @@
 //   PORT=3619 node scripts/e2e/chess.mjs --flag=chessgpu=0 --level=strong   # bras témoin CPU
 //   PORT=3619 node scripts/e2e/chess.mjs --level=max --playnow=3  # Maximum, « Jouer maintenant » à 3 s
 //   PORT=3619 node scripts/e2e/chess.mjs --moves=3 --shot=/tmp/chess.png
+//   PORT=3619 node scripts/e2e/chess.mjs --match=1320 --level=medium --games=1   # match contre Stockfish
+//   PORT=3619 node scripts/e2e/chess.mjs --match=max --moves=4                     # Stockfish pleine force
 //
 // Joue 1.e4 en GLISSER-DÉPOSER à la souris (le geste réel), puis, pour les coups suivants, le
 // premier coup légal trouvé en clic-clic (on mesure la réponse du moteur, pas la qualité du jeu
@@ -20,6 +22,8 @@ const PLAYNOW = Number(arg('playnow', '0'));
 const MOVES = Number(arg('moves', '2'));
 const SHOT = arg('shot', '');
 const LANG = arg('lang', '');
+const MATCH = arg('match', '');     // réglage UCI_Elo de Stockfish (1320…3000) ou « max »
+const GAMES = Number(arg('games', '0'));
 
 const browser = await chromium.launch({ executablePath: EXE, headless: true, args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
@@ -37,6 +41,35 @@ await page.waitForFunction(() => {
 }, null, { timeout: 180_000, polling: 250 });
 console.log(`modèle prêt en ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 await page.selectOption('#chess-level', LEVEL);
+
+const plies = () => page.evaluate(() => [...document.querySelectorAll('[aria-label="Move list"] span, [aria-label="Liste des coups"] span')]
+	.filter((x) => x.textContent && !x.textContent.endsWith('.')).length);
+const statusTxt = async () => (await page.locator('[aria-live="polite"]').innerText()).replace(/\s+/g, ' ').slice(0, 220);
+if (MATCH) {
+	// Match brimkern contre Stockfish : les deux camps jouent (ou N parties se terminent), puis « Arrêter ».
+	await page.selectOption('#chess-opponent', MATCH);
+	const t1 = Date.now();
+	await page.getByRole('button', { name: /Start the match|Lancer le match/ }).click();
+	if (GAMES) {
+		await page.waitForFunction((n) => document.querySelectorAll('[class*="chips"] > span').length >= n, GAMES, { timeout: 1_800_000, polling: 500 });
+	} else {
+		await page.waitForFunction((n) => [...document.querySelectorAll('[aria-label="Move list"] span, [aria-label="Liste des coups"] span')]
+			.filter((x) => x.textContent && !x.textContent.endsWith('.')).length >= n, 2 * MOVES, { timeout: 600_000, polling: 200 });
+	}
+	console.log(`match : ${await plies()} demi-coups en ${((Date.now() - t1) / 1000).toFixed(1)} s · ${await statusTxt()}`);
+	const score = await page.locator('text=/brimkern [0-9.,]+ \\/ [0-9]+/').first().innerText().catch(() => '');
+	if (score) console.log(`score : ${score.replace(/\s+/g, ' ')}`);
+	await page.getByRole('button', { name: /Stop the match|Arrêter le match/ }).click();
+	// Arrêté : le bouton « Lancer » revient (le statut, lui, garde le résultat si la partie était finie).
+	await page.getByRole('button', { name: /Start the match|Lancer le match/ }).waitFor({ timeout: 30_000 });
+	const before = await plies();
+	await page.waitForTimeout(3000);
+	console.log(`arrêt : ${(await plies()) === before ? 'OK (plus aucun coup joué)' : 'ÉCHEC (des coups continuent)'}`);
+	if (SHOT) await page.screenshot({ path: SHOT, fullPage: true });
+	console.log(logs.length ? `console :\n  ${logs.join('\n  ')}` : 'console : rien à signaler');
+	await browser.close();
+	process.exit(0);
+}
 
 const squareBtn = (sq) => page.locator(`button[aria-label^="${sq}"]`).first();
 for (let i = 0; i < MOVES; i++) {

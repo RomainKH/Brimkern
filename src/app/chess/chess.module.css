@@ -283,7 +283,7 @@
   row-gap: 2px;
   color: var(--text-primary);
 }
-.moveNum { color: var(--text-muted); }
+.moveNum { color: var(--text-secondary); }  /* --text-muted : contraste insuffisant (axe) sur le fond de carte */
 
 .info {
   font-size: 13px;
@@ -293,3 +293,20 @@
 .info a { color: var(--accent-text); }
 
 .playNow { width: 100%; margin-top: 10px; flex: none; }
+
+/* Match contre une IA : une pastille par partie (G/N/P vu de brimkern). */
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.chip {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+.chipW { color: var(--success); border-color: var(--success); }
+.chipL { color: var(--error); border-color: var(--error); }
