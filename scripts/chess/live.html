@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>brimkern · entraînement en direct</title>
+<!-- Suivi en direct de scripts/chess/learn.py (servi par live.py). Mêmes tons que /chess. -->
+<style>
+  :root {
+    --bg: #1b1b1f; --card: #222329; --border: #33363f; --text: #f0f0eb; --muted: #a3a6ad;
+    --accent: #f87171; --green: #3dd68c; --sand: #f9b44e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font: 600 24px/1.2 Georgia, serif; margin: 0 0 4px; }
+  .phase { color: var(--muted); margin-bottom: 18px; }
+  .phase b { color: var(--sand); font-weight: 600; }
+  .layout { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 22px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .player { display: flex; justify-content: space-between; font-weight: 600; padding: 6px 2px; }
+  .player .tag { color: var(--muted); font-weight: 400; }
+  .board { container-type: inline-size; display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+  .sq { display: flex; align-items: center; justify-content: center; position: relative; }
+  .light { background: #e3dccd; } .dark { background: #8f7a62; }
+  .last.light { background: #e9cf8f; } .last.dark { background: #b79a5c; }
+  .check { background: radial-gradient(circle, rgba(239,68,68,.95) 0%, rgba(239,68,68,.5) 45%, transparent 75%) !important; }
+  .pc { font-size: 10.2cqw; line-height: 1; font-family: 'Apple Symbols', 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'DejaVu Sans', serif; }
+  .pc::before { display: block; }
+  .k::before { content: '\265A\FE0E'; } .q::before { content: '\265B\FE0E'; } .r::before { content: '\265C\FE0E'; }
+  .b::before { content: '\265D\FE0E'; } .n::before { content: '\265E\FE0E'; } .p::before { content: '\265F\FE0E'; }
+  .w { color: #fbfaf7; -webkit-text-stroke: .06cqw #1b1b1f; text-shadow: 0 .15cqw .3cqw rgba(0,0,0,.45); }
+  .bl { color: #1d1c20; -webkit-text-stroke: .04cqw #4a4650; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .score { font-size: 22px; font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
+  .win { background: rgba(61,214,140,.2); color: var(--green); } .draw { background: rgba(163,166,173,.2); color: var(--muted); } .loss { background: rgba(248,113,113,.2); color: var(--accent); }
+  .moves { font: 13px/1.6 ui-monospace, monospace; max-height: 180px; overflow-y: auto; color: var(--text); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .ok { color: var(--green); } .no { color: var(--muted); }
+  .stale { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>brimkern apprend en jouant</h1>
+  <div class="phase" id="phase">En attente de learn.py…</div>
+  <div class="layout">
+    <div>
+      <div class="player" id="top"></div>
+      <div class="board" id="board"></div>
+      <div class="player" id="bottom"></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="label" id="scoreLabel">Score de la génération</div>
+        <div class="score" id="score">–</div>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="card"><div class="label">Coups</div><div class="moves" id="moves">–</div></div>
+      <div class="card">
+        <div class="label">Générations (history.jsonl)</div>
+        <table><thead><tr><th>Gén.</th><th>Adversaire</th><th>Score</th><th>Départage</th><th>Gardé</th></tr></thead><tbody id="hist"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const FILES = 'abcdefgh';
+const $ = (id) => document.getElementById(id);
+const isBrim = (name) => /^(brimkern|candidate)/.test(name || '');
+
+function parseFen(fen) {
+  const rows = fen.split(' ')[0].split('/');
+  const board = {};
+  rows.forEach((row, i) => {
+    let f = 0;
+    for (const ch of row) {
+      if (/\d/.test(ch)) { f += Number(ch); continue; }
+      board[FILES[f] + (8 - i)] = ch;
+      f++;
+    }
+  });
+  return { board, turn: fen.split(' ')[1] };
+}
+
+function draw(s) {
+  if (!s.fen) return;
+  const { board, turn } = parseFen(s.fen);
+  // L'échiquier du point de vue de brimkern (ou du candidat pendant le départage).
+  const flip = isBrim(s.black) && !isBrim(s.white);
+  const last = s.last ? [s.last.slice(0, 2), s.last.slice(2, 4)] : [];
+  let html = '';
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+    const rank = flip ? i + 1 : 8 - i, file = flip ? 7 - j : j;
+    const sq = FILES[file] + rank, p = board[sq];
+    const light = (file + rank) % 2 === 1;
+    const check = s.check && p && p.toLowerCase() === 'k' && ((p === 'K') === (turn === 'w'));
+    html += `<div class="sq ${light ? 'light' : 'dark'} ${last.includes(sq) ? 'last' : ''} ${check ? 'check' : ''}">` +
+      (p ? `<span class="pc ${p.toLowerCase()} ${p === p.toUpperCase() ? 'w' : 'bl'}"></span>` : '') + '</div>';
+  }
+  $('board').innerHTML = html;
+  const top = flip ? s.white : s.black, bottom = flip ? s.black : s.white;
+  $('top').innerHTML = `<span>${top || ''}</span><span class="tag">${flip ? 'blancs' : 'noirs'}</span>`;
+  $('bottom').innerHTML = `<span>${bottom || ''}</span><span class="tag">${flip ? 'noirs' : 'blancs'}</span>`;
+  const mv = s.moves || [];
+  let txt = '';
+  for (let i = 0; i < mv.length; i += 2) txt += `${i / 2 + 1}. ${mv[i]} ${mv[i + 1] || ''}  `;
+  $('moves').textContent = txt || '–';
+  $('moves').scrollTop = $('moves').scrollHeight;
+}
+
+function render(s) {
+  const phases = {
+    play: `Génération ${s.gen} · <b>partie ${s.game}/${s.games} contre ${s.opponent}</b>`,
+    annotate: `Génération ${s.gen} · <b>Stockfish annote ${s.positions} positions</b> jouées par brimkern`,
+    train: `Génération ${s.gen} · <b>réentraînement</b> (${s.steps} pas) sur ses propres parties corrigées`,
+    gate: `Génération ${s.gen} · <b>départage ${s.game}/${s.games}</b> : nouveau modèle contre le champion`,
+  };
+  const age = (Date.now() / 1000 - (s.updated || 0));
+  $('phase').innerHTML = (phases[s.phase] || 'En attente de learn.py…') + (age > 120 && s.phase !== 'train' && s.phase !== 'annotate' ? ` <span class="stale">· rien depuis ${Math.round(age)} s</span>` : '');
+  draw(s);
+  const res = s.results || [];
+  $('scoreLabel').textContent = s.phase === 'gate' ? 'Score du nouveau modèle contre le champion' : `Score de brimkern contre ${s.opponent || '…'}`;
+  $('score').textContent = res.length ? `${s.score} / ${res.length}` : '–';
+  $('chips').innerHTML = res.map((r) => `<div class="chip ${r.points === 1 ? 'win' : r.points === 0 ? 'loss' : 'draw'}">${r.points === 1 ? 'G' : r.points === 0 ? 'P' : 'N'}</div>`).join('');
+  $('hist').innerHTML = (s.history || []).map((h) => {
+    const o = h.vs_opponent || {};
+    return `<tr><td>${h.gen}</td><td>${o.opponent || ''}</td><td>${o.score}/${o.games}</td><td>${h.gate.score}/${h.gate.games}</td><td class="${h.accepted ? 'ok' : 'no'}">${h.accepted ? 'oui' : 'non'}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="no">Aucune génération terminée.</td></tr>';
+}
+
+async function tick() {
+  try { const r = await fetch('live.json', { cache: 'no-store' }); render(await r.json()); } catch {}
+  setTimeout(tick, 500);
+}
+tick();
+</script>
+</body>
+</html>

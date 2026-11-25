@@ -60,13 +60,30 @@ def to_batch(rec, dev, augment):
             to[m] = np.where(valid[m], to[m] ^ 7, to[m])
     idx = np.where(valid, frm * 64 + to, 0)
     t = lambda a: torch.from_numpy(a).to(dev)
-    return t(pieces), t(castle), t(ep), t(value), t(idx), t(wp), t(valid)
+    return t(pieces), t(castle), t(ep), t(value), t(idx), t(wp), t(valid), t(np.where(valid, frm, 0)), t(np.where(valid, to, 0))
 
 
-def policy_targets(wp, valid, tau):
+def policy_targets(wp, valid, tau, bonus=None):
     z = (wp - wp[:, :1]) / tau
+    if bonus is not None:
+        z = z + bonus
     z = z.masked_fill(~valid, -1e9)
     return torch.softmax(z, dim=1)
+
+
+def aggression_bonus(pieces, frm, to, valid, beta):
+    """Style AGRESSIF : bonus (en logits de la cible) des candidats qui prennent une pièce ou
+    amènent la pièce jouée dans la zone du roi adverse (à 2 cases ou moins, en s'en rapprochant). Calculé sur l'échiquier encodé (roi adverse = 12).
+    Avec τ = 0,03, β = 1 met à égalité le meilleur coup et un coup agressif 3 % de probabilité de gain
+    en dessous : le réseau choisit l'attaque quand elle ne coûte presque rien."""
+    B = pieces.shape[0]
+    ksq = (pieces == 12).float().argmax(1)                      # [B] case du roi adverse
+    kf, kr = ksq % 8, ksq // 8
+    f_, t_ = frm.clamp(max=63), to.clamp(max=63)
+    dist = lambda s: torch.maximum((s % 8 - kf[:, None]).abs(), (s // 8 - kr[:, None]).abs())
+    closer = ((dist(t_) < dist(f_)) & (dist(t_) <= 2)).float()  # entre dans la zone du roi adverse
+    capture = (torch.gather(pieces, 1, t_) >= 7).float()
+    return beta * torch.clamp(capture + closer, max=1.0) * valid.float()
 
 
 @torch.no_grad()
@@ -75,7 +92,7 @@ def evaluate(model, val, dev, loops, n=20000, bs=1024):
     top1 = good = mae = 0.0
     n = min(n, len(val))
     for i in range(0, n, bs):
-        p, c, e, v, idx, wp, valid = to_batch(val[i:i + bs], dev, False)
+        p, c, e, v, idx, wp, valid, _, _ = to_batch(val[i:i + bs], dev, False)
         logits, vl = model(p, c, e, loops)
         pred = logits.argmax(1)
         top1 += (pred == idx[:, 0]).sum().item()
@@ -111,6 +128,7 @@ def main():
     ap.add_argument("--extra-frac", type=float, default=0.5, help="share of each batch drawn from --extra")
     ap.add_argument("--warmup", type=int, default=500)
     ap.add_argument("--tag", default="", help="free label written in the checkpoint")
+    ap.add_argument("--aggression", type=float, default=0.0, help="aggressive style bonus in policy targets (see aggression_bonus)")
     a = ap.parse_args()
 
     dev = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -161,10 +179,10 @@ def main():
         rec = train[idx]
         if n_extra:
             rec = np.concatenate([np.asarray(rec), np.asarray(extra[np.sort(np.random.randint(0, len(extra), n_extra))])])
-        p, c, e, v, mv, wp, valid = to_batch(rec, dev, True)
+        p, c, e, v, mv, wp, valid, frm, to = to_batch(rec, dev, True)
         logits, vl = model(p, c, e, loops)
         logp = F.log_softmax(logits, dim=1)
-        tgt = policy_targets(wp, valid, a.tau)
+        tgt = policy_targets(wp, valid, a.tau, aggression_bonus(p, frm, to, valid, a.aggression) if a.aggression else None)
         loss_p = -(tgt * logp.gather(1, mv)).sum(1).mean()
         loss_v = F.binary_cross_entropy_with_logits(vl, v)
         loss = loss_p + a.value_weight * loss_v

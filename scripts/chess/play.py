@@ -18,6 +18,7 @@ import json
 import math
 import os
 import random
+import subprocess
 import sys
 import time
 
@@ -46,7 +47,10 @@ def encode_board(board: chess.Board):
 
 
 class Net:
-    def __init__(self, ckpt, loops=None, threads=2):
+    # aggression : les prises et les échecs voient leur a priori multiplié par (1 + aggression) — la
+    # recherche explore d'abord les coups d'attaque (style, cf. ROADMAP § 31). 0 = le réseau tel quel.
+    def __init__(self, ckpt, loops=None, threads=2, aggression=0.0):
+        self.aggression = aggression
         torch.set_num_threads(threads)
         ck = torch.load(ckpt, map_location="cpu")
         self.model = ChessNet(**ck["cfg"])
@@ -74,6 +78,8 @@ class Net:
                 if m.promotion and m.promotion != chess.QUEEN:
                     lg[j] -= 6.0
             pr = np.exp(lg - lg.max())
+            if self.aggression > 0:
+                pr *= np.array([1 + self.aggression if (b.is_capture(m) or b.gives_check(m)) else 1.0 for m in moves])
             pr /= pr.sum()
             out.append((moves, pr, float(2 * torch.sigmoid(v[i]) - 1)))
         return out
@@ -95,7 +101,10 @@ def terminal_value(board):
     return None
 
 
-def mcts(net, board, nodes, batch=8, c_puct=1.5, fpu=0.2):
+def mcts(net, board, nodes, batch=8, c_puct=1.5, fpu=0.2, contempt=0.0):
+    # contempt : une nulle dans l'arbre vaut −contempt pour le camp qui cherche (et +contempt pour
+    # l'adversaire) — le moteur évite les simplifications et les répétitions, il joue pour gagner.
+    root_turn = board.turn
     root = Node(1.0)
     (moves, pr, _), = net.evaluate([board])
     root.moves, root.children = moves, [Node(float(x)) for x in pr]
@@ -120,6 +129,8 @@ def mcts(net, board, nodes, batch=8, c_puct=1.5, fpu=0.2):
                 path.append(node)
                 tv = terminal_value(board)
                 if tv is not None:
+                    if tv == 0.0 and contempt:
+                        tv = -contempt if board.turn == root_turn else contempt
                     break
             # Perte virtuelle : les autres feuilles du lot évitent ce chemin.
             for n in path:
@@ -154,11 +165,36 @@ def mcts(net, board, nodes, batch=8, c_puct=1.5, fpu=0.2):
     return root.moves[int(np.argmax(visits))], root
 
 
-def model_move(net, board, nodes):
+ENGINES = os.path.expanduser("~/Desktop/autres/brimkern-chess/engines")
+
+
+def make_opponent(spec, sf_time=0.1):
+    """Adversaire UCI depuis une étiquette — rend (nom, moteur, limite par coup).
+      sf:<elo>              Stockfish bridé (UCI_LimitStrength, UCI_Elo ≥ 1320), sf_time s par coup
+      maia:<1100..1900>     Maia (réseau lc0 entraîné à jouer comme un humain de ce niveau), 1 nœud
+      lc0:<poids>:<nœuds>   lc0 avec n'importe quels poids
+    lc0 sur le CPU (BLAS, 1 fil) : le GPU reste à l'entraînement."""
+    kind, _, rest = spec.partition(":")
+    if kind == "sf":
+        e = chess.engine.SimpleEngine.popen_uci("stockfish")
+        e.configure({"Threads": 1, "Hash": 16, "UCI_LimitStrength": True, "UCI_Elo": int(rest)})
+        return f"Stockfish {rest}", e, chess.engine.Limit(time=sf_time)
+    if kind == "maia":
+        w = os.path.join(ENGINES, f"maia-{rest}.pb.gz")
+        e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
+        return f"Maia {rest}", e, chess.engine.Limit(nodes=1)
+    if kind == "lc0":
+        w, _, nodes = rest.rpartition(":")
+        e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
+        return f"lc0 {os.path.basename(w)} {nodes}n", e, chess.engine.Limit(nodes=int(nodes))
+    raise ValueError(f"adversaire inconnu : {spec}")
+
+
+def model_move(net, board, nodes, contempt=0.0):
     if nodes <= 0:
         (moves, pr, _), = net.evaluate([board])
         return moves[int(np.argmax(pr))]
-    return mcts(net, board, nodes)[0]
+    return mcts(net, board, nodes, contempt=contempt)[0]
 
 
 def sample_move(net, board, temp=1.0):
@@ -185,15 +221,17 @@ def main():
     ap.add_argument("--loops", type=int)
     ap.add_argument("--threads", type=int, default=2)
     ap.add_argument("--sf-elo", type=int, default=1320)
+    ap.add_argument("--opponent", help="sf:<elo> | maia:<niveau> | lc0:<poids>:<nœuds> (remplace --sf-elo)")
+    ap.add_argument("--aggression", type=float, default=0.0, help="bonus d'a priori des prises et échecs")
+    ap.add_argument("--contempt", type=float, default=0.0, help="valeur négative d'une nulle pour brimkern")
     ap.add_argument("--sf-time", type=float, default=0.1)
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
     random.seed(a.seed)
     np.random.seed(a.seed)
     os.makedirs(a.out, exist_ok=True)
-    net = Net(a.ckpt, a.loops, a.threads)
-    sf = chess.engine.SimpleEngine.popen_uci("stockfish")
-    sf.configure({"Threads": 1, "Hash": 16, "UCI_LimitStrength": True, "UCI_Elo": a.sf_elo})
+    net = Net(a.ckpt, a.loops, a.threads, a.aggression)
+    opp_name, sf, opp_limit = make_opponent(a.opponent or f"sf:{a.sf_elo}", a.sf_time)
     pgn_f = open(os.path.join(a.out, "games.pgn"), "a")
     fen_f = open(os.path.join(a.out, "positions.fen"), "a")
     score = 0.0
@@ -207,16 +245,16 @@ def main():
             if board.ply() < 4:
                 mv = sample_move(net, board)
             elif model_turn:
-                mv = model_move(net, board, a.nodes)
+                mv = model_move(net, board, a.nodes, a.contempt)
             else:
-                mv = sf.play(board, chess.engine.Limit(time=a.sf_time)).move
+                mv = sf.play(board, opp_limit).move
             board.push(mv)
         res = board.result(claim_draw=True)
         pts = 0.5 if res in ("1/2-1/2", "*") else (1.0 if (res == "1-0") == model_white else 0.0)
         score += pts
         game = chess.pgn.Game.from_board(board)
-        game.headers.update({"White": "brimkern" if model_white else f"Stockfish {a.sf_elo}",
-                             "Black": f"Stockfish {a.sf_elo}" if model_white else "brimkern",
+        game.headers.update({"White": "brimkern" if model_white else opp_name,
+                             "Black": opp_name if model_white else "brimkern",
                              "Event": f"nodes={a.nodes} sf_time={a.sf_time}"})
         print(game, file=pgn_f, end="\n\n")
         pgn_f.flush(); fen_f.flush()
@@ -224,8 +262,8 @@ def main():
               f"score {score}/{g + 1} · {time.time() - t0:.0f} s", flush=True)
     sf.quit()
     diff, lo, hi = elo_from_score(score / a.games, a.games)
-    summary = dict(ckpt=a.ckpt, nodes=a.nodes, loops=net.loops, sf_elo=a.sf_elo, sf_time=a.sf_time, games=a.games,
-                   score=score, elo_diff=diff, elo_ci95=[lo, hi], estimated_elo=a.sf_elo + diff)
+    summary = dict(ckpt=a.ckpt, nodes=a.nodes, loops=net.loops, opponent=opp_name, sf_time=a.sf_time, games=a.games,
+                   score=score, elo_diff=diff, elo_ci95=[lo, hi])
     json.dump(summary, open(os.path.join(a.out, "summary.json"), "w"), indent=1)
     print("résumé", json.dumps(summary), flush=True)
 
