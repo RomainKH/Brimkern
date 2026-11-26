@@ -9,7 +9,7 @@
 set -euo pipefail
 K=$HOME/kern0
 sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv python3-pip git curl >/dev/null
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv python3-pip git curl bc >/dev/null
 # Moins de 2 Go de mémoire (e2-micro : 969 Mo) : 2 Go d'échange pour pip et PyTorch.
 if [ "$(awk '/MemTotal/{print $2}' /proc/meminfo)" -lt 2000000 ] && ! sudo swapon --show | grep -q swapfile; then
   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap -q /swapfile && sudo swapon /swapfile
@@ -28,6 +28,8 @@ chmod +x $K/run.sh $K/sync-champion.sh $K/engines/kern0
 sudo cp $K/systemd/kern0-*.service $K/systemd/kern0-*.timer /etc/systemd/system/
 sudo sed -i "s#__HOME__#$HOME#g; s#__USER__#$USER#g" /etc/systemd/system/kern0-*.service
 sudo systemctl daemon-reload
+chmod +x $K/egress-guard.sh
+sudo systemctl enable --now kern0-egress.timer
 if [ "${1:-}" != push ]; then
   $K/sync-champion.sh
   sudo systemctl enable --now kern0-champion.timer

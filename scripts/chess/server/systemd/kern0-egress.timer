@@ -1,0 +1,9 @@
+[Unit]
+Description=Kern 0 : garde-fou de trafic toutes les 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

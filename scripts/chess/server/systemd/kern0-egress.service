@@ -1,0 +1,7 @@
+[Unit]
+Description=Kern 0 : garde-fou de trafic sortant (offre gratuite : 1 Go/mois)
+
+[Service]
+Type=oneshot
+User=__USER__
+ExecStart=__HOME__/kern0/egress-guard.sh

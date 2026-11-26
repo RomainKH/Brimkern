@@ -8,7 +8,7 @@ G=(--account=romain.khanoyan@gmail.com --project=kern0-lichess-261126 --zone=us-
 H=$(cd "$(dirname "$0")" && pwd); C=$H/..; L=~/Desktop/autres/brimkern-chess/lichess
 T=$(mktemp -d); mkdir -p $T/kern0/chess $T/kern0/engines $T/kern0/systemd
 cp $C/model.py $C/play.py $C/uci.py $T/kern0/chess/
-cp $H/setup.sh $H/sync-champion.sh $H/run.sh $T/kern0/ && cp $H/engines/kern0 $T/kern0/engines/ && cp $H/systemd/* $T/kern0/systemd/
+cp $H/setup.sh $H/sync-champion.sh $H/run.sh $H/egress-guard.sh $T/kern0/ && cp $H/engines/kern0 $T/kern0/engines/ && cp $H/systemd/* $T/kern0/systemd/
 # GitHub n'a pas d'IPv6 : lichess-bot part du clone du Mac (sans son venv ni son historique).
 rsync -a --exclude .venv --exclude .git --exclude __pycache__ --exclude config.yml $L/lichess-bot $T/kern0/
 sed -e "s#$L/engines/#__HOME__/kern0/engines/#" -e "s#$L/games#__HOME__/kern0/games#" $L/lichess-bot/config.yml > $T/kern0/config.yml
