@@ -104,7 +104,7 @@ export default function ChessClient() {
 	const pgnsRef = useRef<string[]>([]);   // parties terminées du match en cours
 	const strength = STRENGTHS.find((x) => x.id === strengthId) ?? STRENGTHS[3];
 	const analysis = ANALYSES.find((x) => x.id === analysisId) ?? ANALYSES[2];
-	const bkLabel = (sg: Strength, an: Analysis) => `brimkern (${sg.en}, ${an.en})`;
+	const bkLabel = (sg: Strength, an: Analysis) => `Kern 0 (${sg.en}, ${an.en})`;
 	// Options de recherche d'un réglage (force × analyse), style fixé.
 	const searchOpts = (sg: Strength, an: Analysis) => ({
 		nodes: an.nodes, timeMs: an.timeMs, temperature: sg.temperature || undefined,
@@ -311,7 +311,7 @@ export default function ChessClient() {
 	function pgnOf(white: string, black: string, round?: number): string {
 		const g = new Chess();
 		for (const m of game.history({ verbose: true })) g.move(m);
-		g.setHeader('Event', round ? 'brimkern vs Stockfish' : 'brimkern chess');
+		g.setHeader('Event', round ? 'Kern 0 vs Stockfish' : 'Kern 0 chess');
 		g.setHeader('Site', window.location.origin + '/chess');
 		g.setHeader('Date', new Date().toISOString().slice(0, 10).replace(/-/g, '.'));
 		if (round) g.setHeader('Round', String(round));
@@ -346,18 +346,18 @@ export default function ChessClient() {
 	else if (status === 'error') statusText = t('The model could not be loaded.', 'Le modèle n’a pas pu être chargé.');
 	else if (match?.loading) statusText = t('Starting Stockfish…', 'Démarrage de Stockfish…');
 	else if (match?.error) statusText = t('Stockfish could not run in this browser.', 'Stockfish n’a pas pu tourner dans ce navigateur.');
-	else if (match && game.isCheckmate()) statusText = game.turn() === match.bk ? t(`Checkmate: ${sfName} wins.`, `Échec et mat : ${sfName} gagne.`) : t('Checkmate: brimkern wins.', 'Échec et mat : brimkern gagne.');
-	else if (game.isCheckmate()) statusText = game.turn() === human ? t('Checkmate: brimkern wins.', 'Échec et mat : brimkern gagne.') : t('Checkmate: you win.', 'Échec et mat : vous gagnez.');
+	else if (match && game.isCheckmate()) statusText = game.turn() === match.bk ? t(`Checkmate: ${sfName} wins.`, `Échec et mat : ${sfName} gagne.`) : t('Checkmate: Kern 0 wins.', 'Échec et mat : Kern 0 gagne.');
+	else if (game.isCheckmate()) statusText = game.turn() === human ? t('Checkmate: Kern 0 wins.', 'Échec et mat : Kern 0 gagne.') : t('Checkmate: you win.', 'Échec et mat : vous gagnez.');
 	else if (game.isStalemate()) statusText = t('Draw by stalemate.', 'Nulle par pat.');
 	else if (game.isThreefoldRepetition()) statusText = t('Draw by threefold repetition.', 'Nulle par triple répétition.');
 	else if (game.isInsufficientMaterial()) statusText = t('Draw: insufficient material.', 'Nulle : matériel insuffisant.');
 	else if (over) statusText = t('Draw (fifty-move rule).', 'Nulle (règle des cinquante coups).');
-	else if (thinking && !searching) statusText = t('brimkern is playing…', 'brimkern joue…');
-	else if (thinking && analysis.timeMs) statusText = t(`brimkern is thinking… ${progress.done.toLocaleString('en')} positions, ${Math.floor(progress.ms / 1000)} / ${analysis.timeMs / 1000} s`,
-		`brimkern réfléchit… ${progress.done.toLocaleString('fr')} positions, ${Math.floor(progress.ms / 1000)} / ${analysis.timeMs / 1000} s`);
-	else if (thinking) statusText = t(`brimkern is thinking… ${progress.done} / ${analysis.nodes.toLocaleString('en')}`, `brimkern réfléchit… ${progress.done} / ${analysis.nodes.toLocaleString('fr')}`);
+	else if (thinking && !searching) statusText = t('Kern 0 is playing…', 'Kern 0 joue…');
+	else if (thinking && analysis.timeMs) statusText = t(`Kern 0 is thinking… ${progress.done.toLocaleString('en')} positions, ${Math.floor(progress.ms / 1000)} / ${analysis.timeMs / 1000} s`,
+		`Kern 0 réfléchit… ${progress.done.toLocaleString('fr')} positions, ${Math.floor(progress.ms / 1000)} / ${analysis.timeMs / 1000} s`);
+	else if (thinking) statusText = t(`Kern 0 is thinking… ${progress.done} / ${analysis.nodes.toLocaleString('en')}`, `Kern 0 réfléchit… ${progress.done} / ${analysis.nodes.toLocaleString('fr')}`);
 	else if (match?.sfThinking) statusText = t(`${sfName} is thinking…`, `${sfName} réfléchit…`);
-	else if (match?.on) statusText = t(`Game ${match.round}: brimkern against ${sfName}.`, `Partie ${match.round} : brimkern contre ${sfName}.`);
+	else if (match?.on) statusText = t(`Game ${match.round}: Kern 0 against ${sfName}.`, `Partie ${match.round} : Kern 0 contre ${sfName}.`);
 	else if (match) statusText = t('Match stopped. Start a new match or a new game.', 'Match arrêté. Lancez un nouveau match ou une nouvelle partie.');
 	else statusText = game.inCheck() ? t('Your move: you are in check.', 'À vous : vous êtes en échec.') : t('Your move.', 'À vous de jouer.');
 
@@ -387,12 +387,13 @@ export default function ChessClient() {
 				</header>
 
 				<main className={s.wrap}>
-					<h1 className={s.title}>{t('Play chess against brimkern', 'Jouez aux échecs contre brimkern')}</h1>
+					<h1 className={s.title}>{t('Play chess against Kern 0', 'Jouez aux échecs contre Kern 0')}</h1>
 					<p className={s.lead}>
 						{t(
-							'A chess model trained by brimkern, small enough to load in an instant: one transformer block, looped, that runs in your tab on your GPU. Nothing is sent anywhere.',
-							'Un modèle d’échecs entraîné par brimkern, assez petit pour se charger en un instant : un seul bloc de transformeur, bouclé, qui tourne dans votre onglet sur votre GPU. Rien ne part sur un serveur.',
+							'Kern 0 is the chess model trained by brimkern, small enough to load in an instant: one transformer block, looped, that runs in your tab on your GPU. Nothing is sent anywhere. ',
+							'Kern 0 est le modèle d’échecs entraîné par brimkern, assez petit pour se charger en un instant : un seul bloc de transformeur, bouclé, qui tourne dans votre onglet sur votre GPU. Rien ne part sur un serveur. ',
 						)}
+						<Link href={href('/kern')}>{t('How it learns, live', 'Comment il apprend, en direct')}</Link>
 					</p>
 
 					<div className={s.layout}>
@@ -464,14 +465,14 @@ export default function ChessClient() {
 							</div>
 
 							<div className={s.card}>
-								<label className={s.label} htmlFor="chess-opponent">{t('brimkern against an AI', 'brimkern contre une IA')}</label>
+								<label className={s.label} htmlFor="chess-opponent">{t('Kern 0 against an AI', 'Kern 0 contre une IA')}</label>
 								<select id="chess-opponent" className={s.select} value={sfElo === null ? 'max' : String(sfElo)} disabled={!!match?.on}
 									onChange={(e) => setSfElo(e.target.value === 'max' ? null : Number(e.target.value))}>
 									{SF_LEVELS.map((e) => <option key={e ?? 'max'} value={e ?? 'max'}>{sfLabel(e)}</option>)}
 								</select>
 								<div className={s.sub} style={{ marginBottom: 12 }}>
-									{t('Watch brimkern, at the strength and analysis above, play Stockfish running in your tab (0.5 s per move). Games follow one another and colours alternate. The number is Stockfish’s own strength setting, not a measured rating of brimkern.',
-										'Regardez brimkern, avec la force et l’analyse ci-dessus, affronter Stockfish qui tourne dans votre onglet (0,5 s par coup). Les parties s’enchaînent, les couleurs alternent. Le nombre est le réglage de force de Stockfish, pas une mesure du niveau de brimkern.')}
+									{t('Watch Kern 0, at the strength and analysis above, play Stockfish running in your tab (0.5 s per move). Games follow one another and colours alternate. The number is Stockfish’s own strength setting, not a measured rating of Kern 0.',
+										'Regardez Kern 0, avec la force et l’analyse ci-dessus, affronter Stockfish qui tourne dans votre onglet (0,5 s par coup). Les parties s’enchaînent, les couleurs alternent. Le nombre est le réglage de force de Stockfish, pas une mesure du niveau de Kern 0.')}
 								</div>
 								{match?.on ? (
 									<button type="button" className={s.btn} style={{ width: '100%' }} onClick={stopMatch}>{t('Stop the match', 'Arrêter le match')}</button>
@@ -486,9 +487,9 @@ export default function ChessClient() {
 									return (
 										<>
 											<div className={s.sub} style={{ marginTop: 10 }}>
-												{match.on && t(`Game ${match.round}: brimkern plays ${match.bk === 'w' ? 'White' : 'Black'}.`, `Partie ${match.round} : brimkern a les ${match.bk === 'w' ? 'blancs' : 'noirs'}.`)}
+												{match.on && t(`Game ${match.round}: Kern 0 plays ${match.bk === 'w' ? 'White' : 'Black'}.`, `Partie ${match.round} : Kern 0 a les ${match.bk === 'w' ? 'blancs' : 'noirs'}.`)}
 												{match.on && n > 0 && <br />}
-												{n > 0 && t(`brimkern ${score} / ${n}: ${w} won, ${d} drawn, ${n - w - d} lost.`, `brimkern ${score} / ${n} : ${w} gagnées, ${d} nulles, ${n - w - d} perdues.`)}
+												{n > 0 && t(`Kern 0 ${score} / ${n}: ${w} won, ${d} drawn, ${n - w - d} lost.`, `Kern 0 ${score} / ${n} : ${w} gagnées, ${d} nulles, ${n - w - d} perdues.`)}
 											</div>
 											{n > 0 && (
 												<div className={s.chips} aria-hidden="true">

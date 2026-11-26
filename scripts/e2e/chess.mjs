@@ -60,7 +60,7 @@ if (MATCH) {
 			.filter((x) => x.textContent && !x.textContent.endsWith('.')).length >= n, 2 * MOVES, { timeout: 600_000, polling: 200 });
 	}
 	console.log(`match : ${await plies()} demi-coups en ${((Date.now() - t1) / 1000).toFixed(1)} s · ${await statusTxt()}`);
-	const score = await page.locator('text=/brimkern [0-9.,]+ \\/ [0-9]+/').first().innerText().catch(() => '');
+	const score = await page.locator('text=/(Kern 0|brimkern) [0-9.,]+ \\/ [0-9]+/').first().innerText().catch(() => '');
 	if (score) console.log(`score : ${score.replace(/\s+/g, ' ')}`);
 	await page.getByRole('button', { name: /Stop the match|Arrêter le match/ }).click();
 	// Arrêté : le bouton « Lancer » revient (le statut, lui, garde le résultat si la partie était finie).
