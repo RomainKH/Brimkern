@@ -118,14 +118,24 @@ function oppFromSpec(spec) {
   if (kind === 'sf') return `Stockfish ${n}`;
   if (kind === 'maia') return `Maia ${n}`;
   if (kind === 'leela') return t(`Leela (${n} node${n === '1' ? '' : 's'})`, `Leela (${n} nœud${n === '1' ? '' : 's'})`);
+  if (kind === 'ld2') return t(`Leela LD2 (${n} node${n === '1' ? '' : 's'})`, `Leela LD2 (${n} nœud${n === '1' ? '' : 's'})`);
   if (kind === 'champion') return 'champion';
   return spec;
+}
+// Ouverture imposée aux deux camps (learn.py --openings) : livre des grands joueurs ou partie célèbre.
+function openingText(o) {
+  if (!o) return '';
+  if (o.src === 'iconic') return t(`opening of “${o.name.en}” (${o.game})`, `ouverture de « ${o.name.fr} » (${o.game})`);
+  const by = o.by || [];
+  return by.length ? t(`opening played by ${by.join(' and ')}`, `ouverture jouée par ${by.join(' et ')}`) : t("masters' opening", 'ouverture de maîtres');
 }
 function name(n) {
   if (!n) return '';
   if (n === 'brimkern') return 'Kern 0';
   let m = /^Leela \((\d+) nœuds?\)$/.exec(n);
   if (m) return oppFromSpec(`leela:${m[1]}`);
+  m = /^Leela LD2 \((\d+) nœuds?\)$/.exec(n);
+  if (m) return oppFromSpec(`ld2:${m[1]}`);
   m = /^candidate gen (\d+)$/.exec(n);
   if (m) return t(n, `candidat gén. ${m[1]}`);
   m = /^champion gen (\d+)$/.exec(n);
@@ -218,7 +228,8 @@ function showReplay() {
          white, black, moves: san, cursor: k, flip: game.color === 'b' });
   $('ply').textContent = `${k} / ${uci.length}`;
   const what = game.kind === 'gate' ? t('gate game', 'départage, partie') : t('game', 'partie');
-  $('phase').innerHTML = `${t('Replay', 'Relecture')} · <b>${t('generation', 'génération')} ${game.gen}, ${what} ${game.i} : ${esc(game.res)}</b>`;
+  const op = game.open ? ` · ${esc(openingText(game.open))}` : '';
+  $('phase').innerHTML = `${t('Replay', 'Relecture')} · <b>${t('generation', 'génération')} ${game.gen}, ${what} ${game.i} : ${esc(game.res)}</b>${op}`;
 }
 function step(k) { if (!replay) return; replay.k = Math.max(0, Math.min(replay.game.uci.split(' ').length, k)); showReplay(); }
 $('first').onclick = () => step(0);
@@ -290,7 +301,8 @@ function render(s) {
   const stale = s.updated && age > 120 && (s.phase === 'play' || s.phase === 'gate')
     ? ` <span class="stale">· ${t(`no move for ${Math.round(age)} s`, `aucun coup depuis ${Math.round(age)} s`)}</span>` : '';
   if (!replay) {
-    $('phase').innerHTML = (phases[s.phase] || t('Waiting for the training loop (the machine may be off).', "En attente de la boucle d'entraînement (la machine est peut-être éteinte).")) + stale;
+    const op = s.opening && (s.phase === 'play' || s.phase === 'gate') ? ` · ${esc(openingText(s.opening))}` : '';
+    $('phase').innerHTML = (phases[s.phase] || t('Waiting for the training loop (the machine may be off).', "En attente de la boucle d'entraînement (la machine est peut-être éteinte).")) + op + stale;
     if (s.fen) {
       const { board, turn } = parseFen(s.fen);
       draw({ board, turn, last: s.last, check: s.check, white: s.white, black: s.black, moves: s.moves || [], cursor: -1 });

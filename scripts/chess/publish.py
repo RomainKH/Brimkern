@@ -30,20 +30,20 @@ import chess
 import chess.pgn
 
 GEN_DIR = re.compile(r"^gen_(\d{3})$")
-FAMILIES = {"sf": "Stockfish", "leela": "Leela Chess Zero", "maia": "Maia"}
-KEYS = ("gen", "i", "kind", "opp", "color", "res", "pts", "err", "loss", "date", "moves")
+FAMILIES = {"sf": "Stockfish", "leela": "Leela Chess Zero", "ld2": "Leela LD2", "maia": "Maia"}
+KEYS = ("gen", "i", "kind", "opp", "color", "res", "pts", "err", "loss", "date", "open", "moves")
 
 
 def opp_name(spec):
     kind, _, n = spec.partition(":")
-    if kind == "leela":
-        return f"Leela Chess Zero ({n} node{'s' if n != '1' else ''})"
+    if kind in ("leela", "ld2"):
+        return f"{FAMILIES[kind]} ({n} node{'s' if n != '1' else ''})"
     return f"{FAMILIES[kind]} {n}" if kind in FAMILIES else spec
 
 
 def spec_from_name(name):
     """Nom écrit par learn.py dans les anciens PGN → étiquette d'adversaire (sf:2300, leela:8…)."""
-    for pat, kind in ((r"^Stockfish (\d+)$", "sf"), (r"^Maia (\d+)$", "maia"), (r"^Leela \((\d+) n", "leela")):
+    for pat, kind in ((r"^Stockfish (\d+)$", "sf"), (r"^Maia (\d+)$", "maia"), (r"^Leela \((\d+) n", "leela"), (r"^Leela LD2 \((\d+) n", "ld2")):
         m = re.match(pat, name)
         if m:
             return f"{kind}:{m[1]}"
@@ -88,6 +88,9 @@ def to_pgn(r):
                       "Black": them if r["color"] == "w" else me, "Result": r["res"]})
     if r["err"] is not None:
         g.headers["BrimkernMistakes"] = str(r["err"])
+    o = r.get("open")
+    if o:
+        g.headers["Opening"] = f"Start of {o['name']['en']} ({o['game']})" if o["src"] == "iconic" else "Book of " + ", ".join(o["by"])
     node = g
     for san in r["moves"].split():
         node = node.add_variation(node.board().parse_san(san))
@@ -121,7 +124,8 @@ def card(rows, hist):
         "| field | meaning |", "|---|---|",
         "| `gen`, `i` | generation, game number |",
         "| `kind` | `ladder` (Kern 0 vs an engine) or `gate` (new candidate vs current champion) |",
-        "| `opp` | `sf:<UCI_Elo>` (Stockfish limited, 0.1 s/move), `leela:<nodes>` (lc0, T1-256x10 distilled net), `maia:<level>`, `champion` |",
+        "| `opp` | `sf:<UCI_Elo>` (Stockfish limited, 0.1 s/move), `leela:<nodes>` (lc0, T1-256x10 distilled net), `ld2:<nodes>` (lc0, small LD2 net), `maia:<level>`, `champion` |",
+        "| `open` | forced opening, both sides (from gen 8): `book` = a line from the games of famous players (PGN Mentor), checked by Stockfish, `by` = who played it most; `iconic` = the first `n` plies of a famous game; absent = first 4 plies sampled from Kern 0's policy |",
         "| `color`, `pts` | Kern 0's side (the candidate's in a gate game) and its points |",
         "| `err`, `loss` | moves losing ≥ 10 % win probability, mean win-probability loss per move (Stockfish analysis; ladder games from gen 6) |",
         "| `moves` | SAN, space-separated |", "",
@@ -150,7 +154,7 @@ def current_games(work, done):
         rows = backfill(os.path.join(gdir, "games.pgn"), gen)
     else:
         rows = []
-    return gen, [with_uci({k: r.get(k) for k in KEYS}) for r in rows]
+    return gen, [with_uci({k: r.get(k) for k in KEYS if k != "open" or r.get("open")}) for r in rows]
 
 
 def write_if_changed(path, text):
@@ -184,7 +188,7 @@ def build(work, out, per_family):
             gen_rows = backfill(os.path.join(gdir, "games.pgn"), gen)
         else:
             continue
-        gen_rows = [{k: r.get(k) for k in KEYS} for r in gen_rows]
+        gen_rows = [{k: r.get(k) for k in KEYS if k != "open" or r.get("open")} for r in gen_rows]
         rows += gen_rows
         text = "".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in gen_rows)
         changed |= write_if_changed(os.path.join(out, "games", f"{d}.jsonl"), text)

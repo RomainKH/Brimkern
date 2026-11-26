@@ -12,6 +12,9 @@ Une génération :
      parties est la courbe qui compte, la ressemblance aux coups de Stockfish n'est qu'un moyen.
      Plusieurs échelles séparées par « ; » (ex. Stockfish puis Leela Chess Zero) : une génération
      chacune à tour de rôle, chaque échelle garde son propre barreau (--rung 0,3).
+     OUVERTURES (--openings, openings.py) : chaque PAIRE de parties (Kern 0 Blancs puis Noirs) part
+     d'une même ouverture du livre des grands joueurs, vérifié par Stockfish, ou du début d'une partie
+     célèbre (--iconic-pairs). Sans livre, les 4 premiers demi-coups sont tirés de la politique.
   2. ANNOTER — chaque position atteinte est analysée par Stockfish à pleine force (profondeur
      --depth, multi-PV 5) et encodée comme les données de pré-entraînement (prepare.record). Le
      résultat d'une partie seule est un signal trop pauvre ; ce sont les positions où le modèle se
@@ -29,6 +32,7 @@ Doux pour la machine : modèle sur 2 fils CPU, Stockfish sur 1 fil, entraînemen
 (taskpolicy -b, mémoire bornée, rapport cyclique — cf. train.py).
 """
 import argparse
+import collections
 import json
 import os
 import random
@@ -50,17 +54,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PLAYER = "Kern 0"  # le nom du modèle d'échecs de brimkern dans les parties (choisi par Romain le 2026-11-26)
 
 
-def play_game(white, black, net_for_opening, max_ply=400, on_move=None):
-    """white / black : board → coup. Les 2 premiers coups de chaque camp sont tirés de la politique
-    (température 1) pour varier les ouvertures. Rend (résultat, liste des FEN atteintes).
-    on_move(board) : appelé après chaque coup (suivi en direct, live.json)."""
+def play_game(white, black, net_for_opening, max_ply=400, on_move=None, start=None):
+    """white / black : board → coup. `start` : coups imposés aux deux camps (une ouverture du livre ou
+    le début d'une partie célèbre, --openings) ; sans livre, les 2 premiers coups de chaque camp sont
+    tirés de la politique (température 1) pour varier les ouvertures. Rend (résultat, FEN atteintes,
+    échiquier). on_move(board) : appelé après chaque coup (suivi en direct, live.json)."""
     board = chess.Board()
     fens = []
     if on_move:
         on_move(board)
+    for mv in start or []:
+        fens.append(board.fen())
+        board.push(mv)
+        if on_move:
+            on_move(board)
     while not board.is_game_over(claim_draw=True) and board.ply() < max_ply:
         fens.append(board.fen())
-        if board.ply() < 4:
+        if start is None and board.ply() < 4:
             mv = sample_move(net_for_opening, board)
         else:
             mv = (white if board.turn == chess.WHITE else black)(board)
@@ -97,12 +107,53 @@ def san_list(board):
     return san
 
 
-def game_record(gen, i, kind, opp, as_white, res, board, date):
+def game_record(gen, i, kind, opp, as_white, res, board, date, opening=None):
     """Une partie en une ligne JSON (games.jsonl, publié par publish.py) : coups en SAN sans numéros,
     un quart plus léger qu'un PGN. `color` / `pts` : le camp et les points de brimkern (du
-    candidat pendant le départage)."""
-    return dict(gen=gen, i=i, kind=kind, opp=opp, color="w" if as_white else "b", res=res,
-                pts=score_for(res, as_white), moves=" ".join(san_list(board)), date=date)
+    candidat pendant le départage). `open` : d'où vient l'ouverture imposée (cf. opening_line)."""
+    r = dict(gen=gen, i=i, kind=kind, opp=opp, color="w" if as_white else "b", res=res,
+             pts=score_for(res, as_white), moves=" ".join(san_list(board)), date=date)
+    if opening:
+        r["open"] = opening
+    return r
+
+
+def opening_line(op, rng, lo, hi):
+    """Une ouverture du livre des grands joueurs (openings.py) : à chaque position, un coup tiré selon
+    le nombre de fois où il a été joué, jusqu'à lo..hi demi-coups ou la sortie du livre."""
+    b, line, stars = chess.Board(), [], collections.Counter()
+    target = rng.randint(lo, hi)
+    while len(line) < target:
+        moves = op["book"].get(b.epd())
+        if not moves:
+            break
+        u, _, by = rng.choices(moves, weights=[m[1] for m in moves])[0]
+        stars.update(by)
+        line.append(chess.Move.from_uci(u))
+        b.push(line[-1])
+    return line, dict(src="book", n=len(line), by=[p for p, _ in stars.most_common(2)])
+
+
+def iconic_line(op, rng, plies):
+    """Le début d'une partie célèbre (l'Immortelle, la partie du siècle…) : les deux camps le rejouent."""
+    g = rng.choice(op["iconic"])
+    line = [chess.Move.from_uci(u) for u in g["uci"][:plies]]
+    return line, dict(src="iconic", id=g["id"], n=len(line), game=f"{g['white']}–{g['black']}, {g['site']} {g['year']}",
+                      name=dict(en=g["en"], fr=g["fr"]))
+
+
+def pair_openings(op, rng, games, iconic_pairs, lo, hi, iconic_plies):
+    """Une ouverture par PAIRE de parties (Kern 0 a les Blancs puis les Noirs dans la même) : l'ouverture
+    ne favorise personne et le score mesure le jeu, pas le tirage. Sans livre : None (tirage historique)."""
+    if not op:
+        return [(None, None)] * games
+    pairs = (games + 1) // 2
+    famous = set(rng.sample(range(pairs), min(iconic_pairs, pairs))) if op.get("iconic") else set()
+    out = []
+    for p in range(pairs):
+        line = iconic_line(op, rng, iconic_plies) if p in famous else opening_line(op, rng, lo, hi)
+        out += [line, line]
+    return out[:games]
 
 
 def write_jsonl(path, rows):
@@ -204,7 +255,19 @@ def main():
     ap.add_argument("--play-aggression", type=float, default=0.0, help="bonus d'a priori des prises/échecs en recherche")
     ap.add_argument("--contempt", type=float, default=0.0, help="valeur négative d'une nulle pour brimkern en recherche")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--think", type=int, default=1, help="moments critiques : recherche refaite avec think × nodes (cf. play.model_move)")
+    ap.add_argument("--think-q", type=float, default=0.2)
+    ap.add_argument("--think-share", type=float, default=0.5)
+    ap.add_argument("--openings", help="livre des grands joueurs et parties célèbres (openings.py) : départs des parties")
+    ap.add_argument("--book-plies", default="8,16", help="longueur des ouvertures du livre, en demi-coups (min,max)")
+    ap.add_argument("--iconic-pairs", type=int, default=2, help="paires de parties par génération qui partent d'une partie célèbre")
+    ap.add_argument("--iconic-plies", type=int, default=12, help="demi-coups rejoués d'une partie célèbre")
     a = ap.parse_args()
+    op = None
+    if a.openings:
+        with open(a.openings) as f:
+            op = json.load(f)
+    book_lo, book_hi = (int(x) for x in a.book_plies.split(","))
     random.seed(a.seed)
     np.random.seed(a.seed)
     os.makedirs(a.work, exist_ok=True)
@@ -234,41 +297,52 @@ def main():
         ladder, rung = ladders[li], rungs[li]
         results, records, mine_fens = [], [], []
         date = time.strftime("%Y-%m-%d")
+        rng = random.Random(a.seed * 100_003 + gen)  # ouvertures différentes à chaque génération, rejouables
+        starts = pair_openings(op, rng, a.games, a.iconic_pairs, book_lo, book_hi, a.iconic_plies)
         live.set(gen=gen, phase="play", ladder=ladder, rung=rung, spec=ladder[rung], results=results, games=a.games,
                  history=history_rows())
 
         # 1. Jouer contre le barreau courant de l'échelle.
         opp_name, sf, opp_limit = make_opponent(ladder[rung], a.sf_time)
-        me = lambda b: model_move(net, b, a.nodes, a.contempt)  # noqa: E731
+        me = lambda b: model_move(net, b, a.nodes, a.contempt, a.think, a.think_q, a.think_share)  # noqa: E731
         them = lambda b: sf.play(b, opp_limit).move  # noqa: E731
         score, fens, played = 0.0, [], {}
         with open(os.path.join(gdir, "games.pgn"), "w") as pgn:
             for g in range(a.games):
                 w = g % 2 == 0
                 names = (PLAYER if w else opp_name, opp_name if w else PLAYER)
-                live.set(game=g + 1, white=names[0], black=names[1], opponent=opp_name, score=score)
-                res, f, board = play_game(me if w else them, them if w else me, net, on_move=lambda b: live.board(b))
+                line, opening = starts[g]
+                live.set(game=g + 1, white=names[0], black=names[1], opponent=opp_name, score=score, opening=opening)
+                res, f, board = play_game(me if w else them, them if w else me, net, on_move=lambda b: live.board(b), start=line)
                 score += score_for(res, w)
                 results.append({"white": names[0], "black": names[1], "result": res, "points": score_for(res, w)})
                 live.set(results=results, score=score)
                 fens += f
-                # Coups de brimkern hors ouverture tirée au sort (4 premiers demi-coups) : ceux qu'on note.
+                # Coups de Kern 0 hors ouverture imposée (ou tirée au sort : 4 demi-coups) : ceux qu'on note.
+                n_open = len(line) if line is not None else 4
                 mine = []
                 for i, (fen, mv) in enumerate(zip(f, board.move_stack)):
-                    if i >= 4 and (i % 2 == 0) == w:
+                    if i >= n_open and (i % 2 == 0) == w:
                         played[fen] = mv
                         mine.append(fen)
                 mine_fens.append(mine)
-                records.append(game_record(gen, g + 1, "ladder", ladder[rung], w, res, board, date))
+                records.append(game_record(gen, g + 1, "ladder", ladder[rung], w, res, board, date, opening))
                 # Les parties de la génération EN COURS, une par une (publish.py → page « Cette génération »).
                 write_jsonl(os.path.join(gdir, "games.partial.jsonl"), records)
                 game = chess.pgn.Game.from_board(board)
                 game.headers.update({"Event": "brimkern learning loop", "Site": "brimkern.com", "Date": date.replace("-", "."),
                                      "Round": f"{gen}.{g + 1}", "White": names[0], "Black": names[1]})
+                if opening:
+                    game.headers["Opening"] = (f"Start of {opening['name']['en']} ({opening['game']})" if opening["src"] == "iconic"
+                                               else "Book of " + ", ".join(opening["by"]))
                 print(game, file=pgn, end="\n\n")
                 print(f"[gen {gen}] partie {g + 1}/{a.games} contre {opp_name} : {res} · score {score}/{g + 1}", flush=True)
         sf.quit()
-        vs_sf = dict(opponent=opp_name, games=a.games, score=score)
+        vs_sf = dict(opponent=opp_name, games=a.games, score=score, nodes=a.nodes)
+        if a.think > 1:
+            vs_sf["think"] = a.think
+        if op:
+            vs_sf["openings"] = True
         if ladder[rung].startswith("sf:"):
             vs_sf["sf_time"] = a.sf_time
         diff, lo, hi = elo_from_score(score / a.games, a.games)
@@ -279,7 +353,7 @@ def main():
         # 2. Annoter (positions uniques).
         uniq = list(dict.fromkeys(fens))
         t1 = time.time()
-        live.set(phase="annotate", positions=len(uniq))
+        live.set(phase="annotate", positions=len(uniq), opening=None)
         added, losses = annotate(uniq, a.depth, buf, played, a.mistake, a.mistake_weight)
         buffer_size = os.path.getsize(buf) // 82
         mistakes = sum(l >= a.mistake for l in losses.values())
@@ -303,17 +377,19 @@ def main():
 
         # 4. Départager : candidat contre champion.
         cnet = Net(cand, aggression=a.play_aggression)
-        cm = lambda b: model_move(cnet, b, a.nodes, a.contempt)  # noqa: E731
-        pm = lambda b: model_move(net, b, a.nodes, a.contempt)  # noqa: E731
+        cm = lambda b: model_move(cnet, b, a.nodes, a.contempt, a.think, a.think_q, a.think_share)  # noqa: E731
+        pm = lambda b: model_move(net, b, a.nodes, a.contempt, a.think, a.think_q, a.think_share)  # noqa: E731
         gscore = 0.0
         gresults = []
+        gstarts = pair_openings(op, rng, a.gate_games, 0, book_lo, book_hi, a.iconic_plies)
         live.set(phase="gate", results=gresults, games=a.gate_games, score=0.0, opponent=f"champion gen {gen}")
         for g in range(a.gate_games):
             w = g % 2 == 0
             names = (f"candidate gen {gen}" if w else "champion", "champion" if w else f"candidate gen {gen}")
-            live.set(game=g + 1, white=names[0], black=names[1])
-            res, _, gboard = play_game(cm if w else pm, pm if w else cm, net, on_move=lambda b: live.board(b))
-            records.append(game_record(gen, g + 1, "gate", "champion", w, res, gboard, date))
+            gline, gopen = gstarts[g]
+            live.set(game=g + 1, white=names[0], black=names[1], opening=gopen)
+            res, _, gboard = play_game(cm if w else pm, pm if w else cm, net, on_move=lambda b: live.board(b), start=gline)
+            records.append(game_record(gen, g + 1, "gate", "champion", w, res, gboard, date, gopen))
             write_jsonl(os.path.join(gdir, "games.partial.jsonl"), records)
             gscore += score_for(res, w)
             gresults.append({"white": names[0], "black": names[1], "result": res, "points": score_for(res, w)})
