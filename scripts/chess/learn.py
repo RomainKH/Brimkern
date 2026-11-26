@@ -84,12 +84,32 @@ class Live:
         os.replace(tmp, self.path)
 
     def board(self, board, **kw):
-        san, b = [], chess.Board()
-        for mv in board.move_stack:
-            san.append(b.san(mv))
-            b.push(mv)
         last = board.move_stack[-1].uci() if board.move_stack else None
-        self.set(fen=board.fen(), moves=san, last=last, check=board.is_check(), **kw)
+        self.set(fen=board.fen(), moves=san_list(board), last=last, check=board.is_check(), **kw)
+
+
+def san_list(board):
+    san, b = [], chess.Board()
+    for mv in board.move_stack:
+        san.append(b.san(mv))
+        b.push(mv)
+    return san
+
+
+def game_record(gen, i, kind, opp, as_white, res, board, date):
+    """Une partie en une ligne JSON (games.jsonl, publié par publish.py) : coups en SAN sans numéros,
+    un quart plus léger qu'un PGN. `color` / `pts` : le camp et les points de brimkern (du
+    candidat pendant le départage)."""
+    return dict(gen=gen, i=i, kind=kind, opp=opp, color="w" if as_white else "b", res=res,
+                pts=score_for(res, as_white), moves=" ".join(san_list(board)), date=date)
+
+
+def write_jsonl(path, rows):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n")
+    os.replace(tmp, path)
 
 
 def score_for(result, as_white):
@@ -102,11 +122,11 @@ def annotate(fens, depth, out_path, played=None, mistake=0.10, weight=3, threads
     """FEN → enregistrements annotés par Stockfish (pleine force), ajoutés à out_path.
     played : {fen: coup joué par brimkern}. Un coup qui perd ≥ `mistake` de probabilité de gain
     (point de vue du trait, formule de Lichess) est une erreur : son enregistrement est écrit
-    `weight` fois. Rend (enregistrements écrits, pertes de probabilité des coups de brimkern)."""
+    `weight` fois. Rend (enregistrements écrits, {FEN : perte de probabilité du coup de brimkern})."""
     played = played or {}
     sf = chess.engine.SimpleEngine.popen_uci("stockfish")
     sf.configure({"Threads": threads, "Hash": 64})
-    n, losses = 0, []
+    n, losses = 0, {}
     with open(out_path, "ab") as f:
         for fen in fens:
             board = chess.Board(fen)
@@ -132,7 +152,7 @@ def annotate(fens, depth, out_path, played=None, mistake=0.10, weight=3, threads
                     info = sf.analyse(board, chess.engine.Limit(depth=depth), root_moves=[mine])
                     cp_mine = float(info["score"].white().score(mate_score=100000))
                 loss = max(0.0, winprob(moves[0][0], white) - winprob(cp_mine, white))
-                losses.append(loss)
+                losses[fen] = loss
                 if loss >= mistake:
                     copies = weight
             for _ in range(copies):
@@ -211,8 +231,10 @@ def main():
         net = Net(champ, aggression=a.play_aggression)
         li = (gen - start_gen) % len(ladders)
         ladder, rung = ladders[li], rungs[li]
-        results = []
-        live.set(gen=gen, phase="play", ladder=ladder, rung=rung, results=results, games=a.games, history=history_rows())
+        results, records, mine_fens = [], [], []
+        date = time.strftime("%Y-%m-%d")
+        live.set(gen=gen, phase="play", ladder=ladder, rung=rung, spec=ladder[rung], results=results, games=a.games,
+                 history=history_rows())
 
         # 1. Jouer contre le barreau courant de l'échelle.
         opp_name, sf, opp_limit = make_opponent(ladder[rung], a.sf_time)
@@ -230,11 +252,16 @@ def main():
                 live.set(results=results, score=score)
                 fens += f
                 # Coups de brimkern hors ouverture tirée au sort (4 premiers demi-coups) : ceux qu'on note.
+                mine = []
                 for i, (fen, mv) in enumerate(zip(f, board.move_stack)):
                     if i >= 4 and (i % 2 == 0) == w:
                         played[fen] = mv
+                        mine.append(fen)
+                mine_fens.append(mine)
+                records.append(game_record(gen, g + 1, "ladder", ladder[rung], w, res, board, date))
                 game = chess.pgn.Game.from_board(board)
-                game.headers.update({"White": "brimkern" if w else opp_name, "Black": opp_name if w else "brimkern"})
+                game.headers.update({"Event": "brimkern learning loop", "Site": "brimkern.com", "Date": date.replace("-", "."),
+                                     "Round": f"{gen}.{g + 1}", "White": names[0], "Black": names[1]})
                 print(game, file=pgn, end="\n\n")
                 print(f"[gen {gen}] partie {g + 1}/{a.games} contre {opp_name} : {res} · score {score}/{g + 1}", flush=True)
         sf.quit()
@@ -252,9 +279,13 @@ def main():
         live.set(phase="annotate", positions=len(uniq))
         added, losses = annotate(uniq, a.depth, buf, played, a.mistake, a.mistake_weight)
         buffer_size = os.path.getsize(buf) // 82
-        mistakes = sum(l >= a.mistake for l in losses)
+        mistakes = sum(l >= a.mistake for l in losses.values())
         vs_sf.update(brimkern_moves=len(losses), mistakes=int(mistakes), mistakes_per_game=round(mistakes / a.games, 2),
-                     mean_wp_loss=round(float(np.mean(losses)), 4) if losses else None)
+                     mean_wp_loss=round(float(np.mean(list(losses.values()))), 4) if losses else None)
+        # Qualité de chaque partie : ses erreurs et sa perte moyenne (le classement des meilleures parties).
+        for r, mine in zip(records, mine_fens):
+            ls = [losses[x] for x in mine if x in losses]
+            r.update(err=int(sum(l >= a.mistake for l in ls)), loss=round(float(np.mean(ls)), 4) if ls else None)
         print(f"[gen {gen}] {added} enregistrements en {time.time() - t1:.0f} s · tampon {buffer_size} · "
               f"{mistakes} erreurs de brimkern sur {len(losses)} coups ({mistakes / a.games:.1f}/partie)", flush=True)
 
@@ -278,7 +309,8 @@ def main():
             w = g % 2 == 0
             names = (f"candidate gen {gen}" if w else "champion", "champion" if w else f"candidate gen {gen}")
             live.set(game=g + 1, white=names[0], black=names[1])
-            res, _, _ = play_game(cm if w else pm, pm if w else cm, net, on_move=lambda b: live.board(b))
+            res, _, gboard = play_game(cm if w else pm, pm if w else cm, net, on_move=lambda b: live.board(b))
+            records.append(game_record(gen, g + 1, "gate", "champion", w, res, gboard, date))
             gscore += score_for(res, w)
             gresults.append({"white": names[0], "black": names[1], "result": res, "points": score_for(res, w)})
             live.set(results=gresults, score=gscore)
@@ -290,6 +322,8 @@ def main():
         rec = dict(gen=gen, vs_opponent=vs_sf, positions_added=added, buffer=buffer_size,
                    gate=dict(games=a.gate_games, score=gscore, elo_diff=gd, elo_ci95=[glo, ghi]), accepted=accepted,
                    minutes=round((time.time() - t0) / 60, 1))
+        # Les parties AVANT la ligne d'historique : publish.py publie une génération quand sa ligne apparaît.
+        write_jsonl(os.path.join(gdir, "games.jsonl"), records)
         hist.write(json.dumps(rec) + "\n"); hist.flush()
         live.set(history=history_rows())
         print(f"[gen {gen}] " + json.dumps(rec), flush=True)

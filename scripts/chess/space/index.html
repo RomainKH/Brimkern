@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>brimkern chess live</title>
+<meta name="description" content="Watch brimkern, a 244K-parameter chess model, learn by playing Stockfish and Leela Chess Zero.">
+<!-- Space STATIQUE (gratuit) : version publique de scripts/chess/live.html, même rendu, bilingue (anglais par défaut, français si le
+     navigateur est en français ou ?lang=fr), plus la relecture des meilleures parties du dataset. -->
+<style>
+  :root {
+    --bg: #1b1b1f; --card: #222329; --border: #33363f; --text: #f0f0eb; --muted: #a3a6ad;
+    --accent: #f87171; --green: #3dd68c; --sand: #f9b44e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, sans-serif; }
+  a { color: var(--sand); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font: 600 24px/1.2 Georgia, serif; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 10px; }
+  .phase { color: var(--muted); margin-bottom: 18px; min-height: 21px; }
+  .phase b { color: var(--sand); font-weight: 600; }
+  .layout { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 22px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .player { display: flex; justify-content: space-between; font-weight: 600; padding: 6px 2px; }
+  .player .tag { color: var(--muted); font-weight: 400; }
+  /* Rangées de hauteur IMPOSÉE : en `1fr`, une rangée prend la hauteur du glyphe et la 8e sort du cadre. */
+  .board { container-type: inline-size; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+  .sq { display: flex; align-items: center; justify-content: center; position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  .light { background: #e3dccd; } .dark { background: #8f7a62; }
+  .last.light { background: #e9cf8f; } .last.dark { background: #b79a5c; }
+  .check { background: radial-gradient(circle, rgba(239,68,68,.95) 0%, rgba(239,68,68,.5) 45%, transparent 75%) !important; }
+  .pc { font-size: 10.2cqw; line-height: 1; font-family: 'Apple Symbols', 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'DejaVu Sans', serif; }
+  .pc::before { display: block; }
+  .k::before { content: '\265A\FE0E'; } .q::before { content: '\265B\FE0E'; } .r::before { content: '\265C\FE0E'; }
+  .b::before { content: '\265D\FE0E'; } .n::before { content: '\265E\FE0E'; } .p::before { content: '\265F\FE0E'; }
+  .w { color: #fbfaf7; -webkit-text-stroke: .06cqw #1b1b1f; text-shadow: 0 .15cqw .3cqw rgba(0,0,0,.45); }
+  .bl { color: #1d1c20; -webkit-text-stroke: .04cqw #4a4650; }
+  .controls { display: none; gap: 6px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .replaying .controls { display: flex; }
+  button { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--sand); outline-offset: 2px; }
+  .ply { color: var(--muted); margin-left: 4px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .score { font-size: 22px; font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { width: 26px; height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
+  .win { background: rgba(61,214,140,.2); color: var(--green); } .draw { background: rgba(163,166,173,.2); color: var(--muted); } .loss { background: rgba(248,113,113,.2); color: var(--accent); }
+  .moves { font: 13px/1.6 ui-monospace, monospace; max-height: 180px; overflow-y: auto; }
+  .moves mark { background: var(--sand); color: #1b1b1f; border-radius: 3px; padding: 0 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .ok { color: var(--green); } .no { color: var(--muted); }
+  .stale { color: var(--accent); }
+  .best { max-height: 320px; overflow-y: auto; }
+  .best button { padding: 2px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <h1 id="title">brimkern learns by playing</h1>
+  <p class="sub" id="sub"></p>
+  <div class="phase" id="phase" aria-live="polite"></div>
+  <div class="layout">
+    <div>
+      <div class="player" id="top"></div>
+      <div class="board" id="board" role="img"></div>
+      <div class="player" id="bottom"></div>
+      <div class="controls">
+        <button id="first" type="button">⏮</button><button id="prev" type="button">◀</button>
+        <button id="next" type="button">▶</button><button id="lastb" type="button">⏭</button>
+        <button id="back" type="button"></button><span class="ply" id="ply"></span>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="label" id="scoreLabel"></div>
+        <div class="score" id="score">–</div>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="card"><div class="label" id="movesLabel"></div><div class="moves" id="moves">–</div></div>
+      <div class="card">
+        <div class="label" id="bestLabel"></div>
+        <div class="best"><table><thead><tr id="bestHead"></tr></thead><tbody id="best"></tbody></table></div>
+      </div>
+      <div class="card">
+        <div class="label" id="histLabel"></div>
+        <table><thead><tr id="histHead"></tr></thead><tbody id="hist"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const DATASET = 'https://huggingface.co/datasets/romainkh14/brimkern-chess-games';
+// Réécrit sur place toutes les ~3 s par publish.py (bucket : pas d'historique, 302 vers le CDN par contenu).
+const LIVE = 'https://huggingface.co/buckets/romainkh14/brimkern-chess-live/resolve/live.json';
+const FR = /^fr/i.test(new URLSearchParams(location.search).get('lang') || navigator.language || '');
+const t = (en, fr) => (FR ? fr : en);
+document.documentElement.lang = FR ? 'fr' : 'en';
+const FILES = 'abcdefgh';
+const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const isBrim = (name) => /^(brimkern|candidate)/.test(name || '');
+
+// learn.py écrit des noms en français ("Leela (8 nœuds)") ; l'étiquette (sf:2300, leela:8) est la source.
+function oppFromSpec(spec) {
+  const [kind, n] = String(spec).split(':');
+  if (kind === 'sf') return `Stockfish ${n}`;
+  if (kind === 'maia') return `Maia ${n}`;
+  if (kind === 'leela') return t(`Leela (${n} node${n === '1' ? '' : 's'})`, `Leela (${n} nœud${n === '1' ? '' : 's'})`);
+  if (kind === 'champion') return 'champion';
+  return spec;
+}
+function name(n) {
+  if (!n) return '';
+  let m = /^Leela \((\d+) nœuds?\)$/.exec(n);
+  if (m) return oppFromSpec(`leela:${m[1]}`);
+  m = /^candidate gen (\d+)$/.exec(n);
+  if (m) return t(n, `candidat gén. ${m[1]}`);
+  m = /^champion gen (\d+)$/.exec(n);
+  if (m) return t(n, `champion gén. ${m[1]}`);
+  return n;
+}
+
+$('title').textContent = t('brimkern learns by playing', 'brimkern apprend en jouant');
+$('sub').innerHTML = t(
+  `A 244K-parameter chess model plays Stockfish and Leela Chess Zero, Stockfish analyses its mistakes, it retrains, and the new version must beat the champion to replace it. <a href="https://brimkern.com/chess">Play it</a> · <a href="${DATASET}">every game</a>`,
+  `Un modèle d'échecs de 244 K paramètres joue Stockfish et Leela Chess Zero, Stockfish analyse ses erreurs, il se réentraîne, et la nouvelle version doit battre le champion pour le remplacer. <a href="https://brimkern.com/fr/chess">L'affronter</a> · <a href="${DATASET}">toutes les parties</a>`);
+$('movesLabel').textContent = t('Moves', 'Coups');
+$('bestLabel').textContent = t('Best games so far (wins and draws against the strongest opponents)', 'Meilleures parties (victoires et nulles contre les adversaires les plus forts)');
+$('bestHead').innerHTML = `<th>${t('Gen.', 'Gén.')}</th><th>${t('Opponent', 'Adversaire')}</th><th>${t('Result', 'Résultat')}</th><th>${t('Moves', 'Coups')}</th><th></th>`;
+$('histLabel').textContent = t('Generations', 'Générations');
+$('histHead').innerHTML = `<th>${t('Gen.', 'Gén.')}</th><th>${t('Opponent', 'Adversaire')}</th><th>Score</th><th>${t('Gate', 'Départage')}</th><th>${t('Kept', 'Gardé')}</th>`;
+$('board').setAttribute('aria-label', t('Chess board', 'Échiquier'));
+$('back').textContent = t('Back to live', 'Retour au direct');
+[['first', t('First move', 'Premier coup')], ['prev', t('Previous move', 'Coup précédent')], ['next', t('Next move', 'Coup suivant')], ['lastb', t('Last move', 'Dernier coup')]]
+  .forEach(([id, label]) => $(id).setAttribute('aria-label', label));
+
+function parseFen(fen) {
+  const [placement, turn] = fen.split(' ');
+  const board = {};
+  placement.split('/').forEach((row, i) => {
+    let f = 0;
+    for (const ch of row) {
+      if (/\d/.test(ch)) { f += Number(ch); continue; }
+      board[FILES[f] + (8 - i)] = ch;
+      f++;
+    }
+  });
+  return { board, turn };
+}
+
+// Coup UCI appliqué sans contrôle de légalité (les parties viennent de python-chess) : roque, prise en passant, promotion.
+function applyUci(board, uci) {
+  const from = uci.slice(0, 2), to = uci.slice(2, 4), promo = uci[4];
+  const p = board[from];
+  delete board[from];
+  if (p && p.toLowerCase() === 'k' && Math.abs(FILES.indexOf(from[0]) - FILES.indexOf(to[0])) === 2) {
+    const r = to[1], kingSide = to[0] === 'g';
+    board[(kingSide ? 'f' : 'd') + r] = board[(kingSide ? 'h' : 'a') + r];
+    delete board[(kingSide ? 'h' : 'a') + r];
+  }
+  if (p && p.toLowerCase() === 'p' && from[0] !== to[0] && !board[to]) delete board[to[0] + from[1]];
+  board[to] = promo ? (p === p.toUpperCase() ? promo.toUpperCase() : promo) : p;
+}
+
+function draw({ board, turn, last, check, white, black, moves, cursor }) {
+  const flip = isBrim(black) && !isBrim(white);
+  const sqs = last ? [last.slice(0, 2), last.slice(2, 4)] : [];
+  let html = '';
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
+    const rank = flip ? i + 1 : 8 - i, file = flip ? 7 - j : j;
+    const sq = FILES[file] + rank, p = board[sq];
+    const light = (file + rank) % 2 === 1;
+    const inCheck = check && p && p.toLowerCase() === 'k' && ((p === 'K') === (turn === 'w'));
+    html += `<div class="sq ${light ? 'light' : 'dark'} ${sqs.includes(sq) ? 'last' : ''} ${inCheck ? 'check' : ''}">` +
+      (p ? `<span class="pc ${p.toLowerCase()} ${p === p.toUpperCase() ? 'w' : 'bl'}"></span>` : '') + '</div>';
+  }
+  $('board').innerHTML = html;
+  const top = flip ? white : black, bottom = flip ? black : white;
+  $('top').innerHTML = `<span>${esc(name(top))}</span><span class="tag">${flip ? t('white', 'blancs') : t('black', 'noirs')}</span>`;
+  $('bottom').innerHTML = `<span>${esc(name(bottom))}</span><span class="tag">${flip ? t('black', 'noirs') : t('white', 'blancs')}</span>`;
+  let txt = '';
+  moves.forEach((m, i) => {
+    if (i % 2 === 0) txt += `${i / 2 + 1}. `;
+    txt += (i === cursor - 1 ? `<mark>${esc(m)}</mark>` : esc(m)) + ' ';
+  });
+  $('moves').innerHTML = txt || '–';
+  const cur = $('moves').querySelector('mark');
+  if (cur) cur.scrollIntoView({ block: 'nearest' }); else $('moves').scrollTop = $('moves').scrollHeight;
+}
+
+// --- Relecture d'une des meilleures parties ---
+let replay = null;
+function showReplay() {
+  const { game, k } = replay;
+  const { board } = parseFen(START);
+  const uci = game.uci.split(' '), san = game.moves.split(' ');
+  for (let i = 0; i < k; i++) applyUci(board, uci[i]);
+  const me = 'brimkern', them = oppFromSpec(game.opp);
+  draw({ board, turn: k % 2 === 0 ? 'w' : 'b', last: k ? uci[k - 1] : null, check: k > 0 && /[+#]$/.test(san[k - 1]),
+         white: game.color === 'w' ? me : them, black: game.color === 'w' ? them : me, moves: san, cursor: k });
+  $('ply').textContent = `${k} / ${uci.length}`;
+  $('phase').innerHTML = `${t('Replay', 'Relecture')} · <b>${t('generation', 'génération')} ${game.gen}, ${t('game', 'partie')} ${game.i} : ${esc(game.res)}</b>`;
+}
+function step(k) { if (!replay) return; replay.k = Math.max(0, Math.min(replay.game.uci.split(' ').length, k)); showReplay(); }
+$('first').onclick = () => step(0);
+$('prev').onclick = () => step(replay.k - 1);
+$('next').onclick = () => step(replay.k + 1);
+$('lastb').onclick = () => step(Infinity);
+$('back').onclick = () => { replay = null; $('wrap').classList.remove('replaying'); render(lastState); };
+document.addEventListener('keydown', (e) => {
+  if (!replay) return;
+  if (e.key === 'ArrowLeft') step(replay.k - 1);
+  if (e.key === 'ArrowRight') step(replay.k + 1);
+});
+
+let best = [];
+async function loadBest() {
+  try {
+    const r = await fetch(`${DATASET}/resolve/main/best.jsonl`, { cache: 'no-store' });
+    best = (await r.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  } catch { best = []; }
+  const label = (g) => g.pts === 1 ? t('win', 'victoire') : t('draw', 'nulle');
+  $('best').innerHTML = best.map((g, n) => `<tr><td>${g.gen}.${g.i}</td><td>${esc(oppFromSpec(g.opp))}</td><td class="${g.pts === 1 ? 'ok' : 'no'}">${label(g)}</td>` +
+    `<td>${Math.ceil(g.moves.split(' ').length / 2)}</td><td><button type="button" data-n="${n}">${t('Replay', 'Revoir')}</button></td></tr>`).join('') ||
+    `<tr><td colspan="5" class="no">${t('Not published yet.', 'Pas encore publiées.')}</td></tr>`;
+}
+$('best').addEventListener('click', (e) => {
+  const n = e.target.closest('button')?.dataset.n;
+  if (n === undefined) return;
+  replay = { game: best[Number(n)], k: 0 };
+  $('wrap').classList.add('replaying');
+  showReplay();
+  $('board').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+// --- Direct ---
+function render(s) {
+  const opp = s.spec && s.phase === 'play' ? oppFromSpec(s.spec) : name(s.opponent);
+  const phases = {
+    play: t(`Generation ${s.gen} · <b>game ${s.game}/${s.games} against ${esc(opp)}</b>`, `Génération ${s.gen} · <b>partie ${s.game}/${s.games} contre ${esc(opp)}</b>`),
+    annotate: t(`Generation ${s.gen} · <b>Stockfish is analysing the ${s.positions} positions</b> brimkern played`, `Génération ${s.gen} · <b>Stockfish analyse les ${s.positions} positions</b> jouées par brimkern`),
+    train: t(`Generation ${s.gen} · <b>retraining</b> (${s.steps} steps) on its own corrected games`, `Génération ${s.gen} · <b>réentraînement</b> (${s.steps} pas) sur ses propres parties corrigées`),
+    gate: t(`Generation ${s.gen} · <b>gate match ${s.game}/${s.games}</b>: new version against the champion`, `Génération ${s.gen} · <b>départage ${s.game}/${s.games}</b> : nouvelle version contre le champion`),
+  };
+  const age = Date.now() / 1000 - (s.updated || 0);
+  const stale = s.updated && age > 120 && (s.phase === 'play' || s.phase === 'gate')
+    ? ` <span class="stale">· ${t(`no move for ${Math.round(age)} s`, `aucun coup depuis ${Math.round(age)} s`)}</span>` : '';
+  if (!replay) {
+    $('phase').innerHTML = (phases[s.phase] || t('Waiting for the training loop (the machine may be off).', "En attente de la boucle d'entraînement (la machine est peut-être éteinte).")) + stale;
+    if (s.fen) {
+      const { board, turn } = parseFen(s.fen);
+      draw({ board, turn, last: s.last, check: s.check, white: s.white, black: s.black, moves: s.moves || [], cursor: -1 });
+    }
+  }
+  const res = s.results || [];
+  $('scoreLabel').textContent = s.phase === 'gate' ? t('New version against the champion', 'Nouvelle version contre le champion') : t(`brimkern against ${opp || '…'}`, `brimkern contre ${opp || '…'}`);
+  $('score').textContent = res.length ? `${s.score} / ${res.length}` : '–';
+  $('chips').innerHTML = res.map((r) => {
+    const [cls, en, fr] = r.points === 1 ? ['win', 'W', 'G'] : r.points === 0 ? ['loss', 'L', 'P'] : ['draw', 'D', 'N'];
+    return `<div class="chip ${cls}">${t(en, fr)}</div>`;
+  }).join('');
+  $('hist').innerHTML = (s.history || []).map((h) => {
+    const o = h.vs_opponent || {};
+    return `<tr><td>${h.gen}</td><td>${esc(name(o.opponent))}</td><td>${o.score}/${o.games}</td><td>${h.gate.score}/${h.gate.games}</td><td class="${h.accepted ? 'ok' : 'no'}">${h.accepted ? t('yes', 'oui') : t('no', 'non')}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="no">${t('No finished generation yet.', 'Aucune génération terminée.')}</td></tr>`;
+  // Une génération de plus : le dataset vient d'être mis à jour, la liste des meilleures parties aussi.
+  const gens = (s.history || []).length;
+  if (render.gens !== undefined && gens !== render.gens) loadBest();
+  render.gens = gens;
+}
+
+let lastState = {};
+async function tick() {
+  try { const r = await fetch(LIVE, { cache: 'no-store' }); lastState = await r.json(); render(lastState); } catch {}
+  setTimeout(tick, 2000);
+}
+loadBest();
+tick();
+</script>
+</body>
+</html>
