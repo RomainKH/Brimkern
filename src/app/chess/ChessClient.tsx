@@ -4,8 +4,9 @@
 // Le modèle (scripts/chess) : UN bloc de transformeur bouclé, ~244 K paramètres, servi en BRIK
 // (public/models/chess) et publié aussi en GGUF. Tronc sur WebGPU (kernels du chemin T5, validés contre
 // la référence CPU au chargement), repli CPU sinon ; recherche MCTS (src/lib/chess/mcts.ts).
-// Niveaux = QUANTITÉ de recherche (et tirage aléatoire pour les plus faibles), jamais un Elo : aucun
-// chiffre de force sur la page tant qu'il n'est pas mesuré (règle 4 du dépôt).
+// Deux réglages seulement : la FORCE (tirage au hasard parmi les coups qu'il envisage, plus ou moins
+// large) et l'ANALYSE (combien de positions il examine avant de jouer). Tout le reste est fixé. Jamais un
+// Elo : aucun chiffre de force sur la page tant qu'il n'est pas mesuré (règle 4 du dépôt).
 // Match « brimkern contre une IA » : Stockfish 19 (wasm GPLv3, worker mono-fil, src/lib/chess/stockfish.ts)
 // joue contre le modèle, parties enchaînées, couleurs alternées ; le PGN du match se télécharge
 // (matière pour scripts/chess/learn.py --pgn).
@@ -27,27 +28,30 @@ const GGUF_URL = '/models/chess/brimkern-chess-q8_0.gguf';
 type Color = 'w' | 'b';
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
-// Débutant/Facile : coup TIRÉ selon la politique du réseau (température) — plausible, pas toujours
-// le meilleur. Moyen : le coup préféré du réseau. Fort/Très fort : recherche de 256 / 1 024 positions.
-// Maximum : recherche bornée par le TEMPS choisi, sans plafond de positions.
-interface Level { id: string; en: string; fr: string; nodes: number; temperature?: number; timed?: boolean; hintEn: string; hintFr: string }
-const LEVELS: Level[] = [
-	{ id: 'beginner', en: 'Beginner', fr: 'Débutant', nodes: 1, temperature: 1, hintEn: 'Plays a plausible move drawn at random from its network, no search.', hintFr: 'Joue un coup plausible tiré au hasard par son réseau, sans recherche.' },
-	{ id: 'easy', en: 'Easy', fr: 'Facile', nodes: 1, temperature: 0.35, hintEn: 'Usually its network’s favourite move, sometimes another one.', hintFr: 'Le plus souvent le coup préféré de son réseau, parfois un autre.' },
-	{ id: 'medium', en: 'Medium', fr: 'Moyen', nodes: 1, hintEn: 'Always its network’s favourite move, instantly, no search.', hintFr: 'Toujours le coup préféré de son réseau, instantané, sans recherche.' },
-	{ id: 'strong', en: 'Strong', fr: 'Fort', nodes: 256, hintEn: 'Searches 256 positions before each move.', hintFr: 'Examine 256 positions avant chaque coup.' },
-	{ id: 'expert', en: 'Very strong', fr: 'Très fort', nodes: 1024, hintEn: 'Searches 1,024 positions before each move.', hintFr: 'Examine 1 024 positions avant chaque coup.' },
-	{ id: 'max', en: 'Maximum', fr: 'Maximum', nodes: 1_000_000, timed: true, hintEn: 'Searches as many positions as it can in the time you allow.', hintFr: 'Examine autant de positions que possible dans le temps accordé.' },
+// Force : température du tirage du coup (src/lib/chess/mcts.ts) — selon le réseau sans analyse, selon
+// les visites de la recherche avec. 0 = toujours le meilleur coup trouvé.
+interface Strength { id: string; en: string; fr: string; temperature: number; hintEn: string; hintFr: string }
+const STRENGTHS: Strength[] = [
+	{ id: 'beginner', en: 'Beginner', fr: 'Débutant', temperature: 1, hintEn: 'Picks at random among the moves it considers: often a weaker one.', hintFr: 'Tire au hasard parmi les coups qu’il envisage : souvent un plus faible.' },
+	{ id: 'easy', en: 'Easy', fr: 'Facile', temperature: 0.5, hintEn: 'Usually its preferred move, fairly often another one.', hintFr: 'Le plus souvent son coup préféré, assez souvent un autre.' },
+	{ id: 'medium', en: 'Medium', fr: 'Moyen', temperature: 0.25, hintEn: 'Its preferred move, now and then another one.', hintFr: 'Son coup préféré, de temps en temps un autre.' },
+	{ id: 'full', en: 'Full strength', fr: 'Pleine force', temperature: 0, hintEn: 'Always the best move it finds.', hintFr: 'Toujours le meilleur coup qu’il trouve.' },
 ];
-const MAX_TIMES = [10, 30, 60, 120];
-// Style : Agressif = les prises et échecs explorés d'abord (bonus d'a priori) et la nulle comptée
-// comme une demi-défaite (contempt) — il évite les simplifications et joue pour gagner. Mêmes
-// réglages que la boucle d'apprentissage (scripts/chess/learn.py --play-aggression 1 --contempt 0.2).
-const STYLES = {
-	aggressive: { en: 'Aggressive', fr: 'Agressif', aggression: 1, contempt: 0.2 },
-	balanced: { en: 'Balanced', fr: 'Équilibré', aggression: 0, contempt: 0 },
-} as const;
-type StyleId = keyof typeof STYLES;
+// Analyse : positions examinées avant chaque coup ; « Maximum » = autant que possible dans le temps donné.
+interface Analysis { id: string; en: string; fr: string; nodes: number; timeMs?: number }
+const ANALYSES: Analysis[] = [
+	{ id: 'none', en: 'None (instant)', fr: 'Aucune (instantané)', nodes: 1 },
+	{ id: 'quick', en: '256 positions', fr: '256 positions', nodes: 256 },
+	{ id: 'deep', en: '1,024 positions', fr: '1 024 positions', nodes: 1024 },
+	...[10, 30, 60, 120].map((sec) => {
+		const en = sec < 60 ? `${sec} s` : `${sec / 60} min`;
+		return { id: `max${sec}`, en: `Maximum, ${en} per move`, fr: `Maximum, ${en} par coup`, nodes: 1_000_000, timeMs: sec * 1000 };
+	}),
+];
+// Style fixé, agressif : prises et échecs explorés d'abord (bonus d'a priori) et nulle comptée comme
+// une demi-défaite (contempt) — il évite les simplifications et joue pour gagner. Mêmes réglages que
+// la boucle d'apprentissage (scripts/chess/learn.py --play-aggression 1 --contempt 0.2).
+const STYLE = { aggression: 1, contempt: 0.2 };
 
 // Adversaire IA : Stockfish 19, réseau lite, 0,5 s par coup. Les niveaux sont son réglage UCI_Elo (sa
 // propre échelle, calibrée par ses auteurs) — pas une mesure de brimkern. null = pleine force.
@@ -84,9 +88,8 @@ export default function ChessClient() {
 	const [fen, setFen] = useState(() => game.fen());
 	const [human, setHuman] = useState<Color>('w');
 	const [orientation, setOrientation] = useState<Color>('w');
-	const [levelId, setLevelId] = useState('expert');
-	const [maxTime, setMaxTime] = useState(30);
-	const [styleId, setStyleId] = useState<StyleId>('aggressive');
+	const [strengthId, setStrengthId] = useState('full');
+	const [analysisId, setAnalysisId] = useState('deep');
 	const [status, setStatus] = useState<Status>('idle');
 	const [loadMsg, setLoadMsg] = useState('');
 	const [thinking, setThinking] = useState(false);
@@ -99,7 +102,14 @@ export default function ChessClient() {
 	const [match, setMatch] = useState<MatchState | null>(null);
 	const matchRef = useRef<{ stopped: boolean; stop: AbortController } | null>(null);
 	const pgnsRef = useRef<string[]>([]);   // parties terminées du match en cours
-	const level = LEVELS.find((l) => l.id === levelId) ?? LEVELS[4];
+	const strength = STRENGTHS.find((x) => x.id === strengthId) ?? STRENGTHS[3];
+	const analysis = ANALYSES.find((x) => x.id === analysisId) ?? ANALYSES[2];
+	const bkLabel = (sg: Strength, an: Analysis) => `brimkern (${sg.en}, ${an.en})`;
+	// Options de recherche d'un réglage (force × analyse), style fixé.
+	const searchOpts = (sg: Strength, an: Analysis) => ({
+		nodes: an.nodes, timeMs: an.timeMs, temperature: sg.temperature || undefined,
+		batch: an.nodes > 256 ? 16 : 8, aggression: STYLE.aggression, contempt: STYLE.contempt,
+	});
 	const sfLabel = (elo: number | null) => (elo === null ? t('Stockfish 19 (full strength)', 'Stockfish 19 (pleine force)') : `Stockfish 19 (${elo})`);
 
 	const setPremove = (p: Premove | null) => { premoveRef.current = p; setPremoveState(p); };
@@ -162,9 +172,7 @@ export default function ChessClient() {
 			setProgress({ done: 0, ms: 0 });
 			const engineColor = game.turn();
 			const res = await search(model, game, {
-				nodes: level.nodes, temperature: level.temperature, timeMs: level.timed ? maxTime * 1000 : undefined,
-				batch: level.nodes > 256 ? 16 : 8, signal: run.stop.signal,
-				aggression: STYLES[styleId].aggression, contempt: STYLES[styleId].contempt,
+				...searchOpts(strength, analysis), signal: run.stop.signal,
 				onProgress: (done, _v, ms) => setProgress({ done, ms }),
 			});
 			if (run.cancelled) return;
@@ -188,7 +196,7 @@ export default function ChessClient() {
 
 	// ── Match contre Stockfish : la boucle possède le worker (créé ici, terminé dans `finally`) ; arrêter
 	// le match lève `stopped` et interrompt la réflexion en cours, la boucle sort au prochain retour.
-	// Niveau, style et adversaire sont figés au lancement (leurs sélecteurs sont grisés pendant le match).
+	// Force, analyse et adversaire sont figés au lancement (leurs sélecteurs sont grisés pendant le match).
 	const stopMatch = () => {
 		const ctl = matchRef.current;
 		if (ctl) { ctl.stopped = true; ctl.stop.abort(); matchRef.current = null; }
@@ -203,8 +211,8 @@ export default function ChessClient() {
 		const ctl = { stopped: false, stop: new AbortController() };
 		matchRef.current = ctl;
 		pgnsRef.current = [];
-		const elo = sfElo, lv = level, st = STYLES[styleId], mt = maxTime;
-		const bkName = `brimkern (${lv.en}, ${st.en})`;
+		const elo = sfElo, opts = searchOpts(strength, analysis);
+		const bkName = bkLabel(strength, analysis);
 		const sfName = elo === null ? 'Stockfish 19' : `Stockfish 19 (UCI_Elo ${elo})`;
 		setMatch({ on: true, loading: true, error: false, elo, bk: 'w', round: 1, results: [], sfThinking: false });
 		let sf: Stockfish | null = null;
@@ -229,8 +237,7 @@ export default function ChessClient() {
 						setThinking(true);
 						setProgress({ done: 0, ms: 0 });
 						const res = await search(model, game, {
-							nodes: lv.nodes, temperature: lv.temperature, timeMs: lv.timed ? mt * 1000 : undefined,
-							batch: lv.nodes > 256 ? 16 : 8, signal: run.stop.signal, aggression: st.aggression, contempt: st.contempt,
+							...opts, signal: run.stop.signal,
 							onProgress: (done, _v, ms) => setProgress({ done, ms }),
 						});
 						if (run.cancelled || ctl.stopped) return;
@@ -317,21 +324,22 @@ export default function ChessClient() {
 	const downloadPgn = () => {
 		let text: string;
 		if (match) {
-			const bkName = `brimkern (${level.en}, ${STYLES[styleId].en})`;
+			const bkName = bkLabel(strength, analysis);
 			const sfName = match.elo === null ? 'Stockfish 19' : `Stockfish 19 (UCI_Elo ${match.elo})`;
 			const parts = [...pgnsRef.current];
 			if (!game.isGameOver() && game.history().length) parts.push(pgnOf(match.bk === 'w' ? bkName : sfName, match.bk === 'w' ? sfName : bkName, match.round));
 			text = parts.join('\n\n');
 		} else {
 			const me = t('You', 'Vous');
-			text = pgnOf(human === 'w' ? me : `brimkern (${level.en})`, human === 'b' ? me : `brimkern (${level.en})`);
+			const bk = bkLabel(strength, analysis);
+			text = pgnOf(human === 'w' ? me : bk, human === 'b' ? me : bk);
 		}
 		savePgn(text);
 	};
 
 	// ── Statut de partie. ───────────────────────────────────────────────────────────────────────────
 	const over = game.isGameOver();
-	const searching = level.nodes > 1;
+	const searching = analysis.nodes > 1;
 	const sfName = match ? sfLabel(match.elo) : '';
 	let statusText: string;
 	if (status === 'loading') statusText = loadMsg;
@@ -345,9 +353,9 @@ export default function ChessClient() {
 	else if (game.isInsufficientMaterial()) statusText = t('Draw: insufficient material.', 'Nulle : matériel insuffisant.');
 	else if (over) statusText = t('Draw (fifty-move rule).', 'Nulle (règle des cinquante coups).');
 	else if (thinking && !searching) statusText = t('brimkern is playing…', 'brimkern joue…');
-	else if (thinking && level.timed) statusText = t(`brimkern is thinking… ${progress.done.toLocaleString('en')} positions, ${Math.floor(progress.ms / 1000)} / ${maxTime} s`,
-		`brimkern réfléchit… ${progress.done.toLocaleString('fr')} positions, ${Math.floor(progress.ms / 1000)} / ${maxTime} s`);
-	else if (thinking) statusText = t(`brimkern is thinking… ${progress.done} / ${level.nodes.toLocaleString('en')}`, `brimkern réfléchit… ${progress.done} / ${level.nodes.toLocaleString('fr')}`);
+	else if (thinking && analysis.timeMs) statusText = t(`brimkern is thinking… ${progress.done.toLocaleString('en')} positions, ${Math.floor(progress.ms / 1000)} / ${analysis.timeMs / 1000} s`,
+		`brimkern réfléchit… ${progress.done.toLocaleString('fr')} positions, ${Math.floor(progress.ms / 1000)} / ${analysis.timeMs / 1000} s`);
+	else if (thinking) statusText = t(`brimkern is thinking… ${progress.done} / ${analysis.nodes.toLocaleString('en')}`, `brimkern réfléchit… ${progress.done} / ${analysis.nodes.toLocaleString('fr')}`);
 	else if (match?.sfThinking) statusText = t(`${sfName} is thinking…`, `${sfName} réfléchit…`);
 	else if (match?.on) statusText = t(`Game ${match.round}: brimkern against ${sfName}.`, `Partie ${match.round} : brimkern contre ${sfName}.`);
 	else if (match) statusText = t('Match stopped. Start a new match or a new game.', 'Match arrêté. Lancez un nouveau match ou une nouvelle partie.');
@@ -423,23 +431,22 @@ export default function ChessClient() {
 							</div>
 
 							<div className={s.card}>
-								<label className={s.label} htmlFor="chess-level">{t('Difficulty', 'Difficulté')}</label>
-								<select id="chess-level" className={s.select} value={levelId} disabled={!!match?.on} onChange={(e) => setLevelId(e.target.value)}>
-									{LEVELS.map((l) => <option key={l.id} value={l.id}>{fr ? l.fr : l.en}</option>)}
+								<label className={s.label} htmlFor="chess-strength">{t('Strength', 'Force')}</label>
+								<select id="chess-strength" className={s.select} value={strengthId} disabled={!!match?.on} onChange={(e) => setStrengthId(e.target.value)}>
+									{STRENGTHS.map((x) => <option key={x.id} value={x.id}>{fr ? x.fr : x.en}</option>)}
 								</select>
-								<div className={s.sub} style={{ marginBottom: level.timed ? 10 : 12 }}>{fr ? level.hintFr : level.hintEn}</div>
-								{level.timed && (
-									<>
-										<label className={s.label} htmlFor="chess-time">{t('Thinking time per move', 'Temps de réflexion par coup')}</label>
-										<select id="chess-time" className={s.select} style={{ marginBottom: 12 }} value={maxTime} disabled={!!match?.on} onChange={(e) => setMaxTime(Number(e.target.value))}>
-											{MAX_TIMES.map((n) => <option key={n} value={n}>{n < 60 ? `${n} s` : `${n / 60} min`}</option>)}
-										</select>
-									</>
-								)}
-								<label className={s.label} htmlFor="chess-style">{t('Style', 'Style')}</label>
-								<select id="chess-style" className={s.select} style={{ marginBottom: 12 }} value={styleId} disabled={!!match?.on} onChange={(e) => setStyleId(e.target.value as StyleId)}>
-									{(Object.keys(STYLES) as StyleId[]).map((k) => <option key={k} value={k}>{fr ? STYLES[k].fr : STYLES[k].en}</option>)}
+								<div className={s.sub} style={{ marginBottom: 12 }}>{fr ? strength.hintFr : strength.hintEn}</div>
+								<label className={s.label} htmlFor="chess-analysis">{t('Analysis before each move', 'Analyse avant chaque coup')}</label>
+								<select id="chess-analysis" className={s.select} value={analysisId} disabled={!!match?.on} onChange={(e) => setAnalysisId(e.target.value)}>
+									{ANALYSES.map((x) => <option key={x.id} value={x.id}>{fr ? x.fr : x.en}</option>)}
 								</select>
+								<div className={s.sub} style={{ marginBottom: 12 }}>
+									{analysis.nodes <= 1
+										? t('Plays on its network’s instinct, without examining any position.', 'Joue à l’instinct de son réseau, sans examiner de position.')
+										: analysis.timeMs
+											? t('Examines as many positions as it can in that time. “Play now” cuts it short.', 'Examine autant de positions que possible dans ce temps. « Jouer maintenant » l’écourte.')
+											: t(`Examines ${analysis.nodes.toLocaleString('en')} positions before each move.`, `Examine ${analysis.nodes.toLocaleString('fr')} positions avant chaque coup.`)}
+								</div>
 								<div className={s.row} style={{ marginBottom: 8 }}>
 									<button type="button" className={`${s.btn} ${s.btnPrimary}`} onClick={() => newGame('w')} disabled={status !== 'ready'}>
 										{t('New game (White)', 'Nouvelle partie (blancs)')}
@@ -463,8 +470,8 @@ export default function ChessClient() {
 									{SF_LEVELS.map((e) => <option key={e ?? 'max'} value={e ?? 'max'}>{sfLabel(e)}</option>)}
 								</select>
 								<div className={s.sub} style={{ marginBottom: 12 }}>
-									{t('Watch brimkern, at the difficulty and style above, play Stockfish running in your tab (0.5 s per move). Games follow one another and colours alternate. The number is Stockfish’s own strength setting, not a measured rating of brimkern.',
-										'Regardez brimkern, avec la difficulté et le style ci-dessus, affronter Stockfish qui tourne dans votre onglet (0,5 s par coup). Les parties s’enchaînent, les couleurs alternent. Le nombre est le réglage de force de Stockfish, pas une mesure du niveau de brimkern.')}
+									{t('Watch brimkern, at the strength and analysis above, play Stockfish running in your tab (0.5 s per move). Games follow one another and colours alternate. The number is Stockfish’s own strength setting, not a measured rating of brimkern.',
+										'Regardez brimkern, avec la force et l’analyse ci-dessus, affronter Stockfish qui tourne dans votre onglet (0,5 s par coup). Les parties s’enchaînent, les couleurs alternent. Le nombre est le réglage de force de Stockfish, pas une mesure du niveau de brimkern.')}
 								</div>
 								{match?.on ? (
 									<button type="button" className={s.btn} style={{ width: '100%' }} onClick={stopMatch}>{t('Stop the match', 'Arrêter le match')}</button>

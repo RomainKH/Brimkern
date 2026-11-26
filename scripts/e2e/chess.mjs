@@ -1,11 +1,12 @@
 // La page /chess en vrai Chrome sur un build de production : le modèle charge, le gate GPU tient (ou le
 // repli CPU prend le relais), un coup humain obtient une réponse — et combien de temps elle prend.
 //
-//   PORT=3619 node scripts/e2e/chess.mjs                          # WebGPU, niveau « Très fort »
-//   PORT=3619 node scripts/e2e/chess.mjs --flag=chessgpu=0 --level=strong   # bras témoin CPU
-//   PORT=3619 node scripts/e2e/chess.mjs --level=max --playnow=3  # Maximum, « Jouer maintenant » à 3 s
+//   PORT=3619 node scripts/e2e/chess.mjs                          # WebGPU, pleine force, 1 024 positions
+//   PORT=3619 node scripts/e2e/chess.mjs --flag=chessgpu=0 --analysis=quick   # bras témoin CPU
+//   PORT=3619 node scripts/e2e/chess.mjs --analysis=max30 --playnow=3  # Maximum, « Jouer maintenant » à 3 s
+//   PORT=3619 node scripts/e2e/chess.mjs --strength=beginner --analysis=deep  # tirage après recherche
 //   PORT=3619 node scripts/e2e/chess.mjs --moves=3 --shot=/tmp/chess.png
-//   PORT=3619 node scripts/e2e/chess.mjs --match=1320 --level=medium --games=1   # match contre Stockfish
+//   PORT=3619 node scripts/e2e/chess.mjs --match=1320 --analysis=none --games=1   # match contre Stockfish
 //   PORT=3619 node scripts/e2e/chess.mjs --match=max --moves=4                     # Stockfish pleine force
 //
 // Joue 1.e4 en GLISSER-DÉPOSER à la souris (le geste réel), puis, pour les coups suivants, le
@@ -17,7 +18,8 @@ import { CHROME as EXE } from './chrome.mjs';
 const arg = (k, d) => { const a = process.argv.find((x) => x.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : d; };
 const BASE = `http://localhost:${process.env.PORT || 3618}`;
 const FLAG = arg('flag', '');
-const LEVEL = arg('level', 'expert');
+const STRENGTH = arg('strength', 'full');   // beginner | easy | medium | full
+const ANALYSIS = arg('analysis', 'deep');   // none | quick | deep | max10 | max30 | max60 | max120
 const PLAYNOW = Number(arg('playnow', '0'));
 const MOVES = Number(arg('moves', '2'));
 const SHOT = arg('shot', '');
@@ -40,7 +42,8 @@ await page.waitForFunction(() => {
 	return b && !b.disabled;
 }, null, { timeout: 180_000, polling: 250 });
 console.log(`modèle prêt en ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-await page.selectOption('#chess-level', LEVEL);
+await page.selectOption('#chess-strength', STRENGTH);
+await page.selectOption('#chess-analysis', ANALYSIS);
 
 const plies = () => page.evaluate(() => [...document.querySelectorAll('[aria-label="Move list"] span, [aria-label="Liste des coups"] span')]
 	.filter((x) => x.textContent && !x.textContent.endsWith('.')).length);

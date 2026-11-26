@@ -127,14 +127,23 @@ function priors(logits: Float32Array, moves: Move[], flip: number, aggression = 
 // Options de recherche :
 //   nodes        : plafond d'évaluations (1 = le réseau seul, sans recherche) ;
 //   timeMs       : plafond de temps — la recherche s'arrête au premier des deux plafonds atteint ;
-//   temperature  : réseau seul uniquement — > 0 tire le coup selon la politique^(1/T) au lieu de
-//                  prendre le meilleur (niveaux faibles : des coups plausibles, pas toujours les bons) ;
+//   temperature  : réglage de FORCE — > 0 tire le coup au lieu de prendre le meilleur : selon la
+//                  politique^(1/T) sans recherche, selon les visites^(1/T) après recherche (seuls les
+//                  coups examinés peuvent sortir). Des coups plausibles, pas toujours les bons ;
 //   signal       : « joue maintenant » — la recherche s'arrête et rend le meilleur coup trouvé.
 export interface SearchOptions {
 	nodes: number; timeMs?: number; temperature?: number; batch?: number; signal?: AbortSignal;
 	aggression?: number;   // bonus d'a priori des prises et échecs (style)
 	contempt?: number;     // une nulle vaut −contempt pour le camp qui cherche : il joue pour gagner
 	onProgress?: (done: number, value: number, ms: number) => void;
+}
+
+// Indice tiré au hasard selon w^(1/T) (w = a priori ou visites ; un poids nul ne sort jamais).
+function draw(w: number[], temperature: number): number {
+	const p = w.map((x) => Math.pow(x, 1 / temperature));
+	let r = Math.random() * p.reduce((a, b) => a + b, 0);
+	for (let i = 0; i < p.length; i++) { r -= p[i]; if (r <= 0 && p[i] > 0) return i; }
+	return Math.max(0, p.findIndex((x) => x > 0)); // tout nul (recherche coupée avant le 1er lot) : comme pick()
 }
 
 export async function search(model: ChessModel, root: Chess, opts: SearchOptions): Promise<SearchResult> {
@@ -173,11 +182,7 @@ export async function search(model: ChessModel, root: Chess, opts: SearchOptions
 	const policyMove = rootLegal[best];
 	if (opts.nodes <= 1 || rootLegal.length === 1) {
 		let move = policyMove;
-		if (opts.temperature && opts.temperature > 0 && rootLegal.length > 1) {
-			const w = Array.from(r0.pr, (p) => Math.pow(p, 1 / opts.temperature!));
-			let r = Math.random() * w.reduce((a, b) => a + b, 0);
-			for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) { move = rootLegal[i]; break; } }
-		}
+		if (opts.temperature && opts.temperature > 0 && rootLegal.length > 1) move = rootLegal[draw(Array.from(r0.pr), opts.temperature)];
 		return { move, nodes: 1, value: (r0.v + 1) / 2, pv: [move.san], ms: performance.now() - t0, policyMove };
 	}
 
@@ -241,12 +246,12 @@ export async function search(model: ChessModel, root: Chess, opts: SearchOptions
 	}
 
 	const pick = (n: Node) => { let bi = 0; n.children!.forEach((c, i) => { if (c.N > n.children![bi].N) bi = i; }); return bi; };
-	const bi = pick(rootNode);
+	const bi = opts.temperature && opts.temperature > 0 ? draw(rootNode.children!.map((c) => c.N), opts.temperature) : pick(rootNode);
 	const pv: string[] = [];
 	let n: Node | undefined = rootNode;
 	const g = new Chess(root.fen());
 	while (n?.children && pv.length < 8) {
-		const i = pick(n);
+		const i: number = n === rootNode ? bi : pick(n);
 		if (!n.children[i].N) break;
 		pv.push(g.move(n.moves![i]).san);
 		n = n.children[i];
