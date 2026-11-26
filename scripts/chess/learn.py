@@ -170,17 +170,21 @@ def score_for(result, as_white):
     return 1.0 if (result == "1-0") == as_white else 0.0
 
 
-def annotate(fens, depth, out_path, played=None, mistake=0.10, weight=3, threads=1):
+def annotate(fens, depth, out_path, played=None, mistake=0.10, weight=3, threads=1, progress=None):
     """FEN → enregistrements annotés par Stockfish (pleine force), ajoutés à out_path.
     played : {fen: coup joué par brimkern}. Un coup qui perd ≥ `mistake` de probabilité de gain
     (point de vue du trait, formule de Lichess) est une erreur : son enregistrement est écrit
-    `weight` fois. Rend (enregistrements écrits, {FEN : perte de probabilité du coup de brimkern})."""
+    `weight` fois. Rend (enregistrements écrits, {FEN : perte de probabilité du coup de brimkern}).
+    progress(k) : appelé toutes les 50 positions (le suivi en direct montre l'avancement au lieu d'un
+    échiquier figé pendant 30 à 60 min)."""
     played = played or {}
     sf = chess.engine.SimpleEngine.popen_uci("stockfish")
     sf.configure({"Threads": threads, "Hash": 64})
     n, losses = 0, {}
     with open(out_path, "ab") as f:
-        for fen in fens:
+        for k, fen in enumerate(fens):
+            if progress and k % 50 == 0:
+                progress(k)
             board = chess.Board(fen)
             if board.is_game_over():
                 continue
@@ -353,8 +357,9 @@ def main():
         # 2. Annoter (positions uniques).
         uniq = list(dict.fromkeys(fens))
         t1 = time.time()
-        live.set(phase="annotate", positions=len(uniq), opening=None)
-        added, losses = annotate(uniq, a.depth, buf, played, a.mistake, a.mistake_weight)
+        live.set(phase="annotate", positions=len(uniq), analysed=0, opening=None)
+        added, losses = annotate(uniq, a.depth, buf, played, a.mistake, a.mistake_weight,
+                                 progress=lambda k: live.set(analysed=k))
         buffer_size = os.path.getsize(buf) // 82
         mistakes = sum(l >= a.mistake for l in losses.values())
         vs_sf.update(brimkern_moves=len(losses), mistakes=int(mistakes), mistakes_per_game=round(mistakes / a.games, 2),
@@ -372,7 +377,13 @@ def main():
                "--lr", str(a.lr), "--warmup", "100", "--eval-every", str(a.steps), "--duty", str(a.duty), "--tag", f"gen{gen}",
                "--aggression", str(a.aggression)]
         live.set(phase="train", steps=a.steps)
-        subprocess.run(cmd, check=True)
+        # Battement de cœur : sans lui, le suivi en direct croit la boucle arrêtée pendant l'entraînement.
+        proc = subprocess.Popen(cmd)
+        while proc.poll() is None:
+            time.sleep(30)
+            live.set(phase="train")
+        if proc.returncode:
+            raise subprocess.CalledProcessError(proc.returncode, cmd)
         cand = os.path.join(gdir, "train", "last.pt")
 
         # 4. Départager : candidat contre champion.

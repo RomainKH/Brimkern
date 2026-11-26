@@ -119,7 +119,7 @@ function draw(s) {
 function render(s) {
   const phases = {
     play: `Génération ${s.gen} · <b>partie ${s.game}/${s.games} contre ${s.opponent}</b>`,
-    annotate: `Génération ${s.gen} · <b>Stockfish annote ${s.positions} positions</b> jouées par Kern 0`,
+    annotate: `Génération ${s.gen} · <b>Stockfish annote ${s.positions} positions</b> jouées par Kern 0${s.analysed ? ` (${s.analysed} faites)` : ''} · les parties sont finies, l'échiquier reprend au départage, après le réentraînement`,
     train: `Génération ${s.gen} · <b>réentraînement</b> (${s.steps} pas) sur ses propres parties corrigées`,
     gate: `Génération ${s.gen} · <b>départage ${s.game}/${s.games}</b> : nouveau modèle contre le champion`,
   };
