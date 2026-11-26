@@ -8,7 +8,8 @@ CCRL) demande un programme qui parle UCI : c'est la première marche.
 
 Recherche : la MCTS de play.py, réglée comme la boucle d'apprentissage (style agressif, contempt 0,2).
 Nœuds par coup : `go nodes N` tel quel ; avec une pendule (`movetime`, `wtime`/`btime`…), vitesse mesurée
-au démarrage × temps alloué (1/30 du temps restant + 3/4 de l'incrément), bornée par l'option Nodes.
+au démarrage puis remesurée à chaque coup × temps alloué (1/30 du temps restant + 3/4 de l'incrément)
+× 0,8, bornée par l'option Nodes.
 La recherche n'est pas interruptible : `stop` est ignoré, le budget de nœuds tient lieu de limite.
 """
 import argparse
@@ -40,7 +41,7 @@ def nodes_for(args, board, speed, max_nodes):
         secs = min(secs, left * 0.5)
     else:
         return max_nodes
-    return int(max(1, min(max_nodes, speed * secs * 0.9)))
+    return int(max(1, min(max_nodes, speed * secs * 0.8)))
 
 
 def main():
@@ -90,6 +91,8 @@ def main():
             mv = model_move(net, board, n, 0.2)
             dt = time.perf_counter() - t
             out(f"info nodes {n} time {int(dt * 1000)} nps {int(n / max(dt, 1e-6))}")
+            if n >= 64:  # la vitesse réelle (machine chargée, gros arbres) remplace peu à peu celle du démarrage
+                speed = 0.5 * speed + 0.5 * n / max(dt, 1e-6)
             out(f"bestmove {mv.uci()}")
         elif cmd == "quit":
             return
