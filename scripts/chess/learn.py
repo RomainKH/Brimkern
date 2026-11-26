@@ -218,6 +218,65 @@ def annotate(fens, depth, out_path, played=None, mistake=0.10, weight=3, threads
     return n, losses
 
 
+def lichess_games(user, since_ms, out_dir):
+    """Parties TERMINÉES du robot Lichess `user` depuis since_ms (API publique, sans jeton).
+    Rend (fens, {fen : coup de Kern 0}, nombre de parties, since suivant). Le brut est gardé dans out_dir."""
+    import urllib.request
+    url = f"https://lichess.org/api/games/user/{user}?since={since_ms + 1}&moves=true&clocks=false&evals=false&opening=false"
+    req = urllib.request.Request(url, headers={"Accept": "application/x-ndjson", "User-Agent": "brimkern-learn"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        rows = [json.loads(l) for l in r.read().decode().splitlines() if l.strip()]
+    rows = [g for g in rows if g.get("variant") == "standard" and g.get("status") not in ("created", "started", "aborted")
+            and g.get("moves") and not g.get("initialFen")]
+    fens, played, last = [], {}, since_ms
+    for g in rows:
+        last = max(last, g.get("lastMoveAt") or g.get("createdAt") or since_ms)
+        me = chess.WHITE if g["players"]["white"].get("user", {}).get("id") == user else chess.BLACK
+        b = chess.Board()
+        for san in g["moves"].split():
+            fen = b.fen()
+            fens.append(fen)
+            mv = b.parse_san(san)
+            if b.turn == me:
+                played[fen] = mv
+            b.push(mv)
+    if rows:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, f"{time.strftime('%Y%m%d-%H%M%S')}.ndjson"), "w") as f:
+            f.writelines(json.dumps(g) + "\n" for g in rows)
+    return fens, played, len(rows), last
+
+
+def spec_of(row):
+    """Étiquette d'adversaire d'une ligne d'historique (spec écrite depuis la gen 10, sinon le nom affiché)."""
+    o = row["vs_opponent"]
+    if o.get("spec"):
+        return o["spec"]
+    import re
+    for pat, kind in ((r"^Stockfish (\d+)$", "sf"), (r"^Maia (\d+)$", "maia"), (r"^Leela LD2 \((\d+) n", "ld2"), (r"^Leela \((\d+) n", "leela")):
+        m = re.match(pat, o["opponent"])
+        if m:
+            return f"{kind}:{m[1]}"
+    return None
+
+
+def resume(history, ladders, rungs):
+    """--resume : reprend l'échelle là où l'historique l'a laissée — barreau de chaque échelle après la
+    règle de montée/descente appliquée à sa dernière génération, et alternance qui continue (l'échelle
+    APRÈS celle de la dernière génération joue la première). Rend (rungs, décalage d'alternance)."""
+    rungs = list(rungs)
+    last_li = None
+    for row in history:
+        spec = spec_of(row)
+        for li, ladder in enumerate(ladders):
+            if spec in ladder:
+                rung, s = ladder.index(spec), row["vs_opponent"]["score"] / row["vs_opponent"]["games"]
+                step = 2 if s >= 0.85 or s <= 0.15 else 1
+                rungs[li] = min(len(ladder) - 1, rung + step) if s > 0.6 else max(0, rung - step) if s < 0.4 else rung
+                last_li = li
+    return rungs, (last_li + 1) % len(ladders) if last_li is not None else 0
+
+
 def pgn_positions(path):
     fens = []
     with open(path) as f:
@@ -259,6 +318,8 @@ def main():
     ap.add_argument("--play-aggression", type=float, default=0.0, help="bonus d'a priori des prises/échecs en recherche")
     ap.add_argument("--contempt", type=float, default=0.0, help="valeur négative d'une nulle pour brimkern en recherche")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--resume", action="store_true", help="barreaux et alternance repris de history.jsonl (relances sans réglage à la main)")
+    ap.add_argument("--lichess", help="compte BOT Lichess dont les parties terminées entrent dans la boucle à chaque génération")
     ap.add_argument("--think", type=int, default=1, help="moments critiques : recherche refaite avec think × nodes (cf. play.model_move)")
     ap.add_argument("--think-q", type=float, default=0.2)
     ap.add_argument("--think-share", type=float, default=0.5)
@@ -291,13 +352,18 @@ def main():
     rungs = [int(r) for r in a.rung.split(",")]
     rungs += [0] * (len(ladders) - len(rungs))
     start_gen = sum(1 for _ in open(os.path.join(a.work, "history.jsonl")))
+    offset = 0
+    if a.resume:
+        rungs, offset = resume(history_rows(), ladders, rungs)
+        print(f"reprise : barreaux {[l[r] for l, r in zip(ladders, rungs)]}, première échelle {offset}", flush=True)
+    since_path = os.path.join(a.work, "lichess.since")
 
     for gen in range(start_gen, start_gen + a.generations):
         t0 = time.time()
         gdir = os.path.join(a.work, f"gen_{gen:03d}")
         os.makedirs(gdir, exist_ok=True)
         net = Net(champ, aggression=a.play_aggression)
-        li = (gen - start_gen) % len(ladders)
+        li = (gen - start_gen + offset) % len(ladders)
         ladder, rung = ladders[li], rungs[li]
         results, records, mine_fens = [], [], []
         date = time.strftime("%Y-%m-%d")
@@ -342,7 +408,7 @@ def main():
                 print(game, file=pgn, end="\n\n")
                 print(f"[gen {gen}] partie {g + 1}/{a.games} contre {opp_name} : {res} · score {score}/{g + 1}", flush=True)
         sf.quit()
-        vs_sf = dict(opponent=opp_name, games=a.games, score=score, nodes=a.nodes)
+        vs_sf = dict(opponent=opp_name, spec=ladder[rung], games=a.games, score=score, nodes=a.nodes)
         if a.think > 1:
             vs_sf["think"] = a.think
         if op:
@@ -353,6 +419,21 @@ def main():
         vs_sf.update(elo_diff=diff, elo_ci95=[lo, hi])
         if a.pgn and gen == start_gen:
             fens += pgn_positions(a.pgn)
+        li_fens = set()
+        if a.lichess:
+            try:
+                since = int(open(since_path).read()) if os.path.exists(since_path) else 0
+                lf, lp, n_li, since = lichess_games(a.lichess, since, os.path.join(a.work, "lichess"))
+                fens += lf
+                for fen, mv in lp.items():
+                    played.setdefault(fen, mv)
+                li_fens = set(lp) - {x for m in mine_fens for x in m}
+                with open(since_path, "w") as f:
+                    f.write(str(since))
+                vs_sf["lichess_games"] = n_li
+                print(f"[gen {gen}] Lichess : {n_li} parties de {a.lichess} ajoutées ({len(lp)} coups de Kern 0)", flush=True)
+            except Exception as e:  # réseau : la génération continue sans elles, elles viendront à la suivante
+                print(f"[gen {gen}] Lichess indisponible : {e}", flush=True)
 
         # 2. Annoter (positions uniques).
         uniq = list(dict.fromkeys(fens))
@@ -361,15 +442,20 @@ def main():
         added, losses = annotate(uniq, a.depth, buf, played, a.mistake, a.mistake_weight,
                                  progress=lambda k: live.set(analysed=k))
         buffer_size = os.path.getsize(buf) // 82
-        mistakes = sum(l >= a.mistake for l in losses.values())
-        vs_sf.update(brimkern_moves=len(losses), mistakes=int(mistakes), mistakes_per_game=round(mistakes / a.games, 2),
-                     mean_wp_loss=round(float(np.mean(list(losses.values()))), 4) if losses else None)
+        # Statistiques de l'ÉCHELLE sur ses seuls coups (les parties Lichess à part : autres adversaires, autre cadence).
+        lad = [l for fen, l in losses.items() if fen not in li_fens]
+        mistakes = sum(l >= a.mistake for l in lad)
+        vs_sf.update(brimkern_moves=len(lad), mistakes=int(mistakes), mistakes_per_game=round(mistakes / a.games, 2),
+                     mean_wp_loss=round(float(np.mean(lad)), 4) if lad else None)
+        if li_fens:
+            lil = [losses[f] for f in li_fens if f in losses]
+            vs_sf.update(lichess_moves=len(lil), lichess_mistakes=int(sum(l >= a.mistake for l in lil)))
         # Qualité de chaque partie : ses erreurs et sa perte moyenne (le classement des meilleures parties).
         for r, mine in zip(records, mine_fens):
             ls = [losses[x] for x in mine if x in losses]
             r.update(err=int(sum(l >= a.mistake for l in ls)), loss=round(float(np.mean(ls)), 4) if ls else None)
         print(f"[gen {gen}] {added} enregistrements en {time.time() - t1:.0f} s · tampon {buffer_size} · "
-              f"{mistakes} erreurs de brimkern sur {len(losses)} coups ({mistakes / a.games:.1f}/partie)", flush=True)
+              f"{mistakes} erreurs de Kern 0 sur {len(lad)} coups ({mistakes / a.games:.1f}/partie)", flush=True)
 
         # 3. Réentraîner depuis le champion.
         cmd = ["taskpolicy", "-b", sys.executable, "-u", os.path.join(HERE, "train.py"), "--data", a.data, "--out", os.path.join(gdir, "train"),
