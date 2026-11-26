@@ -213,6 +213,8 @@ def main():
     ap.add_argument("--live-every", type=float, default=3.0,
                     help="secondes minimum entre deux envois de live.json (limites de l'API du Hub)")
     ap.add_argument("--per-family", type=int, default=25)
+    ap.add_argument("--on-champion", help="commande lancée avec le chemin du champion à chaque nouveau champion "
+                                          "(ex. server/push-champion-gcp.sh : le pousser sur le serveur du robot Lichess)")
     ap.add_argument("--dry-run", action="store_true", help="construit <work>/publish, n'envoie rien, s'arrête")
     a = ap.parse_args()
     work = os.path.abspath(a.work)
@@ -229,7 +231,7 @@ def main():
     api = HfApi()
     live = os.path.join(work, "live.json")
     sent_mtime = next_live = last_check = last_cur = last_err = 0.0
-    published_gen, sent_cur, sent_champ = None, None, None
+    published_gen, sent_cur, sent_champ, pushed_champ, next_push = None, None, None, None, 0.0
     print(f"direct → huggingface.co/buckets/{a.bucket} · archive → huggingface.co/datasets/{a.dataset}", flush=True)
     while True:
         now = time.time()
@@ -273,6 +275,15 @@ def main():
                     api.batch_bucket_files(a.bucket, add=[(data, "champion.pt"), (meta, "champion.json")])
                     sent_champ = digest
                     print(f"champion publié ({len(data)} octets, {digest[:12]})", flush=True)
+                if a.on_champion and digest != pushed_champ and now >= next_push and time.time() - os.path.getmtime(champ) > 5:
+                    import subprocess
+                    r = subprocess.run([a.on_champion, champ], capture_output=True, text=True, timeout=600)
+                    if r.returncode == 0:
+                        pushed_champ = digest
+                        print(f"champion poussé : {a.on_champion} ({digest[:12]})", flush=True)
+                    else:  # serveur éteint, réseau : on réessaie dans 10 min, pas toutes les 30 s
+                        next_push = now + 600
+                        print(f"champion non poussé ({r.returncode}) : {(r.stderr or r.stdout).strip()[-200:]}", flush=True)
             except Exception as e:
                 print(f"champion : {e}", flush=True)
             try:

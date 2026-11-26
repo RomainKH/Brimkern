@@ -9,7 +9,7 @@ scp -i $KEY -q $C/model.py $C/play.py $C/uci.py $S:kern0/chess/
 scp -i $KEY -q $H/setup.sh $H/sync-champion.sh $H/run.sh $S:kern0/
 scp -i $KEY -q $H/engines/kern0 $S:kern0/engines/
 scp -i $KEY -q $H/systemd/* $S:kern0/systemd/
-sed -e "s#$L/engines/#/home/ubuntu/kern0/engines/#" -e "s#$L/games#/home/ubuntu/kern0/games#" $L/lichess-bot/config.yml > /tmp/kern0-config.yml
+sed -e "s#$L/engines/#__HOME__/kern0/engines/#" -e "s#$L/games#__HOME__/kern0/games#" $L/lichess-bot/config.yml > /tmp/kern0-config.yml
 scp -i $KEY -q /tmp/kern0-config.yml $S:kern0/config.yml && rm /tmp/kern0-config.yml
 scp -i $KEY -q $L/token $S:kern0/token
 ssh -i $KEY $S "bash kern0/setup.sh"
