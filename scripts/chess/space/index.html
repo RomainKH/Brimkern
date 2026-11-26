@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>brimkern chess live</title>
-<meta name="description" content="Watch brimkern, a 244K-parameter chess model, learn by playing Stockfish and Leela Chess Zero.">
+<title>Kern 0 chess live</title>
+<meta name="description" content="Watch Kern 0, the 244K-parameter chess model of brimkern, learn by playing Stockfish and Leela Chess Zero.">
 <!-- Space STATIQUE (gratuit) : version publique de scripts/chess/live.html, même rendu, bilingue (anglais par défaut, français si le
      navigateur est en français ou ?lang=fr), plus la relecture des meilleures parties du dataset. -->
 <style>
@@ -61,7 +61,7 @@
 </head>
 <body>
 <div class="wrap" id="wrap">
-  <h1 id="title">brimkern learns by playing</h1>
+  <h1 id="title">Kern 0 learns by playing</h1>
   <p class="sub" id="sub"></p>
   <div class="phase" id="phase" aria-live="polite"></div>
   <div class="layout">
@@ -110,7 +110,7 @@ const FILES = 'abcdefgh';
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w';
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const isBrim = (name) => /^(brimkern|candidate)/.test(name || '');
+const isBrim = (name) => /^(brimkern|Kern|candidate)/.test(name || '');
 
 // learn.py écrit des noms en français ("Leela (8 nœuds)") ; l'étiquette (sf:2300, leela:8) est la source.
 function oppFromSpec(spec) {
@@ -123,6 +123,7 @@ function oppFromSpec(spec) {
 }
 function name(n) {
   if (!n) return '';
+  if (n === 'brimkern') return 'Kern 0';
   let m = /^Leela \((\d+) nœuds?\)$/.exec(n);
   if (m) return oppFromSpec(`leela:${m[1]}`);
   m = /^candidate gen (\d+)$/.exec(n);
@@ -132,10 +133,10 @@ function name(n) {
   return n;
 }
 
-$('title').textContent = t('brimkern learns by playing', 'brimkern apprend en jouant');
+$('title').textContent = t('Kern 0 learns by playing', 'Kern 0 apprend en jouant');
 $('sub').innerHTML = t(
-  `A 244K-parameter chess model plays Stockfish and Leela Chess Zero, Stockfish analyses its mistakes, it retrains, and the new version must beat the champion to replace it. <a href="https://brimkern.com/chess">Play it</a> · <a href="${DATASET}">every game</a>`,
-  `Un modèle d'échecs de 244 K paramètres joue Stockfish et Leela Chess Zero, Stockfish analyse ses erreurs, il se réentraîne, et la nouvelle version doit battre le champion pour le remplacer. <a href="https://brimkern.com/fr/chess">L'affronter</a> · <a href="${DATASET}">toutes les parties</a>`);
+  `Kern 0, the 244K-parameter chess model of brimkern, plays Stockfish and Leela Chess Zero, Stockfish analyses its mistakes, it retrains, and the new version must beat the champion to replace it. <a href="https://brimkern.com/chess">Play it</a> · <a href="${DATASET}">every game</a>`,
+  `Kern 0, le modèle d'échecs de 244 K paramètres de brimkern, joue Stockfish et Leela Chess Zero, Stockfish analyse ses erreurs, il se réentraîne, et la nouvelle version doit battre le champion pour le remplacer. <a href="https://brimkern.com/fr/chess">L'affronter</a> · <a href="${DATASET}">toutes les parties</a>`);
 $('movesLabel').textContent = t('Moves', 'Coups');
 $('curHead').innerHTML = `<th>#</th><th>${t('White', 'Blancs')}</th><th>${t('Black', 'Noirs')}</th><th>${t('Result', 'Résultat')}</th><th>${t('Moves', 'Coups')}</th><th></th>`;
 $('bestLabel').textContent = t('Best games so far (wins and draws against the strongest opponents)', 'Meilleures parties (victoires et nulles contre les adversaires les plus forts)');
@@ -201,9 +202,9 @@ function draw({ board, turn, last, check, white, black, moves, cursor, flip = is
 }
 
 // --- Relecture (meilleures parties, parties de la génération en cours) ---
-// Partie enregistrée → [blancs, noirs] ; `color` est le camp de brimkern (du candidat au départage).
+// Partie enregistrée → [blancs, noirs] ; `color` est le camp de Kern 0 (du candidat au départage).
 function players(g) {
-  const [me, them] = g.kind === 'gate' ? [t('candidate', 'candidat'), 'champion'] : ['brimkern', oppFromSpec(g.opp)];
+  const [me, them] = g.kind === 'gate' ? [t('candidate', 'candidat'), 'champion'] : ['Kern 0', oppFromSpec(g.opp)];
   return g.color === 'w' ? [me, them] : [them, me];
 }
 let replay = null;
@@ -281,7 +282,7 @@ function render(s) {
   const opp = s.spec && s.phase === 'play' ? oppFromSpec(s.spec) : name(s.opponent);
   const phases = {
     play: t(`Generation ${s.gen} · <b>game ${s.game}/${s.games} against ${esc(opp)}</b>`, `Génération ${s.gen} · <b>partie ${s.game}/${s.games} contre ${esc(opp)}</b>`),
-    annotate: t(`Generation ${s.gen} · <b>Stockfish is analysing the ${s.positions} positions</b> brimkern played`, `Génération ${s.gen} · <b>Stockfish analyse les ${s.positions} positions</b> jouées par brimkern`),
+    annotate: t(`Generation ${s.gen} · <b>Stockfish is analysing the ${s.positions} positions</b> Kern 0 played`, `Génération ${s.gen} · <b>Stockfish analyse les ${s.positions} positions</b> jouées par Kern 0`),
     train: t(`Generation ${s.gen} · <b>retraining</b> (${s.steps} steps) on its own corrected games`, `Génération ${s.gen} · <b>réentraînement</b> (${s.steps} pas) sur ses propres parties corrigées`),
     gate: t(`Generation ${s.gen} · <b>gate match ${s.game}/${s.games}</b>: new version against the champion`, `Génération ${s.gen} · <b>départage ${s.game}/${s.games}</b> : nouvelle version contre le champion`),
   };
@@ -296,7 +297,7 @@ function render(s) {
     }
   }
   const res = s.results || [];
-  $('scoreLabel').textContent = s.phase === 'gate' ? t('New version against the champion', 'Nouvelle version contre le champion') : t(`brimkern against ${opp || '…'}`, `brimkern contre ${opp || '…'}`);
+  $('scoreLabel').textContent = s.phase === 'gate' ? t('New version against the champion', 'Nouvelle version contre le champion') : t(`Kern 0 against ${opp || '…'}`, `Kern 0 contre ${opp || '…'}`);
   $('score').textContent = res.length ? `${s.score} / ${res.length}` : '–';
   $('chips').innerHTML = res.map((r) => {
     const [cls, en, fr] = r.points === 1 ? ['win', 'W', 'G'] : r.points === 0 ? ['loss', 'L', 'P'] : ['draw', 'D', 'N'];

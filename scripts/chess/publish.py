@@ -55,7 +55,7 @@ def backfill(path, gen):
     rows = []
     with open(path) as f:
         while (g := chess.pgn.read_game(f)) is not None:
-            w = g.headers["White"] == "brimkern"
+            w = g.headers["White"] in ("brimkern", "Kern 0")  # « Kern 0 » depuis la gen 7
             res = g.headers["Result"]
             b, san = g.board(), []
             for mv in g.mainline_moves():
@@ -82,7 +82,7 @@ def best_games(rows, per_family):
 
 def to_pgn(r):
     g = chess.pgn.Game()
-    me, them = "brimkern", opp_name(r["opp"])
+    me, them = "Kern 0", opp_name(r["opp"])
     g.headers.update({"Event": "brimkern learning loop", "Site": "brimkern.com", "Date": (r["date"] or "????-??-??").replace("-", "."),
                       "Round": f"{r['gen']}.{r['i']}", "White": me if r["color"] == "w" else them,
                       "Black": them if r["color"] == "w" else me, "Result": r["res"]})
@@ -106,10 +106,10 @@ def with_uci(r):
 def card(rows, hist):
     n_gate = sum(r["kind"] == "gate" for r in rows)
     lines = [
-        "---", "license: mit", "pretty_name: brimkern chess games", "tags: [chess, reinforcement-learning, stockfish, leela-chess-zero]",
+        "---", "license: mit", "pretty_name: Kern 0 chess games", "tags: [chess, reinforcement-learning, stockfish, leela-chess-zero]",
         "configs:", "- config_name: games", "  data_files: games/*.jsonl", "- config_name: best", "  data_files: best.jsonl", "---", "",
-        "# brimkern chess games", "",
-        "Every game played by [brimkern](https://brimkern.com/chess), a 244K-parameter chess model, while it learns by playing "
+        "# Kern 0 chess games", "",
+        "Every game played by Kern 0, the 244K-parameter chess model of [brimkern](https://brimkern.com/chess), while it learns by playing "
         "Stockfish and Leela Chess Zero. Updated after each training generation; follow the games live at "
         "[romainkh14/brimkern-chess-live](https://huggingface.co/spaces/romainkh14/brimkern-chess-live).", "",
         f"{len(rows)} games over {len(hist)} generations ({len(rows) - n_gate} against an engine, {n_gate} candidate-vs-champion gate games).", "",
@@ -120,9 +120,9 @@ def card(rows, hist):
         "## Fields", "",
         "| field | meaning |", "|---|---|",
         "| `gen`, `i` | generation, game number |",
-        "| `kind` | `ladder` (brimkern vs an engine) or `gate` (new candidate vs current champion) |",
+        "| `kind` | `ladder` (Kern 0 vs an engine) or `gate` (new candidate vs current champion) |",
         "| `opp` | `sf:<UCI_Elo>` (Stockfish limited, 0.1 s/move), `leela:<nodes>` (lc0, T1-256x10 distilled net), `maia:<level>`, `champion` |",
-        "| `color`, `pts` | brimkern's side (the candidate's in a gate game) and its points |",
+        "| `color`, `pts` | Kern 0's side (the candidate's in a gate game) and its points |",
         "| `err`, `loss` | moves losing ≥ 10 % win probability, mean win-probability loss per move (Stockfish analysis; ladder games from gen 6) |",
         "| `moves` | SAN, space-separated |", "",
         "## Generations", "",

@@ -47,6 +47,7 @@ from play import Net, elo_from_score, make_opponent, model_move, sample_move  # 
 from prepare import record, winprob  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+PLAYER = "Kern 0"  # le nom du modèle d'échecs de brimkern dans les parties (choisi par Romain le 2026-11-26)
 
 
 def play_game(white, black, net_for_opening, max_ply=400, on_move=None):
@@ -244,7 +245,7 @@ def main():
         with open(os.path.join(gdir, "games.pgn"), "w") as pgn:
             for g in range(a.games):
                 w = g % 2 == 0
-                names = ("brimkern" if w else opp_name, opp_name if w else "brimkern")
+                names = (PLAYER if w else opp_name, opp_name if w else PLAYER)
                 live.set(game=g + 1, white=names[0], black=names[1], opponent=opp_name, score=score)
                 res, f, board = play_game(me if w else them, them if w else me, net, on_move=lambda b: live.board(b))
                 score += score_for(res, w)

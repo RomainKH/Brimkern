@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>brimkern · entraînement en direct</title>
+<title>Kern 0 · entraînement en direct</title>
 <!-- Suivi en direct de scripts/chess/learn.py (servi par live.py). Mêmes tons que /chess. -->
 <style>
   :root {
@@ -49,7 +49,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>brimkern apprend en jouant</h1>
+  <h1>Kern 0 apprend en jouant</h1>
   <div class="phase" id="phase">En attente de learn.py…</div>
   <div class="layout">
     <div>
@@ -74,7 +74,7 @@
 <script>
 const FILES = 'abcdefgh';
 const $ = (id) => document.getElementById(id);
-const isBrim = (name) => /^(brimkern|candidate)/.test(name || '');
+const isBrim = (name) => /^(brimkern|Kern|candidate)/.test(name || '');
 
 function parseFen(fen) {
   const rows = fen.split(' ')[0].split('/');
@@ -119,7 +119,7 @@ function draw(s) {
 function render(s) {
   const phases = {
     play: `Génération ${s.gen} · <b>partie ${s.game}/${s.games} contre ${s.opponent}</b>`,
-    annotate: `Génération ${s.gen} · <b>Stockfish annote ${s.positions} positions</b> jouées par brimkern`,
+    annotate: `Génération ${s.gen} · <b>Stockfish annote ${s.positions} positions</b> jouées par Kern 0`,
     train: `Génération ${s.gen} · <b>réentraînement</b> (${s.steps} pas) sur ses propres parties corrigées`,
     gate: `Génération ${s.gen} · <b>départage ${s.game}/${s.games}</b> : nouveau modèle contre le champion`,
   };
@@ -127,7 +127,7 @@ function render(s) {
   $('phase').innerHTML = (phases[s.phase] || 'En attente de learn.py…') + (age > 120 && s.phase !== 'train' && s.phase !== 'annotate' ? ` <span class="stale">· rien depuis ${Math.round(age)} s</span>` : '');
   draw(s);
   const res = s.results || [];
-  $('scoreLabel').textContent = s.phase === 'gate' ? 'Score du nouveau modèle contre le champion' : `Score de brimkern contre ${s.opponent || '…'}`;
+  $('scoreLabel').textContent = s.phase === 'gate' ? 'Score du nouveau modèle contre le champion' : `Score de Kern 0 contre ${s.opponent || '…'}`;
   $('score').textContent = res.length ? `${s.score} / ${res.length}` : '–';
   $('chips').innerHTML = res.map((r) => `<div class="chip ${r.points === 1 ? 'win' : r.points === 0 ? 'loss' : 'draw'}">${r.points === 1 ? 'G' : r.points === 0 ? 'P' : 'N'}</div>`).join('');
   $('hist').innerHTML = (s.history || []).map((h) => {
