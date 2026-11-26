@@ -21,6 +21,10 @@ const HISTORY = 'https://huggingface.co/datasets/romainkh14/brimkern-chess-games
 const SPACE = 'https://huggingface.co/spaces/romainkh14/brimkern-chess-live';
 const DATASET = 'https://huggingface.co/datasets/romainkh14/brimkern-chess-games';
 const CODE = 'https://github.com/RomainKH/Brimkern/tree/main/scripts/chess';
+// Le robot Lichess (lichess-bot sur la machine de la boucle, compte BOT « kern-0 »). API publique, CORS *.
+const LICHESS = 'https://lichess.org/@/kern-0';
+const LICHESS_STATUS = 'https://lichess.org/api/users/status?ids=kern-0&withGameIds=true';
+const LICHESS_STREAM = 'https://lichess.org/api/stream/game/';
 
 type T = (en: string, fr: string) => string;
 interface Opening { src: 'book' | 'iconic'; by?: string[]; game?: string; name?: { en: string; fr: string } }
@@ -118,7 +122,7 @@ function LiveGame({ t }: { t: T }) {
         <p style={{ color: 'var(--text-primary)', fontSize: 15, lineHeight: 1.55, margin: '0 0 8px' }} aria-live="polite">{status}</p>
         {playing && s.white && s.black && (
           <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: '0 0 8px' }}>
-            {t('White', 'Blancs')} : {who(s.white)} · {t('Black', 'Noirs')} : {who(s.black)}
+            {t('White: ', 'Blancs : ')}{who(s.white)} · {t('Black: ', 'Noirs : ')}{who(s.black)}
             {s.opening ? <><br />{openingText(s.opening, t)}</> : null}
           </p>
         )}
@@ -127,6 +131,90 @@ function LiveGame({ t }: { t: T }) {
         </a>
       </div>
     </div>
+  );
+}
+
+const SPEED_FR: Record<string, string> = { bullet: 'bullet', blitz: 'blitz', rapid: 'rapide', classical: 'classique', correspondence: 'par correspondance' };
+interface LiPlayer { user?: { name: string; id: string }; rating?: number; aiLevel?: number }
+interface LiGame { id: string; speed?: string; rated?: boolean; white?: LiPlayer; black?: LiPlayer; fen?: string; lm?: string; wc?: number; bc?: number }
+
+// Sur Lichess : rien tant que le robot n'est pas connecté (demande de Romain) ; connecté, sa partie en
+// cours coup par coup (flux ndjson public /api/stream/game : d'abord la partie, puis {fen, lm, wc, bc}
+// à chaque coup), ou « en attente d'un adversaire ». Le statut est relu toutes les 20 s.
+function LichessLive({ t, h2 }: { t: T; h2: React.CSSProperties }) {
+  const [online, setOnline] = useState(false);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [g, setG] = useState<LiGame | null>(null);
+  useEffect(() => {
+    let alive = true, timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      try {
+        const [u] = await (await fetch(LICHESS_STATUS, { cache: 'no-store' })).json();
+        if (alive) { setOnline(!!u?.online); setGameId(u?.playingId ?? null); }
+      } catch { /* réseau : on garde l'état */ }
+      if (alive) timer = setTimeout(tick, 20000);
+    };
+    tick();
+    return () => { alive = false; clearTimeout(timer); };
+  }, []);
+  useEffect(() => {
+    if (!gameId) return;
+    const ctl = new AbortController();
+    (async () => {
+      try {
+        const r = await fetch(LICHESS_STREAM + gameId, { signal: ctl.signal });
+        const reader = r.body!.getReader(), dec = new TextDecoder();
+        let buf = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const l of lines) {
+            if (!l.trim()) continue;
+            const m = JSON.parse(l);
+            setG((prev) => m.id ? { id: m.id, speed: m.speed, rated: m.rated, white: m.players?.white, black: m.players?.black, fen: m.fen, lm: m.lastMove }
+                                : prev ? { ...prev, fen: m.fen, lm: m.lm, wc: m.wc, bc: m.bc } : prev);
+          }
+        }
+      } catch { /* partie finie ou page quittée */ }
+    })();
+    return () => ctl.abort();
+  }, [gameId]);
+
+  if (!online) return null;
+  const name = (p?: LiPlayer) => p?.user?.id === 'kern-0' ? 'Kern 0' : p?.user?.name ?? (p?.aiLevel ? `Stockfish (${t('level', 'niveau')} ${p.aiLevel})` : '?');
+  const who = (p?: LiPlayer) => `${name(p)}${p?.rating ? ` (${p.rating})` : ''}`;
+  const clock = (sec?: number) => sec === undefined ? '' : ` · ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const live = gameId && g?.id === gameId ? g : null;
+  return (
+    <>
+      <h2 style={h2}>{t('On Lichess, right now', 'Sur Lichess, en ce moment')}</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 300px) minmax(0, 1fr)', gap: 20, alignItems: 'start' }} className="kern-live">
+        {live?.fen ? (
+          <MiniBoard fen={live.fen} last={live.lm} flip={live.black?.user?.id === 'kern-0'}
+            label={t(`Lichess game in progress: ${who(live.white)} (white) against ${who(live.black)} (black).`,
+                     `Partie Lichess en cours : ${who(live.white)} (blancs) contre ${who(live.black)} (noirs).`)} />
+        ) : <div />}
+        <div>
+          <p style={{ color: 'var(--text-primary)', fontSize: 15, lineHeight: 1.55, margin: '0 0 8px' }}>
+            {live
+              ? t(`Kern 0 is playing on Lichess, a ${live.rated ? 'rated' : 'casual'} ${live.speed ?? ''} game.`,
+                  `Kern 0 joue sur Lichess, une partie ${SPEED_FR[live.speed ?? ''] ?? live.speed ?? ''} ${live.rated ? 'classée' : 'amicale'}.`)
+              : t('Kern 0 is connected to Lichess and waiting for an opponent. You can challenge it from its profile.', 'Kern 0 est connecté à Lichess et attend un adversaire. Vous pouvez le défier depuis son profil.')}
+          </p>
+          {live && (
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.55, margin: '0 0 8px', fontVariantNumeric: 'tabular-nums' }}>
+              {t('White: ', 'Blancs : ')}{who(live.white)}{clock(live.wc)}<br />{t('Black: ', 'Noirs : ')}{who(live.black)}{clock(live.bc)}
+            </p>
+          )}
+          <a href={live ? `https://lichess.org/${live.id}` : LICHESS} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', fontSize: 13.5, padding: '7px 14px', marginTop: 6 }}>
+            {live ? t('Watch it on Lichess', 'La regarder sur Lichess') : t('Its Lichess profile', 'Son profil Lichess')} <ArrowRight size={14} />
+          </a>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -215,6 +303,7 @@ export default function KernClient() {
 
       <h2 id="live" style={h2}>{t('Playing right now', 'En ce moment')}</h2>
       <LiveGame t={t} />
+      <LichessLive t={t} h2={h2} />
 
       <h2 id="different" style={h2}>{t('What makes it different', 'Ce qui le distingue')}</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
