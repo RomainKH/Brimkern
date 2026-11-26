@@ -258,12 +258,16 @@ def mcts(net, board, nodes, batch=8, c_puct=1.5, fpu=0.2, contempt=0.0, mate_dis
 
 
 ENGINES = os.path.expanduser("~/Desktop/autres/brimkern-chess/engines")
+# storage.lczero.org/files/networks-contrib/ — sha256 bc27a6ca…f563406
+LEELA_NET = "t1-256x10-distilled-swa-2432500.pb.gz"
 
 
 def make_opponent(spec, sf_time=0.1):
     """Adversaire UCI depuis une étiquette — rend (nom, moteur, limite par coup).
       sf:<elo>              Stockfish bridé (UCI_LimitStrength, UCI_Elo ≥ 1320), sf_time s par coup
       maia:<1100..1900>     Maia (réseau lc0 entraîné à jouer comme un humain de ce niveau), 1 nœud
+      leela:<nœuds>         Leela Chess Zero, réseau T1-256x10 distillé (transformeur, 37 Mo), N nœuds
+                            par coup : ~30 ms le nœud sur 1 fil CPU (1 nœud = son instinct seul)
       lc0:<poids>:<nœuds>   lc0 avec n'importe quels poids
     lc0 sur le CPU (BLAS, 1 fil) : le GPU reste à l'entraînement."""
     kind, _, rest = spec.partition(":")
@@ -275,6 +279,11 @@ def make_opponent(spec, sf_time=0.1):
         w = os.path.join(ENGINES, f"maia-{rest}.pb.gz")
         e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
         return f"Maia {rest}", e, chess.engine.Limit(nodes=1)
+    if kind == "leela":
+        w = os.path.join(ENGINES, "leela", LEELA_NET)
+        e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
+        n = int(rest)
+        return f"Leela ({n} nœud{'s' if n > 1 else ''})", e, chess.engine.Limit(nodes=n)
     if kind == "lc0":
         w, _, nodes = rest.rpartition(":")
         e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)

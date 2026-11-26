@@ -10,6 +10,8 @@ Une génération :
      suivant, < 40 % → précédent, ±2 au-delà de 85 % / en deçà de 15 %), plus les parties PGN
      fournies (celles jouées sur la page). L'objectif est de BATTRE Stockfish : le score de ces
      parties est la courbe qui compte, la ressemblance aux coups de Stockfish n'est qu'un moyen.
+     Plusieurs échelles séparées par « ; » (ex. Stockfish puis Leela Chess Zero) : une génération
+     chacune à tour de rôle, chaque échelle garde son propre barreau (--rung 0,3).
   2. ANNOTER — chaque position atteinte est analysée par Stockfish à pleine force (profondeur
      --depth, multi-PV 5) et encodée comme les données de pré-entraînement (prepare.record). Le
      résultat d'une partie seule est un signal trop pauvre ; ce sont les positions où le modèle se
@@ -160,13 +162,14 @@ def main():
     ap.add_argument("--data", required=True, help="données de base (prepare.py)")
     ap.add_argument("--work", required=True)
     ap.add_argument("--generations", type=int, default=3)
-    ap.add_argument("--games", type=int, default=20, help="parties contre Stockfish par génération")
+    ap.add_argument("--games", type=int, default=20, help="parties contre l'adversaire par génération")
     ap.add_argument("--nodes", type=int, default=200)
     ap.add_argument("--ladder", default="sf:1320,sf:1500,sf:1700,sf:1900,sf:2100,sf:2300,sf:2500,sf:2700,sf:2900,sf:3190",
-                    help="adversaires du plus faible au plus fort (cf. play.make_opponent ; maia:<elo> possible)")
+                    help="adversaires du plus faible au plus fort (cf. play.make_opponent : sf:<elo>, leela:<nœuds>, "
+                         "maia:<elo>) ; plusieurs échelles séparées par « ; » alternent d'une génération à l'autre")
     ap.add_argument("--mistake", type=float, default=0.10, help="perte de probabilité de gain qui fait d'un coup de brimkern une erreur")
     ap.add_argument("--mistake-weight", type=int, default=3, help="nombre de copies d'une erreur dans le tampon")
-    ap.add_argument("--rung", type=int, default=0, help="barreau de départ")
+    ap.add_argument("--rung", default="0", help="barreau de départ (un par échelle, séparés par des virgules)")
     ap.add_argument("--sf-time", type=float, default=0.1)
     ap.add_argument("--pgn", help="parties supplémentaires (ex. jouées sur /chess)")
     ap.add_argument("--depth", type=int, default=12, help="profondeur d'annotation Stockfish")
@@ -196,8 +199,9 @@ def main():
     def history_rows():
         with open(os.path.join(a.work, "history.jsonl")) as f:
             return [json.loads(l) for l in f if l.strip()]
-    ladder = a.ladder.split(",")
-    rung = a.rung
+    ladders = [l.split(",") for l in a.ladder.split(";")]
+    rungs = [int(r) for r in a.rung.split(",")]
+    rungs += [0] * (len(ladders) - len(rungs))
     start_gen = sum(1 for _ in open(os.path.join(a.work, "history.jsonl")))
 
     for gen in range(start_gen, start_gen + a.generations):
@@ -205,6 +209,8 @@ def main():
         gdir = os.path.join(a.work, f"gen_{gen:03d}")
         os.makedirs(gdir, exist_ok=True)
         net = Net(champ, aggression=a.play_aggression)
+        li = (gen - start_gen) % len(ladders)
+        ladder, rung = ladders[li], rungs[li]
         results = []
         live.set(gen=gen, phase="play", ladder=ladder, rung=rung, results=results, games=a.games, history=history_rows())
 
@@ -292,9 +298,9 @@ def main():
         s = score / a.games
         step = 2 if s >= 0.85 or s <= 0.15 else 1
         if s > 0.6:
-            rung = min(len(ladder) - 1, rung + step)
+            rungs[li] = min(len(ladder) - 1, rung + step)
         elif s < 0.4:
-            rung = max(0, rung - step)
+            rungs[li] = max(0, rung - step)
 
 
 if __name__ == "__main__":
