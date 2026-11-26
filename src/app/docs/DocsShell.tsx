@@ -229,6 +229,7 @@ export default function DocsShell({ toc = [], children }: { toc?: TocEntry[]; ch
     { path: '/docs', label: t('Overview', "Vue d'ensemble") },
     { path: '/agents', label: t('AI Agents & MCP', 'Agents IA & MCP') },
     { path: '/extension', label: t('Browser extension (beta)', 'Extension navigateur (bêta)') },
+    { path: '/kern', label: t('Kern 0, our chess model', 'Kern 0, notre modèle d’échecs') },
     { path: '/docs/models', label: t('Models & the .brik format', 'Modèles & format .brik') },
     { path: '/docs/sdk', label: t('SDK & npm package', 'SDK & paquet npm') },
     { path: '/docs/cli', label: t('CLI reference', 'Référence CLI') },

@@ -605,9 +605,24 @@ export default function LandingClient() {
           </Link>
         </section>
 
+        {/* ── KERN 0 ─────────────────────────────────────────────────────────────────────────────
+            Le modèle d'échecs maison : un renvoi vers /kern (partie en cours, mesures, résultats lus
+            en direct dans le dataset). Chiffres mesurés : 290 Ko sur disque, 244 K paramètres. */}
+        <section className="lp-section">
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">08</span> {t('our own chess model', 'notre modèle d’échecs')}</div>
+          <h2 className="lp-h2">{t('Kern 0, a 290 KB chess model that learns in public', 'Kern 0, un modèle d’échecs de 290 Ko qui apprend en public')}</h2>
+          <p className="lp-strength-desc" style={{ maxWidth: 640 }}>
+            {t('One transformer block, looped six times, running in your tab on the same engine. It learns by playing Stockfish and Leela Chess Zero, Stockfish corrects every mistake, and every game is published as it is played.',
+               'Un seul bloc de transformeur, bouclé six fois, qui tourne dans votre onglet sur le même moteur. Il apprend en affrontant Stockfish et Leela Chess Zero, Stockfish corrige chaque erreur, et chaque partie est publiée pendant qu’elle se joue.')}
+          </p>
+          <Link href={href('/kern')} className="lp-cta-ghost">
+            {t('Meet Kern 0', 'Découvrir Kern 0')} <ArrowRight size={14} />
+          </Link>
+        </section>
+
         {/* ── LES PORTES ───────────────────────────────────────────────────────────────────────── */}
         <section className="lp-section">
-          <div className="lp-eyebrow"><span className="lp-quick-kicker">08</span> {t('also in the box', 'aussi dans la boîte')}</div>
+          <div className="lp-eyebrow"><span className="lp-quick-kicker">09</span> {t('also in the box', 'aussi dans la boîte')}</div>
           <h2 className="lp-h2">{t('One engine, four modalities', 'Un moteur, quatre modalités')}</h2>
           <ul className="lp-list">
             <li><strong>{t('Chat', 'Chat')}</strong>{t(': ', ' : ')}{t('multi-turn, reasoning models, French & English, on a resident GPU KV cache.', 'multi-tours, modèles à raisonnement, français & anglais, sur un cache KV résident en GPU.')}</li>
@@ -625,6 +640,7 @@ export default function LandingClient() {
           <Link href={href('/docs/sdk')}>SDK</Link>
           <Link href={href('/cli')}>CLI</Link>
           <Link href={href('/extension')}>{t('Browser extension', 'Extension navigateur')}</Link>
+          <Link href={href('/kern')}>{t('Kern 0 (chess)', 'Kern 0 (échecs)')}</Link>
           {/* La comparaison mesurée : c'est la question que se pose tout visiteur qui connaît
               déjà WebLLM, et la porte d'entrée SEO sur « run an LLM in the browser ». */}
           <Link href={href('/vs-webllm')}>{t('vs WebLLM', 'vs WebLLM')}</Link>
