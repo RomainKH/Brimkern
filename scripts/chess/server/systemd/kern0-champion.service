@@ -1,0 +1,7 @@
+[Unit]
+Description=Kern 0 : récupère le dernier champion publié
+
+[Service]
+Type=oneshot
+User=__USER__
+ExecStart=__HOME__/kern0/sync-champion.sh

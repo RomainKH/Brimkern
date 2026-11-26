@@ -1,0 +1,3 @@
+#!/bin/bash
+# Kern 0 pour lichess-bot : le champion synchronisé (relu à chaque partie : lichess-bot relance le moteur).
+exec $HOME/kern0/venv/bin/python -u $HOME/kern0/chess/uci.py --weights $HOME/kern0/champion.pt --threads 2 --name "Kern 0"

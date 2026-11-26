@@ -1,0 +1,9 @@
+[Unit]
+Description=Kern 0 : dernier champion toutes les 10 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

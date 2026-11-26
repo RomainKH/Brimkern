@@ -1,0 +1,16 @@
+[Unit]
+Description=Kern 0 sur Lichess (lichess-bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+ExecStart=__HOME__/kern0/run.sh
+Restart=always
+# Lichess bloque 60 s le flux d'événements d'un jeton reconnecté trop vite : on attend avant de relancer.
+RestartSec=120
+# Tout le groupe (lichess-bot lance des processus enfants) : sinon des orphelins gardent le flux ouvert.
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

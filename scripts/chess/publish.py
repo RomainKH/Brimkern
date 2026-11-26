@@ -19,7 +19,11 @@ Spaces Docker/Gradio exigent PRO, pas les Spaces statiques ni les buckets). Deux
     Les générations d'avant games.jsonl (0 à 5) sont reconstruites depuis leur games.pgn.
   - EN COURS → bucket, current.json : les parties de la génération qui se joue, une par une
     (games.partial.jsonl de learn.py ; à défaut, les parties TERMINÉES de son games.pgn).
+  - CHAMPION → bucket, champion.pt + champion.json ({sha256, bytes, updated}) dès que <work>/champion.pt
+    change : le robot Lichess hébergé ailleurs (scripts/chess/server) joue avec la dernière version même
+    quand cette machine est éteinte.
 """
+import hashlib
 import argparse
 import json
 import os
@@ -225,7 +229,7 @@ def main():
     api = HfApi()
     live = os.path.join(work, "live.json")
     sent_mtime = next_live = last_check = last_cur = last_err = 0.0
-    published_gen, sent_cur = None, None
+    published_gen, sent_cur, sent_champ = None, None, None
     print(f"direct → huggingface.co/buckets/{a.bucket} · archive → huggingface.co/datasets/{a.dataset}", flush=True)
     while True:
         now = time.time()
@@ -259,6 +263,18 @@ def main():
                 print(f"en cours : {e}", flush=True)
         if now - last_check >= 30:
             last_check = now
+            try:
+                champ = os.path.join(work, "champion.pt")
+                with open(champ, "rb") as f:
+                    data = f.read()
+                digest = hashlib.sha256(data).hexdigest()
+                if digest != sent_champ and time.time() - os.path.getmtime(champ) > 5:  # pas en pleine copie
+                    meta = json.dumps({"sha256": digest, "bytes": len(data), "updated": int(os.path.getmtime(champ))}).encode()
+                    api.batch_bucket_files(a.bucket, add=[(data, "champion.pt"), (meta, "champion.json")])
+                    sent_champ = digest
+                    print(f"champion publié ({len(data)} octets, {digest[:12]})", flush=True)
+            except Exception as e:
+                print(f"champion : {e}", flush=True)
             try:
                 changed, last, n = build(work, out, a.per_family)
                 if changed or last != published_gen:
