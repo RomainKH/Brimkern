@@ -83,6 +83,10 @@
       </div>
       <div class="card"><div class="label" id="movesLabel"></div><div class="moves" id="moves">–</div></div>
       <div class="card">
+        <div class="label" id="curLabel"></div>
+        <div class="best"><table><thead><tr id="curHead"></tr></thead><tbody id="cur"></tbody></table></div>
+      </div>
+      <div class="card">
         <div class="label" id="bestLabel"></div>
         <div class="best"><table><thead><tr id="bestHead"></tr></thead><tbody id="best"></tbody></table></div>
       </div>
@@ -97,6 +101,8 @@
 const DATASET = 'https://huggingface.co/datasets/romainkh14/brimkern-chess-games';
 // Réécrit sur place toutes les ~3 s par publish.py (bucket : pas d'historique, 302 vers le CDN par contenu).
 const LIVE = 'https://huggingface.co/buckets/romainkh14/brimkern-chess-live/resolve/live.json';
+// Parties déjà jouées de la génération en cours (publish.py, toutes les ~10 s).
+const CURRENT = 'https://huggingface.co/buckets/romainkh14/brimkern-chess-live/resolve/current.json';
 const FR = /^fr/i.test(new URLSearchParams(location.search).get('lang') || navigator.language || '');
 const t = (en, fr) => (FR ? fr : en);
 document.documentElement.lang = FR ? 'fr' : 'en';
@@ -131,6 +137,7 @@ $('sub').innerHTML = t(
   `A 244K-parameter chess model plays Stockfish and Leela Chess Zero, Stockfish analyses its mistakes, it retrains, and the new version must beat the champion to replace it. <a href="https://brimkern.com/chess">Play it</a> · <a href="${DATASET}">every game</a>`,
   `Un modèle d'échecs de 244 K paramètres joue Stockfish et Leela Chess Zero, Stockfish analyse ses erreurs, il se réentraîne, et la nouvelle version doit battre le champion pour le remplacer. <a href="https://brimkern.com/fr/chess">L'affronter</a> · <a href="${DATASET}">toutes les parties</a>`);
 $('movesLabel').textContent = t('Moves', 'Coups');
+$('curHead').innerHTML = `<th>#</th><th>${t('White', 'Blancs')}</th><th>${t('Black', 'Noirs')}</th><th>${t('Result', 'Résultat')}</th><th>${t('Moves', 'Coups')}</th><th></th>`;
 $('bestLabel').textContent = t('Best games so far (wins and draws against the strongest opponents)', 'Meilleures parties (victoires et nulles contre les adversaires les plus forts)');
 $('bestHead').innerHTML = `<th>${t('Gen.', 'Gén.')}</th><th>${t('Opponent', 'Adversaire')}</th><th>${t('Result', 'Résultat')}</th><th>${t('Moves', 'Coups')}</th><th></th>`;
 $('histLabel').textContent = t('Generations', 'Générations');
@@ -168,8 +175,7 @@ function applyUci(board, uci) {
   board[to] = promo ? (p === p.toUpperCase() ? promo.toUpperCase() : promo) : p;
 }
 
-function draw({ board, turn, last, check, white, black, moves, cursor }) {
-  const flip = isBrim(black) && !isBrim(white);
+function draw({ board, turn, last, check, white, black, moves, cursor, flip = isBrim(black) && !isBrim(white) }) {
   const sqs = last ? [last.slice(0, 2), last.slice(2, 4)] : [];
   let html = '';
   for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
@@ -194,18 +200,24 @@ function draw({ board, turn, last, check, white, black, moves, cursor }) {
   if (cur) cur.scrollIntoView({ block: 'nearest' }); else $('moves').scrollTop = $('moves').scrollHeight;
 }
 
-// --- Relecture d'une des meilleures parties ---
+// --- Relecture (meilleures parties, parties de la génération en cours) ---
+// Partie enregistrée → [blancs, noirs] ; `color` est le camp de brimkern (du candidat au départage).
+function players(g) {
+  const [me, them] = g.kind === 'gate' ? [t('candidate', 'candidat'), 'champion'] : ['brimkern', oppFromSpec(g.opp)];
+  return g.color === 'w' ? [me, them] : [them, me];
+}
 let replay = null;
 function showReplay() {
   const { game, k } = replay;
   const { board } = parseFen(START);
   const uci = game.uci.split(' '), san = game.moves.split(' ');
   for (let i = 0; i < k; i++) applyUci(board, uci[i]);
-  const me = 'brimkern', them = oppFromSpec(game.opp);
+  const [white, black] = players(game);
   draw({ board, turn: k % 2 === 0 ? 'w' : 'b', last: k ? uci[k - 1] : null, check: k > 0 && /[+#]$/.test(san[k - 1]),
-         white: game.color === 'w' ? me : them, black: game.color === 'w' ? them : me, moves: san, cursor: k });
+         white, black, moves: san, cursor: k, flip: game.color === 'b' });
   $('ply').textContent = `${k} / ${uci.length}`;
-  $('phase').innerHTML = `${t('Replay', 'Relecture')} · <b>${t('generation', 'génération')} ${game.gen}, ${t('game', 'partie')} ${game.i} : ${esc(game.res)}</b>`;
+  const what = game.kind === 'gate' ? t('gate game', 'départage, partie') : t('game', 'partie');
+  $('phase').innerHTML = `${t('Replay', 'Relecture')} · <b>${t('generation', 'génération')} ${game.gen}, ${what} ${game.i} : ${esc(game.res)}</b>`;
 }
 function step(k) { if (!replay) return; replay.k = Math.max(0, Math.min(replay.game.uci.split(' ').length, k)); showReplay(); }
 $('first').onclick = () => step(0);
@@ -230,13 +242,38 @@ async function loadBest() {
     `<td>${Math.ceil(g.moves.split(' ').length / 2)}</td><td><button type="button" data-n="${n}">${t('Replay', 'Revoir')}</button></td></tr>`).join('') ||
     `<tr><td colspan="5" class="no">${t('Not published yet.', 'Pas encore publiées.')}</td></tr>`;
 }
-$('best').addEventListener('click', (e) => {
-  const n = e.target.closest('button')?.dataset.n;
-  if (n === undefined) return;
-  replay = { game: best[Number(n)], k: 0 };
+function openReplay(game) {
+  replay = { game, k: 0 };
   $('wrap').classList.add('replaying');
   showReplay();
   $('board').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+$('best').addEventListener('click', (e) => {
+  const n = e.target.closest('button')?.dataset.n;
+  if (n !== undefined) openReplay(best[Number(n)]);
+});
+
+let current = [];
+async function loadCurrent() {
+  let gen = null;
+  try {
+    const r = await fetch(CURRENT, { cache: 'no-store' });
+    ({ gen, games: current } = await r.json());
+  } catch { current = []; }
+  $('curLabel').textContent = gen === null || gen === undefined
+    ? t('This generation', 'Cette génération')
+    : t(`Generation ${gen}: games already played`, `Génération ${gen} : parties déjà jouées`);
+  $('cur').innerHTML = current.map((g, n) => {
+    const [white, black] = players(g);
+    const cls = g.pts === 1 ? 'ok' : g.pts === 0 ? 'stale' : 'no';
+    return `<tr><td>${g.kind === 'gate' ? t('G', 'D') : ''}${g.i}</td><td>${esc(white)}</td><td>${esc(black)}</td><td class="${cls}">${esc(g.res)}</td>` +
+      `<td>${Math.ceil(g.moves.split(' ').length / 2)}</td><td><button type="button" data-n="${n}">${t('Replay', 'Revoir')}</button></td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="no">${t('No game finished yet in this generation.', 'Aucune partie terminée dans cette génération.')}</td></tr>`;
+  setTimeout(loadCurrent, 15000);
+}
+$('cur').addEventListener('click', (e) => {
+  const n = e.target.closest('button')?.dataset.n;
+  if (n !== undefined) openReplay(current[Number(n)]);
 });
 
 // --- Direct ---
@@ -281,6 +318,7 @@ async function tick() {
   setTimeout(tick, 2000);
 }
 loadBest();
+loadCurrent();
 tick();
 </script>
 </body>

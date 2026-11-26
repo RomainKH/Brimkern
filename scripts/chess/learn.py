@@ -259,6 +259,8 @@ def main():
                         mine.append(fen)
                 mine_fens.append(mine)
                 records.append(game_record(gen, g + 1, "ladder", ladder[rung], w, res, board, date))
+                # Les parties de la génération EN COURS, une par une (publish.py → page « Cette génération »).
+                write_jsonl(os.path.join(gdir, "games.partial.jsonl"), records)
                 game = chess.pgn.Game.from_board(board)
                 game.headers.update({"Event": "brimkern learning loop", "Site": "brimkern.com", "Date": date.replace("-", "."),
                                      "Round": f"{gen}.{g + 1}", "White": names[0], "Black": names[1]})
@@ -311,6 +313,7 @@ def main():
             live.set(game=g + 1, white=names[0], black=names[1])
             res, _, gboard = play_game(cm if w else pm, pm if w else cm, net, on_move=lambda b: live.board(b))
             records.append(game_record(gen, g + 1, "gate", "champion", w, res, gboard, date))
+            write_jsonl(os.path.join(gdir, "games.partial.jsonl"), records)
             gscore += score_for(res, w)
             gresults.append({"white": names[0], "black": names[1], "result": res, "points": score_for(res, w)})
             live.set(results=gresults, score=gscore)

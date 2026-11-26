@@ -17,6 +17,8 @@ Spaces Docker/Gradio exigent PRO, pas les Spaces statiques ni les buckets). Deux
                             se renouvellent toutes seules quand le niveau monte.
       history.jsonl         la courbe de progression
     Les générations d'avant games.jsonl (0 à 5) sont reconstruites depuis leur games.pgn.
+  - EN COURS → bucket, current.json : les parties de la génération qui se joue, une par une
+    (games.partial.jsonl de learn.py ; à défaut, les parties TERMINÉES de son games.pgn).
 """
 import argparse
 import json
@@ -59,6 +61,8 @@ def backfill(path, gen):
             for mv in g.mainline_moves():
                 san.append(b.san(mv))
                 b.push(mv)
+            if not (b.is_game_over(claim_draw=True) or b.ply() >= 400):
+                continue  # partie tronquée : learn.py n'a pas fini de l'écrire
             pts = float((res == "1-0") == w) if res in ("1-0", "0-1") else 0.5
             rows.append(dict(gen=gen, i=len(rows) + 1, kind="ladder", opp=spec_from_name(g.headers["Black" if w else "White"]),
                              color="w" if w else "b", res=res, pts=pts, date=date, moves=" ".join(san)))
@@ -131,6 +135,24 @@ def card(rows, hist):
     return "\n".join(lines) + "\n"
 
 
+def current_games(work, done):
+    """Parties déjà jouées de la génération en cours (la plus récente pas encore dans history.jsonl)."""
+    gens = [int(m[1]) for d in os.listdir(work) if (m := GEN_DIR.match(d)) and int(m[1]) not in done]
+    if not gens:
+        return None, []
+    gen = max(gens)
+    gdir = os.path.join(work, f"gen_{gen:03d}")
+    partial = os.path.join(gdir, "games.partial.jsonl")
+    if os.path.exists(partial):
+        with open(partial) as f:
+            rows = [json.loads(l) for l in f if l.strip()]
+    elif os.path.exists(os.path.join(gdir, "games.pgn")):
+        rows = backfill(os.path.join(gdir, "games.pgn"), gen)
+    else:
+        rows = []
+    return gen, [with_uci({k: r.get(k) for k in KEYS}) for r in rows]
+
+
 def write_if_changed(path, text):
     try:
         with open(path) as f:
@@ -198,8 +220,8 @@ def main():
     disable_progress_bars()  # un envoi toutes les 3 s : les barres noieraient le journal
     api = HfApi()
     live = os.path.join(work, "live.json")
-    sent_mtime = next_live = last_check = last_err = 0.0
-    published_gen = None
+    sent_mtime = next_live = last_check = last_cur = last_err = 0.0
+    published_gen, sent_cur = None, None
     print(f"direct → huggingface.co/buckets/{a.bucket} · archive → huggingface.co/datasets/{a.dataset}", flush=True)
     while True:
         now = time.time()
@@ -219,6 +241,18 @@ def main():
                 if now - last_err > 60:
                     print(f"direct : {e}", flush=True)
                     last_err = now
+        if now - last_cur >= 10:
+            last_cur = now
+            try:
+                with open(os.path.join(work, "history.jsonl")) as f:
+                    done = {json.loads(l)["gen"] for l in f if l.strip()}
+                gen, rows = current_games(work, done)
+                body = json.dumps({"gen": gen, "games": rows}, ensure_ascii=False, separators=(",", ":")).encode()
+                if body != sent_cur:
+                    api.batch_bucket_files(a.bucket, add=[(body, "current.json")])
+                    sent_cur = body
+            except Exception as e:
+                print(f"en cours : {e}", flush=True)
         if now - last_check >= 30:
             last_check = now
             try:
