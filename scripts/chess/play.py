@@ -268,6 +268,7 @@ def make_opponent(spec, sf_time=0.1):
       maia:<1100..1900>     Maia (réseau lc0 entraîné à jouer comme un humain de ce niveau), 1 nœud
       leela:<nœuds>         Leela Chess Zero, réseau T1-256x10 distillé (transformeur, 37 Mo), N nœuds
                             par coup : ~30 ms le nœud sur 1 fil CPU (1 nœud = son instinct seul)
+      ld2:<nœuds>           Leela, petit réseau LD2 (6,4 Mo), N nœuds par coup
       lc0:<poids>:<nœuds>   lc0 avec n'importe quels poids
     lc0 sur le CPU (BLAS, 1 fil) : le GPU reste à l'entraînement."""
     kind, _, rest = spec.partition(":")
@@ -284,6 +285,13 @@ def make_opponent(spec, sf_time=0.1):
         e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
         n = int(rest)
         return f"Leela ({n} nœud{'s' if n > 1 else ''})", e, chess.engine.Limit(nodes=n)
+    if kind == "ld2":
+        # LD2 (« Little Demon 2 », 6,4 Mo, storage.lczero.org/files/networks-contrib) : un réseau Leela
+        # bien plus petit que T1-256x10 — le barreau entre Maia et Leela T1 (gen 6 : 0,5/20 contre T1).
+        w = os.path.join(ENGINES, "leela", "LD2.pb.gz")
+        e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
+        n = int(rest)
+        return f"Leela LD2 ({n} nœud{'s' if n > 1 else ''})", e, chess.engine.Limit(nodes=n)
     if kind == "lc0":
         w, _, nodes = rest.rpartition(":")
         e = chess.engine.SimpleEngine.popen_uci(["lc0", f"--weights={w}", "--backend=blas", "--threads=1"], stderr=subprocess.DEVNULL)
@@ -291,7 +299,11 @@ def make_opponent(spec, sf_time=0.1):
     raise ValueError(f"adversaire inconnu : {spec}")
 
 
-def model_move(net, board, nodes, contempt=0.0):
+def model_move(net, board, nodes, contempt=0.0, think=1, think_q=0.2, think_share=0.5):
+    """think > 1 : RÉFLÉCHIR PLUS dans les moments critiques — quand la recherche dit « je suis mieux »
+    (Q du coup choisi ≥ think_q) mais hésite (ce coup a < think_share des visites), elle est refaite
+    avec think × nodes. Mesure (gen 6, 7 coups où Kern 0 a jeté un avantage contre Leela, Stockfish
+    prof. 12) : 200 nœuds en sauve 1/7, 800 nœuds 6/7 ; la règle en repère 5/7."""
     if net.endgame:
         m = mate_in_1(board)
         if m is None and len(board.piece_map()) <= 10:
@@ -301,7 +313,14 @@ def model_move(net, board, nodes, contempt=0.0):
     if nodes <= 0:
         (moves, pr, _), = net.evaluate([board])
         return moves[int(np.argmax(pr))]
-    return mcts(net, board, nodes, contempt=contempt, mate_discount=0.002 if net.endgame else 0.0)[0]
+    md = 0.002 if net.endgame else 0.0
+    mv, root = mcts(net, board, nodes, contempt=contempt, mate_discount=md)
+    if think > 1:
+        best = max(root.children, key=lambda c: c.N)
+        total = sum(c.N for c in root.children)
+        if best.N and best.W / best.N >= think_q and best.N < think_share * total:
+            mv, _ = mcts(net, board, nodes * think, contempt=contempt, mate_discount=md)
+    return mv
 
 
 def sample_move(net, board, temp=1.0):
